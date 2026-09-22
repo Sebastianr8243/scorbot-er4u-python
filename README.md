@@ -4,6 +4,8 @@ This repository contains the original OpenScorbot USB controller code and a smal
 
 ## Windows installation
 
+For a robot PC with only VS Code installed, use [START_HERE_WINDOWS.md](START_HERE_WINDOWS.md). It starts with a GitHub ZIP download, installs the Python environment, and checks USB without commanding the arm.
+
 From PowerShell in the repository root:
 
 ```powershell

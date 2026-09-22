@@ -4,6 +4,8 @@ Use this on the Windows PC connected to the **original ScorBot ER-4U USB control
 
 ## 1. Copy and install
 
+If this PC only has VS Code, follow [START_HERE_WINDOWS.md](../START_HERE_WINDOWS.md) first. It does not require Git.
+
 Copy the **current working tree** to the robot PC, including `scorbot/`, `openScorbot/`, `examples/`, `pyproject.toml`, and `tests/`. The easiest transfer is the ZIP created by `python scripts/build_bench_kit.py`; extract it to a writable directory on the robot PC. This ZIP also includes `usb-tools/zadig-2.9.exe` when the verified download is present in `dist/usb-tools/`. Alternatively, clone the standalone [scorbot-er4u-python repository](https://github.com/Sebastianr8243/scorbot-er4u-python):
 
 ```powershell
