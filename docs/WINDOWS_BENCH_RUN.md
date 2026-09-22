@@ -4,7 +4,14 @@ Use this on the Windows PC connected to the **original ScorBot ER-4U USB control
 
 ## 1. Copy and install
 
-Copy the **current working tree** to the robot PC, including `scorbot/`, `openScorbot/`, `examples/`, `pyproject.toml`, and `tests/`. The easiest transfer is the ZIP created by `python scripts/build_bench_kit.py`; extract it to a writable directory on the robot PC. A fresh clone of the `tidus747/openScorbot` origin lacks this Python adapter until these changes are published. If using Git, clone a commit that contains `scorbot/preflight.py` and this guide. In PowerShell, change to that repository directory. Python 3.10 or newer and internet access are required for this install:
+Copy the **current working tree** to the robot PC, including `scorbot/`, `openScorbot/`, `examples/`, `pyproject.toml`, and `tests/`. The easiest transfer is the ZIP created by `python scripts/build_bench_kit.py`; extract it to a writable directory on the robot PC. This ZIP also includes `usb-tools/zadig-2.9.exe` when the verified download is present in `dist/usb-tools/`. Alternatively, clone the Python branch of [your fork](https://github.com/Sebastianr8243/openScorbot/tree/feature/er4u-python-control):
+
+```powershell
+git clone --branch feature/er4u-python-control https://github.com/Sebastianr8243/openScorbot.git
+cd openScorbot
+```
+
+A fresh clone of the original `tidus747/openScorbot` repository does not include the Python adapter. In PowerShell, change to the extracted or cloned repository directory. Python 3.10 or newer and internet access are required for this install:
 
 ```powershell
 py -3 --version
@@ -14,11 +21,11 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The tests do not access USB. If `py -3` is unavailable, install a current Python 3 release for Windows, then repeat this section. The Python package installs the `libusb-package` library, **not** a Windows USB device driver.
+The tests do not access USB. If `py -3` is unavailable, install a current Python 3 release from [Python.org](https://www.python.org/downloads/windows/), then repeat this section. The Python package installs the `libusb-package` library, **not** a Windows USB device driver.
 
 ## 2. USB driver and read-only preflight
 
-In Windows Device Manager, inspect the controller's **Hardware Ids**. Confirm vendor/product `VID_09F1&PID_0007`, and record its current driver before changing anything. The [libusb Windows guide](https://github.com/libusb/libusb/wiki/Windows#driver-installation) recommends WinUSB for libusb access. If the controller is visible in Device Manager but the Python preflight cannot enumerate it, install WinUSB **only for that exact USB device** using the [Zadig tool linked by libusb](https://github.com/libusb/libusb/wiki/Windows#driver-installation), then rerun preflight. Rebinding the driver may prevent the vendor's software from using the controller; arrange a way to restore the original driver if that software is needed. PyUSB's [project README](https://github.com/pyusb/pyusb/blob/master/README.rst) explains the separate Windows libusb library requirement.
+In Windows Device Manager, inspect the controller's **Hardware Ids**. Confirm vendor/product `VID_09F1&PID_0007`, and record its current driver before changing anything. The [libusb Windows guide](https://github.com/libusb/libusb/wiki/Windows#driver-installation) recommends WinUSB for libusb access. PyUSB's [project README](https://github.com/pyusb/pyusb/blob/master/README.rst) explains the separate Windows libusb library requirement.
 
 With the arm clear and the physical stop accessible, run:
 
@@ -27,6 +34,15 @@ With the arm clear and the physical stop accessible, run:
 ```
 
 Expected: PASS for Python, required packages, the Windows libusb backend, and USB controller `09F1:0007`; exit code 0. This preflight only enumerates USB. It does **not** reset the controller, open the robot session, enable motors, or command motion. Check the exit code with `$LASTEXITCODE`. If any check fails, stop here, keep the full error output, and fix that check before connecting.
+
+If the controller appears in Device Manager with the correct ID but preflight cannot enumerate it, the current device driver may be incompatible. The transfer ZIP can include [official Zadig 2.9](https://zadig.akeo.ie/), a driver installation tool; it is **not** installed by extracting the ZIP. Before running it, verify the executable's Windows signature says **Akeo Consulting** and its SHA-256 is `4ECAA95DF3DA3621486A043AEF8B3050B8BAFE7C901402871E816229EF82039B`:
+
+```powershell
+Get-AuthenticodeSignature .\usb-tools\zadig-2.9.exe
+Get-FileHash .\usb-tools\zadig-2.9.exe -Algorithm SHA256
+```
+
+If the ZIP did not include Zadig, download it from the official site above on the robot PC; check its signature, but expect its hash to differ if a newer release is available. In Zadig, use **Options → List All Devices** if needed, select only the controller with USB ID `09F1:0007`, choose **WinUSB**, and install or replace the driver for that exact device. Confirm the ID again before clicking the install button. Administrative rights are required. Rebinding the driver may prevent the Intelitek software from using the controller; keep the original driver details so it can be restored. Rerun preflight afterward. Do not change drivers if preflight already passes. [Zadig's official guide](https://github.com/pbatard/libwdi/wiki/Zadig) shows the device selection and driver installation screens.
 
 ## 3. State-only Python session
 
