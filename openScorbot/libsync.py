@@ -23,6 +23,9 @@ WRITE = conf.readData("general","WRITE")
 # una  peticion de lectura.
 READ = conf.readData("general","READ")
 
+# Bound each initial controller acknowledgment wait.
+HANDSHAKE_WAIT_TIMEOUT_S = 30.0
+
 # Define hilo principal de sincronizacion entre la controladora y el programa.
 # Envía mensajes de estado de reposo a la controladora.
 # Se mantiene una comunicacion en tiempo real con el estado de los encoder
@@ -201,7 +204,10 @@ def send_pkt3(b_1,epout,epin,buffer, media):
 # buffer    -> Vector que almacena los datos de la ultima lectura
 #
 def send_wait(b_1,epout,epin,buffer):
+	deadline = time.monotonic() + HANDSHAKE_WAIT_TIMEOUT_S
 	while buffer[1] != 13:
+		if time.monotonic() >= deadline:
+			raise TimeoutError("ER-4U controller handshake acknowledgment timed out")
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena.format(libdef.f_byte(b_1))

@@ -13,12 +13,5 @@ import gui
 
 
 # Inicia la conexion y la interfaz gráfica
-gui.main()
-
-
-#Cierre de los hilos
-h1.join()
-h2.join()
-
-print("Fin de programa")
-sys.exit()
+if __name__ == "__main__":
+    gui.main()

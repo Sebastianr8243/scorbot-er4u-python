@@ -74,7 +74,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		value_err = libdef.getError(buffer, VEC_ERROR[0])
 		if value_err >= MAX_ERROR:
-			print("Limite articulacion")
+			print("Joint limit reached")
 			cola_orden.put(1)
 			logging.warning(libdef.error_msg(1))
 			break
@@ -93,7 +93,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
 		if cont == 100:
-			print("Error en el while")
+			print("Motion feedback loop failed")
 			cola_orden.put(2)
 			logging.warning(libdef.error_msg(2))
 			break
@@ -124,7 +124,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		value_err = libdef.getError(buffer, VEC_ERROR[1])
 		if value_err >= MAX_ERROR:
-			print("Limite articulacion")
+			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
 			break
@@ -142,7 +142,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
 		if cont == 100:
-			print("ERROR: La articulación no responde")
+			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(2))
 			break
@@ -174,7 +174,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		value_err = libdef.getError(buffer, VEC_ERROR[2])
 		if value_err >= MAX_ERROR:
-			print("Limite articulacion")
+			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
 			break
@@ -192,7 +192,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
 		if cont == 100:
-			print("ERROR: La articulación no responde")
+			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(2))
 			break
@@ -259,7 +259,7 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 		value_err2 = libdef.getError(buffer, VEC_ERROR[4])
 
 		if value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR:
-			print("Limite articulacion")
+			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
 			break
@@ -277,7 +277,7 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
 		if cont == 100:
-			print("ERROR: La articulación no responde")
+			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(2))
 			break
@@ -339,7 +339,7 @@ def clamp(b_1, epout, epin, buffer, orden, cola_read):
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
 		if cont == 100:
-			print("ERROR: La articulación no responde")
+			print("ERROR: Joint did not respond")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
 			break
@@ -440,7 +440,12 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 # Gestiona las ordenes enviadas por el usuario desde la interfaz gráfica y
 # las redirige a las acciones que debe realizar el robot.
 #################################################################################
-def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer):
+def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
+		cola_result=None, cancel_event=None):
+	# The GUI historically used one queue in both directions. SDK clients pass a
+	# separate result queue so they cannot consume their own command.
+	if cola_result is None:
+		cola_result = cola_orden
 	#Inicializamos el home en false, esto cambiara una vez se realice el home
 	home = False
 	# Se corresponde con el angulo inicial respecto a la vertical
@@ -461,13 +466,13 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer):
 					home = False
 					posRef = conf.readData("general", "posRef")
 				if orden == 4 or orden == 5:
-					b_1 = move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ite)
+					b_1 = move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
 				elif orden == 6 or orden == 7:
-					b_1 = move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ite)
+					b_1 = move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
 				elif orden == 8 or orden == 9:
-					b_1 = move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ite)
+					b_1 = move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
 				elif orden == 10 or orden == 11 or orden == 12 or orden == 13:
-					b_1 = move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ite)
+					b_1 = move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
 				elif orden == 14 or orden == 15:
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read)
 				elif orden == 16:
@@ -475,25 +480,33 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer):
 				elif orden == 17:
 					b_1 = motors_on(b_1, epout, epin, buffer, cola_read)
 				elif orden == 18:
-					[b_1, status] = setHome.homing(b_1, epout, epin, buffer, cola_read, cola_orden)
+					[b_1, status] = setHome.homing(b_1, epout, epin, buffer,
+						cola_read, cola_result, cancel_event)
 					if status == 0:
 						home = True
-						status = 0
+					else:
+						try:
+							b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
+						except Exception:
+							logging.exception("Could not disable motors after homing failure")
+							cola_result.put(2)
+						cola_result.put(1)
 				elif orden == 19:
 					if home == True:
-						[b_1, posRef] = moveXYZ.controlXYZ(select[1], select[2], posRef, b_1, epout, epin, buffer, cola_read, cola_orden)
+						[b_1, posRef] = moveXYZ.controlXYZ(select[1], select[2], posRef, b_1, epout, epin, buffer, cola_read, cola_result)
 					else:
-						cola_orden.put(5)
-						print("Home no hecho")
+						cola_result.put(5)
+						print("Robot has not been homed")
 						logging.warning(libdef.error_msg(5))
 				elif orden == EXIT:
 					b_1= motors_off(b_1,epout,epin,buffer,cola_read)
 					scorbotoff(b_1,epout,epin,buffer,cola_read)
 					cola_sync.put(EXIT)
+					cola_result.put(DONE)
 					break
 				orden = None
 				cola_sync.put(b_1)
-				cola_orden.put(DONE)
+				cola_result.put(DONE)
 				time.sleep(READ)
 
 		if orden == EXIT:

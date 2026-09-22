@@ -43,17 +43,17 @@ def set_conection():
 	# Buscamos el brazo con los identificadores del dispositivo
 	try:
 		dev = usb.core.find(idVendor = 0x09f1, idProduct = 0x0007)
-	except USBerror:
+	except usb.core.USBError:
 		print("error dev")
 		online = False
 
 	# Si no esta conectado, salimos del programa
 	if not dev or online == False:
-		print("Dispositivo no encontrado")
+		print("Device not found")
 		logging.warning(libdef.error_msg(12)) #Dispositivo no encontrado
 		online = False
 	else:
-		print("Dispositivo encontrado")
+		print("Device found")
 		logging.debug(libdef.info_text(15)) #Dispositivo encontrado
 		# Guardamos los datos de la interfaz 0 del dispositivo 0
 		i = dev[0].interfaces()[0].bInterfaceNumber
@@ -61,7 +61,7 @@ def set_conection():
 		# Reseteamos para tomar el control
 		try:
 			dev.reset()
-		except USBerror:
+		except usb.core.USBError:
 			print("entity not found")
 			logging.warning(libdef.error_msg(13)) #Entity not found
 			online = False
@@ -104,10 +104,10 @@ def set_conection():
 
 		# Lanzamos los primeros mensajes e iniciamos el valor del byte de secuencia
 		# y el vector que continue el valor media de la posicion de cada encoder
-		print('Realizando conexion...')
+		print('Connecting...')
 		logging.info(libdef.info_text(16))
 		ans = libsync.msg_start(epout,epin,buffer)
-		print('Conexión realizada')
+		print('Connected')
 		logging.info(libdef.info_text(17))
 
 		# Separamos el valor del byte de secuencia
@@ -135,7 +135,8 @@ def set_conection():
 class MainWindow(QtWidgets.QMainWindow):
 	def __init__(self, *args, **kwargs):
 		super(MainWindow, self).__init__(*args,**kwargs)
-		uic.loadUi('open_SCB.ui',self)
+		from pathlib import Path
+		uic.loadUi(str(Path(__file__).with_name('open_SCB.ui')), self)
 		self.hip_left.clicked.connect(lambda:libdef.write_data(self, 4, cola_orden, buffer))
 		self.hip_right.clicked.connect(lambda:libdef.write_data(self, 5, cola_orden, buffer))
 		self.shoulder_up.clicked.connect(lambda:libdef.write_data(self, 6, cola_orden, buffer))

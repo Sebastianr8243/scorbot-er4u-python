@@ -80,8 +80,8 @@ def controlXYZ(posObj, vel, posRef, b_1, epout, epin, buffer, cola_read, cola_or
         return [b_1, posRef]
 
     for i in range(3):
-        print(f'Angulo objetivo: {posObj}')
-        print(f'Posicion de referencia numero {i}: {posRef[i]}')
+        print(f'Target angle: {posObj}')
+        print(f'Reference position {i}: {posRef[i]}')
         if posObj[i] == -1:
             block = True
             cola_orden.put(4)
@@ -95,7 +95,7 @@ def controlXYZ(posObj, vel, posRef, b_1, epout, epin, buffer, cola_read, cola_or
             obj = abs(obj) - 65535
 
         if (obj > DOWN_LIMIT and obj < UP_LIMIT) or obj < 0:
-            print("Objetivo fuera de alcance")
+            print("Target out of reach")
             logging.warning(libdef.error_msg(3))
             block = True
             cola_orden.put(3)
@@ -133,8 +133,8 @@ def controlXYZ(posObj, vel, posRef, b_1, epout, epin, buffer, cola_read, cola_or
             else:
                 sentido.append(1)
 
-        print(f'Posicion inicial: {posInc}')
-        print(f'Posicion objetivo: {obj}')
+        print(f'Initial position: {posInc}')
+        print(f'Target position: {obj}')
 
         ite.append(libdef.numIte(inc, vel))
         if dirRef == True:
@@ -147,8 +147,8 @@ def controlXYZ(posObj, vel, posRef, b_1, epout, epin, buffer, cola_read, cola_or
         elif posRef[i] > 65535:
             posRef[i] -= 65535
 
-        print(f'El incremento en posicion {i} es de {inc}')
-        print(f'La nueva posicion de ref en {i} es {posRef[i]}')
+        print(f'Position increment {i}: {inc}')
+        print(f'New reference position {i}: {posRef[i]}')
         print('\n')
 
     if block != True:

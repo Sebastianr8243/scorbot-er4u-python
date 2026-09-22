@@ -43,6 +43,21 @@ WRITE = conf.readData("general", "WRITE")
 # una  peticion de lectura.
 READ = conf.readData("general", "READ")
 
+# Provisional upper bound on each switch search. Verify against the actual arm.
+HOME_SEARCH_TIMEOUT_S = 30.0
+
+
+def search_must_stop(deadline, cancel_event, result_queue):
+    if cancel_event is not None and cancel_event.is_set():
+        result_queue.put(2)
+        logging.error("Homing cancelled")
+        return True
+    if time.monotonic() >= deadline:
+        result_queue.put(2)
+        logging.error("Homing switch search timed out")
+        return True
+    return False
+
 
 #to do: el error no salta en el momento correcto
 
@@ -60,7 +75,7 @@ READ = conf.readData("general", "READ")
 # cola_read   -> Cola con el vector media de la posición de encoders
 # cola_orden  -> Cola con la orden a procesar y/o feedback del funcionamiento
 #
-def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
+def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
     status = 0
     block = False
     sw = libdef.get_switch(SW_SHOULDER, buffer[5])
@@ -88,7 +103,11 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
         signo = libdef.get_signo(26, buffer)
         dato_in = [step_in, signo]
         cont_vel = 0
+        deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            if search_must_stop(deadline, cancel_event, cola_orden):
+                block = True
+                break
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 6, vel, media, buffer)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
             media = libdef.get_media(buffer,media)
@@ -98,7 +117,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
             value_err = libdef.getError(buffer, VEC_ERROR[1])
             if value_err >= MAX_ERROR:
                 block = True
-                print("Limite articulacion")
+                print("Joint limit reached")
                 cola_orden.put(1)
                 logging.warning(libdef.error_msg(1))
                 break
@@ -130,7 +149,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
             media = libdef.get_media(buffer, media)
             cont += 1
             if cont == 100:
-                print("ERROR: La articulación no responde")
+                print("ERROR: Joint did not respond")
                 cola_orden.put(2)
                 logging.warning(libdef.error_msg(2))
                 block = True
@@ -179,7 +198,11 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
         signo = libdef.get_signo(31, buffer)
         dato_in = [step_in, signo]
         cont_vel = 0
+        deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            if search_must_stop(deadline, cancel_event, cola_orden):
+                block = True
+                break
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 8, vel, media, buffer)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
             media = libdef.get_media(buffer,media)
@@ -188,7 +211,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
 
             value_err = libdef.getError(buffer, VEC_ERROR[2])
             if value_err >= MAX_ERROR:
-                print("Limite articulacion")
+                print("Joint limit reached")
                 cola_orden.put(1)
                 logging.warning(libdef.error_msg(1))
                 block = True
@@ -224,7 +247,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
                 block = True
                 cola_orden.put(2)
                 logging.warning(libdef.error_msg(2))
-                print("ERROR: La articulación no responde")
+                print("ERROR: Joint did not respond")
                 break
 
         [b_1, buffer, media] = libdef.closeMov(b_1, media, 8, signal_out, epout, epin, buffer, write, read)
@@ -273,7 +296,11 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
         dato_in_1 = [step_in_1, signo_1]
         dato_in_2 = [step_in_2, signo_2]
         cont_vel = 0
+        deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            if search_must_stop(deadline, cancel_event, cola_orden):
+                block = True
+                break
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena.format(libdef.f_byte(b_1))
@@ -295,7 +322,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
             value_err2 = libdef.getError(buffer, VEC_ERROR[4])
 
             if value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR:
-                print("Limite articulacion")
+                print("Joint limit reached")
                 block = True
                 cola_orden.put(1)
                 logging.warning(libdef.error_msg(1))
@@ -409,7 +436,11 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
         dato_in_1 = [step_in_1, signo_1]
         dato_in_2 = [step_in_2, signo_2]
         cont_vel = 0
+        deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            if search_must_stop(deadline, cancel_event, cola_orden):
+                block = True
+                break
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena.format(libdef.f_byte(b_1))
@@ -431,7 +462,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
             value_err2 = libdef.getError(buffer, VEC_ERROR[4])
 
             if value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR:
-                print("Limite articulacion")
+                print("Joint limit reached")
                 block = True
                 cola_orden.put(1)
                 logging.warning(libdef.error_msg(1))
@@ -496,7 +527,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
                 block = True
                 cola_orden.put(2)
                 logging.warning(libdef.error_msg(2))
-                print("ERROR: La articulación no responde")
+                print("ERROR: Joint did not respond")
                 break
 
         [b_1, buffer, media] = libdef.closeMov(b_1, media, 10, signal_out, epout, epin, buffer, write, read)
@@ -541,7 +572,11 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
         signo = libdef.get_signo(21, buffer)
         dato_in = [step_in, signo]
         cont_vel = 0
+        deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            if search_must_stop(deadline, cancel_event, cola_orden):
+                block = True
+                break
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 4, vel, media, buffer)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
             media = libdef.get_media(buffer,media)
@@ -550,7 +585,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
 
             value_err = libdef.getError(buffer, VEC_ERROR[0])
             if value_err >= MAX_ERROR:
-                print("Limite articulacion")
+                print("Joint limit reached")
                 block = True
                 cola_orden.put(1)
                 logging.warning(libdef.error_msg(1))
@@ -592,5 +627,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden):
 
     logging.info(libdef.info_text(22))
 
+    if block:
+        status = 1
     cola_read.put(media)
     return [b_1, status]

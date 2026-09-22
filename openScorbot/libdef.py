@@ -115,7 +115,7 @@ def get_media(buffer, media):
 	vec_pos = conf.readData("general","VEC_POS")
 	for i in range(len(vec_pos)):
 		dato = transform([buffer[vec_pos[i]], buffer[vec_pos[i]+1]])
-		if abs(dato - media[i] >= 1000):
+		if abs(dato - media[i]) >= 1000:
 			media[i] = dato
 		else:
 			dato_media = (media[i] + dato)/2
@@ -157,28 +157,28 @@ def get_encoder(buffer, media):
 #
 def info_text(cont):
 	switcher = {
-		1 : 'Movimiento finalizado. Listo para la siguiente orden',
-		2 : 'Cerrando conexiones con el robot',
-		3 : 'MOTORES OFF. Deshabilitados movimientos',
-		4 : 'MOTORES ON',
-		5 : 'Home en proceso',
-		6 : 'Movimiento de cadera en proceso',
-		7 : 'Movimiento de hombro en proceso',
-		8 : 'Movimiento de codo en proceso',
-		9 : 'Movimiento de pitch en proceso',
-		10 : 'Movimiento de roll en proceso',
-		11 : 'Apertura de pinza en proceso',
-		12 : 'Cierre de pinza en proceso',
-		13 : 'HOME finalizado',
-		14 : 'Movimiento en proceso',
-		15 : 'Dispositivo encontrado',
-		16 : 'Estableciendo conexión inicial',
-		17 : 'Conexión establecida',
-		18 : 'Eje del hombro realizado',
-		19 : 'Eje del codo realizado',
-		20 : 'Eje del pitch realizado',
-		21 : 'Eje del roll realizado',
-		22 : 'Eje de la base realizado'
+		1 : 'Motion complete. Ready for the next command',
+		2 : 'Closing robot connections',
+		3 : 'Motors off. Motion disabled',
+		4 : 'Motors on',
+		5 : 'Homing in progress',
+		6 : 'Base motion in progress',
+		7 : 'Shoulder motion in progress',
+		8 : 'Elbow motion in progress',
+		9 : 'Wrist pitch motion in progress',
+		10 : 'Wrist roll motion in progress',
+		11 : 'Opening gripper',
+		12 : 'Closing gripper',
+		13 : 'Homing complete',
+		14 : 'Motion in progress',
+		15 : 'Device found',
+		16 : 'Establishing connection',
+		17 : 'Connection established',
+		18 : 'Shoulder homed',
+		19 : 'Elbow homed',
+		20 : 'Wrist pitch homed',
+		21 : 'Wrist roll homed',
+		22 : 'Base homed'
 		}
 	return switcher.get(cont,"Invalid request")
 
@@ -190,18 +190,18 @@ def info_text(cont):
 #
 def error_msg(cont):
 	switcher = {
-		1: 'ERROR 101: El movimiento no se ha realizado correctamente',
-		2: 'ERROR 102: El motor no responde',
-		3: 'ERROR 103: Objetivo no alcanzable',
-		4: 'ERROR 104: Ángulo incalculable',
-		5: 'WARNING: Realizar el HOME',
-		6: 'WARNING: Ángulo de la base fuera del área de trabajo',
-		7: 'WARNING: Ángulo del hombro fuera del área de trabajo',
-		8: 'WARNING: Ángulo del codo fuera del área de trabajo',
-		9: 'ERROR 105: Casillas XYZ vacias.',
-		10: 'ERROR 106: Los valores introducidos no son numéricos',
-		11: 'ERROR 107: Reinicie los motores',
-		12: 'ERROR 108: El dispositivo no se ha detectado. Cierre el programa',
+		1: 'ERROR 101: Motion did not complete correctly',
+		2: 'ERROR 102: Motor did not respond',
+		3: 'ERROR 103: Target is unreachable',
+		4: 'ERROR 104: Could not calculate angle',
+		5: 'WARNING: Home the robot first',
+		6: 'WARNING: Base angle is outside the workspace',
+		7: 'WARNING: Shoulder angle is outside the workspace',
+		8: 'WARNING: Elbow angle is outside the workspace',
+		9: 'ERROR 105: XYZ fields are empty',
+		10: 'ERROR 106: Values must be numeric',
+		11: 'ERROR 107: Restart the motors',
+		12: 'ERROR 108: Device was not detected. Close the program',
 		13: 'ERROR 109: Entity not found'
 		}
 	return switcher.get(cont, "Invalid request")
@@ -329,7 +329,7 @@ def getStruct(orden, signal_out, msg):
 	elif orden == 10 or orden == 11 or orden == 12 or orden == 13:
 		section = msg[0:24] + signal_out + msg[40:len(msg)]
 	elif orden == 14 or orden == 15:
-		section = msg[0:40] + singal_out + msg[48:len(msg)]
+		section = msg[0:40] + signal_out + msg[48:len(msg)]
 	elif orden == 20:
 		section = signal_out + msg[24:len(msg)]
 
@@ -420,13 +420,13 @@ def check(x,epout,epin,buffer, write,read):
 	try:
 		epout.write(x, conf.readData('general','TIME_OUT_W'))
 		time.sleep(write)
-	except:
-		raise ValueError("Error enviando el paquete")
+	except Exception as exc:
+		raise RuntimeError(f"USB write failed: {exc}") from exc
 	try:
 		epin.read(buffer, conf.readData('general','TIME_OUT_R'))
 		time.sleep(read)
-	except:
-		raise ValueError("Error leyendo paquetes")
+	except Exception as exc:
+		raise RuntimeError(f"USB read failed: {exc}") from exc
 
 
 # Realiza la transformacion de un par de datos int a un solo int equivalente
@@ -788,7 +788,7 @@ def write_data(self,orden, cola_orden, buffer):
 	select = []
 	#Accion de la instruccion 'exit'
 	if orden == 'exit':
-		print("Cerrando conexiones")
+		print("Closing connections")
 		logging.info(info_text(2))
 		send_textlabel(self, 0, 2)
 		select.append(EXIT)
@@ -807,7 +807,7 @@ def write_data(self,orden, cola_orden, buffer):
 			cola_orden.put(select)
 			time.sleep(SLEEP)
 			cola_orden.get()
-			print("Motores off")
+			print("Motors off")
 			logging.info(info_text(3))
 			send_textlabel(self,0,3)
 	    #Accion para activar los motores
@@ -815,13 +815,13 @@ def write_data(self,orden, cola_orden, buffer):
 			cola_orden.put(select)
 			time.sleep(SLEEP)
 			cola_orden.get()
-			print("Motores on")
+			print("Motors on")
 			logging.info(info_text(4))
 			send_textlabel(self,0,4)
 
 		# Accion para realizar el home
 		elif select[0] == 18:
-			print("Realizando home...")
+			print("Homing...")
 			logging.info(info_text(5))
 			send_textlabel(self,0,5)
 
@@ -838,43 +838,43 @@ def write_data(self,orden, cola_orden, buffer):
 
         #Acciona la cadera
 		elif select[0] == 4 or select[0] == 5:
-			print("Moviendo cadera...")
+			print("Moving base...")
 			logging.info(info_text(6))
 			send_textlabel(self,0,6)
 
         #Acciona el hombro
 		elif select[0] == 6 or select[0] == 7:
-			print("Moviendo hombro...")
+			print("Moving shoulder...")
 			logging.info(info_text(7))
 			send_textlabel(self, 0, 7)
 
         #Acciona el codo
 		elif select[0] == 8 or select[0] == 9:
-			print("Moviendo codo...")
+			print("Moving elbow...")
 			logging.info(info_text(8))
 			send_textlabel(self, 0, 8)
 
         #Acciona el pivote de la muñeca
 		elif select[0] == 10 or select[0] == 11:
-			print("Pivotando muñeca...")
+			print("Moving wrist pitch...")
 			logging.info(info_text(9))
 			send_textlabel(self, 0 , 9)
 
         #Acciona el giro de la muñeca
 		elif select[0] == 12 or select[0] == 13:
-			print("Girando muñeca...")
+			print("Moving wrist roll...")
 			logging.info(info_text(10))
 			send_textlabel(self, 0, 10)
 
         #Acciona la apertura de la pinza
 		elif select[0] == 14:
-			print("Abriendo pinza...")
+			print("Opening gripper...")
 			logging.info(info_text(11))
 			send_textlabel(self,0,11)
 
 		#Acciona el cierra de la pinza
 		elif select[0] == 15:
-			print("Cerrando pinza...")
+			print("Closing gripper...")
 			logging.info(info_text(12))
 			send_textlabel(self,0,12)
 
@@ -897,7 +897,7 @@ def control_error(self, select, cola_orden, buffer):
 		time.sleep(SLEEP)
 		result = cola_orden.get()
 		if result == DONE and select[0] != 18 and select[0] != 19:
-			print("Movimiento terminado")
+			print("Motion complete")
 			print("")
 			logging.info(info_text(1)) #Movimiento finalizado
 			send_textlabel(self,0,1)
@@ -906,13 +906,13 @@ def control_error(self, select, cola_orden, buffer):
 			global posRef
 			for i in range(len(VEC_POS)):
 				posRef.append(transform([buffer[VEC_POS[i]], buffer[VEC_POS[i]+1]]))
-			print("Actualizo joint despues del home")
+			print("Updated joints after homing")
 			print(posRef)
 			joint(self, buffer)
 		elif result == DONE and select[0] == 19:
 			send_textlabel(self,0,1)
 			logging.info(info_text(1)) #Movimiento finalizado
-			print("Actualizo el joint despues de un mov")
+			print("Updated joints after motion")
 			joint(self, buffer)
 
 		else:

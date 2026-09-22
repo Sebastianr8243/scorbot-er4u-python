@@ -5,6 +5,10 @@
 
 import json
 from math import pi
+from pathlib import Path
+
+
+CONFIG_PATH = Path(__file__).with_name("data.json")
 
 #################################################################################
 # Script que genera el archivo json con los parametros de funcionamiento estandar
@@ -17,16 +21,11 @@ from math import pi
 # b   -> Nombre de la variable
 #
 def readData(a,b):
-    try:
-        with open('data.json', 'r') as f:
-            t = json.load(f)
-        try:
-            x =t[a][b]
-            return x
-        except:
-            print('ERROR: DATOS NO EXISTENTES')
-    except:
-        print("ERROR: Archivo no encontrado")
+    if not CONFIG_PATH.exists():
+        setup()
+    with CONFIG_PATH.open('r', encoding='utf-8') as f:
+        data = json.load(f)
+    return data[a][b]
 
 # Libreria con las variables globales
 #
@@ -147,7 +146,8 @@ def setup():
 
         f = json.dumps(info, indent=2)
 
-        with open('data.json', 'w') as outfile:
-            outfile.write(f)
-    except:
-        print("ERROR: Archivo no creado")
+        if not CONFIG_PATH.exists():
+            with CONFIG_PATH.open('w', encoding='utf-8') as outfile:
+                outfile.write(f)
+    except OSError as exc:
+        raise RuntimeError("Could not create the robot configuration") from exc
