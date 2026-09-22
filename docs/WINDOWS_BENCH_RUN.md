@@ -74,6 +74,8 @@ Get-Content .\logs\state_only.jsonl
 
 Expected: three JSON lines with `connected: true`, `enabled: false`, `homed: false`, a UTC timestamp, six raw `encoder_counts`, six `controller_error_counts`, and `home_switch_bits`. Values are controller counts, **not joint angles**; do not infer safe travel from them. The JSONL log should include `connect` and controller command events. If the arm moves, output is missing or implausible, USB fails, or an exception appears, use the physical stop as needed and end the session. Record the exact error and observations. A software `disable()` or process exit is not a verified emergency stop.
 
+For a timestamped set of raw samples to start calibration, use [record_raw_state.py](../examples/record_raw_state.py) and [the calibration guide](CALIBRATION_START.md) after this first state-only check succeeds.
+
 ## 4. Homing and one-degree jog: supervised only
 
 Proceed only after the state-only session succeeds **and** the operator can independently identify and place the arm in the required legacy homing start pose. The code does not document exact joint angles for this pose. Its homing order is shoulder, elbow, wrist pitch, wrist roll, then base; it is not safe to assume it can start anywhere. If the start pose is unknown, stop after section 3 and record that gap. Clear the entire possible travel path, select a base direction with known clearance, and have the operator ready at the physical stop.

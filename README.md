@@ -36,6 +36,8 @@ with Scorbot(log_path="session.jsonl") as robot:
 
 The complete script is in [examples/python_control.py](examples/python_control.py). After installation, run it from the repository root with `.\.venv\Scripts\python.exe examples\python_control.py`. Start by running just `connect()` and `get_state()`, then verify the homing start pose and each direction before allowing a jog. `jog_joint` accepts `base`, `shoulder`, `elbow`, `wrist_pitch`, or `wrist_roll`; each call is limited to 5 degrees and legacy speed values 1–20. The positive direction mapping is inherited from the old code and needs physical verification.
 
+To begin calibrating your arm, follow [the calibration measurement guide](docs/CALIBRATION_START.md). It starts with [a raw-state recording script](examples/record_raw_state.py) and explains which home, encoder, angle, and wrist measurements are needed before calibrated motion can be implemented.
+
 `disable()` is a queued controller command. It cannot interrupt a stalled command and is **not** an emergency stop. The physical emergency stop remains authoritative. If a command times out, the SDK faults and rejects more motion; it cannot guarantee motor shutdown after USB loss or a Python crash.
 
 Legacy homing switch searches now have a provisional 30-second deadline per axis and check a cancellation signal. That deadline has not been tuned on the physical arm. An error or `homed: true` from the SDK is not independent proof of motor state or home calibration.

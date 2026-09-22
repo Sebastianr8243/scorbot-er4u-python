@@ -31,3 +31,5 @@ The script lists any present Windows device with hardware ID `VID_09F1&PID_0007`
 If Windows does not list the ID, check power, cable, USB port, and the controller's **Hardware Ids** in Device Manager. If Windows lists the correct ID but Python preflight fails, read [the USB driver section of the bench guide](docs/WINDOWS_BENCH_RUN.md#2-usb-driver-and-read-only-preflight). Only consider [official Zadig](https://zadig.akeo.ie/) for that exact device after recording the current driver. Changing the driver can prevent the original Intelitek software from using the controller.
 
 After the preflight passes, follow the [state-only session](docs/WINDOWS_BENCH_RUN.md#3-state-only-python-session). Connecting starts the legacy USB handshake, so do that step with an operator at the arm. Do not run the homing and jog example until the required physical homing start pose is known and the state-only session succeeds.
+
+After that session, use [the calibration guide](docs/CALIBRATION_START.md) to record raw encoder data and plan measured joint calibration.
