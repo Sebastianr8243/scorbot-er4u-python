@@ -1,4 +1,4 @@
-# OpenScorbot: Python control for the ScorBot ER-4U
+# ScorBot ER-4U Python control
 
 This repository contains the original OpenScorbot USB controller code and a small Python adapter for the **Intelitek ScorBot ER-4U**. The current milestone is supervised Python control through the original controller. The adapter exposes raw encoder readings, legacy homing, and small **relative** joint jogs. It does not yet provide calibrated absolute joint positions, Cartesian motion, a verified software stop, or autonomous control.
 
@@ -12,7 +12,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m scorbot.preflight
 ```
 
-To move this working version to the robot PC, run `python scripts/build_bench_kit.py` here and copy the ZIP from `dist/`. The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`. You can also clone the [`feature/er4u-python-control` branch of your fork](https://github.com/Sebastianr8243/openScorbot/tree/feature/er4u-python-control). The original upstream GitHub repository does not contain these SDK changes.
+To move this working version to the robot PC, run `python scripts/build_bench_kit.py` here and copy the ZIP from `dist/`. The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`. You can also clone the standalone [scorbot-er4u-python repository](https://github.com/Sebastianr8243/scorbot-er4u-python). The original OpenScorbot repository does not contain these SDK changes.
 
 The preflight only enumerates USB; it does not reset or command the robot. The original controller is identified in the legacy code as USB vendor/product `09F1:0007`. PyUSB also needs a libusb backend and a compatible Windows device driver. The `windows` extra supplies a libusb library, but it does not change the device driver. See the [PyUSB Windows FAQ](https://github.com/pyusb/pyusb/blob/master/docs/faq.rst) if discovery fails. Confirm the driver choice for your lab setup before changing it, since it may affect the Intelitek software. Follow the [Windows bench runbook](docs/WINDOWS_BENCH_RUN.md) on the robot PC.
 

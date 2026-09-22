@@ -4,14 +4,14 @@ Use this on the Windows PC connected to the **original ScorBot ER-4U USB control
 
 ## 1. Copy and install
 
-Copy the **current working tree** to the robot PC, including `scorbot/`, `openScorbot/`, `examples/`, `pyproject.toml`, and `tests/`. The easiest transfer is the ZIP created by `python scripts/build_bench_kit.py`; extract it to a writable directory on the robot PC. This ZIP also includes `usb-tools/zadig-2.9.exe` when the verified download is present in `dist/usb-tools/`. Alternatively, clone the Python branch of [your fork](https://github.com/Sebastianr8243/openScorbot/tree/feature/er4u-python-control):
+Copy the **current working tree** to the robot PC, including `scorbot/`, `openScorbot/`, `examples/`, `pyproject.toml`, and `tests/`. The easiest transfer is the ZIP created by `python scripts/build_bench_kit.py`; extract it to a writable directory on the robot PC. This ZIP also includes `usb-tools/zadig-2.9.exe` when the verified download is present in `dist/usb-tools/`. Alternatively, clone the standalone [scorbot-er4u-python repository](https://github.com/Sebastianr8243/scorbot-er4u-python):
 
 ```powershell
-git clone --branch feature/er4u-python-control https://github.com/Sebastianr8243/openScorbot.git
-cd openScorbot
+git clone https://github.com/Sebastianr8243/scorbot-er4u-python.git
+cd scorbot-er4u-python
 ```
 
-A fresh clone of the original `tidus747/openScorbot` repository does not include the Python adapter. In PowerShell, change to the extracted or cloned repository directory. Python 3.10 or newer and internet access are required for this install:
+A fresh clone of the original OpenScorbot repository does not include the Python adapter. In PowerShell, change to the extracted or cloned repository directory. Python 3.10 or newer and internet access are required for this install:
 
 ```powershell
 py -3 --version
