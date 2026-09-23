@@ -11,6 +11,7 @@ import libhex
 import queue
 import log
 import logging
+import builtins
 from math import *
 from numpy import *
 
@@ -119,7 +120,9 @@ def get_media(buffer, media):
 			media[i] = dato
 		else:
 			dato_media = (media[i] + dato)/2
-			media[i] = round(dato_media)
+			# NumPy's round (imported above) returns a float, but encoder packet
+			# fields must remain integers for hexadecimal formatting.
+			media[i] = builtins.round(dato_media)
 
 	return media
 
@@ -542,11 +545,11 @@ def resta(dato_in,cont,vel,ite):
 #
 def incremento(cont,vel,ite):
 	if cont < 12:
-		inc = round((vel/12)*cont)
+		inc = builtins.round((vel/12)*cont)
 		if inc > vel:
 			inc = vel
 	elif(cont >= (ite-12)):
-		inc = round((vel/12)*(ite-cont))
+		inc = builtins.round((vel/12)*(ite-cont))
 		if inc < 0:
 			inc = 0
 	else:

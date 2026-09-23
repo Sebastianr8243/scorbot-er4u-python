@@ -96,6 +96,23 @@ class LegacyPacketTests(unittest.TestCase):
         updated = legacy.get_media(packet, [0] * 6)
         self.assertEqual(updated[0], 2000)
 
+    def test_encoder_mean_remains_integer_for_usb_packet(self):
+        legacy = Scorbot()._legacy("libdef")
+        packet = bytearray(64)
+        for offset in (19, 24, 29, 34, 39, 44):
+            packet[offset:offset + 2] = (100).to_bytes(2, "little")
+            packet[offset + 2] = 128
+        mean = legacy.get_media(packet, [100] * 6)
+        self.assertTrue(all(type(value) is int for value in mean))
+        self.assertEqual(legacy.get_encoder(packet, mean), "64000000" * 6)
+
+    def test_motion_increments_remain_integer_for_usb_packet(self):
+        legacy = Scorbot()._legacy("libdef")
+        for count in (1, 6, 12, 50, 90, 99):
+            increment = legacy.incremento(count, 20, 100)
+            self.assertIs(type(increment), int)
+            self.assertEqual(len(legacy.detrans(increment)), 4)
+
     def test_homing_search_stops_on_cancel_or_deadline(self):
         homing = Scorbot()._legacy("setHome")
         result = queue.Queue()
