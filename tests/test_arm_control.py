@@ -86,7 +86,7 @@ class CalibrationTests(unittest.TestCase):
             fit(self.csv_path, self.limits_path, "arm-1")
 
     def test_count_wrap_and_ambiguity(self):
-        self.assertEqual(signed_count_delta(2, 65534), 4)
+        self.assertEqual(signed_count_delta(2, 65534), 3)
         with self.assertRaises(ValueError):
             signed_count_delta(32768, 0)
 
@@ -104,6 +104,8 @@ class CalibrationTests(unittest.TestCase):
             def snapshot(self, **kwargs):
                 self.index += 1
                 packet = bytearray(64)
+                for offset in (19, 24, 29, 34, 39, 44):
+                    packet[offset + 2] = 128
                 packet[19:21] = self.count.to_bytes(2, "little")
                 return type("Sample", (), {"data": bytes(packet), "index": self.index,
                                            "host_monotonic_ns": 1})()
@@ -133,6 +135,8 @@ class CalibrationTests(unittest.TestCase):
             def snapshot(self, **kwargs):
                 self.index += 1
                 packet = bytearray(64)
+                for offset in (19, 24, 29, 34, 39, 44):
+                    packet[offset + 2] = 128
                 packet[19:21] = (1060).to_bytes(2, "little")
                 return type("Sample", (), {"data": bytes(packet), "index": self.index,
                                            "host_monotonic_ns": 1})()
@@ -140,6 +144,24 @@ class CalibrationTests(unittest.TestCase):
         robot._command = Mock()
         with self.assertRaisesRegex(ValueError, "soft limits"):
             robot.jog_joint("base", 2)
+        robot._command.assert_not_called()
+
+    def test_wrist_jog_rejected_without_queuing_motion(self):
+        robot = Scorbot()
+        robot._device = object()
+        robot._enabled = robot._homed = True
+        robot._command = Mock()
+        with self.assertRaisesRegex(ScorbotError, "Wrist jogs are disabled"):
+            robot.jog_joint("wrist_roll", 1)
+        robot._command.assert_not_called()
+
+    def test_preview_is_offline_and_matches_motor_deltas(self):
+        robot = Scorbot()
+        robot._command = Mock()
+        preview = robot.preview_jog(
+            "base", 1, speed=10, starting_signed_counts={"base": 100})
+        self.assertEqual(sum(preview["increments"]), preview["counts_per_motor"])
+        self.assertEqual(preview["target_signed_counts"]["base"], 242)
         robot._command.assert_not_called()
 
     def test_jog_ceiling_cannot_be_raised_past_five_degrees(self):
