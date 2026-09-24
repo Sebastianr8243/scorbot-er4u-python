@@ -10,13 +10,13 @@ CALIBRATED_JOINTS = ("base", "shoulder", "elbow")
 
 
 def signed_count_delta(value: int, origin: int) -> int:
-    """Shortest 16-bit difference; calibration must stay within half a turn."""
+    """Shortest difference under the legacy one's-complement 65535 wrap."""
     if not all(type(item) is int and 0 <= item <= 65535 for item in (value, origin)):
         raise ValueError("Encoder counts must be unsigned 16-bit integers")
-    delta = (value - origin + 32768) % 65536 - 32768
-    if delta == -32768:
-        raise ValueError("Encoder difference is ambiguous at half the counter range")
-    return delta
+    delta = (value - origin) % 65535
+    if delta in (32767, 32768):
+        raise ValueError("Encoder difference is ambiguous near half the counter range")
+    return delta if delta < 32767 else delta - 65535
 
 
 def _finite(value, name):
