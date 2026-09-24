@@ -316,11 +316,45 @@ class Scorbot:
             self._homed = True
             self._record("home_complete", state=asdict(self._motion_state()))
 
+    def preview_jog(self, joint: str, delta_degrees: float, *, speed: int = 10,
+                    starting_signed_counts: dict[str, int] | None = None) -> dict:
+        """Plan motor setpoints offline; this never opens USB or queues a command."""
+        if joint not in self._JOG_CODES:
+            raise ValueError(f"Unknown joint: {joint}")
+        if (isinstance(delta_degrees, bool)
+                or not isinstance(delta_degrees, (int, float))
+                or not math.isfinite(delta_degrees)
+                or not 0 < abs(delta_degrees) <= self.max_jog_degrees):
+            raise ValueError("Jog must be finite, nonzero and within the jog ceiling")
+        order = self._JOG_CODES[joint][0 if delta_degrees > 0 else 1]
+        plan = self._legacy("motion_profile").plan_jog(order, abs(delta_degrees), speed)
+        plan["increments"] = list(plan["increments"])
+        plan["execution_status"] = (
+            "wrist jog disabled pending physical two-motor verification"
+            if joint.startswith("wrist_") else "supervised jog only after homing")
+        if starting_signed_counts is not None:
+            if not isinstance(starting_signed_counts, dict):
+                raise ValueError("Starting signed counts must be a mapping")
+            targets = {}
+            for motor, delta in plan["motor_count_deltas"].items():
+                value = starting_signed_counts.get(motor)
+                if type(value) is not int or not -65535 <= value <= 65535:
+                    raise ValueError(f"Missing or invalid signed count for {motor}")
+                targets[motor] = value + delta
+            plan["starting_signed_counts"] = {
+                motor: starting_signed_counts[motor]
+                for motor in targets
+            }
+            plan["target_signed_counts"] = targets
+        return plan
+
     def jog_joint(self, joint: str, delta_degrees: float, *, speed: int = 10):
         """Move one joint by a bounded legacy relative jog; read back raw state."""
         with self._motion_lock:
             if joint not in self._JOG_CODES:
                 raise ValueError(f"Unknown joint: {joint}")
+            if joint.startswith("wrist_"):
+                raise ScorbotError("Wrist jogs are disabled until two-motor bench verification")
             if (isinstance(delta_degrees, bool)
                     or not isinstance(delta_degrees, (int, float))
                     or not math.isfinite(delta_degrees)
@@ -348,6 +382,10 @@ class Scorbot:
                         or not calibration.soft_min_deg <= current_angle + delta_degrees <= calibration.soft_max_deg):
                     raise ValueError("Jog would leave measured soft limits")
             positive, negative = self._JOG_CODES[joint]
+            preview = self.preview_jog(
+                joint, delta_degrees, speed=speed,
+                starting_signed_counts=before.signed_encoder_counts)
+            self._record("motion_preview", plan=preview, state=asdict(before))
             self._record("motion_start", joint=joint, requested_delta_deg=delta_degrees,
                          speed=speed, state=asdict(before))
             self._command([positive if delta_degrees > 0 else negative,
