@@ -341,15 +341,15 @@ def getStruct(orden, signal_out, msg):
 # Decrementa o incrementa, en funcion de la orden, el valor de los encoders
 # en el mensaje de escritura. Se hace uso de esta función en los movimientos
 # de cadera, hombro y codo en el script libcomm.
-def builder(b_1, dato_in, i, ite, orden, vel, media, buffer):
+def builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=None):
 	cadena = libhex.mov_comm(1)
 	b_1 = countByte1(b_1)
 	cadena = cadena.format(f_byte(b_1))
 	cadena = fill_msg(cadena, 24)
 	if orden == 5 or orden == 6 or orden == 9 or orden == 14:
-		dato_in = suma(dato_in, i+1, vel, ite)
+		dato_in = suma(dato_in, i+1, vel, ite, step=step)
 	else:
-		dato_in = resta(dato_in, i+1, vel, ite)
+		dato_in = resta(dato_in, i+1, vel, ite, step=step)
 
 	signal_out = detrans(dato_in[0])
 	signal_out += dato_in[1]
@@ -497,8 +497,8 @@ def get_signo(pos, buffer):
 ## la diferencia entre el resultado de la suma anterior y el maximo. Ademas,
 ## el signo debe cambiarse
 #
-def suma(dato_in,cont,vel,ite):
-	dato_in[0] += incremento(cont,vel,ite)
+def suma(dato_in,cont,vel,ite,step=None):
+	dato_in[0] += incremento(cont,vel,ite) if step is None else step
 	if dato_in[0] > 65535:
 		dato_in[0] -= 65535
 		dato_in[1] = '0000'
@@ -519,8 +519,8 @@ def suma(dato_in,cont,vel,ite):
 ## diferencia entre el maximo y el resultado de la resta anterior. Ademas,
 ## el signo debe cambiarse.
 ###
-def resta(dato_in,cont,vel,ite):
-	dato_in[0] -= incremento(cont,vel,ite)
+def resta(dato_in,cont,vel,ite,step=None):
+	dato_in[0] -= incremento(cont,vel,ite) if step is None else step
 	if dato_in[0] < 0:
 		dato_in[0] = 65535 + dato_in[0]
 		dato_in[1] = 'ffff'
