@@ -19,10 +19,13 @@ class RobotState:
     enabled: bool | None
     homed: bool
     fault: str | None
+    packet_index: int | None = None
+    host_monotonic_ns: int | None = None
 
 
 def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
-                 homed: bool, fault: str | None) -> RobotState:
+                 homed: bool, fault: str | None, packet_index: int | None = None,
+                 host_monotonic_ns: int | None = None) -> RobotState:
     if len(packet) < 49:
         raise ValueError(f"Controller packet is too short: {len(packet)} bytes")
     counts = {
@@ -42,4 +45,6 @@ def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
         enabled=enabled,
         homed=homed,
         fault=fault,
+        packet_index=packet_index,
+        host_monotonic_ns=host_monotonic_ns,
     )
