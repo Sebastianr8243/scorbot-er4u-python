@@ -21,8 +21,7 @@ def main() -> int:
     parser.add_argument("--controller-label", required=True)
     parser.add_argument("--driver", required=True)
     parser.add_argument("--start-pose-note", required=True)
-    parser.add_argument("--joint", choices=("base", "shoulder", "elbow",
-                                           "wrist_pitch", "wrist_roll"), required=True)
+    parser.add_argument("--joint", choices=("base", "shoulder", "elbow"), required=True)
     parser.add_argument("--delta", type=float, required=True,
                         help="Signed requested legacy jog in degrees, at most 1")
     parser.add_argument("--speed", type=int, default=10)
@@ -67,10 +66,7 @@ def main() -> int:
               arm_label=args.arm_label, controller_label=args.controller_label,
               driver=args.driver, start_pose_note=args.start_pose_note,
               software_commit=revision, controller_event_log=events.name,
-              joint=args.joint, requested_delta_deg=args.delta, speed=args.speed,
-              document_revisions={
-                  "ER_4u_B": "Rev B", "Controller_USB_H": "Rev H",
-                  "Scorbase_USB_I": "Rev I"})
+              joint=args.joint, requested_delta_deg=args.delta, speed=args.speed)
         try:
             with Scorbot(log_path=events, robot_id=args.robot_id) as robot:
                 write("connected", state=asdict(robot.get_state()))
@@ -80,6 +76,12 @@ def main() -> int:
                 robot.enable()
                 robot.home(start_position_confirmed=True)
                 write("home_complete", state=asdict(robot.get_state()))
+                preview_state = robot.get_state()
+                preview = robot.preview_jog(
+                    args.joint, args.delta, speed=args.speed,
+                    starting_signed_counts=preview_state.signed_encoder_counts)
+                write("motion_preview", plan=preview, state=asdict(preview_state))
+                print(json.dumps(preview, indent=2))
                 print("Clear the travel path and keep the emergency stop within reach.")
                 if input("Type MOVE for one bounded jog: ").strip() != "MOVE":
                     raise RuntimeError("Operator canceled before jog")
