@@ -96,8 +96,8 @@ def fit(measurements: Path, limits_path: Path, robot_id: str) -> dict:
         angles = [row[4] for row in subset]
         if not all(math.isfinite(value) for value in (lower, upper)):
             raise ValueError(f"{joint}: soft limits must be finite")
-        if not min(angles) + 0.5 <= lower < home_angle < upper <= max(angles) - 0.5:
-            raise ValueError(f"{joint}: soft limits must lie inside measured range with 0.5 degree margin")
+        if not min(angles) + 2.5 <= lower < home_angle < upper <= max(angles) - 2.5:
+            raise ValueError(f"{joint}: soft limits must lie inside measured range with 2.5 degree margin")
         joints[joint] = {
             "encoder": joint,
             "home_count": home_count,

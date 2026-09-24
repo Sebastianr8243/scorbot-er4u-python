@@ -40,9 +40,9 @@ class Scorbot:
                  response_timeout: float = 2.0, robot_id: str | None = None,
                  calibration_path: str | Path | None = None):
         if (not math.isfinite(command_timeout) or command_timeout <= 0
-                or not math.isfinite(max_jog_degrees) or max_jog_degrees <= 0
+                or not math.isfinite(max_jog_degrees) or not 0 < max_jog_degrees <= 5
                 or not math.isfinite(response_timeout) or response_timeout <= 0):
-            raise ValueError("Timeouts and maximum jog angle must be finite and positive")
+            raise ValueError("Timeouts must be positive; maximum jog must be 0-5 degrees")
         if calibration_path is not None and not robot_id:
             raise ValueError("robot_id is required when loading calibration")
         self.log_path = Path(log_path) if log_path else None
@@ -270,6 +270,8 @@ class Scorbot:
             self._enabled = None
             self._homed = False
             self._home_counts = None
+            if self._command_thread is not None and self._command_thread.is_alive():
+                self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
             self._record("feedback_fault", error=self._fault)
             raise ScorbotError(self._fault) from exc
 
@@ -329,6 +331,22 @@ class Scorbot:
             if not self._enabled or not self._homed:
                 raise ScorbotError("Enable and home before jogging")
             before = self._motion_state()
+            if self._calibration and joint in self._calibration.joints:
+                calibration = self._calibration.joints[joint]
+                if self._home_counts is None:
+                    raise ScorbotError("Session home count is unavailable")
+                try:
+                    current_angle = calibration.angle(
+                        before.encoder_counts[calibration.encoder],
+                        self._home_counts[calibration.encoder])
+                except ValueError as exc:
+                    self._fault = f"Calibrated state invalid: {exc}"
+                    self._homed = False
+                    self._home_counts = None
+                    raise ScorbotError(self._fault) from exc
+                if (not calibration.soft_min_deg <= current_angle <= calibration.soft_max_deg
+                        or not calibration.soft_min_deg <= current_angle + delta_degrees <= calibration.soft_max_deg):
+                    raise ValueError("Jog would leave measured soft limits")
             positive, negative = self._JOG_CODES[joint]
             self._record("motion_start", joint=joint, requested_delta_deg=delta_degrees,
                          speed=speed, state=asdict(before))

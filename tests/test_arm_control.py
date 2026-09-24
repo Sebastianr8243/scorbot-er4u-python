@@ -120,6 +120,32 @@ class CalibrationTests(unittest.TestCase):
             robot.move_joint("base", 8)
         self.assertEqual(len(calls), 1)
 
+    def test_calibrated_jog_cannot_bypass_soft_limit(self):
+        path = self.root / "calibration.json"
+        path.write_text(json.dumps(fit(self.csv_path, self.limits_path, "arm-1")),
+                        encoding="utf-8")
+        robot = Scorbot(robot_id="arm-1", calibration_path=path)
+        robot._device = object()
+        robot._enabled = robot._homed = True
+        robot._home_counts = {"base": 1000}
+        class Input:
+            index = 0
+            def snapshot(self, **kwargs):
+                self.index += 1
+                packet = bytearray(64)
+                packet[19:21] = (1060).to_bytes(2, "little")
+                return type("Sample", (), {"data": bytes(packet), "index": self.index,
+                                           "host_monotonic_ns": 1})()
+        robot._input = Input()
+        robot._command = Mock()
+        with self.assertRaisesRegex(ValueError, "soft limits"):
+            robot.jog_joint("base", 2)
+        robot._command.assert_not_called()
+
+    def test_jog_ceiling_cannot_be_raised_past_five_degrees(self):
+        with self.assertRaises(ValueError):
+            Scorbot(max_jog_degrees=6)
+
     def test_stale_feedback_faults_before_any_motion(self):
         robot = Scorbot(response_timeout=0.01)
         robot._device = object()

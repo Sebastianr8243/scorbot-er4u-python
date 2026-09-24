@@ -27,7 +27,7 @@ lab-er4u-1,base,move_verify,-,physical,975,-2.5,-2.5
 
 Each joint needs at least 3 home, 4 fit, 3 verify and 3 move-verification rows, with both directions in all non-home groups. The tool rejects ambiguous 16-bit half-range differences, home spread over 50 counts or 2 degrees, holdout or motion error over 2 degrees, and a calibration span under 2 degrees.
 
-Set the intended software limits **within your measured clear region**, leaving at least 0.5 degree between each limit and the most extreme measured angle. For example, if you actually measured a safe base range beyond -10 to +10 degrees:
+Set the intended software limits **within your measured clear region**, leaving at least 2.5 degrees between each limit and the most extreme measured angle. For example, if you actually measured a safe base range beyond -10 to +10 degrees:
 
 ```json
 {"base": {"soft_min_deg": -7, "soft_max_deg": 7}}
