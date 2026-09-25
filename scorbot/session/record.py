@@ -112,7 +112,8 @@ class SessionWriter:
                                        encoding="utf-8")
 
         stream = open(path / "session.mcap", "xb")
-        writer = Writer(stream, use_chunking=False)
+        # The data-section CRC lets replay detect silent edits in closed sessions.
+        writer = Writer(stream, use_chunking=False, enable_data_crcs=True)
         writer.start(profile="", library=f"scorbot-session/{schemas.SCHEMA_VERSION}")
         writer.add_metadata("scorbot.session", {"json": json.dumps(metadata)})
         stream.flush()

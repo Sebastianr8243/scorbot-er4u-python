@@ -201,5 +201,167 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(result["command_id"], cid)
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+CRASH_SCRIPT = """
+import os, sys
+from scorbot.session.record import SessionWriter
+writer = SessionWriter.create(sys.argv[1], data_source="synthetic", robot_id="crash")
+for i in range(25):
+    writer.log_note(f"n{i}")
+print(writer.path, flush=True)
+os._exit(1)
+"""
+
+
+class ReplayTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def crashed_session(self):
+        import subprocess
+        import sys
+        result = subprocess.run([sys.executable, "-c", CRASH_SCRIPT, str(self.root)],
+                                cwd=REPO_ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        return Path(result.stdout.strip())
+
+    def test_round_trip_reproduces_timeline(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            writer.log_state({"encoder_counts": {"base": 1}, "home_switch_bits": 0,
+                              "connected": True})
+            cid = writer.log_command("jog_joint", {"joint": "base"})
+            writer.log_command_result(cid, "completed")
+            writer.log_note("done")
+        session = load_session(writer.path)
+        self.assertEqual(session.errors, [])
+        self.assertEqual(session.warnings, [])
+        self.assertEqual([e["seq"] for e in session.events], [0, 1, 2, 3])
+        self.assertEqual([e["topic"] for e in session.events],
+                         ["/robot/state", "/robot/command", "/robot/command_result",
+                          "/session/note"])
+        self.assertEqual(session.events[1]["payload"]["params"], {"joint": "base"})
+        self.assertEqual(session.metadata["data_source"], "synthetic")
+
+    def test_accepts_mcap_file_path(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            writer.log_note("x")
+        self.assertEqual(len(load_session(writer.mcap_path).events), 1)
+
+    def test_hard_crash_keeps_every_event_with_warning_only(self):
+        from scorbot.session.replay import load_session
+        session = load_session(self.crashed_session())
+        self.assertEqual(len(session.events), 25)
+        self.assertEqual(session.errors, [])
+        self.assertTrue(any("not closed" in f.message for f in session.warnings))
+
+    def test_truncated_tail_is_a_warning(self):
+        from scorbot.session.replay import load_session
+        path = self.crashed_session()
+        mcap = path / "session.mcap"
+        mcap.write_bytes(mcap.read_bytes()[:-5])
+        session = load_session(path)
+        self.assertEqual(len(session.events), 24)
+        self.assertEqual(session.errors, [])
+        self.assertTrue(any("truncated" in f.message for f in session.warnings))
+
+    def test_mid_file_corruption_is_an_error(self):
+        from scorbot.session.replay import load_session
+        path = self.crashed_session()
+        mcap = path / "session.mcap"
+        data = bytearray(mcap.read_bytes())
+        middle = len(data) // 2
+        data[middle:middle + 32] = b"\xff" * 32
+        mcap.write_bytes(bytes(data))
+        session = load_session(path)
+        self.assertNotEqual(session.errors, [])
+
+    def test_silent_byte_change_in_closed_session_fails_checksum(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            writer.log_note("reading was 1234")
+        mcap = writer.mcap_path
+        data = mcap.read_bytes()
+        mcap.write_bytes(data.replace(b"1234", b"1284", 1))
+        session = load_session(writer.path)
+        self.assertTrue(any("checksum" in f.message for f in session.errors),
+                        [f.message for f in session.findings])
+
+    def test_seq_gap_is_an_error(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            writer.log_note("a")
+            writer._seq += 1  # simulate a lost record
+            writer.log_note("b")
+        session = load_session(writer.path)
+        self.assertTrue(any("seq" in f.message for f in session.errors))
+
+    def test_logged_time_going_backwards_is_an_error(self):
+        from unittest.mock import patch
+        from scorbot.session.replay import load_session
+        writer = new_writer(self.root)
+        start = writer.metadata["clock"]["started_monotonic_ns"]
+        with patch("scorbot.session.record.time.monotonic_ns",
+                   side_effect=[start + 2000, start + 1000]):
+            writer.log_note("a")
+            writer.log_note("b")
+        writer.close()
+        session = load_session(writer.path)
+        self.assertTrue(any("backwards" in f.message for f in session.errors))
+
+    def test_out_of_order_observed_times_are_not_errors(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root, camera_ids=["cam0"]) as writer:
+            writer.log_state({"encoder_counts": {}, "home_switch_bits": 0,
+                              "connected": True}, observed_monotonic_ns=2_000)
+            writer.log_frame("cam0", 0, b"x", format="png", width=1, height=1,
+                             observed_monotonic_ns=1_000)
+        self.assertEqual(load_session(writer.path).errors, [])
+
+    def test_missing_command_result_is_a_warning(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            writer.log_command("jog_joint", {})
+        session = load_session(writer.path)
+        self.assertEqual(session.errors, [])
+        self.assertTrue(any("cmd-0001" in f.message for f in session.warnings))
+
+    def test_newer_schema_version_is_an_error(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            writer.log_note("x")
+        meta_path = writer.path / "metadata.json"
+        meta = json.loads(meta_path.read_text())
+        meta["schema_version"] = 99
+        meta_path.write_text(json.dumps(meta))
+        self.assertTrue(any("schema_version" in f.message
+                            for f in load_session(writer.path).errors))
+
+    def test_nearest_prefers_observed_time_and_reports_signed_difference(self):
+        from scorbot.session.replay import nearest
+        events = [
+            {"topic": "/robot/state", "payload": {"_rec": {
+                "logged_monotonic_ns": 100, "observed_monotonic_ns": 10}}},
+            {"topic": "/robot/state", "payload": {"_rec": {
+                "logged_monotonic_ns": 110, "observed_monotonic_ns": None}}},
+            {"topic": "/session/note", "payload": {"_rec": {
+                "logged_monotonic_ns": 50, "observed_monotonic_ns": None}}},
+        ]
+        event, delta = nearest(events, 40)
+        self.assertIs(event, events[0])
+        self.assertEqual(delta, -30)
+        event, delta = nearest(events, 108)
+        self.assertIs(event, events[1])
+        self.assertEqual(delta, 2)
+        self.assertIsNone(nearest(events, 0, topic="/camera/cam0/image"))
+
+
 if __name__ == "__main__":
     unittest.main()
