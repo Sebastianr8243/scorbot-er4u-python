@@ -1,6 +1,6 @@
 # Physical joint calibration data
 
-The [supervised bench procedure](ARM_CONTROL_BENCH.md) establishes USB feedback, homing and small relative jogs first. No count-to-angle scale or safe limit from a manual is automatically applied. The ER-4U manual gives a 20-slot encoder disk, but does not establish how many counts this Python response reports per motor revolution. Homed shoulder and elbow angles are not necessarily zero.
+The [supervised bench procedure](ARM_CONTROL_BENCH.md) establishes USB feedback, homing and small relative jogs first. No published count-to-angle scale or travel range is applied as calibration. Determine the physical angle and safe region from independent measurements on this arm. Homed shoulder and elbow angles are not assumed to be zero.
 
 ## Measurement files
 
