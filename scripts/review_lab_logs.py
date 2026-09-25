@@ -142,9 +142,12 @@ def main():
     if len(sources) != 1:
         for report in reports:
             report["problems"].append("real and simulated logs mixed in one review")
+    banner = "SIMULATED DATA: rehearsal logs, not evidence from the physical arm."
     if "simulated" in sources:
-        print("SIMULATED DATA: rehearsal logs, not evidence from the physical arm.")
+        print(banner)
     print(json.dumps(reports, indent=2))
+    if "simulated" in sources:
+        print(banner)  # repeated so it is still on screen after the long report
     return 1 if any(report["problems"] for report in reports) else 0
 
 

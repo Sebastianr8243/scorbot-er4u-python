@@ -21,7 +21,7 @@ import time
 from scorbot import Scorbot, SimulatedScorbot
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
-from scorbot.session import SessionWriter
+from scorbot.session import BestEffortRecorder, SessionWriter
 
 
 def main() -> int:
@@ -80,17 +80,19 @@ def main() -> int:
 
     output.parent.mkdir(parents=True, exist_ok=True)
     sample_count = math.ceil(args.seconds * args.hz)
-    # The recorder opens before the controller, so a recorder failure happens
-    # before the motor-on handshake. The controller event log records connect,
+    # The recorder opens before the controller, so a failure to start it happens
+    # before the motor-on handshake; once running it is best-effort and never
+    # cuts the JSONL capture short. The controller event log records connect,
     # shutdown and any command errors.
     recorder = SessionWriter.create(
         args.session_root or output.parent / "sessions", data_source=data_source,
         robot_id=args.robot_id.strip(), controller_id=args.controller_label.strip(),
         operator=args.operator.strip(), task=f"idle capture ({output.name})",
         start_pose_note=args.pose_note.strip(), usb_driver=args.driver.strip())
-    with recorder as rec, \
+    with recorder as writer, \
             robot_class(log_path=event_log, robot_id=args.robot_id.strip()) as robot, \
             output.open("x", encoding="utf-8") as stream:
+        rec = BestEffortRecorder(writer)
         session = {
             "type": "session",
             "schema_version": 1,

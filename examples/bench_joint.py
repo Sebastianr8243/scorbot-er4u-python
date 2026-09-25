@@ -16,7 +16,7 @@ import time
 from scorbot import Scorbot, SimulatedScorbot
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
-from scorbot.session import SessionWriter
+from scorbot.session import BestEffortRecorder, SessionWriter
 
 
 def main() -> int:
@@ -70,15 +70,18 @@ def main() -> int:
     except (OSError, subprocess.SubprocessError):
         revision = "unknown"
     output.parent.mkdir(parents=True, exist_ok=True)
-    # The recorder opens before the controller, so a recorder failure happens
-    # before the motor-on handshake.
+    # The recorder opens before the controller, so a failure to start it happens
+    # before the motor-on handshake. Once running it is best-effort: a later
+    # recording error warns but never skips the JSONL record or the procedure.
     recorder = SessionWriter.create(
         args.session_root or output.parent / "sessions", data_source=data_source,
         robot_id=args.robot_id, controller_id=args.controller_label,
         operator=args.operator, start_pose_note=args.start_pose_note,
         task=f"bench jog {args.joint} {args.delta:+g} deg ({output.name})",
         usb_driver=args.driver)
-    with recorder as rec, output.open("x", encoding="utf-8") as stream:
+    with recorder as writer, output.open("x", encoding="utf-8") as stream:
+        rec = BestEffortRecorder(writer)
+
         def write(kind, **fields):
             stream.write(json.dumps({
                 "type": kind,
@@ -114,11 +117,11 @@ def main() -> int:
                 robot.enable()
                 open_command = rec.log_command("home", {"start_position_confirmed": True})
                 robot.home(start_position_confirmed=True)
-                rec.log_command_result(open_command, "completed",
-                                       completion_source="home() returned")
-                open_command = None
+                command_id, open_command = open_command, None
                 home_state = robot.get_state()
                 write("home_complete", state=asdict(home_state))
+                rec.log_command_result(command_id, "completed",
+                                       completion_source="home() returned")
                 rec.log_state(home_state)
                 home_observation = input("Describe the physical home pose, motion, and controller indicators: ").strip()
                 write("home_observation", text=home_observation or "not recorded")
@@ -144,10 +147,11 @@ def main() -> int:
                     "joint": args.joint, "delta_degrees": args.delta, "speed": args.speed,
                     "motor_count_deltas": preview["motor_count_deltas"]})
                 after = robot.jog_joint(args.joint, args.delta, speed=args.speed)
-                rec.log_command_result(open_command, "completed",
-                                       completion_source="jog_joint() returned")
-                open_command = None
+                command_id, open_command = open_command, None
+                # The primary JSONL evidence is written before any recorder call.
                 write("after_jog", state=asdict(after))
+                rec.log_command_result(command_id, "completed",
+                                       completion_source="jog_joint() returned")
                 rec.log_state(after)
                 direction = input("Observed joint direction and approximate displacement: ").strip()
                 other_motion = input("Did any other joint move? Describe what you saw: ").strip()

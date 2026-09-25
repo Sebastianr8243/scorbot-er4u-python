@@ -121,8 +121,14 @@ signed-count dict.
   - writes `data_source="simulated"`;
   - labels the JSONL session row `"data_source": "simulated"`.
 - **Without it,** `data_source="real"`.
-- **The JSONL outputs and their fields are unchanged,** so
-  `review_lab_logs.py` keeps working.
+- **The JSONL row types are unchanged, and fields are only added.**
+  `review_lab_logs.py` keeps working. The additions are:
+  - `data_source` and `mcap_session` in the session row;
+  - `simulated` in each state.
+- **The recorder is best-effort once running** (`BestEffortRecorder`).
+  After connecting, a recording error prints one warning, and the JSONL
+  record, the operator prompts, and the disable step carry on. After each
+  motion, the JSONL row is written before any recorder call.
 - **Mapping** in `bench_joint.py` from existing steps to session events:
 
 | Existing step | Session event |

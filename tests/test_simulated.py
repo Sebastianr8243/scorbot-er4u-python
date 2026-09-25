@@ -260,5 +260,117 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         self.assertIn("/session/fault", {e["topic"] for e in session.events})
 
 
+class BenchRecorderIsSecondaryTests(unittest.TestCase):
+    """The MCAP recorder must never cost the primary JSONL record or the operator flow."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.output = Path(self._tmp.name) / "base-first-01.jsonl"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_bench(self, *patches, answers=None):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from examples import bench_joint
+        argv = ["bench_joint.py", "--output", str(self.output), *LABELS,
+                "--start-pose-note", "desk", "--joint", "base", "--delta", "1",
+                "--simulate", "--acknowledge-supervised-motion"]
+        answers = answers or BENCH_ANSWERS.splitlines()
+        stdout = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(sys, "argv", argv))
+            stack.enter_context(patch("builtins.input", side_effect=answers))
+            stack.enter_context(contextlib.redirect_stdout(stdout))
+            for item in patches:
+                stack.enter_context(item)
+            try:
+                code = bench_joint.main()
+            except BaseException as exc:  # noqa: BLE001 - tests inspect it
+                code = exc
+        rows = [json.loads(l) for l in self.output.read_text().splitlines()]
+        return code, rows, stdout.getvalue()
+
+    def test_recorder_failure_after_the_jog_keeps_the_full_bench_record(self):
+        from unittest.mock import patch
+        from scorbot.session.record import SessionError, SessionWriter
+        original = SessionWriter.log_command_result
+
+        def failing(self, command_id, status, **kwargs):
+            if command_id == "cmd-0002":  # the jog, right after the arm moved
+                raise SessionError("disk vanished")
+            return original(self, command_id, status, **kwargs)
+
+        code, rows, out = self.run_bench(patch.object(SessionWriter, "log_command_result",
+                                                      failing))
+        self.assertEqual(code, 0, out)
+        self.assertEqual([r["type"] for r in rows], BENCH_TYPES)
+        self.assertIn("MCAP recording stopped", out)
+
+    def test_interrupt_during_the_jog_marks_the_open_command_faulted_once(self):
+        from unittest.mock import patch
+        from scorbot.session import load_session
+        from scorbot.simulated import SimulatedScorbot
+
+        def interrupted(*_args, **_kwargs):
+            raise KeyboardInterrupt()
+
+        code, rows, out = self.run_bench(patch.object(SimulatedScorbot, "jog_joint",
+                                                      interrupted))
+        self.assertIsInstance(code, KeyboardInterrupt)
+        self.assertEqual(rows[-1]["type"], "session_failed")
+        self.assertIn("physical stop", out)
+        [path] = sessions_in(self.output.parent / "sessions")
+        results = [e["payload"] for e in load_session(path).events
+                   if e["topic"] == "/robot/command_result"
+                   and e["payload"]["command_id"] == "cmd-0002"]
+        self.assertEqual([r["status"] for r in results], ["faulted"])
+
+    def test_real_path_runs_through_the_jog_into_a_real_session(self):
+        """The non --simulate branch, with a stand-in controller that reports real states."""
+        import contextlib
+        import dataclasses
+        import io
+        from unittest.mock import patch
+        from examples import bench_joint
+        from scorbot.preflight import Check
+        from scorbot.session import load_session
+        from scorbot.simulated import SimulatedScorbot
+
+        class StandInRealController(SimulatedScorbot):
+            def get_state(self, *, after_index=None):
+                state = super().get_state(after_index=after_index)
+                return dataclasses.replace(state, simulated=False)
+
+        argv = ["bench_joint.py", "--output", str(self.output), *LABELS,
+                "--start-pose-note", "desk", "--joint", "base", "--delta", "-1",
+                "--acknowledge-supervised-motion"]
+        with patch.object(sys, "argv", argv), \
+                patch.object(bench_joint, "run_checks", return_value=[Check("USB", True, "mock")]), \
+                patch.object(bench_joint, "Scorbot", StandInRealController), \
+                patch("builtins.input", side_effect=BENCH_ANSWERS.splitlines()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bench_joint.main(), 0)
+        rows = [json.loads(l) for l in self.output.read_text().splitlines()]
+        self.assertEqual([r["type"] for r in rows], BENCH_TYPES)
+        self.assertEqual(rows[0]["data_source"], "real")
+        [path] = sessions_in(self.output.parent / "sessions")
+        session = load_session(path)
+        self.assertEqual(session.errors, [], [f.message for f in session.errors])
+        self.assertEqual(session.metadata["data_source"], "real")
+        self.assertEqual(sum(e["topic"] == "/robot/state" for e in session.events), 5)
+
+    def test_review_repeats_the_simulated_label_after_the_report(self):
+        logs = Path(self._tmp.name) / "rehearsal"
+        idle = run_script("examples/record_raw_state.py", "--output", logs / "idle.jsonl",
+                          *LABELS, "--pose-note", "desk", "--seconds", "1", "--hz", "2",
+                          "--simulate", "--acknowledge-connect-handshake")
+        self.assertEqual(idle.returncode, 0, idle.stderr)
+        review = run_script("scripts/review_lab_logs.py", "--idle", logs / "idle.jsonl")
+        self.assertIn("SIMULATED", review.stdout.strip().splitlines()[-1])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -320,6 +320,38 @@ class SessionWriter:
         return self._channel_ids[topic]
 
 
+class BestEffortRecorder:
+    """Wrap a SessionWriter so a recording failure never interrupts the caller.
+
+    Lab scripts treat the MCAP session as secondary evidence: after the robot
+    has connected, a disk or recorder error must not skip the primary JSONL
+    record, the operator prompts, or the motor-disable step. The first failure
+    prints one warning; later ``log_*`` calls are dropped and return None.
+    """
+
+    def __init__(self, writer: SessionWriter, warn=print):
+        self._writer = writer
+        self._warn = warn
+        self.failure: Exception | None = None
+
+    def __getattr__(self, name):
+        attribute = getattr(self._writer, name)
+        if not name.startswith("log_"):
+            return attribute
+
+        def call(*args, **kwargs):
+            if self.failure is not None:
+                return None
+            try:
+                return attribute(*args, **kwargs)
+            except Exception as error:
+                self.failure = error
+                self._warn(f"WARNING: MCAP recording stopped ({error}). The JSONL record "
+                           "and the procedure continue.")
+                return None
+        return call
+
+
 def _clock_info(started_monotonic_ns: int, started_epoch_ns: int) -> dict:
     # Windows on Python < 3.13 uses GetTickCount64 (about 15.6 ms steps); record it.
     info = time.get_clock_info("monotonic")
