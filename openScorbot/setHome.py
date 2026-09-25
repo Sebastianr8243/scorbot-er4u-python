@@ -1,7 +1,7 @@
-# Autores: Jose Luis Pérez Pérez y Yolanda M. Gimeno Rodríguez
-# Fecha:
-# Título: HOME
-# Universidad de La Laguna
+# Authors: Jose Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez
+# Date:
+# Title: HOME
+# University of La Laguna
 
 import libdef
 import conf
@@ -11,36 +11,35 @@ import log
 import logging
 
 ################################################################################
-# Script para realizar el HOME del robot. La posicion fisica inicial de las
-# articulaciones debe ser el correcto. La version del HOME no contempla la
-# realizacion del HOME desde cualquier posicion.
+# Script to perform robot HOME. The physical initial position of the joints must be
+# correct. The current HOME implementation does not handle starting from arbitrary
+# positions.
 ################################################################################
 
 
-# Posiciones de los datos de cada motor dentro del buffer
-#   [cadera, hombro, codo, m1_muñeca, m2_muñeca, pinza]
+# Positions of each motor's data bytes within the buffer
+#   [base, shoulder, elbow, wrist motor 1, wrist motor 2, gripper]
 VEC_POS   = conf.readData("general","VEC_POS")
-# Posiciones de los bytes de error de cada motor dentro del buffer
-#   [cadera, hombro, codo, m1_muñeca, m2_muñeca, pinza]
+# Positions of each motor's error bytes within the buffer
+#   [base, shoulder, elbow, wrist motor 1, wrist motor 2, gripper]
 VEC_ERROR = conf.readData("general", "VEC_ERROR")
-# Valor maximo del byte de secuencia
+# Maximum valid sequence byte value
 MAX_COUNT = conf.readData("general","MAX_COUNT")
-# Error maximo aceptable en los bytes de error
+# Maximum acceptable error in the error bytes
 MAX_ERROR = conf.readData("general", "MAX_ERROR")
-# Valor asociado al microinterruptor activo de la cadera
+# Value associated with the active base limit switch
 SW_HIP = conf.readData("cadera", "switch")
-# Valor asociado al microinterruptor activo del hombro
+# Value associated with the active shoulder limit switch
 SW_SHOULDER = conf.readData("hombro", "switch")
-# Valor asociado al microinterruptor activo del codo
+# Value associated with the active elbow limit switch
 SW_ELBOW = conf.readData("codo", "switch")
-# Valor asociado al microinterruptor activo del movimiento de pitch
+# Value associated with the active pitch motion limit switch
 SW_PITCH = conf.readData("wrist", "switch_pitch")
-# Valor asociado al microinterruptor activo del movimiento de roll
+# Value associated with the active roll motion limit switch
 SW_ROLL = conf.readData("wrist", "switch_roll")
-# Tiempo de espera para realizar una peticion de lectura tras la escritura
+# Delay before making a read request after a write
 WRITE = conf.readData("general", "WRITE")
-# Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-# una  peticion de lectura.
+# Delay before starting the next message after a read request
 READ = conf.readData("general", "READ")
 
 # Provisional upper bound on each switch search. Verify against the actual arm.
@@ -59,21 +58,20 @@ def search_must_stop(deadline, cancel_event, result_queue):
     return False
 
 
-#to do: el error no salta en el momento correcto
+# TODO: the error is not triggered at the correct time
 
-# Secuencia de realizacion del home. Los movimientos se realizan una a continuacion
-# del otro siguiendo siempre el mismo orden. En caso de que una articulacion este
-# inicialmente en su posicion de HOME, se pasa a la siguiente articulacion.
+# Home sequence. The movements are performed one after another in the same order.
+# If a joint is already in its HOME position, the next joint is processed.
 #
-# Secuencia de movimientos:
-#           [hombro -> codo -> pitch -> roll -> cadera]
+# Motion sequence:
+#           [shoulder -> elbow -> pitch -> roll -> base]
 #
-# b_1         -> Byte de secuencia
-# epout       -> Objeto de endpoint de salida de la controladora
-# epin        -> Objeto de enpoint de entrada de la controladora
-# buffer      -> Vector que almacena los datos de la ultima lectura
-# cola_read   -> Cola con el vector media de la posición de encoders
-# cola_orden  -> Cola con la orden a procesar y/o feedback del funcionamiento
+# b_1         -> Sequence byte
+# epout       -> Controller output endpoint object
+# epin        -> Controller input endpoint object
+# buffer      -> Vector storing the most recent read data
+# cola_read   -> Queue containing the averaged encoder position vector
+# cola_orden  -> Queue with commands to process and/or execution feedback
 #
 def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
     status = 0
@@ -82,11 +80,11 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
     media = cola_read.get()
     signal_out = ''
     logging.info(libdef.info_text(5))
-    #Comprueba hombro en su sitio
+    # Check whether the shoulder is already in position
     if sw == True:
         sw = True
     else:
-        #muevo el hombro
+        # Move the shoulder
         write = conf.readData("hombro","write")
         vel = conf.readData("hombro","h_vel")
         read = conf.readData("hombro","read")
@@ -176,12 +174,12 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
         media = libdef.get_media(buffer, media)
 
-    #Compruebo codo
+    # Check the elbow
     sw = libdef.get_switch(SW_ELBOW, buffer[5])
     if sw == True:
         sw = True
     else:
-        #muevo el codo
+        # Move the elbow
         write = conf.readData("codo","write")
         vel = conf.readData("codo","h_vel")
         read = conf.readData("codo","read")
@@ -225,7 +223,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
             status = 1
             return [b_1, status]
 
-        #Realiza la frenada controlada
+        # Performs the controlled braking
         cont_vel = 88
         for i in range(12):
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 8, vel, media, buffer)
@@ -271,12 +269,12 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         media = libdef.get_media(buffer, media)
 
 
-    #Combruebo pitch
+    # Check pitch
     sw = libdef.get_switch(SW_PITCH, buffer[5])
     if sw == True:
         sw = True
     else:
-        #muevo pitch
+        # Move pitch
         write = conf.readData("wrist","write")
         vel = conf.readData("wrist","h_vel")
         read = conf.readData("wrist","read")
@@ -336,7 +334,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
             status = 1
             return [b_1, status]
 
-        #Ajuste de offset para alinear con la vertical
+        # Offset adjustment to align with the vertical axis
         cont_vel = 87
         for i in range(60):
             cadena = libhex.mov_comm(1)
@@ -400,7 +398,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         status = 1
         return [b_1, status]
 
-    #transicion entre articulaciones
+    # Transition between joints
     for _ in range(20):
         cadena = libhex.mov_comm(1)
         b_1 = libdef.countByte1(b_1)
@@ -411,12 +409,12 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
         media = libdef.get_media(buffer, media)
 
-    #Combruebo roll
+    # Check roll
     sw = libdef.get_switch(SW_ROLL, buffer[5])
     if sw == True:
         sw = True
     else:
-        #muevo roll
+        # Move roll
         write = conf.readData("wrist","write")
         vel = conf.readData("wrist","h_vel")
         read = conf.readData("wrist","read")
@@ -476,7 +474,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
             status = 1
             return [b_1, status]
 
-        #Ajuste de offset para alinear con la horizontal
+        # Offset adjustment to align with the horizontal axis
         cont_vel = 87
         for i in range(60):
             cadena = libhex.mov_comm(1)
@@ -495,7 +493,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
             media = libdef.get_media(buffer,media)
 
         cont_vel += 1
-        #Realiza la frenada controlada
+        # Performs the controlled braking
         for i in range(12):
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
@@ -539,7 +537,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         status = 1
         return [b_1, status]
 
-    #transicion entre articulaciones
+    # Transition between joints
     for i in range(20):
         cadena = libhex.mov_comm(1)
         b_1 = libdef.countByte1(b_1)
@@ -550,12 +548,12 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
         media = libdef.get_media(buffer, media)
 
-    #Combruebo cadera
+    # Check base
     sw = libdef.get_switch(SW_HIP, buffer[5])
     if sw == True:
         sw = True
     else:
-        #muevo cadera
+        # Move base
         write = conf.readData("cadera","write")
         vel = conf.readData("cadera","h_vel")
         read = conf.readData("cadera","read")

@@ -1,7 +1,7 @@
-# Autores: Jose Luis Pérez Pérez y Yolanda M. Gimeno Rodríguez
-# Fecha:
-# Título: Generacion del archivo .json
-# Universidad de La Laguna
+# Authors: Jose Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez
+# Date:
+# Title: Generation of the .json file
+# University of La Laguna
 
 import json
 from math import pi
@@ -11,14 +11,13 @@ from pathlib import Path
 CONFIG_PATH = Path(__file__).with_name("data.json")
 
 #################################################################################
-# Script que genera el archivo json con los parametros de funcionamiento estandar
-# del programa
+# Script that generates the standard runtime configuration JSON file for the app.
 #################################################################################
 
-# Funcion para extraer informacion del archivo .json con las variables
+# Function to extract information from the .json file with configuration variables.
 #
-# a   -> Grupo en el que esta la variable
-# b   -> Nombre de la variable
+# a   -> Group that contains the variable
+# b   -> Variable name
 #
 def readData(a,b):
     if not CONFIG_PATH.exists():
@@ -32,114 +31,106 @@ def readData(a,b):
 def setup():
     try:
         info ={
-            #Variables de caracter general
+            # General-purpose configuration variables
             "general":{
-                # Longitud maxima de un mensajes
+                # Maximum length of a message
                 "MSG_LEN": 128,
-                # Valor maximo del byte de secuencia
+                # Maximum valid sequence byte value
                 "MAX_COUNT": 256,
-                # Error maximo aceptable en los bytes de error
+                # Maximum acceptable error in the error bytes
                 "MAX_ERROR": 40,
                 #
                 "ite": 100,
-                # Time_out para el endpoint de salida
+                # Timeout for the output endpoint
                 "TIME_OUT_W" : 1500,
-                # Time_out para el endpoint de entrada
+                # Timeout for the input endpoint
                 "TIME_OUT_R" : 1500,
-                # Identificacion de que no hubo errores durante la accion
+                # Identifier for no errors during the action
                 "DONE" : 0,
-                # Identificacion de que se va a cerrar el programa
+                # Identifier for the program shutdown request
                 "EXIT" : 528,
-                # Posiciones de los datos de cada motor dentro del buffer
-                #   [cadera, hombro, codo, m1_muñeca, m2_muñeca, pinza]
+                # Positions of each motor's data bytes within the buffer
+                #   [base, shoulder, elbow, wrist motor 1, wrist motor 2, gripper]
                 "VEC_POS":[19 ,24, 29, 34, 39, 44],
-                # Posiciones de los bytes de error de cada motor dentro del buffer
-                #   [cadera, hombro, codo, m1_muñeca, m2_muñeca, pinza]
+                # Positions of each motor's error bytes within the buffer
+                #   [base, shoulder, elbow, wrist motor 1, wrist motor 2, gripper]
                 "VEC_ERROR":[22,27,32,37,42,47],
-                # Tiempo de espera para realizar una peticion de lectura tras la escritura
+                # Delay before making a read request after a write
                 "WRITE": 0.008,
-                # Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-                # una  peticion de lectura.
+                # Delay before starting the next message after a read request
                 "READ": 0.005,
-                # Minimo valor de la franja superior de valores posibles
+                # Minimum value of the upper valid range
                 "upLimit": 50000,
-                # Maximo valor de la franja inferior de valores posibles
+                # Maximum value of the lower valid range
                 "downLimit": 20000, # " " " " " "
-                # Posicion inicial relativa de cadera,hombro,codo en valores de encoders
-                # tras el HOME
+                # Relative initial base/shoulder/elbow position in encoder values after HOME
                 "posRef": [0,10350,55401],
-                # Posicion inicial relativa de las articulaciones en valores de angulo
-                # tras el HOME
+                # Relative initial joint positions in angle values after HOME
                 "angRef": [0, 90, -90, 0, 0],
-                # Longitudes de los links
+                # Link lengths
                 "longitudes":[364,220,220],
-                # d de la cinematica inversa
+                # d term of inverse kinematics
                 "link-offset":[364,0,0,0,145.125],
-                # a de la cinematica inversa
+                # a term of inverse kinematics
                 "link-length":[16,220,220,0,0],
-                # alpha de la cinematica inversa
+                # alpha term of inverse kinematics
                 "link-twist-angle":[pi/2,0,0,pi/2]
             },
-            #Variables relacionadas con la articulacion de la cadera
+            # Variables related to the base joint
             "cadera":{
-                # Velocidad de la articulacion en el HOME
+                # Joint speed during HOME
                 "h_vel": 20,
-                # Identificador del microinterruptor
+                # Limit switch identifier
                 "switch": 1,
-                # Tiempo de espera para realizar una peticion de lectura tras la escritura
+                # Delay before making a read request after a write
                 "write": 0.008,
-                # Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-                # una  peticion de lectura.
+                # Delay before starting the next message after a read request
                 "read" : 0.012
             },
-            #Variables relacionadas con la articulacion del hombro
+            # Variables related to the shoulder joint
             "hombro":{
-                # Velocidad de la articulacion en el HOME
+                # Joint speed during HOME
                 "h_vel": 10,
-                # Identificador del microinterruptor
+                # Limit switch identifier
                 "switch" : 2,
-                # Tiempo de espera para realizar una peticion de lectura tras la escritura
+                # Delay before making a read request after a write
                 "write": 0.008,
-                # Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-                # una  peticion de lectura.
+                # Delay before starting the next message after a read request
                 "read" : 0.012
             },
-            #Variables relacionadas con la articulacion del codo
+            # Variables related to the elbow joint
             "codo":{
-                # Velocidad de la articulacion en el HOME
+                # Joint speed during HOME
                 "h_vel": 20,
-                # Identificador del microinterruptor
+                # Limit switch identifier
                 "switch" : 4,
-                # Tiempo de espera para realizar una peticion de lectura tras la escritura
+                # Delay before making a read request after a write
                 "write": 0.008,
-                # Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-                # una  peticion de lectura.
+                # Delay before starting the next message after a read request
                 "read" : 0.012
             },
-            #Variables relacionadas con la articulacion de la muñeca
+            # Variables related to the wrist joint
             "wrist":{
-                # Velocidad de la articulacion en el HOME
+                # Joint speed during HOME
                 "h_vel": 10,
-                # Identificador del microinterruptor
+                # Roll limit switch identifier
                 "switch_roll" : 16,
-                # Identificador del microinterruptor
+                # Pitch limit switch identifier
                 "switch_pitch" : 8,
-                # Tiempo de espera para realizar una peticion de lectura tras la escritura
+                # Delay before making a read request after a write
                 "write": 0.008,
-                # Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-                # una  peticion de lectura.
+                # Delay before starting the next message after a read request
                 "read" : 0.013
             },
-            #Variables relacionadas con la articulacion de la pinza
+            # Variables related to the gripper joint
             "pinza":{
-                # Velocidad del movimiento. Valor constante
+                # Motion speed. Constant value
                 "vel" : 150,
-                # Tiempo de espera para realizar una peticion de lectura tras la escritura
+                # Delay before making a read request after a write
                 "write" : 0.008,
-                # Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-                # una  peticion de lectura.
+                # Delay before starting the next message after a read request
                 "read" : 0.019,
-                # Numero de iteraciones que dura el movimiento. Valor constante
+                # Number of iterations the movement lasts. Constant value
                 "ite_clamp" : 30
             }
         }

@@ -1,7 +1,7 @@
-# Autores: Jose Luis Pérez Pérez y Yolanda M. Gimeno Rodríguez
-# Fecha:
-# Título: Libreria de funciones
-# Universidad de La Laguna
+# Authors: Jose Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez
+# Date:
+# Title: Function library
+# University of La Laguna
 
 import usb.core
 import usb.util
@@ -15,43 +15,41 @@ import builtins
 from math import *
 from numpy import *
 
-#to do:
-#Mensajes de error a añadir:
-# Funcion check -> Linea 422
-# Funcion get_signo -> Linea 477
+# TODO:
+# Error messages to add:
+# Function check -> Line 422
+# Function get_signo -> Line 477
 
 
 #############################################################
-# Script donde estan todas las funciones que son compartidas
-# por los dos hilos
+# Script containing all functions shared by the two threads
 #############################################################
 
 
-# Identificacion de que se va a cerrar el programa
+# Program shutdown identifier
 EXIT		= 528
-# Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-# una  peticion de lectura.
+# Delay before starting the next message after a read request
 SLEEP = conf.readData("general","READ")
-# Identificacion de que no hubo errores durante la accion
+# Identifier used when no errors occurred during the action
 DONE = conf.readData("general", "DONE")
-# Minimo valor de la franja superior de valores posibles
+# Minimum value of the upper valid range
 LIM_SUP = conf.readData("general", "upLimit")
-# Maximo valor de la franja inferior de valores posibles
+# Maximum value of the lower valid range
 LIM_INF = conf.readData("general", "downLimit")
-# Posiciones de los datos de cada motor dentro del buffer
-# [cadera, hombro, codo, m1_muñeca, m2_muñeca, pinza]
+# Positions of each motor's data bytes within the buffer
+# [base, shoulder, elbow, wrist motor 1, wrist motor 2, gripper]
 VEC_POS = conf.readData("general", "VEC_POS")
-# Angulo de referencia, el punto inicial tras el home.
+# Reference angle, the starting point after home.
 angRef = conf.readData("general", "angRef")
 posRef = []
 
 
-#Rellena los mensajes con ceros para que tengan la longitud especificada
+# Fills the message with zeros so it reaches the specified length.
 #
-# msg -> Es el mensaje que debe ser rellenado
-# len_msg -> Es la longitud que msg debe alcanzar rellenandose con ceros
+# msg -> Message to be padded
+# len_msg -> Required final length of the message
 #
-##Ejemplo:
+## Example:
 # msg = 'FFFFFF'
 # len_msg = 8
 # return -> 'FFFFFF00'
@@ -62,20 +60,19 @@ def fill_msg(msg, len_msg):
 		msg += '0'
 	return msg
 
-# Da el formato apropiado al byte de secuencia para que siempre tenga longitud 2
+# Formats the sequence byte so it always has length 2.
 #
-# b_1 es un entero. Si su valor esta entre 0 y 16, su equivalente hex sera de un char
-# por lo que se le añade un 0 a la izquierda y se guarda el dato de interes del resultado
-# de la conversion. En caso contrario, se realiza la conversion y se guardan los datos de
-# interes
+# b_1 is an integer. If its value is between 0 and 16, the hexadecimal equivalent is
+# a single character, so a leading 0 is added and the relevant result value is kept.
+# Otherwise, the conversion is performed and the relevant data is kept.
 #
-# b_1   -> Byte de secuencia
+# b_1   -> Sequence byte
 #
-##Ejemplo:
+## Example:
 #
 # b_1 = 5
 # str(hex(b_1))= 'x/5'
-# dato de interes -> 5
+# relevant value -> 5
 # return '05'
 #
 def f_byte(b_1):
@@ -89,12 +86,11 @@ def f_byte(b_1):
 		msg = msg[2] + msg[3]
 		return msg
 
-# Incrementa el valor del byte de secuencia en 1 en cada iteracion.
+# Increments the sequence byte value by 1 on each iteration.
 #
-# Si el contador llega al maximo indicado en la variable almacenada en el conf.py,
-# el valor del contador se reinicia a 1
+# If the counter reaches the maximum value defined in conf.py, the counter resets to 1.
 #
-# b_1  -> Byte de secuencia
+# b_1  -> Sequence byte
 #
 def countByte1(b_1):
 	b_1 += 1
@@ -104,13 +100,12 @@ def countByte1(b_1):
 		b_1 = 1
 		return b_1
 
-# Realiza una media de los valores de los encoders entre el valor de la media
-# almacenada y la ultima lectura realizada
-# Si la diferencia entre la lectura y la media es mayor o igual al parametro,
-# la media pasa a valer lo que la lectura
+# Averages the encoder values between the stored average and the most recent reading.
+# If the difference between the reading and the average is greater than or equal to the
+# configured threshold, the average becomes the reading value.
 #
-# buffer -> Vector que almacena los datos de la ultima lectura
-# media  -> Vector de ajuste de las posiciones de los encoders
+# buffer -> Vector storing the most recent read data
+# media  -> Encoder position adjustment vector
 #
 def get_media(buffer, media):
 	vec_pos = conf.readData("general","VEC_POS")
@@ -127,20 +122,19 @@ def get_media(buffer, media):
 	return media
 
 
-# Extrae especificamente del buffer el valor de la lectura de los encoders
-# poniendo ordenadamente la informacion convertida a hexadecimal y añadiendo
-# el signo asociado a cada encoder.
+# Extracts the encoder reading values from the buffer in order, converting them to
+# hexadecimal and appending the sign associated with each encoder.
 #
-# El orden de los datos segun la articulacion es:
+# The data order by joint is:
 #
-#  				cadera-hombro-codo-muñeca1-muñeca2-pinza
+# 				base-shoulder-elbow-wrist1-wrist2-gripper
 #
-# Y la estructura de los datos de cada arituclacion es:
+# The structure of each joint's data is:
 #
-#							posicion-signo
+# 							position-sign
 #
-# buffer -> Vector que almacena los datos de la ultima lectura
-# media  -> Vector de ajuste de las posiciones de los encoders
+# buffer -> Vector storing the most recent read data
+# media  -> Encoder position adjustment vector
 #
 def get_encoder(buffer, media):
 	msg = ''
@@ -153,10 +147,9 @@ def get_encoder(buffer, media):
 	return msg
 
 
-# Libreria de mensajes mostrados en la interfaz grafica al finalizar acciones
-# sin ningun error
+# Message library shown in the graphical interface after successful actions.
 #
-# cont   -> Identificador del mensaje buscado
+# cont   -> Message identifier to look up
 #
 def info_text(cont):
 	switcher = {
@@ -186,10 +179,9 @@ def info_text(cont):
 	return switcher.get(cont,"Invalid request")
 
 
-# Libreria de mensajes mostrados en la interfaz grafica al producirse un error
-# durante la realizacion de un accion.
+# Message library shown in the graphical interface when an error occurs.
 #
-# cont   -> Identificador del mensaje buscado
+# cont   -> Message identifier to look up
 #
 def error_msg(cont):
 	switcher = {
@@ -210,17 +202,17 @@ def error_msg(cont):
 	return switcher.get(cont, "Invalid request")
 
 
-# Deteccion del microinterruptor. Busca el valor asociado al argumento art dentro
-# del argumento lectura_sw.
-# Codigo del microinterruptor activo segun la articulacion:
-#   Cadera: 1
-#   Hombro: 2
-#   Codo  : 4
-#   Pitch : 8
-#   Roll  : 16
+# Detects a limit switch. Looks up the value associated with the argument art within
+# the argument lectura_sw.
+# Active switch code by joint:
+#   Base   : 1
+#   Shoulder: 2
+#   Elbow  : 4
+#   Pitch  : 8
+#   Roll   : 16
 #
-# art          -> Identificacion del microinterruptor de interes
-# lectura_sw   -> Byte numero 6 del buffer con la informacion de los microinterruptores
+# art          -> Identifier of the switch of interest
+# lectura_sw   -> Byte 6 in the buffer containing limit-switch information
 #
 def get_switch(art, lectura_sw):
 	state = False
@@ -251,16 +243,15 @@ def get_switch(art, lectura_sw):
 	return state
 
 
-# Secuencia de inicio de movimiento de una articulacion
+# Start sequence for a joint movement.
 #
-# b_1       -> Byte de secuencia
-# media     -> Vector de ajuste de las posiciones de los encoders
-# epout     -> Objeto de endpoint de salida de la controladora
-# epin      -> Objeto de enpoint de entrada de la controladora
-# buffer    -> Vector que almacena los datos de la ultima lectura
-# write     -> Tiempo de espera para realizar una peticion de lectura tras la escritura
-# read      -> Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-#              una  peticion de lectura.
+# b_1       -> Sequence byte
+# media     -> Encoder position adjustment vector
+# epout     -> Controller output endpoint object
+# epin      -> Controller input endpoint object
+# buffer    -> Vector storing the most recent read data
+# write     -> Delay before making a read request after a write
+# read      -> Delay before starting the next message after a read request
 #
 def openMov(b_1, media, epout, epin, buffer, write, read):
 	cadena = libhex.mov_comm(2)
@@ -274,18 +265,17 @@ def openMov(b_1, media, epout, epin, buffer, write, read):
 
 	return [b_1, buffer, media]
 
-# Secuencia de finalizacion de movimiento de una articulacion
+# End sequence for a joint movement.
 #
-# b_1        -> Byte de secuencia
-# media      -> Vector de ajuste de las posiciones de los encoders
-# orden      -> Introduce la orden a seguir. Diferencia el sentido del movimiento
-# signal_out -> String con la informacion de los motores
-# epout      -> Objeto de endpoint de salida de la controladora
-# epin       -> Objeto de enpoint de entrada de la controladora
-# buffer     -> Vector que almacena los datos de la ultima lectura
-# write      -> Tiempo de espera para realizar una peticion de lectura tras la escritura
-# read       -> Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-#              una  peticion de lectura.
+# b_1        -> Sequence byte
+# media      -> Encoder position adjustment vector
+# orden      -> Movement order; it distinguishes direction of movement
+# signal_out -> String with motor information
+# epout      -> Controller output endpoint object
+# epin       -> Controller input endpoint object
+# buffer     -> Vector storing the most recent read data
+# write      -> Delay before making a read request after a write
+# read       -> Delay before starting the next message after a read request
 #
 def closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
 	cadena = libhex.mov_comm(3)
@@ -315,12 +305,12 @@ def closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
 
 	return [b_1, buffer, media]
 
-# Selección de la estructura estandar para el envio de posiciones a la controladora
-# segun la orden recibida
+# Selects the standard structure for sending positions to the controller according to
+# the received command.
 #
-# orden      -> Introduce la orden a seguir. Diferencia el sentido del movimiento
-# signal_out -> String con la informacion de los motores
-# msg        -> String del mensaje a enviar sin la estructura completa
+# orden      -> Movement order; it distinguishes direction of movement
+# signal_out -> String with motor information
+# msg        -> Message string without the completed structure
 #
 def getStruct(orden, signal_out, msg):
 	if orden == 4 or orden == 5:
@@ -342,6 +332,9 @@ def getStruct(orden, signal_out, msg):
 # en el mensaje de escritura. Se hace uso de esta función en los movimientos
 # de cadera, hombro y codo en el script libcomm.
 def builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=None):
+# Increments or decrements the encoder values in the write message according to the
+# order. This function is used in the base, shoulder, and elbow motions in libcomm.
+def builder(b_1, dato_in, i, ite, orden, vel, media, buffer):
 	cadena = libhex.mov_comm(1)
 	b_1 = countByte1(b_1)
 	cadena = cadena.format(f_byte(b_1))
@@ -358,10 +351,10 @@ def builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=None):
 
 	return [b_1, cadena, signal_out, dato_in]
 
-# Comprueba bytes de error del buffer
+# Checks the error bytes in the buffer.
 #
-# buffer  -> Vector que almacena los datos de la ultima lectura
-# pos     -> Indica que byte hay que estudiar
+# buffer  -> Vector storing the most recent read data
+# pos     -> Position of the byte to inspect
 #
 def getError(buffer, pos):
 	x = transform([buffer[pos],buffer[pos+1]])
@@ -370,54 +363,51 @@ def getError(buffer, pos):
 	return x
 
 
-# Funcion para estudiar los mensajes de escritura y lectura entre controladora
-# y programa
+# Function for inspecting write/read messages between the controller and the program.
 #
-# msg   -> Mensaje a exportar
-# setup -> Indicador del origen y destino del mensaje
+# msg   -> Message to export
+# setup -> Indicator of the source and destination of the message
 #
 def filter(msg, setup):
 	result = []
 	if(setup == "escritura"):
-		result.append("Escritura")
+		result.append("Write")
 		for i in range(64):
 			str_hex = msg[2*i] + msg[2*i+1]
 			result.append(int(str_hex, 16))
 	else:
-		result.append("Lectura")
+		result.append("Read")
 		for i in range(len(msg)):
 			result.append(msg[i])
 
 	print(result)
 
 
-#Da el formato final apropiado al mensaje antes de ser enviado
+# Applies the final message format before sending it.
 #
-# cadena    -> Mensaje previo formato
-# epout     -> Objeto de endpoint de salida de la controladora
-# epin      -> Objeto de enpoint de entrada de la controladora
-# buffer    -> Vector que almacena los datos de la ultima lectura
-# write      -> Tiempo de espera para realizar una peticion de lectura tras la escritura
-# read       -> Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-#              una  peticion de lectura.
+# cadena    -> Pre-format message string
+# epout     -> Controller output endpoint object
+# epin      -> Controller input endpoint object
+# buffer    -> Vector storing the most recent read data
+# write      -> Delay before making a read request after a write
+# read       -> Delay before starting the next message after a read request
 #
 def set_msg(cadena, epout, epin, buffer, write,read):
 	cadena = fill_msg(cadena, conf.readData('general','MSG_LEN'))
-	#filter(cadena, 'escritura')
+	#filter(cadena, 'write')
 	x = bytes.fromhex(cadena)
 	check(x, epout, epin, buffer, write,read)
-	#filter(buffer, 'lectura') # Se comunica con la controladora enviando y recibiendo mensajes.
-## NOTA: Los sleeps son vitales  para dar tiempo a la controladora a generar
-## la respuesta correcta
-# En caso de error, salta un mensaje avisando de ello
+	#filter(buffer, 'read') # Communicates with the controller by sending and receiving messages.
+## NOTE: The sleeps are essential to allow the controller time to generate the
+## correct response.
+# If an error occurs, a warning message is triggered.
 
-# x         -> Mensaje a enviar en el formato correcto
-# epout     -> Objeto de endpoint de salida de la controladora
-# epin      -> Objeto de enpoint de entrada de la controladora
-# buffer    -> Vector que almacena los datos de la ultima lectura
-# write     -> Tiempo de espera para realizar una peticion de lectura tras la escritura
-# read      -> Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-#              una  peticion de lectura.
+# x         -> Message to send in the correct format
+# epout     -> Controller output endpoint object
+# epin      -> Controller input endpoint object
+# buffer    -> Vector storing the most recent read data
+# write     -> Delay before making a read request after a write
+# read      -> Delay before starting the next message after a read request
 #
 def check(x,epout,epin,buffer, write,read):
 	try:
@@ -432,14 +422,14 @@ def check(x,epout,epin,buffer, write,read):
 		raise RuntimeError(f"USB read failed: {exc}") from exc
 
 
-# Realiza la transformacion de un par de datos int a un solo int equivalente
-## NOTA: Los datos de los encoders en el buffer están al revez y por pares, por
-## lo que hay que darles la vuelta antes de juntarlo y transformarlo en un solo entero
+# Converts a pair of int values into a single equivalent int.
+## NOTE: The encoder data is stored in reverse order and in pairs in the buffer, so it
+## must be reversed before combining it and converting it to a single integer.
 #
-# vect_int -> vector de dos posiciones de datos en entero
+# vect_int -> Vector containing two integer data values
 #
-##Ejemplo
-#Queremos el numero 1 como resultado, por lo que el vector debe contener:
+## Example
+# We want the number 1 as the result, so the vector should contain:
 # vect_int = [1, 0]
 # str_hex = 0001
 # return 1
@@ -450,11 +440,10 @@ def transform(vect_int):
 	return int(str_hex, 16)
 
 
-# Transforma un entero en su hexadecimal equivalente de longitud 4
-# Si el hexadecimal equivalente no tiene la longitud requerida, se le añaden
-# 0 a la derecha
+# Converts an integer into its 4-digit hexadecimal equivalent.
+# If the hex value does not have the required length, zeros are appended on the right.
 #
-# dato -> int a transformar en hexadecimal
+# dato -> Integer to convert to hexadecimal
 #
 def detrans(dato):
 	str = format(dato, '04x')
@@ -462,17 +451,18 @@ def detrans(dato):
 	return str_hex
 
 
-# Transforma el valor del signo asociado a cada encoder a su equivalente hexadecimal
-## NOTA: El valor int y hex de esta transformacion no guarda relacion matematica
-## ya que en la lectura el signo ocupa 2 bytes y en la escritura ocupa 4
+# Converts the sign value associated with each encoder to its hexadecimal equivalent.
+## NOTE: The int and hex values of this transformation do not share a direct mathematical
+## relationship because the sign occupies 2 bytes in the read value and 4 bytes in the
+## write value.
 #
-# pos    -> Posicion del buffer donde esta el dato buscado
-# buffer    -> Vector que almacena los datos de la ultima lectura
+# pos      -> Buffer position where the requested data is stored
+# buffer   -> Vector storing the most recent read data
 #
-# signo == '0000' -> Indica que el encoder esta en los valores minimos
-# o que ha llegado al maximo sumando
-# signo == 'FFFF' -> Indica que el encoder esta en los valores maximos
-# o que ha llegado al minimo restando
+# signo == '0000' -> Indicates the encoder is at the minimum value or reached the
+# maximum while adding
+# signo == 'FFFF' -> Indicates the encoder is at the maximum value or reached the
+# minimum while subtracting
 #
 def get_signo(pos, buffer):
 	if buffer[pos] == 128:
@@ -483,19 +473,18 @@ def get_signo(pos, buffer):
 		raise ValueError(f'Signo fuera de rango: {buffer[pos]}')
 
 
-# Funcion que realiza la operacion suma segun indiquen sus argumentos. Se devuelve
-# el resultado de la suma y su signo asociado en un mismo vector
+# Performs the addition operation according to the provided arguments. Returns the
+# result of the addition and its associated sign in a single vector.
 #
-# dato_in  -> Contine en dato_in[0] el valor que debe ser aumentado y en dato_in[1]
-#             el signo asociado a dicho valor
-# cont     -> Numero de veces que se ha realizado la suma
-# vel      -> Velocidad a la que se debe aumentar el valor sumado
-# ite      -> Numero de iteraciones que se van a realizar en total
+# dato_in  -> Contains the value to increase in dato_in[0] and the associated sign in
+#             dato_in[1]
+# cont     -> Number of times the addition has been performed
+# vel      -> Speed at which the summed value should increase
+# ite      -> Total number of iterations to be performed
 #
-## NOTA: En caso que el resultado de la suma supere el maximo de 65535, se considera
-## que el encoder ha llegado al maximo de su resolucion y el valor de la suma debe ser
-## la diferencia entre el resultado de la suma anterior y el maximo. Ademas,
-## el signo debe cambiarse
+## NOTE: If the result of the addition exceeds 65535, the encoder is treated as having
+## reached the maximum resolution and the summed value becomes the difference between the
+## previous added result and the maximum. In addition, the sign must change.
 #
 def suma(dato_in,cont,vel,ite,step=None):
 	dato_in[0] += incremento(cont,vel,ite) if step is None else step
@@ -505,19 +494,19 @@ def suma(dato_in,cont,vel,ite,step=None):
 	return dato_in
 
 
-# Funcion que realiza la operacion resta segun indiquen sus argumentos. Se devuelve
-# el resultado de la resta y su signo asociado en un mismo vector
+# Performs the subtraction operation according to the provided arguments. Returns the
+# result of the subtraction and its associated sign in a single vector.
 #
-# dato_in  -> Contine en dato_in[0] el valor que debe ser decrementado y en dato_in[1]
-#             el signo asociado a dicho valor
-# cont     -> Numero de veces que se ha realizado la resta
-# vel      -> Velocidad a la que se debe decrementar el valor restado
-# ite      -> Numero de iteraciones que se van a realizar en total
+# dato_in  -> Contains the value to decrease in dato_in[0] and the associated sign in
+#             dato_in[1]
+# cont     -> Number of times the subtraction has been performed
+# vel      -> Speed at which the subtracted value should decrease
+# ite      -> Total number of iterations to be performed
 #
-##NOTA: En caso que el resultado de la resta sea inferior al minimo de 0, se considera
-## que el encoder ha llegado a su minima resolucion y el valor de la resta debe ser la
-## diferencia entre el maximo y el resultado de la resta anterior. Ademas,
-## el signo debe cambiarse.
+## NOTE: If the result of the subtraction is lower than the minimum of 0, the encoder is
+## treated as having reached its minimum resolution and the subtraction result becomes the
+## difference between the maximum and the previous subtraction result. In addition, the
+## sign must change.
 ###
 def resta(dato_in,cont,vel,ite,step=None):
 	dato_in[0] -= incremento(cont,vel,ite) if step is None else step
@@ -527,21 +516,20 @@ def resta(dato_in,cont,vel,ite,step=None):
 	return dato_in
 
 
-# Realiza los incrementos/decrementos de las operaciones matematicas en funcion
-# de la velocidad y del numero de iteraciones que queden por realizarse.
+# Performs the increments/decrements for the math operations according to the speed and
+# remaining number of iterations.
 #
-# Si la operacion se ha realizado menos de doce veces, realizamos un incremento
-# acumulativo de 1/12 en cada iteacion
+# If the operation has been performed fewer than twelve times, a cumulative increase of
+# 1/12 is applied on each iteration.
 #
-# Si la operacion se ha realizado 12 veces y menos del maximo de iteraciones - 12,
-# se realizaran incrementos iguales a la velocidad establecida.
+# If the operation has been performed 12 times and is still below the maximum iterations - 12,
+# increments equal to the configured speed are applied.
 #
-# Si la operacion se va a realizar solo 12 veces mas, realizara una disminucion acumulativa
-# del incremento de 1/12 parte de la velocidad.
+# If only 12 iterations remain, the increment is reduced cumulatively to 1/12 of the speed.
 #
-# cont -> Numero de veces que se ha realizado la resta
-# vel  -> Velocidad a la que se debe decrementar el valor restado
-# ite  -> Numero de iteraciones que se van a realizar en total
+# cont -> Number of times the subtraction has been performed
+# vel  -> Speed at which the subtracted value should decrease
+# ite  -> Total number of iterations to be performed
 #
 def incremento(cont,vel,ite):
 	if cont < 12:
@@ -556,11 +544,11 @@ def incremento(cont,vel,ite):
 		inc = vel
 	return inc
 
-# Calculo de la cinematica inversa del Scorbot para 3 GDL
+# Inverse kinematics calculation for the 3-DOF Scorbot arm.
 #
-# x   -> Posicion en el eje x
-# y   -> Posicion en el eje y
-# z   -> Posicion en el eje z
+# x   -> Position along the x axis
+# y   -> Position along the y axis
+# z   -> Position along the z axis
 #
 def cIn(x,y,z):
 	l = conf.readData("general", "longitudes")
@@ -589,12 +577,12 @@ def cIn(x,y,z):
 	sol = array([q1,q2,q3]) * 180/pi
 	return sol
 
-# Matriz de transformacion para la cinematica inversa
+# Transformation matrix for inverse kinematics.
 #
-# d     -> Distancia en z entre centroides
-# tita  -> Angulo entre ejes z
-# a     -> Distancia en x entre centroides
-# alpha -> Angulo entre ejes x
+# d     -> Distance along z between centroids
+# tita  -> Angle between z axes
+# a     -> Distance along x between centroids
+# alpha -> Angle between x axes
 #
 def matrizT(d, tita, a, alfa):
 	T = array([[cos(tita), -cos(alfa)*sin(tita), sin(alfa)*sin(tita), a*cos(tita)],
@@ -603,21 +591,21 @@ def matrizT(d, tita, a, alfa):
 			   [0, 0, 0, 1]])
 	return T
 
-# Transformacion de un angulo a valores de encoder y viceversa segun la articulacion
-# Codigo de articulacion:
-#  Cadera: 1
-#  Hombro: 2
-#  Codo  : 3
+# Converts an angle to encoder values and vice versa according to the joint.
+# Joint codes:
+#  Base  : 1
+#  Shoulder: 2
+#  Elbow : 3
 #  Pitch : 4
 #  Roll  : 5
 #
-# Codigo de conversion:
-#  0 -> De Encoder a Angulo
-#  1 -> De Angulo a Encoder
+# Conversion codes:
+#  0 -> Encoder to angle
+#  1 -> Angle to encoder
 #
-# arti  -> Identificador de la articulacion
-# con   -> Identificador de la conversion
-# value -> Valor a transformar
+# arti  -> Joint identifier
+# con   -> Conversion identifier
+# value -> Value to transform
 #
 def conversorAngEnc(arti, conv, value):
 	if arti == 1:
@@ -658,11 +646,10 @@ def conversorAngEnc(arti, conv, value):
 
 	return round(x,2)
 
-# Calculo del numero de iteraciones en funcion de la velocidad y de la 'distancia'
-# que debe recorrerse.
+# Calculates the number of iterations based on the speed and the distance to travel.
 #
-# enc  -> 'Distancia a recorrer'
-# vel  -> Velocidad del movimiento
+# enc  -> Distance to travel
+# vel  -> Motion speed
 #
 def numIte(enc, vel):
 	ite = 0
@@ -696,13 +683,13 @@ def numIte(enc, vel):
 
 
 ###############################################################################
-# Funciones de la interfaz grafica
+# Graphical interface functions
 ###############################################################################
 
-# Lee el valor de los encoders y los muestra en la ventana gráfica
+# Reads the encoder values and displays them in the graphical window.
 #
-# self   -> Puntero a la interfaz gráfica
-# buffer -> Vector que almacena los datos de la ultima lectura
+# self   -> Pointer to the graphical interface
+# buffer -> Vector storing the most recent read data
 #
 def encoder(self, buffer):
 	e1 = str(transform([buffer[19],buffer[20]]))
@@ -725,10 +712,10 @@ def encoder(self, buffer):
 	self.label_16.repaint()
 
 
-# Deshabilita y habilita los botones según estén los motores ON u OFF
+# Enables or disables the buttons depending on whether the motors are ON or OFF.
 #
-# self   -> Puntero a la interfaz gráfica
-# state  -> Habilita o deshabilita los botones de la GUI
+# self   -> Pointer to the graphical interface
+# state  -> Enables or disables GUI buttons
 #
 def stateButtons(self, state):
 	self.hip_left.setEnabled(state)
@@ -746,11 +733,11 @@ def stateButtons(self, state):
 	self.pushbutton_home.setEnabled(state)
 	self.pushButton_go.setEnabled(state)
 
-#Escribe en la GIU el estado funcional del robot
+# Writes the robot's functional state to the GUI.
 #
-# self   -> Puntero a la interfaz gráfica
-# type   -> Indica si es un mensaje de error o un mensaje de final de ejecucion
-# msg    -> Mensaje a mostrar en la interfaz grafica
+# self   -> Pointer to the graphical interface
+# type   -> Indicates whether this is an error or end-of-execution message
+# msg    -> Message to display in the graphical interface
 #
 def send_textlabel(self, type, msg):
 	if type == 0:
@@ -761,12 +748,12 @@ def send_textlabel(self, type, msg):
 		self.mainLabel.repaint()
 
 
-# Envia el mensaje a la controladora de apagado o encendido de motores.
+# Sends the power-on or power-off motor command to the controller.
 #
-# self       -> Puntero a la interfaz gráfica
-# orden      -> Orden a ejecutar
-# cola_orden -> Cola con la orden a procesar y/o feedback del funcionamiento
-# buffer     -> Vector que almacena los datos de la ultima lectura
+# self       -> Pointer to the graphical interface
+# orden      -> Command to execute
+# cola_orden -> Queue with the command to process and/or feedback about runtime status
+# buffer     -> Vector storing the most recent read data
 def stateMotors(self, orden, cola_orden, buffer):
 	if orden == 16:
 		self.pushbutton_online.setStyleSheet("background-color: rgb(240,240,240)")
@@ -779,17 +766,17 @@ def stateMotors(self, orden, cola_orden, buffer):
 
 	write_data(self, orden, cola_orden, buffer)
 
-# Recoge las ordenes del usuario y las transmite al hilo 2 del programa.
+# Collects user commands and forwards them to thread 2 of the program.
 #
-# self       -> Puntero a la interfaz gráfica
-# orden      -> Orden a ejecutar
-# cola_orden -> Cola con la orden a procesar y/o feedback del funcionamiento
-# buffer     -> Vector que almacena los datos de la ultima lectura
+# self       -> Pointer to the graphical interface
+# orden      -> Command to execute
+# cola_orden -> Queue with the command to process and/or feedback about runtime status
+# buffer     -> Vector storing the most recent read data
 #
 def write_data(self,orden, cola_orden, buffer):
 	print(orden)
 	select = []
-	#Accion de la instruccion 'exit'
+	# Action for the 'exit' instruction
 	if orden == 'exit':
 		print("Closing connections")
 		logging.info(info_text(2))
@@ -805,7 +792,7 @@ def write_data(self,orden, cola_orden, buffer):
 		if select[0] != 19:
 			select.append(int(self.spinBox.value()))
 			select.append(int(self.spinBox_2.value()))
-	    #Accion para desactivar los motores
+	    # Action to disable the motors
 		if select[0] == 16:
 			cola_orden.put(select)
 			time.sleep(SLEEP)
@@ -813,7 +800,7 @@ def write_data(self,orden, cola_orden, buffer):
 			print("Motors off")
 			logging.info(info_text(3))
 			send_textlabel(self,0,3)
-	    #Accion para activar los motores
+	    # Action to enable the motors
 		elif select[0] == 17:
 			cola_orden.put(select)
 			time.sleep(SLEEP)
@@ -822,13 +809,13 @@ def write_data(self,orden, cola_orden, buffer):
 			logging.info(info_text(4))
 			send_textlabel(self,0,4)
 
-		# Accion para realizar el home
+		# Action to perform homing
 		elif select[0] == 18:
 			print("Homing...")
 			logging.info(info_text(5))
 			send_textlabel(self,0,5)
 
-		#Acción para realizar movimiento hacia un punto XYZ.
+		# Action to move to an XYZ point.
 		elif select[0] == 19:
 			posObj = []
 			posObj.append(self.lineEdit.text())
@@ -839,43 +826,43 @@ def write_data(self,orden, cola_orden, buffer):
 			select.append(int(self.spinBox.value()))
 			print(select)
 
-        #Acciona la cadera
+        # Moves the base
 		elif select[0] == 4 or select[0] == 5:
 			print("Moving base...")
 			logging.info(info_text(6))
 			send_textlabel(self,0,6)
 
-        #Acciona el hombro
+        # Moves the shoulder
 		elif select[0] == 6 or select[0] == 7:
 			print("Moving shoulder...")
 			logging.info(info_text(7))
 			send_textlabel(self, 0, 7)
 
-        #Acciona el codo
+        # Moves the elbow
 		elif select[0] == 8 or select[0] == 9:
 			print("Moving elbow...")
 			logging.info(info_text(8))
 			send_textlabel(self, 0, 8)
 
-        #Acciona el pivote de la muñeca
+        # Moves the wrist pitch joint
 		elif select[0] == 10 or select[0] == 11:
 			print("Moving wrist pitch...")
 			logging.info(info_text(9))
 			send_textlabel(self, 0 , 9)
 
-        #Acciona el giro de la muñeca
+        # Moves the wrist roll joint
 		elif select[0] == 12 or select[0] == 13:
 			print("Moving wrist roll...")
 			logging.info(info_text(10))
 			send_textlabel(self, 0, 10)
 
-        #Acciona la apertura de la pinza
+        # Opens the gripper
 		elif select[0] == 14:
 			print("Opening gripper...")
 			logging.info(info_text(11))
 			send_textlabel(self,0,11)
 
-		#Acciona el cierra de la pinza
+		# Closes the gripper
 		elif select[0] == 15:
 			print("Closing gripper...")
 			logging.info(info_text(12))
@@ -884,25 +871,25 @@ def write_data(self,orden, cola_orden, buffer):
 		control_error(self, select, cola_orden, buffer)
 
 
-# Control de errores durante la ejecucion y final de la orden recibida
-# Hace uso de la cola orden para enviar al hilo de comando la orden que tiene que
-# llevar a cabo. Posteriormente recibe en result si la operacion fue realizada
-# conformemente (DONE), y en caso contrario también recibe que tipo de error sucedió.
+# Error handling during execution and completion of the received command.
+# It uses the order queue to send the command to the command thread. It then reads
+# result to check whether the operation was completed successfully (DONE), or otherwise
+# which type of error occurred.
 #
-# self       -> Puntero a la interfaz gráfica
-# select     -> Vector con todos los parametros para ejecutar la orden
-# cola_orden -> Cola con la orden a procesar y/o feedback del funcionamiento
-# buffer     -> Vector que almacena los datos de la ultima lectura
+# self       -> Pointer to the graphical interface
+# select     -> Vector containing all parameters required to execute the order
+# cola_orden -> Queue with the command to process and/or feedback about runtime status
+# buffer     -> Vector storing the most recent read data
 #
 def control_error(self, select, cola_orden, buffer):
-	if select[0] != 16 and select[0] != 17: #Descarta acciones de habilitar o deshabilitar motores.
+	if select[0] != 16 and select[0] != 17: # Ignore motor enable/disable actions.
 		cola_orden.put(select)
 		time.sleep(SLEEP)
 		result = cola_orden.get()
 		if result == DONE and select[0] != 18 and select[0] != 19:
 			print("Motion complete")
 			print("")
-			logging.info(info_text(1)) #Movimiento finalizado
+			logging.info(info_text(1)) # Motion finished
 			send_textlabel(self,0,1)
 		elif result == DONE and select[0] == 18:
 			send_textlabel(self, 0 ,13)
@@ -914,7 +901,7 @@ def control_error(self, select, cola_orden, buffer):
 			joint(self, buffer)
 		elif result == DONE and select[0] == 19:
 			send_textlabel(self,0,1)
-			logging.info(info_text(1)) #Movimiento finalizado
+			logging.info(info_text(1)) # Motion finished
 			print("Updated joints after motion")
 			joint(self, buffer)
 
@@ -947,10 +934,10 @@ def control_error(self, select, cola_orden, buffer):
 	encoder(self, buffer)
 
 
-# Calcula los ángulos de las articulaciones y los muestra por la interfaz.
+# Calculates the joint angles and displays them in the interface.
 #
-# self       -> Puntero a la interfaz gráfica
-# buffer     -> Vector que almacena los datos de la ultima lectura
+# self       -> Pointer to the graphical interface
+# buffer     -> Vector storing the most recent read data
 #
 def joint(self, buffer):
 	global posRef

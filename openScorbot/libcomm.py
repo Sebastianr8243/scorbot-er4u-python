@@ -1,7 +1,7 @@
-# Autores: Jose Luis Pérez Pérez y Yolanda M. Gimeno Rodríguez
-# Fecha:
-# Título: Script con el hilo de ejecución de ordenes.
-# Universidad de La Laguna
+# Authors: Jose Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez
+# Date:
+# Title: Script with the command execution thread.
+# University of La Laguna
 
 import queue
 import libsync
@@ -16,28 +16,27 @@ import logging
 import motion_profile
 
 #################################################################################
-# Script encargado de la creación de los mensajes de movimientos. Se separa
-# por articulaciones ya que cada una tiene una estructura de mensajes diferentes.
+# Script responsible for building motion messages. It is split by joints because
+# each joint has a different message structure.
 #################################################################################
 
-# Identificacion de que se va a cerrar el programa
+# Identifier for the program shutdown request
 EXIT 	  = conf.readData("general","EXIT")
-# Posiciones de los datos de cada motor dentro del buffer
-#   [cadera, hombro, codo, m1_muñeca, m2_muñeca, pinza]
+# Positions of each motor's data bytes within the buffer
+#   [base, shoulder, elbow, wrist motor 1, wrist motor 2, gripper]
 VEC_POS   = conf.readData("general","VEC_POS")
-# Posiciones de los bytes de error de cada motor dentro del buffer
-#   [cadera, hombro, codo, m1_muñeca, m2_muñeca, pinza]
+# Positions of each motor's error bytes within the buffer
+#   [base, shoulder, elbow, wrist motor 1, wrist motor 2, gripper]
 VEC_ERROR = conf.readData("general", "VEC_ERROR")
-# Valor maximo del byte de secuencia
+# Maximum valid sequence byte value
 MAX_COUNT = conf.readData("general","MAX_COUNT")
-# Identificacion de que no hubo errores durante la accion
+# Identifier for no errors during the action
 DONE 	  = conf.readData("general","DONE")
-# Tiempo de espera para realizar una peticion de lectura tras la escritura
+# Delay before making a read request after a write
 WRITE	  = conf.readData("general","WRITE")
-# Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-# una  peticion de lectura.
+# Delay before starting the next message after a read request
 READ	  = conf.readData("general","READ")
-# Error maximo aceptable en los bytes de error
+# Maximum acceptable error in the error bytes
 MAX_ERROR = conf.readData("general", "MAX_ERROR")
 
 #------------------------------ARGUMENTOS USADOS-------------------------------#

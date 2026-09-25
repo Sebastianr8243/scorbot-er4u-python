@@ -1,10 +1,9 @@
 ##############################################
-# Libreria con estructuras estandar de los mensajes de comunicacion
-# con la controladora. El acceso al mensaje especifico en cada libreria
-# se realiza mediante un selector numerico
+# Library with standard controller communication message structures.
+# A specific message is selected numerically in each helper module.
 ##############################################
 
-###Mensajes para la primera parte de la sincronizacion inicial
+### Messages for the first stage of the initial synchronization
 ###
 def get_msg1(x):
 	switcher = {
@@ -15,7 +14,7 @@ def get_msg1(x):
 	}
 	return switcher.get(x, "Invalid request")
 
-###Mensajes para la segunda parte de la sincronizacion inicial
+### Messages for the second stage of the initial synchronization
 ###
 def get_msg2(select):
 	switcher = {
@@ -106,7 +105,7 @@ def get_msg2(select):
 		}
 	return switcher.get(select, "Invalid request")
 
-###Mensajes para la tercera parte de la sincronizacion inicial
+### Messages for the third stage of the initial synchronization
 ###
 def motorson(x):
 	switcher = {
@@ -120,7 +119,7 @@ def motorson(x):
 	}
 	return switcher.get(x, "Invalid request")
 
-###Mensajes para realizar la desconexion de los motores
+### Messages used to disconnect the motors
 ###
 def motorsoff(x):
 	switcher = {
@@ -153,8 +152,8 @@ def motorsoff(x):
 	}
 	return switcher.get(x, "Invalid request")
 
-###Mensajes para desconectar la controladora del programa y cerrar la
-###sincronizacion
+### Messages used to disconnect the controller from the program and close the
+### synchronization
 ###
 def get_scorbotoff(x):
 	switcher = {
@@ -172,7 +171,7 @@ def get_scorbotoff(x):
 	}
 	return switcher.get(x, "Invalid request")
 
-###Mensajes para realizar los movimientos de la pinza
+### Messages used for gripper movements
 ###
 def clamp(cont):
 	switcher = {
@@ -184,7 +183,7 @@ def clamp(cont):
 		}
 	return switcher.get(cont, "Invalid request")
 
-###Mensajes que se aplican en distintos puntos del codigo y que son comunes
+### Messages used in different parts of the code and shared across modules
 ###
 def mov_comm(cont):
 	switcher = {

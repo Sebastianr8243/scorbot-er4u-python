@@ -1,17 +1,16 @@
-# Autores: Jose Luis Pérez Pérez y Yolanda M. Gimeno Rodríguez
-# Fecha:
-# Título: Script Main del Open Scorbot.
-# Universidad de La Laguna
+# Authors: Jose Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez
+# Date:
+# Title: Main script for Open Scorbot.
+# University of La Laguna
 
 import gui
 
 ###############################################################################
-# Se inicializa el programa. En este script se creara el objeto que permitira
-# hacer el handle del dispositivo. Se iniciaran los 2 hilos en los que
-# se divide el funcionamiento del programa.
+# The program is initialized here. This script creates the object used to handle
+# the device and starts the two threads that divide the runtime behavior.
 ###############################################################################
 
 
-# Inicia la conexion y la interfaz gráfica
+# Start the connection and the graphical interface
 if __name__ == "__main__":
     gui.main()
