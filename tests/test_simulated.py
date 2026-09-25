@@ -239,7 +239,11 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         self.assertEqual(review.returncode, 0, review.stdout + review.stderr)
         self.assertIn("SIMULATED", review.stdout)
 
-        idle_session, bench_session = sessions_in(self.logs / "sessions")
+        # Session folders created in the same second sort by their random suffix,
+        # so find each one through the name its JSONL session row recorded.
+        idle_session = self.logs / "sessions" / idle_rows[0]["mcap_session"]
+        bench_session = self.logs / "sessions" / bench_rows[0]["mcap_session"]
+        self.assertEqual(len(sessions_in(self.logs / "sessions")), 2)
         for path in (idle_session, bench_session):
             session = load_session(path)
             self.assertEqual(session.errors, [], [f.message for f in session.errors])
