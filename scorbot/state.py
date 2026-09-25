@@ -23,6 +23,7 @@ class RobotState:
     host_monotonic_ns: int | None = None
     encoder_sign_bytes: dict[str, int] | None = None
     signed_encoder_counts: dict[str, int] | None = None
+    simulated: bool = False
 
 
 def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,

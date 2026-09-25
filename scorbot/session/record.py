@@ -129,6 +129,14 @@ class SessionWriter:
             payload = asdict(state)
         else:
             payload = dict(vars(state))
+        flag = payload.get("simulated")
+        if flag is not None:
+            session_is_simulated = self.metadata["data_source"] == "simulated"
+            if bool(flag) != session_is_simulated:
+                raise SessionError(
+                    f"Refusing a {'simulated' if flag else 'real'} robot state in a "
+                    f"{self.metadata['data_source']!r} session; real and simulated data "
+                    "must never share a session")
         if raw_packet is not None:
             payload["raw_packet_hex"] = bytes(raw_packet).hex()
         if observed_monotonic_ns is None:
@@ -310,6 +318,38 @@ class SessionWriter:
                 topic=topic, message_encoding="json",
                 schema_id=self._schema_ids[schema_name])
         return self._channel_ids[topic]
+
+
+class BestEffortRecorder:
+    """Wrap a SessionWriter so a recording failure never interrupts the caller.
+
+    Lab scripts treat the MCAP session as secondary evidence: after the robot
+    has connected, a disk or recorder error must not skip the primary JSONL
+    record, the operator prompts, or the motor-disable step. The first failure
+    prints one warning; later ``log_*`` calls are dropped and return None.
+    """
+
+    def __init__(self, writer: SessionWriter, warn=print):
+        self._writer = writer
+        self._warn = warn
+        self.failure: Exception | None = None
+
+    def __getattr__(self, name):
+        attribute = getattr(self._writer, name)
+        if not name.startswith("log_"):
+            return attribute
+
+        def call(*args, **kwargs):
+            if self.failure is not None:
+                return None
+            try:
+                return attribute(*args, **kwargs)
+            except Exception as error:
+                self.failure = error
+                self._warn(f"WARNING: MCAP recording stopped ({error}). The JSONL record "
+                           "and the procedure continue.")
+                return None
+        return call
 
 
 def _clock_info(started_monotonic_ns: int, started_epoch_ns: int) -> dict:

@@ -65,6 +65,7 @@ def review_idle(path):
             ranges[joint] = max(values) - min(values)
     return {
         "file": str(path), "kind": "idle", "robot_id": session.get("robot_id") if session else None,
+        "data_source": (session or {}).get("data_source", "real"),
         "motion_source_sha256": session.get("motion_source_sha256") if session else None,
         "samples": len(samples), "count_range_at_rest": ranges,
         "problems": sorted(set(problems)),
@@ -113,6 +114,7 @@ def review_bench(path):
     session = events.get("session", {})
     return {
         "file": str(path), "kind": "bench", "robot_id": session.get("robot_id"),
+        "data_source": session.get("data_source", "real"),
         "motion_source_sha256": session.get("motion_source_sha256"),
         "joint": session.get("joint"), "requested_delta_deg": session.get("requested_delta_deg"),
         "count_deltas": deltas, "home_observation": events.get("home_observation"),
@@ -136,7 +138,16 @@ def main():
     if len(fingerprints) != 1 or None in fingerprints:
         for report in reports:
             report["problems"].append("motion source fingerprint differs or is missing")
+    sources = {report["data_source"] for report in reports}
+    if len(sources) != 1:
+        for report in reports:
+            report["problems"].append("real and simulated logs mixed in one review")
+    banner = "SIMULATED DATA: rehearsal logs, not evidence from the physical arm."
+    if "simulated" in sources:
+        print(banner)
     print(json.dumps(reports, indent=2))
+    if "simulated" in sources:
+        print(banner)  # repeated so it is still on screen after the long report
     return 1 if any(report["problems"] for report in reports) else 0
 
 

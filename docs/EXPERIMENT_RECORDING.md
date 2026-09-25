@@ -102,6 +102,62 @@ emergency stop stays within reach.
 | `log_decision(choice, refers_to_seq=None, reason=None)` | `/operator/decision` |
 | `log_fault(message)`, `log_note(text)` | `/session/fault`, `/session/note` |
 
+## Lab scripts record automatically
+
+`examples/record_raw_state.py` and `examples/bench_joint.py` write their usual
+JSONL files, which `review_lab_logs.py` reads, and they also write an MCAP
+session to `<output folder>\sessions\`. Pass `--session-root` to choose a
+different folder. The recorder opens before the robot connects, so a problem
+with the recording stops the run before the motors are powered.
+
+## The simulated robot
+
+`SimulatedScorbot` is a drop-in `Scorbot` that talks to a fake controller in
+memory instead of USB:
+
+```python
+from scorbot import SimulatedScorbot
+
+with SimulatedScorbot() as robot:
+    robot.enable()
+    robot.home(start_position_confirmed=True)
+    state = robot.jog_joint("base", 1.0)
+    print(state.simulated, state.signed_encoder_counts["base"])  # True 142
+```
+
+**Same code as the real robot.** Every command still goes through the real
+`Scorbot` methods: argument checks, the enable/home gates, wrist blocking,
+timeouts, and the fault latch. Only the USB connection is replaced, so
+anything you build against it runs the same way on the arm.
+
+**Always labelled.** Every state has `simulated=True`, and every event-log row
+has `"simulated": true`. A `SessionWriter` refuses to put simulated states in
+a `real` session, or real states in a `simulated` one.
+
+**Rehearsing lab scripts.** Add `--simulate` to `record_raw_state.py` or
+`bench_joint.py` to rehearse the G1 visit at a desk. See the
+[G1 checklist](G1_LAB_CHECKLIST.md).
+
+**Testing failures.** Arm a one-shot fault with `robot.sim.inject(kind)`:
+
+| Kind | What happens |
+|---|---|
+| `timeout` | The next command never answers. The session faults after `command_timeout`. |
+| `controller_error` | The next command returns error code 3. |
+| `worker_crash` | The command worker crashes and stops. |
+| `stale_feedback` | The next state read gets no fresh packet. |
+| `corrupt_packet` | The next packet has an invalid encoder sign byte. |
+
+After any of these, the session is faulted and every further motion is
+refused, just as on hardware. `robot.sim.commands` lists every command the
+fake controller received.
+
+**What it does not model.** A jog changes the encoder counts by exactly the
+legacy plan, and homing sets every count to 0, or to `home_counts` if you set
+it. It has no real timing, no physics, no backlash or gravity, no collisions,
+and no real home-switch behaviour. Passing in simulation proves the
+**software** logic. It says nothing about the physical arm.
+
 ## Two timestamps: logged and observed
 
 Every event has a `_rec` block, taken from the recording process's

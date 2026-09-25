@@ -16,6 +16,13 @@ Roles. Write names, and don't let one person hold two roles:
 - [ ] On the robot PC, or on a laptop with the same setup, these pass:
   - `.\.venv\Scripts\python.exe -m unittest discover -s tests`
   - `.\.venv\Scripts\python.exe examples\preview_jog.py --joint base --delta 1`, which is offline and prints the plan only
+- [ ] **Rehearse the whole visit at a desk with the simulated robot.** Use a rehearsal folder, **not** `logs\`, so rehearsal files never mix with lab evidence:
+  ```powershell
+  .\.venv\Scripts\python.exe .\examples\record_raw_state.py --output .\rehearsal\idle-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --pose-note rehearsal --seconds 2 --simulate --acknowledge-connect-handshake
+  .\.venv\Scripts\python.exe .\examples\bench_joint.py --output .\rehearsal\base-first-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --start-pose-note rehearsal --joint base --delta 1 --simulate --acknowledge-supervised-motion
+  .\.venv\Scripts\python.exe .\scripts\review_lab_logs.py --idle .\rehearsal\idle-01.jsonl --bench .\rehearsal\base-first-01.jsonl
+  ```
+  Everyone practises the prompts (`HOME`, `HOME_OK`, `MOVE`) and the review. Every output says **SIMULATED**.
 - [ ] Commit to record: `git rev-parse HEAD` → ______________________
 - [ ] Printed: this checklist, one observation sheet per planned run, and a photo or sketch of the ScorBot-software home start pose.
 
@@ -62,7 +69,7 @@ After a stop: press the physical stop. Don't retry the command in this session. 
 
 ## G. Before leaving the lab
 
-- [ ] Copy every `logs\*.jsonl` **and** its `*.controller.jsonl` companion, the photos, and the signed sheets to a second location.
+- [ ] Copy the whole `logs\` folder to a second location. It holds every `*.jsonl`, its `*.controller.jsonl` companion, and `logs\sessions\` (one MCAP recording per run, each with a `notes.md`). Copy the photos and the signed sheets too.
 - [ ] Record whether G1 passed. If any run ended on the emergency stop or with a fault, G1 has **not** passed.
 
 ---
