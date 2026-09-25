@@ -1,7 +1,7 @@
-# Autores: Jose Luis Pérez Pérez y Yolanda M. Gimeno Rodríguez
-# Fecha:
-# Título: Generacion de trayectorias
-# Universidad de La Laguna
+# Authors: Jose Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez
+# Date:
+# Title: Trajectory generation
+# University of La Laguna
 
 import libdef
 import conf
@@ -10,38 +10,36 @@ import log
 import logging
 
 ################################################################################
-# Script que realiza movimientos complejos del robot generando trayectorias
-# punto a punto con movimiento simultáneo de los ejes
+# Script that performs complex robot motions by generating point-to-point
+# trajectories with simultaneous joint motion.
 ################################################################################
 
-# Tiempo de espera para realizar una peticion de lectura tras la escritura
+# Delay before making a read request after a write
 WRITE = conf.readData("cadera", "write")
-# Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-# una  peticion de lectura.
+# Delay before starting the next message after a read request
 READ = conf.readData("cadera", "read")
-# Minimo valor de la franja superior de valores posibles
+# Minimum value of the upper valid range
 UP_LIMIT = conf.readData("general", "upLimit")
-# Maximo valor de la franja inferior de valores posibles
+# Maximum value of the lower valid range
 DOWN_LIMIT = conf.readData("general", "downLimit")
 
 
-# Funcion con la que se pasa de un punto [x,y,z] a los valores de encoder equivalentes
-# para alcanzar dicho punto. Funciona como manager de la generacion y ejecucion de
-# trayectorias
+# Function that converts a point [x,y,z] into the equivalent encoder values needed
+# to reach it. It acts as the manager for trajectory generation and execution.
 #
-# posObj      -> Vector con los valores x,y,z del punto objetivo
-# vel         -> Velocidad a la que realiza el movimiento
-# posRef      -> Posicion en valores de encoder de la ultima posicion alcanzada
-# b_1         -> Byte de secuencia
-# epout       -> Objeto de endpoint de salida de la controladora
-# epin        -> Objeto de enpoint de entrada de la controladora
-# buffer      -> Vector que almacena los datos de la ultima lectura
-# cola_read   -> Cola con el vector media de la posición de encoders
-# cola_orden  -> Cola con la orden a procesar y/o feedback del funcionamiento
+# posObj      -> Vector with the target point values x,y,z
+# vel         -> Speed at which the movement is performed
+# posRef      -> Position in encoder values of the last reached point
+# b_1         -> Sequence byte
+# epout       -> Controller output endpoint object
+# epin        -> Controller input endpoint object
+# buffer      -> Vector storing the most recent read data
+# cola_read   -> Queue with the averaged encoder position vector
+# cola_orden  -> Queue with the command to process and/or runtime feedback
 #
 def controlXYZ(posObj, vel, posRef, b_1, epout, epin, buffer, cola_read, cola_orden):
     block = False
-    dirRef = False #True, es incremento de ang y False es drecemento de angulo
+    dirRef = False # True means angle increase and False means angle decrease
     media = cola_read.get()
     sentido = []
     ite = []
@@ -49,12 +47,12 @@ def controlXYZ(posObj, vel, posRef, b_1, epout, epin, buffer, cola_read, cola_or
     try:
         [x,y,z] = [int(posObj[0]),int(posObj[1]),int(posObj[2])]
     except TypeError:
-        cola_orden.put(9)  #Error al introducir casillas vacias
+        cola_orden.put(9)  # Error when empty fields are submitted
         cola_read.put(media)
         logging.error(libdef.error_msg(9), exc_info = True)
         return [b_1, posRef]
     except ValueError:
-        cola_orden.put(10) #Error al introducir valores no enteros
+        cola_orden.put(10) # Error when non-integer values are entered
         cola_read.put(media)
         logging.error(libdef.error_msg(10), exc_info = True)
         return [b_1, posRef]
@@ -85,7 +83,7 @@ def controlXYZ(posObj, vel, posRef, b_1, epout, epin, buffer, cola_read, cola_or
         if posObj[i] == -1:
             block = True
             cola_orden.put(4)
-            logging.warning(libdef.error_msg(4)) #Angulo incalculable
+            logging.warning(libdef.error_msg(4)) # Uncalculable angle
             break
 
         posInc = posRef[i]
@@ -161,17 +159,17 @@ def controlXYZ(posObj, vel, posRef, b_1, epout, epin, buffer, cola_read, cola_or
     return [b_1, posRef]
 
 
-# Funcion para construir el mensaje de movimiento compuesto. Sigue la misma logica
-# que las funciones de movimiento simple
+# Function used to build the compound motion message. It follows the same logic as
+# the simple movement functions.
 #
-# b_1         -> Byte de secuencia
-# ite         -> Numero de veces que debe realizarse el incremento de posiciones de encoder
-# sentido     -> Direccion de giro de la articulacion
-# vel         -> Velocidad a la que realiza el movimiento
-# buffer      -> Vector que almacena los datos de la ultima lectura
-# media       -> Vector de ajuste de las posiciones de los encoders
-# epout       -> Objeto de endpoint de salida de la controladora
-# epin        -> Objeto de enpoint de entrada de la controladora
+# b_1         -> Sequence byte
+# ite         -> Number of times the encoder position increment must be applied
+# sentido     -> Rotation direction of the joint
+# vel         -> Speed at which the movement is performed
+# buffer      -> Vector storing the most recent read data
+# media       -> Encoder position adjustment vector
+# epout       -> Controller output endpoint object
+# epin        -> Controller input endpoint object
 #
 def move(b_1, ite, sentido, vel, buffer, media, epout, epin):
     [b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, WRITE, READ)
@@ -210,7 +208,7 @@ def move(b_1, ite, sentido, vel, buffer, media, epout, epin):
         cadena = cadena.format(libdef.f_byte(b_1))
         cadena = libdef.fill_msg(cadena, 24)
         msg = libdef.get_encoder(buffer, media)
-        cadena += signal_out + msg[24:len(msg)] #cambia segun articulacion
+        cadena += signal_out + msg[24:len(msg)] # varies by joint
         libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
         media = libdef.get_media(buffer, media)
         cont += 1

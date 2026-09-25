@@ -1,7 +1,7 @@
-# Autores: Jose Luis Pérez Pérez y Yolanda M. Gimeno Rodríguez
-# Fecha: 08/07/2020
-# Título: Script Main del Open Scorbot.
-# Universidad de La Laguna
+# Authors: Jose Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez
+# Date: 08/07/2020
+# Title: Main script for Open Scorbot.
+# University of La Laguna
 
 import usb.core
 import usb.util
@@ -17,19 +17,19 @@ import conf
 import sys
 from PyQt5 import QtWidgets, uic, QtGui
 
-# Por defecto el programa entrará en estado online
+# By default the program starts in online mode
 online = True
 
-# Cola para almacenar el byte de sincronizacion
+# Queue to store the synchronization byte
 cola_sync = queue.Queue()
-# Cola para indicar ordenes pendientes de realizarse
+# Queue to indicate pending orders to be executed
 cola_orden = queue.Queue()
-# Cola con el vector de la media de lecturas
+# Queue with the averaged encoder read vector
 cola_read = queue.Queue()
 
 buffer = 0
 
-# Lanza la interfaz gráfica y la conexion
+# Launch the graphical interface and the connection
 def main():
 	set_conection()
 	app = QtWidgets.QApplication(sys.argv)
@@ -40,43 +40,43 @@ def main():
 def set_conection():
 	global online
 	#########################################################################
-	# Buscamos el brazo con los identificadores del dispositivo
+	# Look up the arm using the device identifiers
 	try:
 		dev = usb.core.find(idVendor = 0x09f1, idProduct = 0x0007)
 	except usb.core.USBError:
 		print("error dev")
 		online = False
 
-	# Si no esta conectado, salimos del programa
+	# If it is not connected, exit the program
 	if not dev or online == False:
 		print("Device not found")
-		logging.warning(libdef.error_msg(12)) #Dispositivo no encontrado
+		logging.warning(libdef.error_msg(12)) # Device not found
 		online = False
 	else:
 		print("Device found")
-		logging.debug(libdef.info_text(15)) #Dispositivo encontrado
-		# Guardamos los datos de la interfaz 0 del dispositivo 0
+		logging.debug(libdef.info_text(15)) # Device found
+		# Save the interface 0 configuration of device 0
 		i = dev[0].interfaces()[0].bInterfaceNumber
 
-		# Reseteamos para tomar el control
+		# Reset to take control
 		try:
 			dev.reset()
 		except usb.core.USBError:
 			print("entity not found")
-			logging.warning(libdef.error_msg(13)) #Entity not found
+			logging.warning(libdef.error_msg(13)) # Entity not found
 			online = False
 			return -1
 
-		# Desacoplamos el brazo del kernel
+		# Detach the arm from the kernel
 		if dev.is_kernel_driver_active(i):
 		    dev.detach_kernel_driver(i)
 
-		# Cogemos los datos de la configuracion
+		# Read the configuration data
 		cfg = dev.get_active_configuration()
-		# Cogemos los datos de los endpoints de la configuracion
+		# Read the endpoint data from the configuration
 		intf = cfg[(0,0)]
 
-		# Buscamos el ENDPOINT de entrada en la configuracion
+		# Search for the INPUT ENDPOINT in the configuration
 		epin = usb.util.find_descriptor(
 		    intf,
 		    custom_match = \
@@ -84,54 +84,49 @@ def set_conection():
 		        usb.util.endpoint_direction(e.bEndpointAddress) == \
 		        usb.util.ENDPOINT_IN)
 
-		# Buscamos el ENDPOINT de salida en la configuracion
+		# Search for the OUTPUT ENDPOINT in the configuration
 		epout = usb.util.find_descriptor(
 				    intf,
 				    custom_match = \
-				    lambda e: \
-				        usb.util.endpoint_direction(e.bEndpointAddress) == \
-				        usb.util.ENDPOINT_OUT)
+				        lambda e: \
+				            usb.util.endpoint_direction(e.bEndpointAddress) == \
+				            usb.util.ENDPOINT_OUT)
 
-		# Creamos el buffer para almacenar las respuestas con el tamaño que permite
-		# el EP de entrada
+		# Create the buffer to store replies using the size allowed by the input EP
 		global buffer
 
 		buffer= usb.util.create_buffer(epin.wMaxPacketSize)
 
-		# Cargamos el archivo json que contiene la configuracio propia para cada
-		# articulacion y demas aspectos que intervienen en el programa
+		# Load the JSON file containing the joint-specific configuration and other
+		# runtime details used by the program
 		conf.setup()
 
-		# Lanzamos los primeros mensajes e iniciamos el valor del byte de secuencia
-		# y el vector que continue el valor media de la posicion de cada encoder
+		# Send the initial messages and initialize the sequence byte and the average
+		# position vector for the encoders
 		print('Connecting...')
 		logging.info(libdef.info_text(16))
 		ans = libsync.msg_start(epout,epin,buffer)
 		print('Connected')
 		logging.info(libdef.info_text(17))
 
-		# Separamos el valor del byte de secuencia
+		# Extract the sequence byte value
 		b_1 = ans[0]
 
-		# Separamos el vector con los valores de la media
+		# Extract the average value vector
 		media = ans[1]
 
-		# Introducimos el byte de secuencia b_1 en la cola de syncro
-		# y la media en la cola read
+		# Put the sequence byte into the sync queue and the average value into read queue
 		cola_sync.put(b_1)
 		cola_read.put(media)
 
-		# Hilo principal de sincronizacion
+		# Main synchronization thread
 		h1	= threading.Thread(target = libsync.syncro, args = [cola_sync, cola_read, epout, epin, buffer])
-		# Hilo de ejecucion de ordenes
+		# Command execution thread
 		h2	= threading.Thread(target = libcomm.execute, args = [cola_sync, cola_orden, cola_read, epout, epin, buffer])
 
-		# Iniciacion de los hilos
-		h1.start()
-		h2.start()
-
-# Clase que define la ventana gráfica del programa.
-# Realizado en PyQt5
+		# Start the threads
+# Class defining the graphical window of the program.
+# Built with PyQt5
 class MainWindow(QtWidgets.QMainWindow):
 	def __init__(self, *args, **kwargs):
 		super(MainWindow, self).__init__(*args,**kwargs)
@@ -156,18 +151,18 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.pushbutton_offline.clicked.connect(lambda:libdef.stateMotors(self, 16, cola_orden, buffer))
 		check_conection(self)
 
-# Revisa que la conexion ha sido realizada con exito. En caso contrario,
-# desactiva las diferentes funciones de la interfaz excepto el botón de exit.
+# Verify that the connection was successful. If not, disable the interface actions
+# except for the exit button.
 def check_conection(self):
 	if online == False:
 		self.pushbutton_online.setEnabled(False)
 		self.pushbutton_offline.setEnabled(False)
 		self.pushbutton_online.setStyleSheet("background-color: rgb(240,240,240)")
-		# Menasaje de aviso del error.
+		# Warning message for the error.
 		libdef.send_textlabel(self, 1, 12)
 		libdef.stateButtons(self,False)
 
-# Cierra la ventana gráfica
+# Close the graphical window
 def exit(self):
 	QtWidgets.QApplication.quit()
 	libdef.write_data(self,'exit', cola_orden, buffer)

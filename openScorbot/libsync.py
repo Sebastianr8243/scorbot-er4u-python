@@ -1,7 +1,7 @@
-# Autores: Jose Luis Pérez Pérez y Yolanda M. Gimeno Rodríguez
-# Fecha:
-# Título: Script de linea de sincronismo
-# Universidad de La Laguna
+# Authors: Jose Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez
+# Date:
+# Title: Synchronization line script
+# University of La Laguna
 
 import time
 import libcomm
@@ -12,31 +12,29 @@ import log
 import logging
 
 ###############################################################################
-# Script que realiza la conexion inicial entre la aplicación y la controladora
-# y mantiene la sincronización entre ambos durante el uso de la aplicacion.
+# Script that performs the initial connection between the application and the
+# controller and maintains synchronization during program use.
 ###############################################################################
 
-# Tiempo de espera para realizar una peticion de lectura tras la escritura
+# Delay before making a read request after a write
 WRITE = conf.readData("general","WRITE")
 
-# Tiempo de espera para empezar a generar el siguiente mensaje a enviar tras
-# una  peticion de lectura.
+# Delay before starting the next message after a read request
 READ = conf.readData("general","READ")
 
 # Bound each initial controller acknowledgment wait.
 HANDSHAKE_WAIT_TIMEOUT_S = 30.0
 
-# Define hilo principal de sincronizacion entre la controladora y el programa.
-# Envía mensajes de estado de reposo a la controladora.
-# Se mantiene una comunicacion en tiempo real con el estado de los encoder
-# de cada motor. Se actualiza el valor del byte de secuencia y del vector
-# media
+# Main synchronization thread between the controller and the program.
+# It sends idle-state messages to the controller.
+# It keeps a real-time communication channel with each encoder status, updating
+# the sequence byte and the average vector.
 #
-# cola_sync -> Cola con el byte de secuencia
-# cola_read -> Cola con el vector media de la posición de encoders
-# epout     -> Objeto de endpoint de salida de la controladora
-# epin      -> Objeto de enpoint de entrada de la controladora
-# buffer    -> Vector que almacena los datos de la ultima lectura
+# cola_sync -> Queue with the sequence byte
+# cola_read -> Queue with the averaged encoder position vector
+# epout     -> Controller output endpoint object
+# epin      -> Controller input endpoint object
+# buffer    -> Vector storing the most recent read data
 #
 def syncro(cola_sync, cola_read, epout, epin, buffer):
 	while 1:
@@ -57,13 +55,13 @@ def syncro(cola_sync, cola_read, epout, epin, buffer):
 			cola_read.put(media)
 			cola_sync.put(b_1)
 
-# Funcion que establece la conexion inicial con la controladora. Se divide en tres grupos
-# de mensajes. Se inicializa el vector media.
-# La funcion devuelve el valor del byte de secuencia y el vector media.
+# Function that establishes the initial connection with the controller. It is split
+# into three message groups. It initializes the average vector.
+# The function returns the sequence byte value and the average vector.
 #
-# epout     -> Objeto de endpoint de salida de la controladora
-# epin      -> Objeto de enpoint de entrada de la controladora
-# buffer    -> Vector que almacena los datos de la ultima lectura
+# epout     -> Controller output endpoint object
+# epin      -> Controller input endpoint object
+# buffer    -> Vector storing the most recent read data
 #
 def msg_start(epout,epin,buffer):
 	media = []
@@ -84,14 +82,14 @@ def msg_start(epout,epin,buffer):
 
 	return [b_1, media]
 
-# Primer paquete del proceso de conexión. Es el mas pequeño de los tres
-# y se envia nada mas realizar la conexion USB.
-# Devuelve el valor del byte de secuencia.
+# First packet of the connection process. It is the smallest of the three and is
+# sent immediately after the USB connection is established.
+# Returns the sequence byte value.
 #
-# b_1       -> Byte de secuencia
-# epout     -> Objeto de endpoint de salida de la controladora
-# epin      -> Objeto de enpoint de entrada de la controladora
-# buffer    -> Vector que almacena los datos de la ultima lectura
+# b_1       -> Sequence byte
+# epout     -> Controller output endpoint object
+# epin      -> Controller input endpoint object
+# buffer    -> Vector storing the most recent read data
 #
 def send_pkt1(b_1,epout,epin,buffer):
 	while b_1 < 4:
@@ -105,13 +103,13 @@ def send_pkt1(b_1,epout,epin,buffer):
 
 	return b_1
 
-# Segundo paquete del proceos de conexion.
-# Devuelve el valor del byte de secuencia en decimal
+# Second packet of the connection process.
+# Returns the sequence byte value in decimal.
 #
-# b_1       -> Byte de secuencia
-# epout     -> Objeto de endpoint de salida de la controladora
-# epin      -> Objeto de enpoint de entrada de la controladora
-# buffer    -> Vector que almacena los datos de la ultima lectura
+# b_1       -> Sequence byte
+# epout     -> Controller output endpoint object
+# epin      -> Controller input endpoint object
+# buffer    -> Vector storing the most recent read data
 #
 def send_pkt2(b_1,epout,epin,buffer):
 	for i in range(1,9):
@@ -157,13 +155,13 @@ def send_pkt2(b_1,epout,epin,buffer):
 	libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
 	return b_1
 
-# Tercer paquete del proceseo de conexion. Se realiza la conexion de los motores.
-# Devuelve el valor del byte de secuencia en decimal
+# Third packet of the connection process. It enables the motors.
+# Returns the sequence byte value in decimal.
 #
-# b_1       -> Byte de secuencia
-# epout     -> Objeto de endpoint de salida de la controladora
-# epin      -> Objeto de enpoint de entrada de la controladora
-# buffer    -> Vector que almacena los datos de la ultima lectura
+# b_1       -> Sequence byte
+# epout     -> Controller output endpoint object
+# epin      -> Controller input endpoint object
+# buffer    -> Vector storing the most recent read data
 #
 def send_pkt3(b_1,epout,epin,buffer, media):
 	for i in range(40):
@@ -194,14 +192,14 @@ def send_pkt3(b_1,epout,epin,buffer, media):
 
 	return b_1
 
-# Funcion que se emplea despues de enviar cada uno de los tres paquetes de mensajes
-# anteriores. Su fin es enviar un mensaje sin ordenes que mantenga la secuencia hasta
-# que la controladora confirma haber recibido al completo el grupo de mensajes.
+# Function used after sending each of the three preceding message groups. Its goal is
+# to send a command-free message that keeps the sequence running until the controller
+# confirms it received the full group of messages.
 #
-# b_1       -> Byte de secuencia
-# epout     -> Objeto de endpoint de salida de la controladora
-# epin      -> Objeto de enpoint de entrada de la controladora
-# buffer    -> Vector que almacena los datos de la ultima lectura
+# b_1       -> Sequence byte
+# epout     -> Controller output endpoint object
+# epin      -> Controller input endpoint object
+# buffer    -> Vector storing the most recent read data
 #
 def send_wait(b_1,epout,epin,buffer):
 	deadline = time.monotonic() + HANDSHAKE_WAIT_TIMEOUT_S
@@ -219,14 +217,13 @@ def send_wait(b_1,epout,epin,buffer):
 	libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
 	return b_1
 
-# Los dos contadores a continuacion se emplean en el send_pkt2, para simplificar
-# el código de generación de mensaje.
+# The two counters below are used in send_pkt2 to simplify message generation.
 
-# Contador dependiente del valor devuelto por el countByte7. Este duplica su valor
-# cuando b_7 = 0
+# Counter dependent on the value returned by countByte7. It doubles its value when
+# b_7 = 0.
 #
-# b_6 -> Valor del byte numero 6 del mensaje
-# b_7 -> Valor del byte numero 7 del mensaje
+# b_6 -> Value of byte 6 in the message
+# b_7 -> Value of byte 7 in the message
 #
 def countByte6(b_7, b_6):
 	if b_7 == 0:
@@ -235,9 +232,9 @@ def countByte6(b_7, b_6):
 	else:
 		return b_6
 
-# Contador de 0 a 10, sin el 8.
+# Counter from 0 to 10, skipping 8.
 #
-# b_7 -> Valor del byte numero 7 del mensaje
+# b_7 -> Value of byte 7 in the message
 #
 def countByte7(b_7):
 	b_7 += 1
