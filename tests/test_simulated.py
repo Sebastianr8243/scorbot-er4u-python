@@ -168,5 +168,97 @@ class SimulatedRobotTests(unittest.TestCase):
         self.assertFalse(state.simulated)
 
 
+LABELS = ["--robot-id", "rehearsal-arm", "--arm-label", "arm-plate",
+          "--controller-label", "controller-plate", "--driver", "none (simulated)",
+          "--operator", "tester"]
+BENCH_TYPES = ["session", "connected", "home_complete", "home_observation",
+               "motion_preview", "before_jog", "after_jog", "operator_observation",
+               "disabled"]
+BENCH_ANSWERS = "HOME\nhome looked normal\nHOME_OK\nMOVE\ntoward door ~1 deg\nnone\nno LEDs\nnone\n"
+
+
+def run_script(path, *args, stdin=""):
+    return subprocess.run([sys.executable, str(REPO_ROOT / path), *map(str, args)],
+                          cwd=REPO_ROOT, input=stdin, capture_output=True, text=True,
+                          timeout=120)
+
+
+def sessions_in(folder):
+    return sorted(p for p in Path(folder).iterdir() if (p / "session.mcap").exists())
+
+
+class SimulatedG1RehearsalTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.logs = Path(self._tmp.name) / "rehearsal"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def idle(self, **extra):
+        return run_script("examples/record_raw_state.py", "--output", self.logs / "idle-01.jsonl",
+                          *LABELS, "--pose-note", "desk rehearsal", "--seconds", "1",
+                          "--hz", "2", "--simulate", "--acknowledge-connect-handshake")
+
+    def bench(self, stdin=BENCH_ANSWERS, name="base-first-01.jsonl", *extra):
+        return run_script("examples/bench_joint.py", "--output", self.logs / name, *LABELS,
+                          "--start-pose-note", "desk rehearsal", "--joint", "base",
+                          "--delta", "1", "--simulate", "--acknowledge-supervised-motion",
+                          *extra, stdin=stdin)
+
+    def test_full_g1_sequence_rehearses_offline(self):
+        from scorbot.session import load_session
+        idle = self.idle()
+        self.assertEqual(idle.returncode, 0, idle.stderr)
+        bench = self.bench()
+        self.assertEqual(bench.returncode, 0, bench.stderr + bench.stdout)
+
+        idle_rows = [json.loads(l) for l in (self.logs / "idle-01.jsonl").read_text().splitlines()]
+        self.assertEqual(idle_rows[0]["data_source"], "simulated")
+        self.assertEqual(sum(r["type"] == "sample" for r in idle_rows), 2)
+        bench_rows = [json.loads(l) for l in
+                      (self.logs / "base-first-01.jsonl").read_text().splitlines()]
+        self.assertEqual([r["type"] for r in bench_rows], BENCH_TYPES)
+        self.assertEqual(bench_rows[0]["data_source"], "simulated")
+
+        review = run_script("scripts/review_lab_logs.py", "--idle", self.logs / "idle-01.jsonl",
+                            "--bench", self.logs / "base-first-01.jsonl")
+        self.assertEqual(review.returncode, 0, review.stdout + review.stderr)
+        self.assertIn("SIMULATED", review.stdout)
+
+        idle_session, bench_session = sessions_in(self.logs / "sessions")
+        for path in (idle_session, bench_session):
+            session = load_session(path)
+            self.assertEqual(session.errors, [], [f.message for f in session.errors])
+            self.assertEqual(session.metadata["data_source"], "simulated")
+        idle_states = [e for e in load_session(idle_session).events
+                       if e["topic"] == "/robot/state"]
+        self.assertEqual(len(idle_states), 2)
+        events = load_session(bench_session).events
+        commands = {e["payload"]["kind"]: e["payload"]["command_id"]
+                    for e in events if e["topic"] == "/robot/command"}
+        self.assertEqual(set(commands), {"home", "jog_joint"})
+        results = {e["payload"]["command_id"]: e["payload"]["status"]
+                   for e in events if e["topic"] == "/robot/command_result"}
+        self.assertEqual({results[cid] for cid in commands.values()}, {"completed"})
+
+    def test_missing_nested_session_root_is_created(self):
+        root = Path(self._tmp.name) / "new" / "nested sessions"
+        result = self.bench(BENCH_ANSWERS, "b.jsonl", "--session-root", root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(sessions_in(root)), 1)
+
+    def test_interrupted_run_leaves_a_loadable_faulted_record(self):
+        from scorbot.session import load_session
+        result = self.bench("HOME\nhome looked normal\n")  # stdin ends at HOME_OK prompt
+        self.assertNotEqual(result.returncode, 0)
+        rows = [json.loads(l) for l in (self.logs / "base-first-01.jsonl").read_text().splitlines()]
+        self.assertEqual(rows[-1]["type"], "session_failed")
+        [path] = sessions_in(self.logs / "sessions")
+        session = load_session(path)
+        self.assertEqual(session.errors, [], [f.message for f in session.errors])
+        self.assertIn("/session/fault", {e["topic"] for e in session.events})
+
+
 if __name__ == "__main__":
     unittest.main()
