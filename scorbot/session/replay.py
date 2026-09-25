@@ -17,7 +17,10 @@ from mcap.stream_reader import CRCValidationError, StreamReader
 
 from . import schemas
 
-_KNOWN_OPCODES = set(range(0x01, 0x10))
+_KNOWN_OPCODES = set(range(0x01, 0x10))  # MCAP v0 record opcodes
+_MAGIC = b"\x89MCAP0\r\n"
+# Fields written once at session start; both metadata copies must agree on them.
+_IDENTITY_KEYS = ("session_id", "data_source", "schema_version", "robot_id", "clock")
 _MAX_RECORD = 2 ** 32
 
 
@@ -49,20 +52,25 @@ def load_session(path) -> Session:
     if not mcap_path.is_file():
         raise FileNotFoundError(f"No session.mcap found at {mcap_path}")
     findings: list[Finding] = []
-    events, embedded_metadata, finished = _read_mcap(mcap_path.read_bytes(), findings)
+    data = mcap_path.read_bytes()
+    events, embedded, finished, failure = _read_mcap(data, findings)
+    sidecar = _read_sidecar(folder / "metadata.json", findings)
 
-    metadata = embedded_metadata
-    metadata_file = folder / "metadata.json"
-    if metadata_file.is_file():
-        try:
-            metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
-        except ValueError as error:
-            findings.append(Finding("error", f"metadata.json is not valid JSON: {error}"))
-    if metadata is None:
-        findings.append(Finding("error", "No session metadata found"))
-        metadata = {}
+    if failure is not None:
+        # A closed file (magic at the end, or sidecar says so) has no crash tail:
+        # any unreadable record in it is damage, never a harmless truncation.
+        claims_closed = data.endswith(_MAGIC) or (sidecar or {}).get("closed_cleanly") is True
+        _classify_tail(data, *failure, claims_closed, findings)
 
-    _check_metadata(metadata, finished, findings)
+    metadata = _merge_metadata(sidecar, embedded, findings)
+    _check_metadata(metadata, findings)
+    closed = finished and (sidecar is None or sidecar.get("closed_cleanly") is True)
+    if not closed:
+        findings.append(Finding("warning", "Session was not closed cleanly "
+                                           "(crash, e-stop, or still recording)"))
+    if sidecar is not None and isinstance(sidecar.get("event_count"), int)             and sidecar["event_count"] != len(events):
+        findings.append(Finding("error", f"metadata.json records {sidecar['event_count']} "
+                                         f"events but {len(events)} could be read"))
     _check_events(events, findings)
     return Session(folder, metadata, events, findings)
 
@@ -80,6 +88,35 @@ def nearest(events, t_ns: int, topic: str = "/robot/state"):
         if best is None or abs(when - t_ns) < abs(best[1]):
             best = (event, when - t_ns)
     return best
+
+
+def _read_sidecar(path: Path, findings: list[Finding]) -> dict | None:
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as error:
+        findings.append(Finding("error", f"metadata.json is not valid JSON: {error}"))
+        return None
+    if not isinstance(value, dict):
+        findings.append(Finding("error", "metadata.json does not contain a JSON object"))
+        return None
+    return value
+
+
+def _merge_metadata(sidecar, embedded, findings: list[Finding]) -> dict:
+    if sidecar is None and embedded is None:
+        findings.append(Finding("error", "No session metadata found"))
+        return {}
+    if sidecar is None or embedded is None:
+        return dict(sidecar or embedded)
+    differing = [key for key in _IDENTITY_KEYS if sidecar.get(key) != embedded.get(key)]
+    if differing:
+        findings.append(Finding("error", "metadata.json disagrees with the metadata recorded "
+                                         f"in session.mcap on {', '.join(differing)}; "
+                                         "showing the recorded values"))
+    # The copy inside the MCAP file is CRC-protected; it wins on identity fields.
+    return {**sidecar, **{key: embedded.get(key) for key in _IDENTITY_KEYS}}
 
 
 def _read_mcap(data: bytes, findings: list[Finding]):
@@ -109,8 +146,8 @@ def _read_mcap(data: bytes, findings: list[Finding]):
                 finished = True
             last_good = stream.tell()
     except Exception as error:  # the mcap reader raises several types at a bad record
-        _classify_tail(data, last_good, error, findings)
-    return events, embedded_metadata, finished
+        return events, embedded_metadata, False, (last_good, error)
+    return events, embedded_metadata, finished, None
 
 
 def _decode(record: Message, channels, schema_names, offset, findings):
@@ -130,12 +167,18 @@ def _decode(record: Message, channels, schema_names, offset, findings):
             "publish_time": record.publish_time, "payload": payload}
 
 
-def _classify_tail(data: bytes, offset: int, error: Exception, findings: list[Finding]):
+def _classify_tail(data: bytes, offset: int, error: Exception, claims_closed: bool,
+                   findings: list[Finding]):
     if isinstance(error, CRCValidationError):
         findings.append(Finding("error", "Data checksum mismatch: the file changed after "
                                          "recording or is damaged"))
         return
     remaining = len(data) - offset
+    if claims_closed:
+        findings.append(Finding("error", f"Damaged record at byte {offset} in a closed "
+                                         f"session; later events are unreadable "
+                                         f"({type(error).__name__})"))
+        return
     if remaining == 0:
         return  # stopped exactly at a record boundary: a crash, reported as "not closed"
     if remaining < 9:
@@ -151,7 +194,7 @@ def _classify_tail(data: bytes, offset: int, error: Exception, findings: list[Fi
                                      f"unreadable ({type(error).__name__})"))
 
 
-def _check_metadata(metadata: dict, finished: bool, findings: list[Finding]):
+def _check_metadata(metadata: dict, findings: list[Finding]):
     if not metadata:
         return
     version = metadata.get("schema_version")
@@ -161,9 +204,6 @@ def _check_metadata(metadata: dict, finished: bool, findings: list[Finding]):
     if metadata.get("data_source") not in schemas.DATA_SOURCES:
         findings.append(Finding("error", f"data_source must be one of {schemas.DATA_SOURCES}, "
                                          f"found {metadata.get('data_source')!r}"))
-    if not finished or metadata.get("closed_cleanly") is not True:
-        findings.append(Finding("warning", "Session was not closed cleanly "
-                                           "(crash, e-stop, or still recording)"))
 
 
 def _check_events(events: list[dict], findings: list[Finding]):

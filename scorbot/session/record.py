@@ -65,6 +65,7 @@ class SessionWriter:
         self._schema_ids: dict[str, int] = {}
         self._channel_ids: dict[str, int] = {}
         self._closed = False
+        self._broken: str | None = None
         self._clock = metadata["clock"]
 
     @classmethod
@@ -102,8 +103,7 @@ class SessionWriter:
             "calibration": _calibration(calibration_path),
             "code": _code_identity(),
             "environment": _environment(usb_driver),
-            "clock": {"started_monotonic_ns": started_monotonic_ns,
-                      "started_epoch_ns": started_epoch_ns},
+            "clock": _clock_info(started_monotonic_ns, started_epoch_ns),
             "started_utc": datetime.fromtimestamp(started_epoch_ns / 1e9,
                                                   timezone.utc).isoformat(),
         }
@@ -207,16 +207,23 @@ class SessionWriter:
             if self._closed:
                 return
             self._closed = True
-            self._writer.finish()
-            self._stream.flush()
-            os.fsync(self._stream.fileno())
-            self._stream.close()
+            try:
+                # After a failed write the file may end in a partial record;
+                # appending a summary would bury it, so leave it for replay.
+                if self._broken is None:
+                    self._writer.finish()
+                    self._stream.flush()
+                    os.fsync(self._stream.fileno())
+            finally:
+                self._stream.close()
             event_count = self._seq
         self.metadata.update({
             "ended_utc": datetime.now(timezone.utc).isoformat(),
             "event_count": event_count,
-            "closed_cleanly": True,
+            "closed_cleanly": self._broken is None,
         })
+        if self._broken is not None:
+            self.metadata["write_error"] = self._broken
         _write_json_atomic(self.path / "metadata.json", self.metadata)
 
     def __enter__(self):
@@ -248,6 +255,8 @@ class SessionWriter:
         with self._lock:
             if self._closed:
                 raise SessionError("Session is closed")
+            if self._broken is not None:
+                raise SessionError(f"Recording stopped after a write failure: {self._broken}")
             logged = time.monotonic_ns()
             rec = {"seq": self._seq, "logged_monotonic_ns": logged,
                    "observed_monotonic_ns": observed_monotonic_ns}
@@ -257,16 +266,22 @@ class SessionWriter:
                 data = json.dumps({**payload, "_rec": rec}, allow_nan=False).encode()
             except (TypeError, ValueError) as error:
                 raise SessionError(f"{topic} payload is not strict JSON: {error}") from None
-            channel_id = self._channel(topic, schema_name)
+            # Consume seq before writing: an interrupt (Ctrl-C) landing after the
+            # bytes reach disk must not let the next event reuse this number.
+            seq = self._seq
+            self._seq += 1
             log_time = self._epoch(logged)
             publish_time = (self._epoch(observed_monotonic_ns)
                             if observed_monotonic_ns is not None else log_time)
-            self._writer.add_message(channel_id=channel_id, log_time=log_time,
-                                     publish_time=max(0, publish_time),
-                                     sequence=self._seq, data=data)
-            self._stream.flush()
-            seq = self._seq
-            self._seq += 1
+            try:
+                channel_id = self._channel(topic, schema_name)
+                self._writer.add_message(channel_id=channel_id, log_time=log_time,
+                                         publish_time=max(0, publish_time),
+                                         sequence=seq, data=data)
+                self._stream.flush()
+            except Exception as error:
+                self._broken = f"{type(error).__name__}: {error}"
+                raise SessionError(f"Recording failed and has stopped: {self._broken}") from error
             return seq
 
     def _channel(self, topic: str, schema_name: str) -> int:
@@ -279,6 +294,15 @@ class SessionWriter:
                 topic=topic, message_encoding="json",
                 schema_id=self._schema_ids[schema_name])
         return self._channel_ids[topic]
+
+
+def _clock_info(started_monotonic_ns: int, started_epoch_ns: int) -> dict:
+    # Windows on Python < 3.13 uses GetTickCount64 (about 15.6 ms steps); record it.
+    info = time.get_clock_info("monotonic")
+    return {"started_monotonic_ns": started_monotonic_ns,
+            "started_epoch_ns": started_epoch_ns,
+            "monotonic_implementation": info.implementation,
+            "monotonic_resolution_s": info.resolution}
 
 
 def _write_json_atomic(path: Path, value: dict) -> None:

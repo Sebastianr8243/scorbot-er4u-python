@@ -259,3 +259,29 @@ session in Foxglove or Lichtblick. Check that the images display and that
     `packages`; add package data for the JSON schema.
   - `.gitignore`: add `*.mcap`.
   - `README.md`: add a short "Recording an experiment" link.
+
+## 10. Amendments after the whole-branch review (2026-09-25)
+
+- **Writer consumes `seq` before writing.** A Ctrl-C that arrives after a
+  record reaches disk no longer causes the next event to reuse the number.
+  After any write failure (for example, disk full), the writer stops:
+  - every later call raises `SessionError`;
+  - `close()` skips the summary;
+  - `metadata.json` records `closed_cleanly: false` and `write_error`.
+- **Metadata cross-check.** When both copies exist, `metadata.json` and the
+  embedded `scorbot.session` record must agree on `session_id`,
+  `data_source`, `schema_version`, `robot_id`, and `clock`. A mismatch is an
+  error, and the embedded values, which are CRC-protected, are shown.
+- **A closed file has no crash tail.** If the file ends with the MCAP magic,
+  or `metadata.json` says `closed_cleanly: true`, any unreadable record is an
+  error. It is also an error when `event_count` in `metadata.json` differs
+  from the number of events read.
+- **A lone finished `.mcap` counts as closed.** Its Footer plus a passing
+  CRC is enough when there is no `metadata.json`.
+- **Clock information.** `metadata.clock` records the monotonic clock's
+  implementation and resolution. Windows on Python < 3.13 uses about 15.6 ms
+  steps.
+- **Streaming reader (deferred).** `load_session` parses record by record
+  but reads the file into memory and keeps frame payloads. True streaming,
+  and lazy loading of frame `data`, are deferred to the camera-adapter
+  slice, where hour-long video sessions first occur.

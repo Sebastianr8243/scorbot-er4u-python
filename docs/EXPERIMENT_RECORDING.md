@@ -68,6 +68,8 @@ with SessionWriter.create("sessions", data_source="real", robot_id="lab-er4u-1",
                           operator="your name", task="base jog G1",
                           start_pose_note="photo IMG_0412, arm folded") as rec:
     with Scorbot() as robot:
+        robot.enable()
+        robot.home()  # only from the documented start pose
         rec.log_state(robot.get_state())
         command_id = rec.log_command("jog_joint", {"joint": "base", "degrees": 1.0, "speed": 5})
         robot.jog_joint("base", 1.0, speed=5)
@@ -113,6 +115,13 @@ monotonic clock:
   knows. Examples are the camera capture time, or the packet time from
   `RobotState.host_monotonic_ns`. It is `null` when the source did not say.
 
+**Clock resolution.** On Windows with Python 3.10–3.12, the monotonic clock
+only ticks about every 15.6 ms. Python 3.13 ticks every 100 ns.
+`metadata.json` records which clock was used in
+`clock.monotonic_implementation` and its step size in
+`clock.monotonic_resolution_s`. Use Python 3.13 on the lab PC when timing
+matters. `setup_windows.ps1` already recommends it.
+
 To match camera frames with robot states, use the observed time and always
 report the gap between them:
 
@@ -133,7 +142,7 @@ observed. For analysis, use `_rec`, not `publish_time`.
 
 | File | Contents |
 |---|---|
-| `session.mcap` | Every event and camera frame. It is written one message at a time and flushed immediately, so a crash loses at most the message being written. |
+| `session.mcap` | Every event and camera frame. It is written one message at a time and handed to the OS immediately. If Python crashes or you press Ctrl-C, you lose at most the message being written. A power cut or OS crash can lose more, because messages are not forced to disk one by one. |
 | `metadata.json` | Robot and controller IDs, operator, task, start pose, data source, code commit and source fingerprint, Python and package versions, calibration file hash, and the clock anchor. It is rewritten with `ended_utc` and `closed_cleanly` when the session closes. |
 | `notes.md` | A blank observation sheet. Fill it in by hand during or after the run. |
 
@@ -148,6 +157,13 @@ observed. For analysis, use `_rec`, not `publish_time`.
 | ERROR `Corrupted data at byte N` | The file is damaged before its end. |
 | ERROR `Data checksum mismatch` | A cleanly closed file was changed after recording. |
 | ERROR `Logged time goes backwards` | The recording clock is inconsistent. Don't trust the timing. |
+| ERROR `Damaged record at byte N in a closed session` | A file that was closed properly is damaged partway through. The events after that point can't be read. |
+| ERROR `metadata.json disagrees with the metadata recorded in session.mcap` | Someone edited `metadata.json`, or it belongs to a different session. Replay shows the values recorded inside `session.mcap`, which are checksum-protected. |
+| ERROR `metadata.json records N events but M could be read` | Events are missing from a session that closed normally. |
+
+If recording fails part-way, for example because the disk is full, the
+writer stops and raises `SessionError` on every later call. It records
+`closed_cleanly: false` and `write_error` in `metadata.json`.
 
 Keep sessions out of git. `*.mcap` and `sessions/` are ignored. Archive
 them with the matching `notes.md`.

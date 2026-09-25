@@ -444,5 +444,109 @@ class CliAndExampleTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "False", result.stderr)
 
 
+class FlushProxy:
+    """Wrap the writer's file so the Nth flush raises (after the bytes were written)."""
+
+    def __init__(self, stream, fail_on, error):
+        self._stream, self._fail_on, self._error, self.calls = stream, fail_on, error, 0
+
+    def flush(self):
+        self._stream.flush()
+        self.calls += 1
+        if self.calls == self._fail_on:
+            raise self._error
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+class ReviewFixTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_ctrl_c_after_a_write_does_not_duplicate_seq(self):
+        from scorbot.session.replay import load_session
+        with self.assertRaises(KeyboardInterrupt):
+            with new_writer(self.root) as writer:
+                writer._stream = FlushProxy(writer._stream, 3, KeyboardInterrupt())
+                for i in range(10):
+                    writer.log_note(f"n{i}")
+        session = load_session(writer.path)
+        self.assertEqual(session.errors, [], [f.message for f in session.errors])
+        self.assertEqual(session.events[-1]["topic"], "/session/fault")
+
+    def test_write_failure_breaks_the_writer(self):
+        from scorbot.session.record import SessionError
+        writer = new_writer(self.root)
+        writer._stream = FlushProxy(writer._stream, 1, OSError("disk full"))
+        with self.assertRaises(SessionError):
+            writer.log_note("a")
+        with self.assertRaises(SessionError):
+            writer.log_note("b")
+        writer.close()
+        meta = json.loads((writer.path / "metadata.json").read_text())
+        self.assertFalse(meta["closed_cleanly"])
+
+    def test_relabelled_sidecar_data_source_is_an_error_and_ignored(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root, data_source="simulated") as writer:
+            writer.log_note("x")
+        meta_path = writer.path / "metadata.json"
+        meta = json.loads(meta_path.read_text())
+        meta["data_source"] = "real"
+        meta_path.write_text(json.dumps(meta))
+        session = load_session(writer.path)
+        self.assertEqual(session.metadata["data_source"], "simulated")
+        self.assertTrue(any("data_source" in f.message for f in session.errors))
+
+    def test_length_field_damage_in_closed_session_is_an_error(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            for i in range(40):
+                writer.log_note(f"note {i:03d}")
+        mcap = writer.mcap_path
+        data = bytearray(mcap.read_bytes())
+        marker = data.find(b"note 010")
+        # Walk back to this message record's opcode (0x05) and flip a bit in its length.
+        start = data.rfind(b"\x05", 0, marker - 30)
+        while int.from_bytes(data[start + 1:start + 9], "little") > 4096:
+            start = data.rfind(b"\x05", 0, start)
+        data[start + 4] ^= 0x01
+        mcap.write_bytes(bytes(data))
+        session = load_session(writer.path)
+        self.assertNotEqual(session.errors, [], [f.message for f in session.findings])
+
+    def test_lone_finished_mcap_is_not_reported_as_unclosed(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            writer.log_note("x")
+        (writer.path / "metadata.json").unlink()
+        session = load_session(writer.mcap_path)
+        self.assertEqual(session.findings, [], [f.message for f in session.findings])
+
+    def test_cli_output_survives_non_ascii_text_when_piped(self):
+        import os
+        import subprocess
+        import sys
+        with new_writer(self.root) as writer:
+            writer.log_note("base Δ=+30° → ok ✓")
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
+        result = subprocess.run([sys.executable, "-m", "scorbot.session", str(writer.path)],
+                                cwd=REPO_ROOT, capture_output=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+
+    def test_metadata_records_clock_resolution(self):
+        with new_writer(self.root) as writer:
+            clock = writer.metadata["clock"]
+        self.assertIn("monotonic_implementation", clock)
+        self.assertGreater(clock["monotonic_resolution_s"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

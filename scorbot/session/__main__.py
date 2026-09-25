@@ -15,6 +15,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=200,
                         help="Maximum timeline rows to print (default: 200)")
     args = parser.parse_args(argv)
+    # Redirected output on Windows defaults to cp1252; never crash on a note's text.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
 
     try:
         session = load_session(args.path)
