@@ -17,6 +17,7 @@ import time
 
 from scorbot import Scorbot
 from scorbot.preflight import run_checks
+from scorbot.provenance import motion_source_sha256
 
 
 def main() -> int:
@@ -25,11 +26,15 @@ def main() -> int:
                         help="New JSONL file for raw samples (never overwritten)")
     parser.add_argument("--robot-id", required=True,
                         help="Your label for this physical arm, such as lab-er4u-1")
+    parser.add_argument("--arm-label", required=True)
+    parser.add_argument("--controller-label", required=True)
+    parser.add_argument("--driver", required=True)
+    parser.add_argument("--operator", required=True, help="Name or lab initials")
     parser.add_argument("--seconds", type=float, default=10.0,
                         help="Approximate sampling period, 1 to 30 seconds (default: 10)")
     parser.add_argument("--hz", type=float, default=2.0,
                         help="Samples per second, 0.2 to 10 (default: 2)")
-    parser.add_argument("--pose-note", default="unmeasured",
+    parser.add_argument("--pose-note", required=True,
                         help="Operator note describing the starting pose")
     parser.add_argument("--acknowledge-connect-handshake", action="store_true",
                         help="Confirm an operator is present and the physical stop is accessible")
@@ -42,8 +47,10 @@ def main() -> int:
         parser.error("--seconds must be between 1 and 30")
     if not math.isfinite(args.hz) or not 0.2 <= args.hz <= 10:
         parser.error("--hz must be between 0.2 and 10")
-    if not args.robot_id.strip():
-        parser.error("--robot-id must contain a label")
+    if any(not value.strip() for value in (
+            args.robot_id, args.arm_label, args.controller_label,
+            args.driver, args.operator, args.pose_note)):
+        parser.error("All session labels and the pose note must be nonempty")
 
     output = args.output.resolve()
     event_log = output.with_name(output.stem + ".controller.jsonl")
@@ -60,13 +67,18 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     sample_count = math.ceil(args.seconds * args.hz)
     # The controller event log records connect, shutdown and any command errors.
-    with Scorbot(log_path=event_log) as robot:
+    with Scorbot(log_path=event_log, robot_id=args.robot_id.strip()) as robot:
         with output.open("x", encoding="utf-8") as stream:
             session = {
                 "type": "session",
                 "schema_version": 1,
                 "robot_id": args.robot_id.strip(),
-                "pose_note": args.pose_note,
+                "arm_label": args.arm_label.strip(),
+                "controller_label": args.controller_label.strip(),
+                "driver": args.driver.strip(),
+                "operator": args.operator.strip(),
+                "pose_note": args.pose_note.strip(),
+                "motion_source_sha256": motion_source_sha256(),
                 "started_utc": datetime.now(timezone.utc).isoformat(),
                 "requested_seconds": args.seconds,
                 "requested_hz": args.hz,
