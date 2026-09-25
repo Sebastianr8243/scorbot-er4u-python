@@ -142,6 +142,33 @@ with the robot states recorded just before and just after it:
 A state is only ever used for the command next to it, never borrowed from
 another command. If one is missing, the `note` column says so.
 
+**Charts.** Install the optional extra once, then plot any sessions or
+folders:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[plot]"
+.\.venv\Scripts\python.exe -m scorbot.session plot logs\sessions --out plots
+```
+
+It writes three kinds of PNG:
+- one `counts_<session>.png` per run: a panel for each motor that moved,
+  with each command's span shaded;
+- `count_error.png`: every command's observed minus planned counts, per
+  motor, across runs;
+- `durations.png`: recorder-observed command durations per kind, with the
+  median marked.
+
+Every title starts with REAL, SIMULATED, or SYNTHETIC. Cross-run charts
+follow the same rules as `compare`: they never mix data sources, and they
+leave out damaged runs unless you pass `--include-damaged`. Add
+`--theme dark` for dark backgrounds.
+
+**Interactive plots in the viewer.** Open `session.mcap` in Foxglove or
+Lichtblick, then use *Layouts → Import from file* and pick
+`layouts/session_review.json`. It opens with the camera image, encoder-count
+plots for the arm and the wrist, and the command results and faults.
+Checking that it displays correctly is a manual step in the viewer.
+
 **Safety of the numbers**
 - Every CSV row has `session_id` and `data_source` columns. Real and
   simulated rows stay distinguishable even after you combine files.

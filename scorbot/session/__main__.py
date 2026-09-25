@@ -4,6 +4,7 @@
   python -m scorbot.session list <folder>             catalogue every session found
   python -m scorbot.session export <session>          write events/states/commands CSV
   python -m scorbot.session compare <paths>...        compare repeated runs
+  python -m scorbot.session plot <paths>... --out DIR PNG charts (needs the plot extra)
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from . import analysis
 from .notes import parse_notes
 from .replay import load_session
 
-SUBCOMMANDS = ("replay", "list", "export", "compare")
+SUBCOMMANDS = ("replay", "list", "export", "compare", "plot")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -49,9 +50,16 @@ def main(argv: list[str] | None = None) -> int:
     comparison.add_argument("--csv", type=Path, help="Also write the table to this CSV file")
     comparison.add_argument("--include-damaged", action="store_true",
                             help="Pool sessions that have integrity errors")
+    plotting = sub.add_parser("plot", help="Write PNG charts (pip install -e \".[plot]\")")
+    plotting.add_argument("paths", nargs="+", help="Sessions, or folders containing them")
+    plotting.add_argument("--out", type=Path, default=Path("plots"),
+                          help="Output folder (default: plots)")
+    plotting.add_argument("--theme", choices=("light", "dark"), default="light")
+    plotting.add_argument("--include-damaged", action="store_true",
+                          help="Pool sessions that have integrity errors")
     args = parser.parse_args(argv)
     return {"replay": _replay, "list": _list, "export": _export,
-            "compare": _compare}[args.command](args)
+            "compare": _compare, "plot": _plot}[args.command](args)
 
 
 def _open(path):
@@ -263,6 +271,53 @@ def _compare(args) -> int:
 
 def _num(value):
     return "-" if value is None else f"{value:.1f}"
+
+
+
+# -- plot --------------------------------------------------------------------
+
+def _plot(args) -> int:
+    from . import plot
+    try:
+        plot.require_matplotlib()
+    except plot.PlotUnavailable as error:
+        print(error, file=sys.stderr)
+        return 2
+    search = analysis.find_sessions(args.paths)
+    problems = _report_search(search)
+    runs, excluded = [], []
+    for mcap in search.sessions:
+        try:
+            session = load_session(mcap)
+        except Exception as error:
+            print(f"Skipped unreadable {mcap}: {error}", file=sys.stderr)
+            problems = 1
+            continue
+        session_id = session.metadata.get("session_id") or mcap.parent.name
+        written = plot.plot_counts(session, args.out / f"counts_{session_id}.png", args.theme)
+        print(f"Wrote {written['path']}")
+        if session.errors and not args.include_damaged:
+            excluded.append(session_id)
+        else:
+            runs.append((session_id, session.metadata.get("data_source", "unknown"),
+                         analysis.command_records(session)))
+        del session  # keep only the command records in memory
+    for session_id in excluded:
+        print(f"Excluded {session_id} from the cross-run plots: integrity errors "
+              "(use --include-damaged to include it).")
+        problems = 1
+    sources = {source for _, source, _ in runs}
+    if len(sources) > 1:
+        print("Mixed data sources (" + ", ".join(sorted(sources)) + "): no cross-run plots. "
+              "Plot real and simulated runs separately.")
+        return 1
+    if runs:
+        source = sources.pop()
+        pairs = [(session_id, records) for session_id, _, records in runs]
+        for name, draw in (("count_error.png", plot.plot_count_error),
+                           ("durations.png", plot.plot_durations)):
+            print(f"Wrote {draw(pairs, source, args.out / name, args.theme)['path']}")
+    return problems
 
 
 if __name__ == "__main__":

@@ -1,0 +1,60 @@
+{
+  "configById": {
+    "Image!cam0": {
+      "imageMode": {
+        "imageTopic": "/camera/cam0/image"
+      }
+    },
+    "Plot!arm": {
+      "title": "Arm motor counts",
+      "paths": [
+        {"value": "/robot/state.encoder_counts.base", "enabled": true, "timestampMethod": "receiveTime", "label": "base"},
+        {"value": "/robot/state.encoder_counts.shoulder", "enabled": true, "timestampMethod": "receiveTime", "label": "shoulder"},
+        {"value": "/robot/state.encoder_counts.elbow", "enabled": true, "timestampMethod": "receiveTime", "label": "elbow"}
+      ],
+      "showLegend": true,
+      "isSynced": true
+    },
+    "Plot!wrist": {
+      "title": "Wrist motor counts",
+      "paths": [
+        {"value": "/robot/state.encoder_counts.wrist_motor_1", "enabled": true, "timestampMethod": "receiveTime", "label": "wrist motor 1"},
+        {"value": "/robot/state.encoder_counts.wrist_motor_2", "enabled": true, "timestampMethod": "receiveTime", "label": "wrist motor 2"}
+      ],
+      "showLegend": true,
+      "isSynced": true
+    },
+    "RawMessages!commands": {
+      "topicPath": "/robot/command_result",
+      "expansion": "all"
+    },
+    "RawMessages!faults": {
+      "topicPath": "/session/fault",
+      "expansion": "all"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {"speed": 1},
+  "layout": {
+    "direction": "row",
+    "first": {
+      "direction": "column",
+      "first": "Image!cam0",
+      "second": {
+        "direction": "row",
+        "first": "RawMessages!commands",
+        "second": "RawMessages!faults",
+        "splitPercentage": 50
+      },
+      "splitPercentage": 60
+    },
+    "second": {
+      "direction": "column",
+      "first": "Plot!arm",
+      "second": "Plot!wrist",
+      "splitPercentage": 60
+    },
+    "splitPercentage": 45
+  }
+}

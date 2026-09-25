@@ -14,6 +14,7 @@ dependencies = ["mcap>=1.5,<2", "numpy>=1.26,<3", "pyusb>=1.2,<2"]
 [project.optional-dependencies]
 windows = ["libusb-package"]
 gui = ["PyQt5>=5.15,<6"]
+plot = ["matplotlib>=3.8,<4"]
 dev = [
     "pytest>=9.0,<10",
     "pytest-xdist>=3.8,<4",
@@ -21,6 +22,7 @@ dev = [
     "coverage[toml]>=7.10,<8",
     "hypothesis>=6.100,<7",
     "ruff>=0.6,<1",
+    "matplotlib>=3.8,<4",
 ]
 
 [tool.setuptools]
