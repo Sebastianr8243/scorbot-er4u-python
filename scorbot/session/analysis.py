@@ -63,6 +63,8 @@ class Comparison:
     excluded: list[str]
     messages: list[str]
     exit_code: int
+    # The one data source of the sessions actually pooled; labels the pooled row.
+    pooled_source: str | None = None
 
 
 def csv_safe(value):
@@ -75,7 +77,8 @@ def csv_safe(value):
 def event_summary(event: dict) -> str:
     payload, topic = event["payload"], event["topic"]
     if topic == "/robot/state":
-        counts = payload.get("encoder_counts", {})
+        counts = payload.get("encoder_counts")
+        counts = counts if isinstance(counts, dict) else {}
         joints = " ".join(f"{name}={value}" for name, value in counts.items())
         return f"{joints} switches={payload.get('home_switch_bits')}"
     if topic == "/robot/command":
@@ -114,8 +117,10 @@ def _planned(params) -> dict:
 
 
 def _observed_counts(before: dict, after: dict) -> dict:
-    first = before.get("encoder_counts") or {}
-    second = after.get("encoder_counts") or {}
+    first = before.get("encoder_counts")
+    second = after.get("encoder_counts")
+    if not isinstance(first, dict) or not isinstance(second, dict):
+        return {}
     result = {}
     for motor in first.keys() & second.keys():
         a, b = second[motor], first[motor]
@@ -160,8 +165,10 @@ def command_records(session) -> list[CommandRecord]:
         planned = _planned(command.get("params"))
         observed = (_observed_counts(events[before]["payload"], events[after]["payload"])
                     if before is not None and after is not None else {})
-        error = {motor: observed[motor] - value for motor, value in planned.items()
-                 if type(observed.get(motor)) is int}
+        # With a plan, every observed motor counts, as in review_lab_logs.py: an
+        # unplanned motor has a planned change of 0, so uncommanded motion shows.
+        error = ({motor: value - planned.get(motor, 0) for motor, value in observed.items()
+                  if type(value) is int} if planned else {})
         records.append(CommandRecord(
             command_id=command_id, kind=command.get("kind"), params=command.get("params"),
             command_seq=events[position]["seq"],
@@ -189,8 +196,9 @@ def _ms(value, base):
 
 
 def _identity(session) -> dict:
-    return {"session_id": session.metadata.get("session_id"),
-            "data_source": session.metadata.get("data_source")}
+    # Same fallbacks as summarize(): every exported row stays attributable.
+    return {"session_id": session.metadata.get("session_id") or str(session.path),
+            "data_source": session.metadata.get("data_source") or "unknown"}
 
 
 def event_rows(session) -> list[dict]:
@@ -310,19 +318,44 @@ def compare(summaries: list[RunSummary], include_damaged: bool = False) -> Compa
             for motor, values in raw["errors"].items():
                 target["errors"].setdefault(motor, []).extend(values)
     pooled = {kind: kind_stats(raw) for kind, raw in sorted(pooled_raw.items())}
-    return Comparison(rows, pooled, excluded, messages, exit_code)
+    source = next(iter(sources)) if sources else None
+    return Comparison(rows, pooled, excluded, messages, exit_code, pooled_source=source)
 
 
-def find_sessions(paths) -> list[Path]:
-    """Every .mcap file under the given paths (files or folders), each once."""
-    found, seen = [], set()
-    for path in map(Path, paths):
-        candidates = ([path] if path.is_file() else
-                      [path / "session.mcap"] if (path / "session.mcap").is_file() else
-                      sorted(path.rglob("*.mcap")) if path.is_dir() else [])
+@dataclass
+class SessionSearch:
+    sessions: list[Path]          # session.mcap files (or .mcap files named explicitly)
+    not_sessions: list[Path]      # other .mcap files found while searching folders
+    unmatched: list[str]          # arguments that matched no session at all
+    duplicates: list[Path]        # sessions named more than once
+
+
+def find_sessions(paths) -> SessionSearch:
+    """Resolve arguments to recorded sessions, each once.
+
+    A folder is searched for ``session.mcap`` files only. Any other ``.mcap``
+    inside (a viewer export, a trimmed copy) is reported, never loaded as a
+    session, because it would borrow its folder's metadata and identity.
+    """
+    search = SessionSearch([], [], [], [])
+    seen = set()
+    for argument in paths:
+        path = Path(argument)
+        if path.is_file():
+            candidates, strays = [path], []
+        elif path.is_dir():
+            candidates = sorted(path.rglob("session.mcap"))
+            strays = sorted(p for p in path.rglob("*.mcap") if p.name != "session.mcap")
+        else:
+            candidates, strays = [], []
+        if not candidates:
+            search.unmatched.append(str(argument))
         for candidate in candidates:
             key = candidate.resolve()
-            if key not in seen:
+            if key in seen:
+                search.duplicates.append(candidate)
+            else:
                 seen.add(key)
-                found.append(candidate)
-    return found
+                search.sessions.append(candidate)
+        search.not_sessions.extend(p for p in strays if p.resolve() not in seen)
+    return search

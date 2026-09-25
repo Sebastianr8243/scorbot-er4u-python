@@ -66,7 +66,8 @@ class CommandRecordTests(TempDirCase):
         for record in jogs:
             self.assertEqual(record.status, "completed")
             self.assertEqual(record.observed_counts["base"], record.planned_counts["base"])
-            self.assertEqual(record.count_error, {"base": 0})
+            self.assertIn("base", record.count_error)
+            self.assertEqual(set(record.count_error.values()), {0})  # no motor off plan
             self.assertGreaterEqual(record.recorded_duration_ms, 0)
         self.assertEqual({r.planned_counts["base"] for r in jogs}, {142, -142})
 
@@ -172,7 +173,10 @@ class SummaryAndComparisonTests(TempDirCase):
         result = compare([a, b])
         self.assertEqual(result.exit_code, 0)
         self.assertEqual(result.pooled["jog_joint"]["n"], 4)
-        self.assertEqual(result.pooled["jog_joint"]["max_abs_error"], {"base": 0})
+        errors = result.pooled["jog_joint"]["max_abs_error"]
+        self.assertIn("base", errors)
+        self.assertEqual(set(errors.values()), {0})
+        self.assertEqual(result.pooled_source, "simulated")
 
     def test_mixed_sources_never_pool(self):
         from scorbot.session.analysis import compare
@@ -350,6 +354,105 @@ class CliTests(TempDirCase):
         for motor, values in review.items():
             self.assertEqual(observed.get(motor), values["observed"], motor)
             self.assertEqual(planned.get(motor, 0), values["planned"], motor)
+
+
+class SecondReviewFixTests(TempDirCase):
+    def damage(self, path):
+        meta = json.loads((path / "metadata.json").read_text())
+        meta["event_count"] = 999
+        (path / "metadata.json").write_text(json.dumps(meta))
+        return path
+
+    def test_pooled_row_is_labelled_with_the_pooled_source_not_the_first_argument(self):
+        bad_sim = self.damage(record_sim_session(self.root / "a"))
+        real = []
+        for name in ("b", "c"):
+            with writer(self.root / name, data_source="real") as rec:
+                rec.log_state(state(0))
+                cid = rec.log_command("jog_joint", {"motor_count_deltas": {"base": 142}})
+                rec.log_command_result(cid, "completed")
+                rec.log_state(state(140))
+            real.append(rec.path)
+        table = self.root / "c.csv"
+        result = cli("compare", bad_sim, *real, "--csv", table)
+        self.assertEqual(result.returncode, 1)
+        pooled_lines = [l for l in result.stdout.splitlines() if l.startswith("POOLED")]
+        self.assertTrue(pooled_lines, result.stdout)
+        for line in pooled_lines:
+            self.assertIn("REAL", line)
+            self.assertNotIn("SIMULATED", line)
+        pooled = [r for r in read_csv(table) if r["session_id"] == "POOLED"]
+        self.assertTrue(pooled)
+        self.assertEqual({r["data_source"] for r in pooled}, {"real"})
+
+    def test_unplanned_motor_motion_shows_up_as_count_error(self):
+        from scorbot.session import load_session
+        from scorbot.session.analysis import command_records
+        with writer(self.root) as rec:
+            rec.log_state(state(0, shoulder=100))
+            cid = rec.log_command("jog_joint", {"motor_count_deltas": {"base": 142}})
+            rec.log_command_result(cid, "completed")
+            rec.log_state(state(142, shoulder=400))  # shoulder moved uncommanded
+        [record] = command_records(load_session(rec.path))
+        self.assertEqual(record.count_error, {"base": 0, "shoulder": 300})
+
+    def test_only_session_mcap_files_are_sessions(self):
+        path = record_sim_session(self.root / "sessions")
+        (path / "a_trimmed.mcap").write_bytes((path / "session.mcap").read_bytes())
+        listing = cli("list", self.root)
+        session_rows = [line for line in listing.stdout.splitlines()
+                        if line.startswith("OK") and path.name in line]
+        self.assertEqual(len(session_rows), 1, listing.stdout)
+        self.assertIn("not a session", listing.stdout)
+        result = cli("compare", self.root)
+        self.assertNotIn("duplicate", result.stdout.lower())
+        self.assertIn("POOLED", result.stdout)
+
+    def test_a_path_matching_no_session_is_an_error(self):
+        path = record_sim_session(self.root / "a")
+        result = cli("compare", path, self.root / "runB_typo")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("runB_typo", result.stderr)
+
+    def test_null_encoder_counts_do_not_crash_replay_or_export(self):
+        with writer(self.root) as rec:
+            rec.log_state({"encoder_counts": None, "home_switch_bits": 0, "connected": True})
+        self.assertEqual(cli(rec.path).returncode, 0)
+        self.assertEqual(cli("export", rec.path).returncode, 0)
+
+    def test_export_rows_are_labelled_even_without_metadata(self):
+        from scorbot.session import load_session
+        from scorbot.session.analysis import event_rows
+        with writer(self.root, data_source="simulated") as rec:
+            rec.log_note("x")
+        session = load_session(rec.path)
+        session.metadata = {}  # as if no metadata survived at all
+        [row] = event_rows(session)
+        self.assertEqual(row["session_id"], str(session.path))
+        self.assertEqual(row["data_source"], "unknown")
+
+
+class CrashAuditTests(unittest.TestCase):
+    def test_worker_crash_latches_and_leaves_an_audit_record(self):
+        from scorbot import ScorbotError
+        from scorbot.simulated import SimulatedScorbot
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "events.jsonl"
+            robot = SimulatedScorbot(log_path=log, command_timeout=5.0).connect()
+            try:
+                robot.enable()
+                robot.home(start_position_confirmed=True)
+                robot.sim.inject("worker_crash")
+                with self.assertRaises(ScorbotError) as caught:
+                    robot.jog_joint("base", 1.0)
+                self.assertIn("physical stop", str(caught.exception))
+                self.assertIsNotNone(robot._fault)
+                with self.assertRaises(ScorbotError):
+                    robot.enable()
+            finally:
+                robot.disconnect()
+            events = [json.loads(line)["event"] for line in log.read_text().splitlines()]
+        self.assertIn("disable_skipped_worker_crashed", events)
 
 
 if __name__ == "__main__":

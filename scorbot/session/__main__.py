@@ -117,9 +117,23 @@ def _replay(args) -> int:
 
 # -- list --------------------------------------------------------------------
 
+def _report_search(search) -> int:
+    """Print what the search could not use; return 1 if an argument matched nothing."""
+    for argument in search.unmatched:
+        print(f"No session found at {argument}", file=sys.stderr)
+    for path in search.duplicates:
+        print(f"Skipped duplicate session {path}")
+    return 1 if search.unmatched else 0
+
+
 def _list(args) -> int:
+    search = analysis.find_sessions(args.paths)
+    missing = _report_search(search)
     rows, broken = [], 0
-    for mcap in analysis.find_sessions(args.paths):
+    for mcap in search.not_sessions:
+        rows.append(("NOT A SESSION", "-", str(mcap), "-", "-", 0,
+                     "not a session.mcap; not loaded"))
+    for mcap in search.sessions:
         try:
             session = load_session(mcap)
         except Exception as error:  # an unreadable file is reported, never fatal
@@ -137,15 +151,15 @@ def _list(args) -> int:
         del session  # keep only one session in memory at a time
     if not rows:
         print("No sessions found.")
-        return 0
+        return max(missing, 0)
     rows.sort(key=lambda row: row[3], reverse=True)
-    print(f"{'STATUS':<11} {'SOURCE':<10} {'SESSION':<26} {'STARTED':<26} "
+    print(f"{'STATUS':<13} {'SOURCE':<10} {'SESSION':<26} {'STARTED':<26} "
           f"{'ROBOT':<14} {'EVENTS':>6}  TASK")
     for status, source, name, started, robot, events, task in rows:
-        print(f"{status:<11} {source:<10} {name:<26} {started[:25]:<26} "
+        print(f"{status:<13} {source:<10} {name:<26} {started[:25]:<26} "
               f"{robot[:14]:<14} {events:>6}  {task}")
-    print(f"\n{len(rows)} session(s); {broken} with integrity errors.")
-    return 1 if broken else 0
+    print(f"\n{len(search.sessions)} session(s); {broken} with integrity errors.")
+    return 1 if broken or missing else 0
 
 
 # -- export ------------------------------------------------------------------
@@ -184,30 +198,30 @@ def _export(args) -> int:
 # -- compare -----------------------------------------------------------------
 
 def _compare(args) -> int:
-    summaries, seen = [], set()
-    for path in args.paths:
-        for mcap in analysis.find_sessions([path]):
-            key = mcap.resolve()
-            if key in seen:
-                print(f"Skipped duplicate session {mcap}")
-                continue
-            seen.add(key)
-            try:
-                session = load_session(mcap)
-            except Exception as error:
-                print(f"Skipped unreadable {mcap}: {error}")
-                continue
-            summaries.append(analysis.summarize(session))
-            del session  # keep only the summary in memory
+    search = analysis.find_sessions(args.paths)
+    problems = _report_search(search)
+    for mcap in search.not_sessions:
+        print(f"Ignored {mcap}: not a session.mcap")
+    summaries = []
+    for mcap in search.sessions:
+        try:
+            session = load_session(mcap)
+        except Exception as error:
+            print(f"Skipped unreadable {mcap}: {error}", file=sys.stderr)
+            problems = 1
+            continue
+        summaries.append(analysis.summarize(session))
+        del session  # keep only the summary in memory
     if not summaries:
         print("No sessions found.", file=sys.stderr)
         return 2
     result = analysis.compare(summaries, include_damaged=args.include_damaged)
-    source = summaries[0].data_source if result.pooled is not None else None
     table = list(result.rows)
     if result.pooled is not None:
-        table += [{"session_id": "POOLED", "data_source": source, "integrity": "-",
-                   "kind": kind, **stats} for kind, stats in result.pooled.items()]
+        # Labelled with the source of the sessions actually pooled, never an excluded one.
+        table += [{"session_id": "POOLED", "data_source": result.pooled_source,
+                   "integrity": "n/a", "kind": kind, **stats}
+                  for kind, stats in result.pooled.items()]
 
     print(f"{'SESSION':<26} {'SOURCE':<10} {'INTEGRITY':<9} {'KIND':<12} {'N':>3} "
           f"{'MEDIAN_MS':>10} {'MAX_MS':>9}  MAX|COUNT ERROR|")
@@ -228,7 +242,8 @@ def _compare(args) -> int:
                      "mean_abs_error": json.dumps(row["mean_abs_error"]),
                      "max_abs_error": json.dumps(row["max_abs_error"])} for row in table])
         print(f"Wrote {len(table)} rows to {args.csv}")
-    return result.exit_code
+    # A mistyped or unreadable path must not pass silently as a smaller N.
+    return max(result.exit_code, problems)
 
 
 def _num(value):

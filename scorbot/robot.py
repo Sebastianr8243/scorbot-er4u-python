@@ -204,13 +204,16 @@ class Scorbot:
             try:
                 result = self._results.get(timeout=wait_timeout)
                 if isinstance(result, Exception):
-                    raise _WorkerCrashed(f"USB command worker crashed: {result}") from result
+                    raise _WorkerCrashed(
+                        f"USB command worker crashed: {result}. Motor state is unverified; "
+                        "use the physical stop if needed") from result
                 if result != 0:
                     while True:
                         next_result = self._results.get(timeout=wait_timeout)
                         if isinstance(next_result, Exception):
                             raise _WorkerCrashed(
-                                f"USB command worker crashed: {next_result}") from next_result
+                                f"USB command worker crashed: {next_result}. Motor state is "
+                                "unverified; use the physical stop if needed") from next_result
                         if next_result == 0:
                             break
                     raise ScorbotError(f"Legacy controller returned error code {result}")
@@ -236,6 +239,8 @@ class Scorbot:
                     except queue.Empty:
                         disable_result = "timeout"
                     self._record("disable_after_error", result=disable_result)
+                elif isinstance(exc, _WorkerCrashed):
+                    self._record("disable_skipped_worker_crashed")
                 self._enabled = None
                 self._homed = False
                 self._home_counts = None

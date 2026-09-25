@@ -136,7 +136,7 @@ with the robot states recorded just before and just after it:
 | `status` | `completed`, `faulted`, `timeout`, `rejected`, or `no_result` if the outcome was never logged |
 | `planned_counts` | The motor-count change the plan asked for. The lab scripts record it with each jog. |
 | `observed_counts` | The motor-count change between the before and after states. It uses the **same arithmetic as `review_lab_logs.py`**, so the two tools always agree. A difference too close to the counter's wrap point is shown as `ambiguous`, never guessed. |
-| `count_error` | Observed minus planned, per motor. The simulator always gives 0. On the arm this is the first real accuracy number. |
+| `count_error` | Observed minus planned, for **every** motor that was read, not only the one commanded. A motor the plan didn't move counts as planned 0, so an uncommanded or coupled motion shows up here. The simulator always gives 0. On the arm this is the first real accuracy number. |
 | `recorded_duration_ms` | The time from the command entry to the result entry in the recording. It includes script overhead, so it is **not** how long the arm took to move. |
 
 A state is only ever used for the command next to it, never borrowed from
