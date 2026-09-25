@@ -34,7 +34,7 @@ with Scorbot(log_path="session.jsonl") as robot:
     robot.disable()
 ```
 
-The complete script is in [examples/python_control.py](examples/python_control.py). After installation, run it from the repository root with `.\.venv\Scripts\python.exe examples\python_control.py`. Start by running just `connect()` and `get_state()`, then verify the homing start pose and each direction before allowing a jog. `jog_joint` accepts `base`, `shoulder`, `elbow`, `wrist_pitch`, or `wrist_roll`; each call is limited to 5 degrees and legacy speed values 1–20. The positive direction mapping is inherited from the old code and needs physical verification.
+The complete script is in [examples/python_control.py](examples/python_control.py). After installation, run it from the repository root with `.\.venv\Scripts\python.exe examples\python_control.py`. Start by running just `connect()` and `get_state()`, then verify the homing start pose and each direction before allowing a jog. `jog_joint` currently accepts `base`, `shoulder`, or `elbow`; live wrist jogs are gated pending two-motor bench measurements. Each call is limited to 5 degrees and legacy speed values 1–20. The positive direction mapping is inherited from the old code and needs physical verification. Use the [offline jog preview](docs/OFFLINE_SAFETY_FIXES.md) to inspect planned motor counts before a supervised trial.
 
 For one-joint supervised trials, follow the [arm-control bench procedure](docs/ARM_CONTROL_BENCH.md) and run [bench_joint.py](examples/bench_joint.py). Start with [raw-state recording](examples/record_raw_state.py), then use the [measurement and calibration guide](docs/PHYSICAL_CALIBRATION.md) when an independent angle reference is available. The fitter in `scripts/fit_calibration.py` refuses vendor-only data and requires holdout and movement verification before emitting a calibrated file.
 
@@ -62,7 +62,7 @@ The tests use synthetic USB responses and measurements; they do not open USB or 
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The current adapter is based on static code inspection. Hardware communication, homing completion, joint directions, and stop behavior still require supervised bench validation on your ER-4U. The SDK timestamps successful USB reads, but a new packet does not by itself prove movement or a switch state. The controller manual documents motor shutdown on communication failure; this has not been verified with this Python path.
+The current adapter is based on static code inspection. Hardware communication, homing completion, joint directions, and stop behavior still require supervised bench validation on your ER-4U. The SDK timestamps successful USB reads, but a new packet does not by itself prove movement or a switch state. Motor behavior after communication failure has not been verified with this Python path.
 
 ## Original project
 
