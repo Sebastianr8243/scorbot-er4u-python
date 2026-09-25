@@ -16,6 +16,7 @@ from pathlib import Path
 import sys
 
 from . import analysis
+from .notes import parse_notes
 from .replay import load_session
 
 SUBCOMMANDS = ("replay", "list", "export", "compare")
@@ -66,6 +67,17 @@ def _findings(session):
         print(f"  {finding.level.upper():<8} {finding.message}")
 
 
+def _sheet_line(session) -> str:
+    """Observation-sheet status: a warning only on real runs, where it is evidence."""
+    sheet = parse_notes(Path(session.path) / "notes.md")
+    real = session.metadata.get("data_source") == "real"
+    level = "WARNING " if real and sheet.status not in ("complete", "legacy") else "        "
+    detail = f" ({'; '.join(sheet.problems[:3])})" if sheet.problems else ""
+    reviewed = "" if sheet.status in ("missing", "untouched") else (
+        ", reviewed" if sheet.reviewed else ", not reviewed yet")
+    return f"  {level} Observation sheet: {sheet.status}{reviewed}{detail}"
+
+
 # -- replay ------------------------------------------------------------------
 
 def _replay(args) -> int:
@@ -110,6 +122,7 @@ def _replay(args) -> int:
     _findings(session)
     if not session.findings:
         print("  Integrity: no problems found")
+    print(_sheet_line(session))
     print()
     print("  Open session.mcap in Foxglove or Lichtblick for video and plots.")
     return 1 if session.errors else 0
@@ -131,13 +144,13 @@ def _list(args) -> int:
     missing = _report_search(search)
     rows, broken = [], 0
     for mcap in search.not_sessions:
-        rows.append(("NOT A SESSION", "-", str(mcap), "-", "-", 0,
+        rows.append(("NOT A SESSION", "-", str(mcap), "-", "-", 0, "-",
                      "not a session.mcap; not loaded"))
     for mcap in search.sessions:
         try:
             session = load_session(mcap)
         except Exception as error:  # an unreadable file is reported, never fatal
-            rows.append(("UNREADABLE", "-", str(mcap), "-", "-", 0, str(error)))
+            rows.append(("UNREADABLE", "-", str(mcap), "-", "-", 0, "-", str(error)))
             broken += 1
             continue
         meta = session.metadata
@@ -145,19 +158,20 @@ def _list(args) -> int:
                   f"WARN {len(session.warnings)}" if session.warnings else "OK")
         broken += bool(session.errors)
         name = meta.get("session_id") or str(mcap)
+        notes_status = parse_notes(Path(session.path) / "notes.md").status
         rows.append((status, str(meta.get("data_source", "?")).upper(), name,
                      meta.get("started_utc") or "-", meta.get("robot_id") or "-",
-                     len(session.events), meta.get("task") or ""))
+                     len(session.events), notes_status, meta.get("task") or ""))
         del session  # keep only one session in memory at a time
     if not rows:
         print("No sessions found.")
         return max(missing, 0)
     rows.sort(key=lambda row: row[3], reverse=True)
     print(f"{'STATUS':<13} {'SOURCE':<10} {'SESSION':<26} {'STARTED':<26} "
-          f"{'ROBOT':<14} {'EVENTS':>6}  TASK")
-    for status, source, name, started, robot, events, task in rows:
+          f"{'ROBOT':<14} {'EVENTS':>6}  {'NOTES':<10}  TASK")
+    for status, source, name, started, robot, events, notes_status, task in rows:
         print(f"{status:<13} {source:<10} {name:<26} {started[:25]:<26} "
-              f"{robot[:14]:<14} {events:>6}  {task}")
+              f"{robot[:14]:<14} {events:>6}  {notes_status:<10}  {task}")
     print(f"\n{len(search.sessions)} session(s); {broken} with integrity errors.")
     return 1 if broken or missing else 0
 
@@ -179,7 +193,8 @@ def _export(args) -> int:
     out = args.out or session.path / "csv"
     files = {"events.csv": (analysis.EVENT_COLUMNS, analysis.event_rows(session)),
              "states.csv": (analysis.STATE_COLUMNS, analysis.state_rows(session)),
-             "commands.csv": (analysis.COMMAND_COLUMNS, analysis.command_rows(session))}
+             "commands.csv": (analysis.COMMAND_COLUMNS, analysis.command_rows(session)),
+             "notes.csv": (analysis.NOTES_COLUMNS, analysis.notes_rows(session))}
     existing = [name for name in files if (out / name).exists()]
     if existing and not args.force:
         print(f"Refusing to overwrite {', '.join(existing)} in {out} (use --force).",
@@ -220,14 +235,14 @@ def _compare(args) -> int:
     if result.pooled is not None:
         # Labelled with the source of the sessions actually pooled, never an excluded one.
         table += [{"session_id": "POOLED", "data_source": result.pooled_source,
-                   "integrity": "n/a", "kind": kind, **stats}
-                  for kind, stats in result.pooled.items()]
+                   "integrity": "n/a", "notes": "n/a", "run_ended": "", "kind": kind,
+                   **stats} for kind, stats in result.pooled.items()]
 
-    print(f"{'SESSION':<26} {'SOURCE':<10} {'INTEGRITY':<9} {'KIND':<12} {'N':>3} "
-          f"{'MEDIAN_MS':>10} {'MAX_MS':>9}  MAX|COUNT ERROR|")
+    print(f"{'SESSION':<26} {'SOURCE':<10} {'INTEGRITY':<9} {'NOTES':<10} {'KIND':<12} "
+          f"{'N':>3} {'MEDIAN_MS':>10} {'MAX_MS':>9}  MAX|COUNT ERROR|")
     for row in table:
         print(f"{row['session_id'][:26]:<26} {str(row['data_source']).upper():<10} "
-              f"{row['integrity']:<9} {row['kind'][:12]:<12} {row['n']:>3} "
+              f"{row['integrity']:<9} {row['notes']:<10} {row['kind'][:12]:<12} {row['n']:>3} "
               f"{_num(row['median_ms']):>10} {_num(row['max_ms']):>9}  "
               f"{json.dumps(row['max_abs_error']) if row['max_abs_error'] else '-'}")
     for message in result.messages:
@@ -235,10 +250,10 @@ def _compare(args) -> int:
     print("\nMEDIAN_MS/MAX_MS are recorder-observed durations (command to result, including "
           "script overhead), not arm motion time.")
     if args.csv:
-        columns = ["session_id", "data_source", "integrity", "kind", "n", "median_ms",
-                   "max_ms", "mean_abs_error", "max_abs_error"]
+        columns = ["session_id", "data_source", "integrity", "notes", "run_ended", "kind",
+                   "n", "median_ms", "max_ms", "mean_abs_error", "max_abs_error"]
         _write_csv(args.csv, columns,
-                   [{**{key: row[key] for key in columns[:7]},
+                   [{**{key: row[key] for key in columns[:9]},
                      "mean_abs_error": json.dumps(row["mean_abs_error"]),
                      "max_abs_error": json.dumps(row["max_abs_error"])} for row in table])
         print(f"Wrote {len(table)} rows to {args.csv}")

@@ -251,7 +251,62 @@ observed. For analysis, use `_rec`, not `publish_time`.
 |---|---|
 | `session.mcap` | Every event and camera frame. It is written one message at a time and handed to the OS immediately. If Python crashes or you press Ctrl-C, you lose at most the message being written. A power cut or OS crash can lose more, because messages are not forced to disk one by one. |
 | `metadata.json` | Robot and controller IDs, operator, task, start pose, data source, code commit and source fingerprint, Python and package versions, calibration file hash, and the clock anchor. It is rewritten with `ended_utc` and `closed_cleanly` when the session closes. |
-| `notes.md` | A blank observation sheet. Fill it in by hand during or after the run. |
+| `notes.md` | The operator's observation sheet: one `Label: answer` line per question, then free text under `## Free notes`. See "The observation sheet" below. |
+
+## The observation sheet
+
+Every session folder starts with a blank `notes.md`. You fill it in with
+Notepad or VS Code, typing one answer after each colon:
+
+```text
+notes_schema: 1
+
+Date / time: 2026-10-01 14:30
+Stop operator: Alice
+Recorder: Bob
+E-stop tested before start: yes
+Start pose matches photo: yes
+Observed direction: toward the door, about 1 degree
+Other joints moved: no
+Python returned normally: yes
+How run ended: normal return
+Discrepancies: none
+Reviewed by:
+
+## Free notes
+Anything else, in your own words.
+```
+
+**Required answers:** date/time, stop operator, recorder, e-stop tested,
+start pose, how run ended, and discrepancies.
+
+**Allowed values:**
+- The yes/no questions take `yes`, `no`, `n/a`, or `not sure`.
+- *How run ended* takes `normal return`, `declined prompt`,
+  `emergency stop`, `error`, or `other: <what happened>`.
+
+The format is plain text on purpose: times like `14:30` and answers like
+`no` stay exactly as typed. The toolkit copes with Notepad's BOM and with
+Windows line endings.
+
+**Where the status shows up:**
+- `list` has a **NOTES** column.
+- Replay prints the sheet status.
+- `export` writes `notes.csv`.
+- `compare` shows each run's sheet status and how it ended.
+
+| Status | Meaning |
+|---|---|
+| `complete` | Every required answer is there and valid |
+| `incomplete` | A required answer is blank or not one of the allowed values. Replay lists which. |
+| `untouched` | Nobody filled it in |
+| `missing` | No `notes.md` in the folder |
+| `legacy` | An older sheet format. It is shown but not checked. |
+
+For **real** runs, anything other than `complete` is printed as a
+WARNING, because the sheet is part of the evidence. Rehearsals with
+`--simulate` show the status without the warning. The printed sheet in the
+[G1 checklist](G1_LAB_CHECKLIST.md) uses the same labels.
 
 ## Integrity messages
 

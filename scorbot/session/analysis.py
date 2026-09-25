@@ -17,6 +17,7 @@ import statistics
 
 from ..calibration import signed_count_delta
 from ..state import JOINTS
+from .notes import label_for, parse_notes
 
 AMBIGUOUS = "ambiguous"
 _FORMULA_START = ("=", "+", "-", "@")
@@ -54,6 +55,8 @@ class RunSummary:
     status_counts: dict
     # Raw per-kind values kept so pooled statistics are exact, not averages of averages.
     kinds: dict
+    notes_status: str = "missing"
+    run_ended: str = ""
 
 
 @dataclass
@@ -251,8 +254,28 @@ def command_rows(session) -> list[dict]:
             for r in command_records(session)]
 
 
+NOTES_COLUMNS = ["session_id", "data_source", "field", "label", "value"]
+
+
+def notes_rows(session) -> list[dict]:
+    """The observation sheet as one row per answer, plus its overall status."""
+    sheet = parse_notes(Path(session.path) / "notes.md")
+    ident = _identity(session)
+    rows = [{**ident, "field": "notes_status", "label": "Observation sheet status",
+             "value": sheet.status},
+            {**ident, "field": "notes_problems", "label": "Observation sheet problems",
+             "value": "; ".join(sheet.problems)}]
+    rows += [{**ident, "field": key, "label": label_for(key), "value": value}
+             for key, value in sheet.fields.items()]
+    if sheet.free_notes:
+        rows.append({**ident, "field": "free_notes", "label": "Free notes",
+                     "value": sheet.free_notes})
+    return rows
+
+
 def summarize(session) -> RunSummary:
     meta = session.metadata
+    sheet = parse_notes(Path(session.path) / "notes.md")
     kinds: dict = {}
     status_counts: dict = {}
     for record in command_records(session):
@@ -268,7 +291,8 @@ def summarize(session) -> RunSummary:
         data_source=meta.get("data_source", "unknown"), started_utc=meta.get("started_utc"),
         robot_id=meta.get("robot_id"), task=meta.get("task"), n_events=len(session.events),
         errors=[f.message for f in session.errors], warnings=[f.message for f in session.warnings],
-        status_counts=status_counts, kinds=kinds)
+        status_counts=status_counts, kinds=kinds,
+        notes_status=sheet.status, run_ended=sheet.fields.get("run_ended", ""))
 
 
 def kind_stats(raw: dict) -> dict:
@@ -294,7 +318,8 @@ def compare(summaries: list[RunSummary], include_damaged: bool = False) -> Compa
         status = ("ERROR" if summary.errors else "WARN" if summary.warnings else "OK")
         for kind, raw in sorted(summary.kinds.items()):
             rows.append({"session_id": summary.session_id, "data_source": summary.data_source,
-                         "integrity": status, "kind": kind, **kind_stats(raw)})
+                         "integrity": status, "notes": summary.notes_status,
+                         "run_ended": summary.run_ended, "kind": kind, **kind_stats(raw)})
         if summary.errors and not include_damaged:
             excluded.append(summary.session_id)
             messages.append(f"Excluded {summary.session_id} from the pooled row: "

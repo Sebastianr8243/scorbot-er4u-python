@@ -76,24 +76,30 @@ After a stop: press the physical stop. Don't retry the command in this session. 
 
 ## Observation sheet (one per run)
 
+The **bold** rows use the same labels as the `notes.md` file in that run's
+session folder (`logs\sessions\<id>\notes.md`). Afterwards, copy each bold
+answer onto its line in `notes.md`. `python -m scorbot.session list logs\sessions`
+then shows which sheets are still incomplete. Yes/no rows take yes, no, n/a
+or not sure. *How run ended* takes normal return, declined prompt, emergency
+stop, error, or other: <what happened>.
+
 | Field | Entry |
 |---|---|
 | Run file (`logs\...jsonl`) | |
-| Date / time | |
-| Code commit | |
+| **Date / time** | |
+| **Stop operator** | |
+| **Recorder** | |
+| **E-stop tested before start** (yes / no) | |
+| **Start pose matches photo** (yes / no, and how it differs) | |
 | Joint / requested delta / speed | base / ____ / ____ |
-| Start pose matches photo? (yes / no, and how it differs) | |
 | Home search: what moved, in what order, anything odd | |
 | Typed `HOME_OK`? If not, why | |
 | Planned count change (from the printed plan) | |
-| Observed direction (use a lab reference, e.g. "toward the door") | |
-| Approximate displacement | |
-| Any other joint moved? | |
+| **Observed direction** (a lab reference, e.g. "toward the door", and about how far) | |
+| **Other joints moved** (yes / no) | |
 | Controller LEDs or sounds | |
-| Python returned normally? (yes / error text) | |
-| How the run ended (normal / declined prompt / emergency stop / error) | |
+| **Python returned normally** (yes / error text) | |
+| **How run ended** | |
 | Log review: planned vs observed counts | |
-| Discrepancies between this sheet and the log | |
-| Stop operator initials | |
-| Recorder initials | |
-| Reviewed later by / date | |
+| **Discrepancies** (between this sheet and the log; "none" if none) | |
+| **Reviewed by** (name / date, filled in later) | |

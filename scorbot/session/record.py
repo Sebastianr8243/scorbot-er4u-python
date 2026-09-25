@@ -24,25 +24,11 @@ import time
 
 from mcap.writer import Writer
 
-from . import schemas
+from . import notes, schemas
 
 IMAGE_FORMATS = ("jpeg", "png", "webp", "avif")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-NOTES_TEMPLATE = """# Session {session_id} observation sheet
-
-Fill in by hand during or right after the run. Keep this file with the session.
-
-- Date / time:
-- Operators present (who held the physical emergency stop):
-- Emergency stop reachable and tested before start (yes/no):
-- Start pose (describe; photo file name):
-- What moved, which direction, anything unexpected:
-- Controller LEDs / sounds:
-- How the run ended (normal return / e-stop / error / other):
-- Discrepancies between this sheet and the software log:
-- Reviewed by / date:
-"""
 
 
 class SessionError(RuntimeError):
@@ -108,7 +94,7 @@ class SessionWriter:
                                                   timezone.utc).isoformat(),
         }
         _write_json_atomic(path / "metadata.json", metadata)
-        (path / "notes.md").write_text(NOTES_TEMPLATE.format(session_id=session_id),
+        (path / "notes.md").write_text(notes.template(session_id),
                                        encoding="utf-8")
 
         stream = open(path / "session.mcap", "xb")
