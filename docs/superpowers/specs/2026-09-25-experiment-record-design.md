@@ -281,7 +281,15 @@ session in Foxglove or Lichtblick. Check that the images display and that
 - **Clock information.** `metadata.clock` records the monotonic clock's
   implementation and resolution. Windows on Python < 3.13 uses about 15.6 ms
   steps.
-- **Streaming reader (deferred).** `load_session` parses record by record
-  but reads the file into memory and keeps frame payloads. True streaming,
-  and lazy loading of frame `data`, are deferred to the camera-adapter
-  slice, where hour-long video sessions first occur.
+- **Streaming reader.** `load_session` streams from the open file and reads
+  only the tail it needs to classify a failure. Decoded events, including
+  frame payloads, are still kept in memory. Lazy loading of frame `data` is
+  deferred to the camera-adapter slice, where hour-long video sessions first
+  occur.
+- **Crash tails and closing.**
+  - A crashed file whose tail is all zero bytes (seen after power loss on
+    NTFS) is a warning, not corruption.
+  - `metadata.json` is fsynced before it is swapped into place.
+  - A failure during `close()` never replaces an exception already raised
+    inside the `with` block.
+  - Payload JSON is serialized outside the writer lock.

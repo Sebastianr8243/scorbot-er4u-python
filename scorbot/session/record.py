@@ -230,12 +230,20 @@ class SessionWriter:
         return self
 
     def __exit__(self, exc_type, exc, _traceback):
-        if exc_type is not None and not self._closed:
-            try:
+        if exc_type is None:
+            self.close()
+            return False
+        # Something already went wrong: record it, close as well as possible, and
+        # never let a secondary close failure replace the caller's exception.
+        try:
+            if not self._closed:
                 self.log_fault(f"{exc_type.__name__}: {exc}")
-            except Exception:
-                pass
-        self.close()
+        except Exception:
+            pass
+        try:
+            self.close()
+        except Exception:
+            pass
         return False
 
     # -- internals ----------------------------------------------------------
@@ -252,6 +260,12 @@ class SessionWriter:
             raise SessionError(f"{topic} payload is missing {missing}")
         if observed_monotonic_ns is not None:
             observed_monotonic_ns = int(observed_monotonic_ns)
+        # Serialize the (possibly large) payload before taking the lock; only the
+        # small _rec block is encoded while other threads wait.
+        try:
+            body = json.dumps(payload, allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise SessionError(f"{topic} payload is not strict JSON: {error}") from None
         with self._lock:
             if self._closed:
                 raise SessionError("Session is closed")
@@ -263,9 +277,11 @@ class SessionWriter:
             if rec_extra:
                 rec.update(rec_extra)
             try:
-                data = json.dumps({**payload, "_rec": rec}, allow_nan=False).encode()
+                rec_json = json.dumps(rec, allow_nan=False)
             except (TypeError, ValueError) as error:
-                raise SessionError(f"{topic} payload is not strict JSON: {error}") from None
+                raise SessionError(f"{topic} record fields are not strict JSON: {error}") from None
+            # body is a non-empty JSON object (required keys exist); splice _rec in.
+            data = (body[:-1] + ', "_rec": ' + rec_json + "}").encode()
             # Consume seq before writing: an interrupt (Ctrl-C) landing after the
             # bytes reach disk must not let the next event reuse this number.
             seq = self._seq
@@ -307,7 +323,10 @@ def _clock_info(started_monotonic_ns: int, started_epoch_ns: int) -> dict:
 
 def _write_json_atomic(path: Path, value: dict) -> None:
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    with open(temporary, "w", encoding="utf-8") as stream:
+        stream.write(json.dumps(value, indent=2, allow_nan=False) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(temporary, path)
 
 

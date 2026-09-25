@@ -8,7 +8,6 @@ unreadable data before the end is corruption and an error.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from io import BytesIO
 import json
 from pathlib import Path
 
@@ -48,19 +47,20 @@ class Session:
 
 def load_session(path) -> Session:
     path = Path(path)
-    folder, mcap_path = (path.parent, path) if path.suffix == ".mcap" else (path, path / "session.mcap")
+    is_file = path.suffix.lower() == ".mcap"
+    folder, mcap_path = (path.parent, path) if is_file else (path, path / "session.mcap")
     if not mcap_path.is_file():
         raise FileNotFoundError(f"No session.mcap found at {mcap_path}")
     findings: list[Finding] = []
-    data = mcap_path.read_bytes()
-    events, embedded, finished, failure = _read_mcap(data, findings)
     sidecar = _read_sidecar(folder / "metadata.json", findings)
-
-    if failure is not None:
-        # A closed file (magic at the end, or sidecar says so) has no crash tail:
-        # any unreadable record in it is damage, never a harmless truncation.
-        claims_closed = data.endswith(_MAGIC) or (sidecar or {}).get("closed_cleanly") is True
-        _classify_tail(data, *failure, claims_closed, findings)
+    with open(mcap_path, "rb") as stream:
+        events, embedded, finished, failure = _read_mcap(stream, findings)
+        if failure is not None:
+            # A closed file (magic at the end, or sidecar says so) has no crash tail:
+            # any unreadable record in it is damage, never a harmless truncation.
+            claims_closed = (_ends_with_magic(stream)
+                             or (sidecar or {}).get("closed_cleanly") is True)
+            _classify_tail(stream, *failure, claims_closed, findings)
 
     metadata = _merge_metadata(sidecar, embedded, findings)
     _check_metadata(metadata, findings)
@@ -68,7 +68,8 @@ def load_session(path) -> Session:
     if not closed:
         findings.append(Finding("warning", "Session was not closed cleanly "
                                            "(crash, e-stop, or still recording)"))
-    if sidecar is not None and isinstance(sidecar.get("event_count"), int)             and sidecar["event_count"] != len(events):
+    recorded_count = (sidecar or {}).get("event_count")
+    if isinstance(recorded_count, int) and recorded_count != len(events):
         findings.append(Finding("error", f"metadata.json records {sidecar['event_count']} "
                                          f"events but {len(events)} could be read"))
     _check_events(events, findings)
@@ -119,11 +120,11 @@ def _merge_metadata(sidecar, embedded, findings: list[Finding]) -> dict:
     return {**sidecar, **{key: embedded.get(key) for key in _IDENTITY_KEYS}}
 
 
-def _read_mcap(data: bytes, findings: list[Finding]):
-    stream = BytesIO(data)
+def _read_mcap(stream, findings: list[Finding]):
     channels: dict[int, Channel] = {}
     schema_names: dict[int, str] = {}
     events: list[dict] = []
+    stream.seek(0)
     embedded_metadata = None
     finished = False
     last_good = 0
@@ -167,13 +168,31 @@ def _decode(record: Message, channels, schema_names, offset, findings):
             "publish_time": record.publish_time, "payload": payload}
 
 
-def _classify_tail(data: bytes, offset: int, error: Exception, claims_closed: bool,
+def _ends_with_magic(stream) -> bool:
+    size = stream.seek(0, 2)
+    if size < len(_MAGIC):
+        return False
+    stream.seek(size - len(_MAGIC))
+    return stream.read(len(_MAGIC)) == _MAGIC
+
+
+def _rest_is_zero(stream, offset: int) -> bool:
+    stream.seek(offset)
+    while True:
+        block = stream.read(1 << 16)
+        if not block:
+            return True
+        if block.strip(b"\x00"):
+            return False
+
+
+def _classify_tail(stream, offset: int, error: Exception, claims_closed: bool,
                    findings: list[Finding]):
     if isinstance(error, CRCValidationError):
         findings.append(Finding("error", "Data checksum mismatch: the file changed after "
                                          "recording or is damaged"))
         return
-    remaining = len(data) - offset
+    remaining = stream.seek(0, 2) - offset
     if claims_closed:
         findings.append(Finding("error", f"Damaged record at byte {offset} in a closed "
                                          f"session; later events are unreadable "
@@ -181,11 +200,18 @@ def _classify_tail(data: bytes, offset: int, error: Exception, claims_closed: bo
         return
     if remaining == 0:
         return  # stopped exactly at a record boundary: a crash, reported as "not closed"
+    if _rest_is_zero(stream, offset):
+        findings.append(Finding("warning", f"Crash left {remaining} zero bytes at the end "
+                                           "(typical after power loss); events before them "
+                                           "are intact"))
+        return
     if remaining < 9:
         findings.append(Finding("warning", f"Final record is truncated ({remaining} bytes)"))
         return
-    opcode = data[offset]
-    length = int.from_bytes(data[offset + 1:offset + 9], "little")
+    stream.seek(offset)
+    header = stream.read(9)
+    opcode = header[0]
+    length = int.from_bytes(header[1:9], "little")
     if opcode in _KNOWN_OPCODES and length < _MAX_RECORD and 9 + length > remaining:
         findings.append(Finding("warning", f"Final record is truncated "
                                            f"({remaining} of {9 + length} bytes)"))

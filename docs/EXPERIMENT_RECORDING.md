@@ -152,6 +152,7 @@ observed. For analysis, use `_rec`, not `publish_time`.
 |---|---|
 | WARNING `Session was not closed cleanly` | Python crashed, the e-stop ended the run, or recording is still going. Every event that was written is still there. |
 | WARNING `Final record is truncated` | The last message was cut off by a crash. Everything before it is intact. |
+| WARNING `Crash left N zero bytes at the end` | A power loss or OS crash left empty space at the end of the file. The events before it are intact. |
 | WARNING `Command cmd-0003 has no result` | A command was logged, but its outcome never was. Check `notes.md`. |
 | ERROR `seq gap or duplicate` | Events are missing from the middle of the file. |
 | ERROR `Corrupted data at byte N` | The file is damaged before its end. |

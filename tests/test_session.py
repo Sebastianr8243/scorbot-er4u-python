@@ -543,6 +543,54 @@ class ReviewFixTests(unittest.TestCase):
                                 cwd=REPO_ROOT, capture_output=True, env=env)
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
 
+    def test_zero_filled_tail_after_power_loss_is_a_crash_warning(self):
+        from scorbot.session.replay import load_session
+        writer = new_writer(self.root)
+        for i in range(5):
+            writer.log_note(f"n{i}")
+        writer._stream.flush()
+        writer._stream.close()  # simulate a crash: no finish(), no metadata update
+        with open(writer.mcap_path, "ab") as stream:
+            stream.write(b"\x00" * 4096)  # NTFS can leave zeroed clusters after power loss
+        session = load_session(writer.path)
+        self.assertEqual(session.errors, [], [f.message for f in session.errors])
+        self.assertEqual(len(session.events), 5)
+
+    def test_close_error_does_not_mask_the_original_exception(self):
+        def broken_finish():
+            raise OSError("disk vanished")
+        with self.assertRaises(RuntimeError):
+            with new_writer(self.root) as writer:
+                writer._writer.finish = broken_finish
+                raise RuntimeError("original problem")
+        self.assertTrue(writer._stream.closed)
+
+    def test_close_fsyncs_log_and_metadata(self):
+        from unittest.mock import patch
+        import os
+        writer = new_writer(self.root)
+        with patch("scorbot.session.record.os.fsync", wraps=os.fsync) as fsync:
+            writer.close()
+        self.assertGreaterEqual(fsync.call_count, 2)
+
+    def test_uppercase_mcap_suffix_is_accepted(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            writer.log_note("x")
+        renamed = writer.path / "SESSION.MCAP"
+        writer.mcap_path.rename(renamed)
+        self.assertEqual(len(load_session(renamed).events), 1)
+
+    def test_cli_exits_1_on_overwritten_bytes(self):
+        with new_writer(self.root) as writer:
+            for i in range(20):
+                writer.log_note(f"note {i}")
+        data = bytearray(writer.mcap_path.read_bytes())
+        middle = len(data) // 2
+        data[middle:middle + 32] = b"\xff" * 32
+        writer.mcap_path.write_bytes(bytes(data))
+        self.assertEqual(run_cli(writer.path).returncode, 1)
+
     def test_metadata_records_clock_resolution(self):
         with new_writer(self.root) as writer:
             clock = writer.metadata["clock"]
