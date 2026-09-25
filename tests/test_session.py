@@ -139,6 +139,8 @@ class WriterTests(unittest.TestCase):
         from dataclasses import asdict
         from scorbot.state import decode_state
         packet = bytearray(64)
+        for offset in (19, 24, 29, 34, 39, 44):
+            packet[offset + 2] = 128  # valid "positive" encoder sign byte
         packet[19:21] = (1234).to_bytes(2, "little")
         state = decode_state(bytes(packet), connected=True, enabled=False,
                              homed=False, fault=None)
