@@ -513,6 +513,19 @@ class ReviewFixTests(unittest.TestCase):
         self.assertEqual(session.errors, [], [f.message for f in session.errors])
         self.assertEqual(session.events[-1]["topic"], "/session/fault")
 
+    def test_fault_already_logged_for_the_exception_is_not_repeated(self):
+        from scorbot.session.replay import load_session
+        with self.assertRaises(KeyboardInterrupt):
+            with new_writer(self.root) as writer:
+                try:
+                    raise KeyboardInterrupt()
+                except KeyboardInterrupt as exc:
+                    writer.log_fault(f"{type(exc).__name__}: {exc}")
+                    raise
+        faults = [e for e in load_session(writer.path).events
+                  if e["topic"] == "/session/fault"]
+        self.assertEqual(len(faults), 1)
+
     def test_write_failure_breaks_the_writer(self):
         from scorbot.session.record import SessionError
         writer = new_writer(self.root)

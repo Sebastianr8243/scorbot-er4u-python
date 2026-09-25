@@ -143,6 +143,7 @@ a `real` session, or real states in a `simulated` one.
 | Kind | What happens |
 |---|---|
 | `timeout` | The next command never answers. The session faults after `command_timeout`. |
+| `late_answer` | The next command answers only after the session has already timed out. The stale answer must not unlock anything. |
 | `controller_error` | The next command returns error code 3. |
 | `worker_crash` | The command worker crashes and stops. |
 | `stale_feedback` | The next state read gets no fresh packet. |

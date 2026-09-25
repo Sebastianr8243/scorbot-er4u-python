@@ -19,8 +19,8 @@ from .packet import PacketSnapshot
 from .robot import Scorbot, ScorbotError
 from .state import ENCODER_OFFSETS, JOINTS
 
-FAULT_KINDS = ("timeout", "controller_error", "worker_crash", "stale_feedback",
-               "corrupt_packet")
+FAULT_KINDS = ("timeout", "late_answer", "controller_error", "worker_crash",
+               "stale_feedback", "corrupt_packet")
 MAX_COUNT = 65535
 _EXIT, _MOTORS_OFF, _MOTORS_ON, _HOME = 528, 16, 17, 18
 _JOG_ORDERS = set(range(4, 14))
@@ -54,6 +54,7 @@ class SimulatedController:
         self.counts = {name: 0 for name in JOINTS}
         self.counts.update(start_counts or {})
         self.step_delay_s = step_delay_s
+        self.late_answer_s = 0.5
         self.motors_on = False
         self.switch_bits = 0
         self.commands: list[list] = []
@@ -100,10 +101,17 @@ class SimulatedController:
                 return
             if self._take("worker_crash"):
                 # Like Scorbot._run_command_worker: report the exception, then die.
+                # A real thread is still alive for a moment after reporting.
                 results.put(RuntimeError("Simulated command worker crash"))
+                time.sleep(0.3)
                 return
             if self._take("timeout"):
                 continue  # never answer; the facade's timeout must fire
+            if self._take("late_answer"):
+                # Answer, but only after the facade has given up: the stale 0 then
+                # sits in the result queue, as it can on hardware.
+                threading.Timer(self.late_answer_s, results.put, args=(0,)).start()
+                continue
             if self._take("controller_error"):
                 results.put(_ERROR_INJECTED)
                 results.put(0)
@@ -167,9 +175,15 @@ class SimulatedScorbot(Scorbot):
             self._enabled = False
             self._record("connect", state=dataclasses.asdict(self.get_state()))
         except Exception as exc:
+            # Mirror Scorbot.connect: log, clean up, never let cleanup hide the cause.
             self._fault = str(exc)
             self._enabled = None
-            self.disconnect()
+            self._record("connect_failed", error=self._fault)
+            self._cancel_event.set()
+            try:
+                self.disconnect()
+            except Exception as cleanup_error:
+                self._record("connect_cleanup_failed", error=str(cleanup_error))
             raise ScorbotError(f"Simulated connection failed: {exc}") from exc
         return self
 

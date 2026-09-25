@@ -66,6 +66,7 @@ class SessionWriter:
         self._channel_ids: dict[str, int] = {}
         self._closed = False
         self._broken: str | None = None
+        self._last_fault: str | None = None
         self._clock = metadata["clock"]
 
     @classmethod
@@ -204,6 +205,7 @@ class SessionWriter:
                                                  "reason": reason}, None)
 
     def log_fault(self, message: str, *, command_id: str | None = None) -> int:
+        self._last_fault = message
         return self._emit("/session/fault", {"message": message,
                                              "command_id": command_id}, None)
 
@@ -244,8 +246,10 @@ class SessionWriter:
         # Something already went wrong: record it, close as well as possible, and
         # never let a secondary close failure replace the caller's exception.
         try:
-            if not self._closed:
-                self.log_fault(f"{exc_type.__name__}: {exc}")
+            message = f"{exc_type.__name__}: {exc}"
+            # The caller may already have logged this exception with more context.
+            if not self._closed and message != self._last_fault:
+                self.log_fault(message)
         except Exception:
             pass
         try:
