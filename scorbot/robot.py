@@ -20,6 +20,10 @@ class ScorbotError(RuntimeError):
     """A command or controller operation failed."""
 
 
+class _WorkerCrashed(ScorbotError):
+    """The command worker reported an exception and is exiting; it answers nothing more."""
+
+
 class Scorbot:
     """ER-4U legacy USB adapter.
 
@@ -200,13 +204,16 @@ class Scorbot:
             try:
                 result = self._results.get(timeout=wait_timeout)
                 if isinstance(result, Exception):
-                    raise ScorbotError(f"USB command worker crashed: {result}") from result
+                    raise _WorkerCrashed(
+                        f"USB command worker crashed: {result}. Motor state is unverified; "
+                        "use the physical stop if needed") from result
                 if result != 0:
                     while True:
                         next_result = self._results.get(timeout=wait_timeout)
                         if isinstance(next_result, Exception):
-                            raise ScorbotError(
-                                f"USB command worker crashed: {next_result}") from next_result
+                            raise _WorkerCrashed(
+                                f"USB command worker crashed: {next_result}. Motor state is "
+                                "unverified; use the physical stop if needed") from next_result
                         if next_result == 0:
                             break
                     raise ScorbotError(f"Legacy controller returned error code {result}")
@@ -221,13 +228,19 @@ class Scorbot:
                 raise ScorbotError(self._fault) from exc
             except ScorbotError as exc:
                 self._fault = str(exc)
-                if payload[0] != 16 and self._command_thread is not None and self._command_thread.is_alive():
+                # A crashed worker may still look alive while it exits, but it will
+                # never answer a disable; waiting for one only delays the fault.
+                if (payload[0] != 16 and not isinstance(exc, _WorkerCrashed)
+                        and self._command_thread is not None
+                        and self._command_thread.is_alive()):
                     self._commands.put([16, 1, 1])
                     try:
                         disable_result = self._results.get(timeout=min(2.0, self.command_timeout))
                     except queue.Empty:
                         disable_result = "timeout"
                     self._record("disable_after_error", result=disable_result)
+                elif isinstance(exc, _WorkerCrashed):
+                    self._record("disable_skipped_worker_crashed")
                 self._enabled = None
                 self._homed = False
                 self._home_counts = None

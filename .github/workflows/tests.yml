@@ -1,0 +1,31 @@
+name: Tests
+
+# Every push and pull request, on the robot PC's OS (Windows) and Linux, at the
+# oldest and newest supported Python. The suite never opens USB or moves the arm.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e .
+      - run: python -m compileall -q scorbot openScorbot scripts examples tests
+      - run: python -m unittest discover -s tests -v
+      - name: Synthetic session smoke test
+        run: python examples/make_synthetic_session.py --root ${{ runner.temp }}/sessions

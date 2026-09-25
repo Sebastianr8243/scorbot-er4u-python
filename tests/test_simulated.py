@@ -195,10 +195,23 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def idle(self, **extra):
-        return run_script("examples/record_raw_state.py", "--output", self.logs / "idle-01.jsonl",
-                          *LABELS, "--pose-note", "desk rehearsal", "--seconds", "1",
-                          "--hz", "2", "--simulate", "--acknowledge-connect-handshake")
+    def idle(self, seconds="1", hz="2", name="idle-01.jsonl"):
+        return run_script("examples/record_raw_state.py", "--output", self.logs / name,
+                          *LABELS, "--pose-note", "desk rehearsal", "--seconds", seconds,
+                          "--hz", hz, "--simulate", "--acknowledge-connect-handshake")
+
+    def test_idle_sample_counts_match_at_the_rate_limits(self):
+        from scorbot.session import load_session
+        for seconds, hz, expected in (("1", "0.2", 1), ("1.05", "10", 11)):
+            with self.subTest(seconds=seconds, hz=hz):
+                name = f"idle-{hz}.jsonl"
+                result = self.idle(seconds, hz, name)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                rows = [json.loads(l) for l in (self.logs / name).read_text().splitlines()]
+                self.assertEqual(sum(r["type"] == "sample" for r in rows), expected)
+                session = load_session(self.logs / "sessions" / rows[0]["mcap_session"])
+                self.assertEqual(sum(e["topic"] == "/robot/state" for e in session.events),
+                                 expected)
 
     def bench(self, stdin=BENCH_ANSWERS, name="base-first-01.jsonl", *extra):
         return run_script("examples/bench_joint.py", "--output", self.logs / name, *LABELS,
@@ -226,7 +239,11 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         self.assertEqual(review.returncode, 0, review.stdout + review.stderr)
         self.assertIn("SIMULATED", review.stdout)
 
-        idle_session, bench_session = sessions_in(self.logs / "sessions")
+        # Session folders created in the same second sort by their random suffix,
+        # so find each one through the name its JSONL session row recorded.
+        idle_session = self.logs / "sessions" / idle_rows[0]["mcap_session"]
+        bench_session = self.logs / "sessions" / bench_rows[0]["mcap_session"]
+        self.assertEqual(len(sessions_in(self.logs / "sessions")), 2)
         for path in (idle_session, bench_session):
             session = load_session(path)
             self.assertEqual(session.errors, [], [f.message for f in session.errors])
@@ -258,6 +275,50 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         session = load_session(path)
         self.assertEqual(session.errors, [], [f.message for f in session.errors])
         self.assertIn("/session/fault", {e["topic"] for e in session.events})
+
+
+class ReviewLeftoverTests(unittest.TestCase):
+    def test_worker_crash_does_not_wait_for_a_disable_nobody_will_answer(self):
+        import time
+        from scorbot import ScorbotError
+        robot = ready_robot(command_timeout=5.0)
+        try:
+            robot.sim.inject("worker_crash")
+            started = time.monotonic()
+            with self.assertRaises(ScorbotError):
+                robot.jog_joint("base", 1.0)
+            self.assertLess(time.monotonic() - started, 1.0)
+        finally:
+            robot.disconnect()
+
+    def test_late_answer_after_timeout_cannot_answer_a_later_command(self):
+        import time
+        from scorbot import ScorbotError
+        robot = ready_robot(command_timeout=0.3)
+        try:
+            robot.sim.inject("late_answer")
+            with self.assertRaises(ScorbotError):
+                robot.jog_joint("base", 1.0)
+            time.sleep(0.6)  # the stale answer has now arrived in the result queue
+            with self.assertRaises(ScorbotError) as caught:
+                robot.enable()
+            self.assertIn("faulted", str(caught.exception).lower())
+        finally:
+            robot.disconnect()
+
+    def test_failed_connect_keeps_the_real_error_and_logs_it(self):
+        from scorbot import ScorbotError
+        from scorbot.simulated import SimulatedController, SimulatedScorbot
+        controller = SimulatedController()
+        controller.inject("controller_error")  # the connect-time disable fails
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "events.jsonl"
+            robot = SimulatedScorbot(controller=controller, log_path=log)
+            with self.assertRaises(ScorbotError) as caught:
+                robot.connect()
+            self.assertIn("error code 3", str(caught.exception))
+            events = [json.loads(line)["event"] for line in log.read_text().splitlines()]
+        self.assertIn("connect_failed", events)
 
 
 class BenchRecorderIsSecondaryTests(unittest.TestCase):

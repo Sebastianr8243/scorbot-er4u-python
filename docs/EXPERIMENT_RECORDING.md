@@ -102,6 +102,56 @@ emergency stop stays within reach.
 | `log_decision(choice, refers_to_seq=None, reason=None)` | `/operator/decision` |
 | `log_fault(message)`, `log_note(text)` | `/session/fault`, `/session/note` |
 
+## Analysing sessions
+
+Three commands work on recorded sessions, with no robot needed:
+
+```powershell
+# Every session under a folder: real or simulated, intact or damaged. Newest first.
+.\.venv\Scripts\python.exe -m scorbot.session list logs\sessions
+
+# CSV files for Excel or pandas, written to <session>\csv\ by default.
+.\.venv\Scripts\python.exe -m scorbot.session export logs\sessions\<session-id>
+
+# Side-by-side comparison of repeated runs. Add --csv table.csv to save it.
+.\.venv\Scripts\python.exe -m scorbot.session compare logs\sessions
+```
+
+Output of `compare` on three simulated runs, each a home and two 1° base jogs:
+
+```text
+SESSION                    SOURCE     INTEGRITY KIND           N  MEDIAN_MS    MAX_MS  MAX|COUNT ERROR|
+20260925T215259Z-6af156    SIMULATED  OK        home           1        0.7       0.7  -
+20260925T215259Z-6af156    SIMULATED  OK        jog_joint      2        1.8       1.8  {"base": 0}
+...
+POOLED                     SIMULATED  -         home           3        0.7       0.7  -
+POOLED                     SIMULATED  -         jog_joint      6        1.8       1.9  {"base": 0}
+```
+
+**What the numbers mean.** Each command is matched with its result and
+with the robot states recorded just before and just after it:
+
+| Measure | Definition |
+|---|---|
+| `status` | `completed`, `faulted`, `timeout`, `rejected`, or `no_result` if the outcome was never logged |
+| `planned_counts` | The motor-count change the plan asked for. The lab scripts record it with each jog. |
+| `observed_counts` | The motor-count change between the before and after states. It uses the **same arithmetic as `review_lab_logs.py`**, so the two tools always agree. A difference too close to the counter's wrap point is shown as `ambiguous`, never guessed. |
+| `count_error` | Observed minus planned, for **every** motor that was read, not only the one commanded. A motor the plan didn't move counts as planned 0, so an uncommanded or coupled motion shows up here. The simulator always gives 0. On the arm this is the first real accuracy number. |
+| `recorded_duration_ms` | The time from the command entry to the result entry in the recording. It includes script overhead, so it is **not** how long the arm took to move. |
+
+A state is only ever used for the command next to it, never borrowed from
+another command. If one is missing, the `note` column says so.
+
+**Safety of the numbers**
+- Every CSV row has `session_id` and `data_source` columns. Real and
+  simulated rows stay distinguishable even after you combine files.
+- `compare` refuses to pool real and simulated runs. It also leaves out any
+  session with integrity errors, lists it, and exits 1, unless you pass
+  `--include-damaged`. Sessions with only warnings, such as an e-stopped
+  run, are included.
+- Text cells that start with `=`, `+`, `-` or `@` get a leading `'`, so
+  Excel shows a note like "-1 deg" as text instead of an error.
+
 ## Lab scripts record automatically
 
 `examples/record_raw_state.py` and `examples/bench_joint.py` write their usual
@@ -143,6 +193,7 @@ a `real` session, or real states in a `simulated` one.
 | Kind | What happens |
 |---|---|
 | `timeout` | The next command never answers. The session faults after `command_timeout`. |
+| `late_answer` | The next command answers only after the session has already timed out. The stale answer must not unlock anything. |
 | `controller_error` | The next command returns error code 3. |
 | `worker_crash` | The command worker crashes and stops. |
 | `stale_feedback` | The next state read gets no fresh packet. |
