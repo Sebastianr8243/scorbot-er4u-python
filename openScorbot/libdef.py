@@ -328,13 +328,9 @@ def getStruct(orden, signal_out, msg):
 
 	return section
 
-# Decrementa o incrementa, en funcion de la orden, el valor de los encoders
-# en el mensaje de escritura. Se hace uso de esta función en los movimientos
-# de cadera, hombro y codo en el script libcomm.
-def builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=None):
 # Increments or decrements the encoder values in the write message according to the
 # order. This function is used in the base, shoulder, and elbow motions in libcomm.
-def builder(b_1, dato_in, i, ite, orden, vel, media, buffer):
+def builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=None):
 	cadena = libhex.mov_comm(1)
 	b_1 = countByte1(b_1)
 	cadena = cadena.format(f_byte(b_1))
