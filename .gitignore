@@ -11,3 +11,4 @@ openScorbot/*.log
 *.mcap
 sessions/
 *.stackdump
+rehearsal/
