@@ -462,6 +462,37 @@ class FlushProxy:
         return getattr(self._stream, name)
 
 
+class SourceMixingTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    STATE = {"encoder_counts": {}, "home_switch_bits": 0, "connected": True}
+
+    def test_simulated_state_rejected_in_real_and_synthetic_sessions(self):
+        from scorbot.session.record import SessionError
+        for source in ("real", "synthetic"):
+            with self.subTest(source=source), new_writer(self.root, data_source=source) as writer:
+                with self.assertRaises(SessionError):
+                    writer.log_state({**self.STATE, "simulated": True})
+
+    def test_real_state_rejected_in_simulated_session(self):
+        from scorbot.session.record import SessionError
+        with new_writer(self.root, data_source="simulated") as writer:
+            with self.assertRaises(SessionError):
+                writer.log_state({**self.STATE, "simulated": False})
+            writer.log_state({**self.STATE, "simulated": True})
+
+    def test_state_without_the_flag_is_accepted_anywhere(self):
+        for source in ("real", "simulated", "synthetic"):
+            with self.subTest(source=source), new_writer(self.root, data_source=source) as writer:
+                writer.log_state(dict(self.STATE))
+
+
 class ReviewFixTests(unittest.TestCase):
     def setUp(self):
         import tempfile
