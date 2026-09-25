@@ -2,6 +2,8 @@
 
 Use the `feat/arm-control-bench-calibration` branch of [this repository](https://github.com/Sebastianr8243/scorbot-er4u-python/pull/1). This visit checks Python communication, homing, and one small joint movement at a time. It does not establish safe joint limits or calibrated physical angles. No manufacturer value or vendor display is used as calibration data.
 
+Print the one-page [G1 lab checklist and observation sheet](G1_LAB_CHECKLIST.md) and tick it off during the visit.
+
 ## 1. Prepare the robot PC
 
 From the repository root in PowerShell:
