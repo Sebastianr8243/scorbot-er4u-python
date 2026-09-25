@@ -4,7 +4,7 @@ This path needs only Windows, VS Code, an internet connection, and the original 
 
 ## 1. Get the project and Python
 
-1. On the robot PC, open the [lab branch](https://github.com/Sebastianr8243/scorbot-er4u-python/tree/feat/arm-control-bench-calibration). Confirm the branch selector reads **feat/arm-control-bench-calibration**, then select **Code → Download ZIP**. Extract it to a writable folder and open that folder in VS Code. The default-branch ZIP does not contain these lab changes. A GitHub ZIP does not contain the optional Zadig executable from a locally built bench kit.
+1. On the robot PC, open the [repository](https://github.com/Sebastianr8243/scorbot-er4u-python). Confirm the branch selector reads **main**, then select **Code → Download ZIP**. Extract it to a writable folder and open that folder in VS Code. A GitHub ZIP does not contain the optional Zadig executable from a locally built bench kit.
 2. Open **Terminal → New Terminal** in VS Code and select PowerShell. The terminal should be in the folder containing `pyproject.toml` and `scripts/`.
 3. Run `py -3 --version`. If Python is missing or older than 3.10, install [Python 3.13 from Python.org](https://www.python.org/downloads/release/python-31315/) using the Windows installer for that PC's architecture. Reopen the VS Code terminal after installing and check again. Python 3.13.5 passed this project's software setup on the development PC.
 

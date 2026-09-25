@@ -10,3 +10,4 @@ openScorbot/*.log
 *.jsonl
 *.mcap
 sessions/
+*.stackdump

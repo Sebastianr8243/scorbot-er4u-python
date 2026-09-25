@@ -14,7 +14,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m scorbot.preflight
 ```
 
-To move this working version to the robot PC, use the [lab branch](https://github.com/Sebastianr8243/scorbot-er4u-python/tree/feat/arm-control-bench-calibration) or build a ZIP from that branch with `python scripts/build_bench_kit.py`. The default branch does not contain the first-visit workflow. The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`.
+To move this working version to the robot PC, clone or download the `main` branch, or build a ZIP with `python scripts/build_bench_kit.py`. For the first lab visit, print the [G1 lab checklist](docs/G1_LAB_CHECKLIST.md). The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`.
 
 The preflight only enumerates USB; it does not reset or command the robot. The original controller is identified in the legacy code as USB vendor/product `09F1:0007`. PyUSB also needs a libusb backend and a compatible Windows device driver. The `windows` extra supplies a libusb library, but it does not change the device driver. See the [PyUSB Windows FAQ](https://github.com/pyusb/pyusb/blob/master/docs/faq.rst) if discovery fails. Confirm the driver choice for your lab setup before changing it, since it may affect the Intelitek software. Follow the [Windows bench runbook](docs/WINDOWS_BENCH_RUN.md) on the robot PC.
 

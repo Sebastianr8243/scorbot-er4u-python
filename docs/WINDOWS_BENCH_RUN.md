@@ -11,7 +11,7 @@ Copy the **current working tree** to the robot PC, including `scorbot/`, `openSc
 ```powershell
 git clone https://github.com/Sebastianr8243/scorbot-er4u-python.git
 cd scorbot-er4u-python
-git switch feat/arm-control-bench-calibration
+git switch main
 ```
 
 A fresh clone of the original OpenScorbot repository does not include the Python adapter. In PowerShell, change to the extracted or cloned repository directory. Python 3.10 or newer and internet access are required for this install:

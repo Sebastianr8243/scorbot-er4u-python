@@ -1,6 +1,6 @@
 # First ER-4U lab visit: small movements and evidence
 
-Use the `feat/arm-control-bench-calibration` branch of [this repository](https://github.com/Sebastianr8243/scorbot-er4u-python/pull/1). This visit checks Python communication, homing, and one small joint movement at a time. It does not establish safe joint limits or calibrated physical angles. No manufacturer value or vendor display is used as calibration data.
+Use the `main` branch of [this repository](https://github.com/Sebastianr8243/scorbot-er4u-python), at commit `55e6ecb` or later. [PR #1](https://github.com/Sebastianr8243/scorbot-er4u-python/pull/1) is merged there, and earlier `main` commits fail to import `libdef.py`. This visit checks Python communication, homing, and one small joint movement at a time. It does not establish safe joint limits or calibrated physical angles. No manufacturer value or vendor display is used as calibration data.
 
 Print the one-page [G1 lab checklist and observation sheet](G1_LAB_CHECKLIST.md) and tick it off during the visit.
 
@@ -10,7 +10,7 @@ From the repository root in PowerShell:
 
 ```powershell
 git fetch origin
-git switch feat/arm-control-bench-calibration
+git switch main
 git pull
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[windows]"
@@ -19,7 +19,7 @@ py -3 -m venv .venv
 git rev-parse HEAD
 ```
 
-If the PC has no Git, download the ZIP from the **feature branch**, not the default branch, using the branch selector on the repository page. Run the install, tests, and preflight commands from the extracted folder. The logs include a SHA-256 fingerprint of the motion source even when a ZIP has no Git metadata.
+If the PC has no Git, download the ZIP of the default branch (`main`) from the repository page. Run the install, tests, and preflight commands from the extracted folder. The logs include a SHA-256 fingerprint of the motion source even when a ZIP has no Git metadata.
 
 The tests never command USB. Preflight only enumerates the controller; stop if it fails. Record the PC, Python version, USB driver, arm and controller labels, operator initials, and source commit or ZIP date. Do not change a working USB driver merely for this visit.
 
