@@ -226,5 +226,131 @@ class CsvSafetyTests(unittest.TestCase):
         self.assertIsNone(csv_safe(None))
 
 
+def cli(*args):
+    import subprocess
+    import sys
+    return subprocess.run([sys.executable, "-m", "scorbot.session", *map(str, args)],
+                          cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=120)
+
+
+def read_csv(path):
+    import csv
+    with open(path, encoding="utf-8-sig", newline="") as stream:
+        return list(csv.DictReader(stream))
+
+
+class CliTests(TempDirCase):
+    def test_bare_path_still_replays(self):
+        path = record_sim_session(self.root)
+        result = cli(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SIMULATED DATA", result.stdout)
+
+    def test_list_finds_nested_sessions_and_flags_broken_ones(self):
+        sim = record_sim_session(self.root / "week1" / "sessions")
+        with writer(self.root / "week2", data_source="real") as rec:
+            rec.log_note("real")
+        broken = record_sim_session(self.root / "week2")
+        meta = json.loads((broken / "metadata.json").read_text())
+        meta["event_count"] = 999
+        (broken / "metadata.json").write_text(json.dumps(meta))
+        (self.root / "stray.mcap").write_bytes(b"not an mcap file")
+        (self.root / "empty" / "sessions").mkdir(parents=True)
+        result = cli("list", self.root)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        for text in (sim.name, rec.path.name, broken.name, "SIMULATED", "REAL", "ERROR",
+                     "stray.mcap"):
+            self.assertIn(text, result.stdout)
+        self.assertNotIn("Traceback", result.stdout + result.stderr)
+
+    def test_export_writes_labelled_excel_safe_csvs(self):
+        with writer(self.root, data_source="simulated") as rec:
+            rec.log_state({**STATE, "simulated": True})
+            cid = rec.log_command("jog_joint", {"motor_count_deltas": {"base": 1}})
+            rec.log_command_result(cid, "completed")
+            rec.log_state({"encoder_counts": {"base": 1}, "home_switch_bits": 0,
+                           "connected": True, "simulated": True})
+            rec.log_note("-1 deg toward door, déjà vu ✓")
+        result = cli("export", rec.path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = rec.path / "csv"
+        events, states, commands = (read_csv(out / f"{name}.csv")
+                                    for name in ("events", "states", "commands"))
+        from scorbot.session.analysis import COMMAND_COLUMNS, EVENT_COLUMNS, STATE_COLUMNS
+        self.assertEqual(list(events[0]), EVENT_COLUMNS)
+        self.assertEqual(list(states[0]), STATE_COLUMNS)
+        self.assertEqual(list(commands[0]), COMMAND_COLUMNS)
+        for row in events + states + commands:
+            self.assertEqual(row["data_source"], "simulated")
+            self.assertEqual(row["session_id"], rec.path.name)
+        self.assertEqual(events[-1]["summary"], "'-1 deg toward door, déjà vu ✓")
+        self.assertEqual(json.loads(commands[0]["count_error"]), {"base": 0})
+        again = cli("export", rec.path)
+        self.assertEqual(again.returncode, 2)
+        self.assertEqual(cli("export", rec.path, "--force").returncode, 0)
+
+    def test_export_of_a_crashed_session_keeps_what_was_read(self):
+        from scorbot.session import SessionWriter
+        rec = SessionWriter.create(self.root, data_source="synthetic", robot_id="x")
+        rec.log_note("before crash")
+        rec._stream.close()  # crash: never finished
+        result = cli("export", rec.path, "--out", self.root / "out")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("not closed cleanly", result.stdout)
+        self.assertEqual(len(read_csv(self.root / "out" / "events.csv")), 1)
+
+    def test_compare_prints_writes_csv_and_counts_duplicates_once(self):
+        a = record_sim_session(self.root / "a")
+        b = record_sim_session(self.root / "b")
+        table = self.root / "compare.csv"
+        result = cli("compare", a, b, a, "--csv", table)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("POOLED", result.stdout)
+        self.assertIn("duplicate", result.stdout.lower())
+        rows = read_csv(table)
+        pooled = [r for r in rows if r["session_id"] == "POOLED" and r["kind"] == "jog_joint"]
+        self.assertEqual(pooled[0]["n"], "4")
+
+    def test_compare_refuses_to_pool_mixed_sources(self):
+        a = record_sim_session(self.root / "a")
+        with writer(self.root / "b", data_source="real") as rec:
+            rec.log_note("real")
+        result = cli("compare", a, rec.path)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Mixed data sources", result.stdout)
+        self.assertNotIn("POOLED", result.stdout)
+
+    def test_compare_agrees_with_the_lab_review_on_a_bench_run(self):
+        import subprocess
+        import sys
+        logs = self.root / "rehearsal"
+        labels = ["--robot-id", "arm", "--arm-label", "a", "--controller-label", "c",
+                  "--driver", "none", "--operator", "t"]
+        bench = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "examples" / "bench_joint.py"),
+             "--output", str(logs / "bench.jsonl"), *labels, "--start-pose-note", "desk",
+             "--joint", "base", "--delta", "1", "--simulate",
+             "--acknowledge-supervised-motion"],
+            cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+            input="HOME\nok\nHOME_OK\nMOVE\nleft\nnone\nnone\nnone\n")
+        self.assertEqual(bench.returncode, 0, bench.stderr)
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        try:
+            import review_lab_logs
+        finally:
+            sys.path.remove(str(REPO_ROOT / "scripts"))
+        review = review_lab_logs.review_bench(logs / "bench.jsonl")["count_deltas"]
+        session = json.loads((logs / "bench.jsonl").read_text().splitlines()[0])["mcap_session"]
+        self.assertEqual(cli("export", logs / "sessions" / session).returncode, 0)
+        [jog] = [r for r in read_csv(logs / "sessions" / session / "csv" / "commands.csv")
+                 if r["kind"] == "jog_joint"]
+        observed = json.loads(jog["observed_counts"])
+        planned = json.loads(jog["planned_counts"])
+        for motor, values in review.items():
+            self.assertEqual(observed.get(motor), values["observed"], motor)
+            self.assertEqual(planned.get(motor, 0), values["planned"], motor)
+
+
 if __name__ == "__main__":
     unittest.main()
