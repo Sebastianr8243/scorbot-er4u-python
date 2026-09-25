@@ -363,5 +363,82 @@ class ReplayTests(unittest.TestCase):
         self.assertIsNone(nearest(events, 0, topic="/camera/cam0/image"))
 
 
+def load_example():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "make_synthetic_session", REPO_ROOT / "examples" / "make_synthetic_session.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run_cli(*args):
+    import subprocess
+    import sys
+    return subprocess.run([sys.executable, "-m", "scorbot.session", *map(str, args)],
+                          cwd=REPO_ROOT, capture_output=True, text=True)
+
+
+class CliAndExampleTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_synthetic_session_covers_every_topic_kind_without_errors(self):
+        from scorbot.session.replay import load_session
+        path = load_example().write_synthetic_session(self.root)
+        session = load_session(path)
+        self.assertEqual(session.errors, [])
+        topics = {e["topic"] for e in session.events}
+        for topic in ("/robot/state", "/robot/command", "/robot/command_result",
+                      "/camera/cam0/image", "/camera/cam0/detections",
+                      "/operator/decision", "/session/fault", "/session/note"):
+            self.assertIn(topic, topics)
+        image = next(e for e in session.events if e["topic"] == "/camera/cam0/image")
+        import base64
+        self.assertTrue(base64.b64decode(image["payload"]["data"]).startswith(b"\x89PNG"))
+
+    def test_cli_prints_data_source_banner_timeline_and_viewer_hint(self):
+        path = load_example().write_synthetic_session(self.root)
+        result = run_cli(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SYNTHETIC", result.stdout)
+        self.assertIn("/robot/command", result.stdout)
+        self.assertIn("Foxglove", result.stdout)
+
+    def test_cli_limit_caps_timeline_rows(self):
+        path = load_example().write_synthetic_session(self.root)
+        result = run_cli(path, "--limit", "2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("more events not shown", result.stdout)
+
+    def test_cli_exits_1_on_integrity_errors(self):
+        with new_writer(self.root) as writer:
+            writer.log_note("a")
+            writer._seq += 1
+            writer.log_note("b")
+        result = run_cli(writer.path)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ERROR", result.stdout)
+
+    def test_cli_missing_path_exits_2_without_traceback(self):
+        result = run_cli(self.root / "nope")
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("Traceback", result.stderr + result.stdout)
+
+    def test_importing_session_package_loads_no_hardware_code(self):
+        import subprocess
+        import sys
+        code = ("import sys, scorbot.session, scorbot.session.record, scorbot.session.replay;"
+                "print('usb' in sys.modules or 'openScorbot' in sys.modules)")
+        result = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT,
+                                capture_output=True, text=True)
+        self.assertEqual(result.stdout.strip(), "False", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
