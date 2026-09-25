@@ -9,14 +9,15 @@ description = "Python adapter for the original ScorBot ER-4U USB controller"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
-dependencies = ["numpy>=1.26,<3", "pyusb>=1.2,<2"]
+dependencies = ["mcap>=1.5,<2", "numpy>=1.26,<3", "pyusb>=1.2,<2"]
 
 [project.optional-dependencies]
 windows = ["libusb-package"]
 gui = ["PyQt5>=5.15,<6"]
 
 [tool.setuptools]
-packages = ["scorbot", "openScorbot"]
+packages = ["scorbot", "scorbot.session", "openScorbot"]
 
 [tool.setuptools.package-data]
 openScorbot = ["*.ui", "*.png"]
+"scorbot.session" = ["*.json"]

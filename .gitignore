@@ -8,3 +8,5 @@ dist-test/
 openScorbot/data.json
 openScorbot/*.log
 *.jsonl
+*.mcap
+sessions/

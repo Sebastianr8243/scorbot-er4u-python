@@ -38,6 +38,8 @@ This snippet illustrates the API. For the first hardware session, follow the [fi
 
 For one-joint supervised trials, follow the [arm-control bench procedure](docs/ARM_CONTROL_BENCH.md). Start with [raw-state recording](examples/record_raw_state.py), then use [bench_joint.py](examples/bench_joint.py) and [review_lab_logs.py](scripts/review_lab_logs.py). Use the [measurement and calibration guide](docs/PHYSICAL_CALIBRATION.md) when an independent angle reference is available. The fitter in `scripts/fit_calibration.py` refuses vendor-only data and requires holdout and movement verification before emitting a calibrated file.
 
+To record an experiment (commands, controller state, camera frames, operator decisions) and replay it without hardware, see [Recording and replaying experiments](docs/EXPERIMENT_RECORDING.md). Try it first with `.\.venv\Scripts\python.exe examples\make_synthetic_session.py`.
+
 `disable()` is a queued controller command. It cannot interrupt a stalled command and is **not** an emergency stop. The physical emergency stop remains authoritative. If a command times out, the SDK faults and rejects more motion; it cannot guarantee motor shutdown after USB loss or a Python crash.
 
 Legacy homing switch searches now have a provisional 30-second deadline per axis and check a cancellation signal. That deadline has not been tuned on the physical arm. An error or `homed: true` from the SDK is not independent proof of motor state or home calibration.
