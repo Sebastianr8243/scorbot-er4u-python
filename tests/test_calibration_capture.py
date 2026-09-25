@@ -28,7 +28,8 @@ class RawCaptureTests(unittest.TestCase):
         )
 
         class FakeRobot:
-            def __init__(self, *, log_path):
+            def __init__(self, *, log_path, robot_id):
+                self.robot_id = robot_id
                 calls.append("construct")
                 Path(log_path).write_text("", encoding="utf-8")
 
@@ -46,7 +47,10 @@ class RawCaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "idle.jsonl"
             argv = ["record_raw_state.py", "--output", str(output),
-                    "--robot-id", "test-arm", "--seconds", "1", "--hz", "0.2",
+                    "--robot-id", "test-arm", "--arm-label", "arm-plate",
+                    "--controller-label", "controller-plate", "--driver", "WinUSB",
+                    "--operator", "tester", "--pose-note", "known idle pose",
+                    "--seconds", "1", "--hz", "0.2",
                     "--acknowledge-connect-handshake"]
             with patch.object(sys, "argv", argv), \
                     patch.object(record_raw_state, "run_checks",
@@ -58,6 +62,8 @@ class RawCaptureTests(unittest.TestCase):
             rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(calls, ["construct", "connect", "get_state", "disconnect"])
             self.assertEqual(rows[0]["robot_id"], "test-arm")
+            self.assertEqual(rows[0]["arm_label"], "arm-plate")
+            self.assertEqual(len(rows[0]["motion_source_sha256"]), 64)
             self.assertEqual(rows[1]["state"], asdict(state))
 
 
