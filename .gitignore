@@ -12,3 +12,7 @@ openScorbot/*.log
 sessions/
 *.stackdump
 rehearsal/
+.coverage
+.coverage.*
+.hypothesis/
+.pytest_cache/

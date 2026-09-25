@@ -14,6 +14,14 @@ dependencies = ["mcap>=1.5,<2", "numpy>=1.26,<3", "pyusb>=1.2,<2"]
 [project.optional-dependencies]
 windows = ["libusb-package"]
 gui = ["PyQt5>=5.15,<6"]
+dev = [
+    "pytest>=9.0,<10",
+    "pytest-xdist>=3.8,<4",
+    "pytest-timeout>=2.4,<3",
+    "coverage[toml]>=7.10,<8",
+    "hypothesis>=6.100,<7",
+    "ruff>=0.6,<1",
+]
 
 [tool.setuptools]
 packages = ["scorbot", "scorbot.session", "openScorbot"]
@@ -21,3 +29,28 @@ packages = ["scorbot", "scorbot.session", "openScorbot"]
 [tool.setuptools.package-data]
 openScorbot = ["*.ui", "*.png"]
 "scorbot.session" = ["*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Runs the existing unittest tests unchanged; -n auto spreads them over CPU cores.
+addopts = "-n auto --durations=5"
+# Windows has no SIGALRM: the thread method turns a hang into a traceback.
+timeout = 300
+timeout_method = "thread"
+
+[tool.coverage.run]
+source = ["scorbot"]
+# Also measure the example scripts' use of scorbot when tests run them.
+patch = ["subprocess"]
+parallel = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+extend-exclude = ["openScorbot"]  # legacy code kept as-is
+
+[tool.ruff.lint]
+# Correctness rules only (ruff defaults), pinned so a personal ruff config cannot widen them.
+select = ["E4", "E7", "E9", "F"]

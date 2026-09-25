@@ -61,8 +61,15 @@ The original code remains under `openScorbot/`. The new adapter is under `scorbo
 The tests use synthetic USB responses and measurements; they do not open USB or move the robot:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"   # once: pytest, coverage, hypothesis, ruff
+.\.venv\Scripts\python.exe -m pytest                     # all tests in parallel (about 20 s)
+.\.venv\Scripts\python.exe -m coverage run -m pytest; .\.venv\Scripts\python.exe -m coverage combine; .\.venv\Scripts\python.exe -m coverage report
+.\.venv\Scripts\ruff.exe check .                          # correctness lint
 ```
+
+`python -m unittest discover -s tests` still works without the dev tools.
+GitHub runs all of this on Windows and Linux, with Python 3.10 and 3.13, on
+every push. The coverage table appears on each run's summary page.
 
 The current adapter is based on static code inspection. Hardware communication, homing completion, joint directions, and stop behavior still require supervised bench validation on your ER-4U. The SDK timestamps successful USB reads, but a new packet does not by itself prove movement or a switch state. Motor behavior after communication failure has not been verified with this Python path.
 

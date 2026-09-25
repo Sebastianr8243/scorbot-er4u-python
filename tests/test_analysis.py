@@ -376,7 +376,7 @@ class SecondReviewFixTests(TempDirCase):
         table = self.root / "c.csv"
         result = cli("compare", bad_sim, *real, "--csv", table)
         self.assertEqual(result.returncode, 1)
-        pooled_lines = [l for l in result.stdout.splitlines() if l.startswith("POOLED")]
+        pooled_lines = [line for line in result.stdout.splitlines() if line.startswith("POOLED")]
         self.assertTrue(pooled_lines, result.stdout)
         for line in pooled_lines:
             self.assertIn("REAL", line)

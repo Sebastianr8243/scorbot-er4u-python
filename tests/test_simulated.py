@@ -207,7 +207,7 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
                 name = f"idle-{hz}.jsonl"
                 result = self.idle(seconds, hz, name)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                rows = [json.loads(l) for l in (self.logs / name).read_text().splitlines()]
+                rows = [json.loads(line) for line in (self.logs / name).read_text().splitlines()]
                 self.assertEqual(sum(r["type"] == "sample" for r in rows), expected)
                 session = load_session(self.logs / "sessions" / rows[0]["mcap_session"])
                 self.assertEqual(sum(e["topic"] == "/robot/state" for e in session.events),
@@ -226,10 +226,10 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         bench = self.bench()
         self.assertEqual(bench.returncode, 0, bench.stderr + bench.stdout)
 
-        idle_rows = [json.loads(l) for l in (self.logs / "idle-01.jsonl").read_text().splitlines()]
+        idle_rows = [json.loads(line) for line in (self.logs / "idle-01.jsonl").read_text().splitlines()]
         self.assertEqual(idle_rows[0]["data_source"], "simulated")
         self.assertEqual(sum(r["type"] == "sample" for r in idle_rows), 2)
-        bench_rows = [json.loads(l) for l in
+        bench_rows = [json.loads(line) for line in
                       (self.logs / "base-first-01.jsonl").read_text().splitlines()]
         self.assertEqual([r["type"] for r in bench_rows], BENCH_TYPES)
         self.assertEqual(bench_rows[0]["data_source"], "simulated")
@@ -269,7 +269,7 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         from scorbot.session import load_session
         result = self.bench("HOME\nhome looked normal\n")  # stdin ends at HOME_OK prompt
         self.assertNotEqual(result.returncode, 0)
-        rows = [json.loads(l) for l in (self.logs / "base-first-01.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in (self.logs / "base-first-01.jsonl").read_text().splitlines()]
         self.assertEqual(rows[-1]["type"], "session_failed")
         [path] = sessions_in(self.logs / "sessions")
         session = load_session(path)
@@ -351,7 +351,7 @@ class BenchRecorderIsSecondaryTests(unittest.TestCase):
                 code = bench_joint.main()
             except BaseException as exc:  # noqa: BLE001 - tests inspect it
                 code = exc
-        rows = [json.loads(l) for l in self.output.read_text().splitlines()]
+        rows = [json.loads(line) for line in self.output.read_text().splitlines()]
         return code, rows, stdout.getvalue()
 
     def test_recorder_failure_after_the_jog_keeps_the_full_bench_record(self):
@@ -414,7 +414,7 @@ class BenchRecorderIsSecondaryTests(unittest.TestCase):
                 patch("builtins.input", side_effect=BENCH_ANSWERS.splitlines()), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(bench_joint.main(), 0)
-        rows = [json.loads(l) for l in self.output.read_text().splitlines()]
+        rows = [json.loads(line) for line in self.output.read_text().splitlines()]
         self.assertEqual([r["type"] for r in rows], BENCH_TYPES)
         self.assertEqual(rows[0]["data_source"], "real")
         [path] = sessions_in(self.output.parent / "sessions")

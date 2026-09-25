@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 import hashlib
 from importlib import metadata as importlib_metadata
 import json
-import math
 import os
 from pathlib import Path
 import platform
