@@ -11,6 +11,7 @@ import time
 
 from scorbot import Scorbot
 from scorbot.preflight import run_checks
+from scorbot.provenance import motion_source_sha256
 
 
 def main() -> int:
@@ -20,6 +21,7 @@ def main() -> int:
     parser.add_argument("--arm-label", required=True)
     parser.add_argument("--controller-label", required=True)
     parser.add_argument("--driver", required=True)
+    parser.add_argument("--operator", required=True, help="Name or lab initials")
     parser.add_argument("--start-pose-note", required=True)
     parser.add_argument("--joint", choices=("base", "shoulder", "elbow"), required=True)
     parser.add_argument("--delta", type=float, required=True,
@@ -35,7 +37,7 @@ def main() -> int:
         parser.error("--speed must be 1 through 20")
     if any(not value.strip() for value in (args.robot_id, args.arm_label,
                                            args.controller_label, args.driver,
-                                           args.start_pose_note)):
+                                           args.operator, args.start_pose_note)):
         parser.error("All labels and the pose note must be nonempty")
     output = args.output.resolve()
     events = output.with_name(output.stem + ".controller.jsonl")
@@ -64,8 +66,10 @@ def main() -> int:
 
         write("session", schema_version=1, robot_id=args.robot_id,
               arm_label=args.arm_label, controller_label=args.controller_label,
-              driver=args.driver, start_pose_note=args.start_pose_note,
-              software_commit=revision, controller_event_log=events.name,
+              driver=args.driver, operator=args.operator,
+              start_pose_note=args.start_pose_note,
+              software_commit=revision, motion_source_sha256=motion_source_sha256(),
+              controller_event_log=events.name,
               joint=args.joint, requested_delta_deg=args.delta, speed=args.speed)
         try:
             with Scorbot(log_path=events, robot_id=args.robot_id) as robot:
@@ -75,7 +79,12 @@ def main() -> int:
                     raise RuntimeError("Operator canceled before homing")
                 robot.enable()
                 robot.home(start_position_confirmed=True)
-                write("home_complete", state=asdict(robot.get_state()))
+                home_state = robot.get_state()
+                write("home_complete", state=asdict(home_state))
+                home_observation = input("Describe the physical home pose, motion, and controller indicators: ").strip()
+                write("home_observation", text=home_observation or "not recorded")
+                if input("If home looked correct and travel is clear, type HOME_OK: ").strip() != "HOME_OK":
+                    raise RuntimeError("Operator stopped after homing; no jog requested")
                 preview_state = robot.get_state()
                 preview = robot.preview_jog(
                     args.joint, args.delta, speed=args.speed,
@@ -89,8 +98,15 @@ def main() -> int:
                 write("before_jog", state=asdict(before))
                 after = robot.jog_joint(args.joint, args.delta, speed=args.speed)
                 write("after_jog", state=asdict(after))
-                observation = input("Observed direction/displacement and any issue: ").strip()
-                write("operator_observation", text=observation or "not recorded")
+                direction = input("Observed joint direction and approximate displacement: ").strip()
+                other_motion = input("Did any other joint move? Describe what you saw: ").strip()
+                indicators = input("Controller indicators after jog: ").strip()
+                issue = input("Fault, noise, unexpected motion, or other issue (write 'none' if none): ").strip()
+                write("operator_observation",
+                      direction_and_displacement=direction or "not recorded",
+                      other_motion=other_motion or "not recorded",
+                      controller_indicators=indicators or "not recorded",
+                      issue=issue or "not recorded")
                 robot.disable()
                 write("disabled", state=asdict(robot.get_state()))
         except (Exception, KeyboardInterrupt) as exc:
