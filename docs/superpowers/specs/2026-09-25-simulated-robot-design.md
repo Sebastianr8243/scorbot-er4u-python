@@ -81,17 +81,40 @@ increment, so a jog visibly takes time.
 | `timeout` | The next command gets no answer | `ScorbotError` after `command_timeout`; faulted |
 | `controller_error` | The next command answers `3`, then `0` | `ScorbotError("…error code 3")`; faulted |
 | `worker_crash` | The next command answers with an exception | `ScorbotError("…worker crashed…")`; faulted |
-| `stale_feedback` | The next `snapshot` raises `TimeoutError` | `ScorbotError`; faulted before any motion is queued |
+| `stale_feedback` | The next `snapshot` raises `TimeoutError` | `ScorbotError`; faulted before any **motion** order is queued. The facade's best-effort disable `[16,1,1]` is expected. |
 | `corrupt_packet` | The next packet has an invalid sign byte | `decode_state` raises `ValueError`; faulted |
 
-`robot.sim.commands` lists every payload received, so tests can assert
-that nothing was queued. `robot.sim.counts` is the current signed-count
-dict.
+`robot.sim.commands` lists every payload received, so tests can check
+which motion orders were queued. `robot.sim.counts` is the current
+signed-count dict.
+
+**Match the hardware worker.**
+- The simulated worker runs as `self._command_thread`.
+- On `worker_crash` it puts the exception on the result queue and then
+  **exits**, as the real `_run_command_worker` does. The facade's "worker
+  dead" branches then behave as they would on hardware.
+- `disconnect()` mirrors the base class:
+  - **not faulted:** a normal `528` command;
+  - **faulted:** put `528`, don't wait for a result, then join.
+- `motion_profile` is loaded at `connect()` through `Scorbot._legacy`, so
+  `import scorbot` doesn't touch `sys.path`.
+- **Packet encoding** inverts `decode_state`:
+  - a signed count `v >= 0` is stored as raw `v` with sign byte `128`;
+  - a signed count `v < 0` is stored as raw `v + 65535` with sign byte `127`;
+  - values outside `-65535..65535` are rejected.
 
 ## 5. Lab scripts record MCAP sessions
 
 **`examples/bench_joint.py` and `examples/record_raw_state.py`:**
-- **New flags:** `--session-root` (default `sessions`) and `--simulate`.
+- **New flags:** `--session-root` and `--simulate`. `--session-root`
+  defaults to `<--output folder>/sessions`, so lab artefacts stay together
+  and tests never write into the repository.
+- **The recorder starts first:** `SessionWriter` is the outermost `with`,
+  created before `Scorbot` connects, so a recorder failure happens before
+  the motor-on handshake.
+- **Real and simulated share one code path.** They differ in a single
+  conditional that sets the class, the `data_source`, and whether preflight
+  runs.
 - **`--simulate`:**
   - skips USB preflight;
   - uses `SimulatedScorbot`;
@@ -113,7 +136,12 @@ dict.
 
 - **`record_raw_state.py`** logs each sample with `log_state`.
 
-The G1 checklist gains a "rehearse with `--simulate` first" item.
+- **`review_lab_logs.py`** prints `SIMULATED` when a session row says
+  `"data_source": "simulated"`.
+- **G1 checklist:**
+  - add a "rehearse with `--simulate` first" item, writing to a rehearsal
+    folder rather than `logs\`;
+  - the §G copy step now also includes `logs\sessions\` and `notes.md`.
 
 ## 6. Files
 
@@ -136,16 +164,24 @@ The G1 checklist gains a "rehearse with `--simulate` first" item.
    - a jog before home is rejected;
    - a wrist jog is rejected with no command queued;
    - a jog above 5° is rejected.
-3. **Each fault kind** gives `ScorbotError`, and the next `jog_joint`
-   raises. Stale feedback queues no motion.
+3. **Fault latch.** Each fault kind gives `ScorbotError`. Then:
+   - `enable()` raises with the **fault** message, proving the latch rather
+     than the enable/home gate;
+   - `home()` and `jog_joint()` also fail;
+   - stale feedback queues no motion order codes (4–15, 18).
 4. **`disconnect()`** joins the worker, and a new instance connects cleanly.
 5. **Event-log rows** carry `simulated: true`.
 6. **`import scorbot.simulated`** does not import `usb`.
 7. **SessionWriter** refuses mixed sources in both directions.
-8. **`bench_joint.py --simulate`** in a subprocess with scripted stdin:
-   - it exits 0;
-   - its JSONL passes `review_lab_logs.py`;
-   - its MCAP loads with no errors and `data_source="simulated"`;
-   - the MCAP contains the home and jog commands with results.
-9. **`record_raw_state.py --simulate`** writes N samples to both the JSONL
-   and the MCAP.
+8. **The G1 sequence, simulated, in subprocesses with scripted stdin.** Run
+   `record_raw_state.py --simulate`, then `bench_joint.py --simulate`,
+   then `review_lab_logs.py --idle --bench`.
+   - Every step exits 0.
+   - The bench JSONL `type` sequence matches the script's `write` calls
+     exactly.
+   - The review output says SIMULATED.
+   - Both MCAP sessions load with no errors and `data_source="simulated"`.
+   - The bench session has the home and jog commands with `completed`
+     results.
+9. **Encoder encoding round-trips** at 0, ±1, ±142, −65535, and 65535.
+   Values out of range are rejected.
