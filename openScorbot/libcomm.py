@@ -13,6 +13,7 @@ import setHome
 import moveXYZ
 import log
 import logging
+import motion_profile
 
 #################################################################################
 # Script responsible for building motion messages. It is split by joints because
@@ -61,15 +62,15 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 	media = cola_read.get()
 	[b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, write, read)
 
-	ang = libdef.conversorAngEnc(1, 1, ang)
-	ite = libdef.numIte(ang, vel)
+	profile = motion_profile.plan_jog(orden, ang, vel)["increments"]
+	ite = len(profile)
 	step_in = media[0]
 	signo = libdef.get_signo(21, buffer)
 	dato_in = [step_in, signo]
 	signal_out= ''
 
 	for i in range(ite):
-		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer)
+		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		value_err = libdef.getError(buffer, VEC_ERROR[0])
 		if value_err >= MAX_ERROR:
@@ -112,14 +113,14 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 	media = cola_read.get()
 	[b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, write, read)
 
-	ang = libdef.conversorAngEnc(2, 1, ang)
-	ite = libdef.numIte(ang, vel)
+	profile = motion_profile.plan_jog(orden, ang, vel)["increments"]
+	ite = len(profile)
 	step_in = media[1]
 	signo = libdef.get_signo(26, buffer)
 	dato_in = [step_in, signo]
 	signal_out= ''
 	for i in range(ite):
-		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer)
+		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		value_err = libdef.getError(buffer, VEC_ERROR[1])
 		if value_err >= MAX_ERROR:
@@ -162,14 +163,14 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 	media = cola_read.get()
 	[b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, write, read)
 
-	ang = libdef.conversorAngEnc(3, 1, ang)
-	ite = libdef.numIte(ang, vel)
+	profile = motion_profile.plan_jog(orden, ang, vel)["increments"]
+	ite = len(profile)
 	step_in = media[2]
 	signo = libdef.get_signo(31, buffer)
 	dato_in = [step_in, signo]
 	signal_out= ''
 	for i in range(ite):
-		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer)
+		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		value_err = libdef.getError(buffer, VEC_ERROR[2])
 		if value_err >= MAX_ERROR:
@@ -212,12 +213,8 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 	media = cola_read.get()
 	[b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, write, read)
 
-	if orden == 10 or orden == 11:
-		ang = libdef.conversorAngEnc(4, 1, ang)
-		ite = libdef.numIte(ang, vel)
-	else:
-		ang = libdef.conversorAngEnc(5, 1, ang)
-		ite = libdef.numIte(ang, vel)
+	profile = motion_profile.plan_jog(orden, ang, vel)["increments"]
+	ite = len(profile)
 
 	step_in_1 = media[3]
 	step_in_2 = media[4]
@@ -234,17 +231,17 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 		cadena = cadena.format(libdef.f_byte(b_1))
 		cadena = libdef.fill_msg(cadena, 24)
 		if orden == 10:
-			dato_in_1 = libdef.resta(dato_in_1, i+1,vel,ite)
-			dato_in_2 = libdef.suma(dato_in_2, i+1,vel,ite)
+			dato_in_1 = libdef.resta(dato_in_1, i+1,vel,ite,step=profile[i])
+			dato_in_2 = libdef.suma(dato_in_2, i+1,vel,ite,step=profile[i])
 		elif orden == 11:
-			dato_in_1 = libdef.suma(dato_in_1, i+1,vel,ite)
-			dato_in_2 = libdef.resta(dato_in_2, i+1,vel,ite)
+			dato_in_1 = libdef.suma(dato_in_1, i+1,vel,ite,step=profile[i])
+			dato_in_2 = libdef.resta(dato_in_2, i+1,vel,ite,step=profile[i])
 		elif orden == 12:
-			dato_in_1 = libdef.suma(dato_in_1, i+1,vel,ite)
-			dato_in_2 = libdef.suma(dato_in_2, i+1,vel,ite)
+			dato_in_1 = libdef.suma(dato_in_1, i+1,vel,ite,step=profile[i])
+			dato_in_2 = libdef.suma(dato_in_2, i+1,vel,ite,step=profile[i])
 		elif orden == 13:
-			dato_in_1 = libdef.resta(dato_in_1, i+1,vel,ite)
-			dato_in_2 = libdef.resta(dato_in_2, i+1,vel,ite)
+			dato_in_1 = libdef.resta(dato_in_1, i+1,vel,ite,step=profile[i])
+			dato_in_2 = libdef.resta(dato_in_2, i+1,vel,ite,step=profile[i])
 
 		signal_out = libdef.detrans(dato_in_1[0])
 		signal_out += dato_in_1[1]

@@ -19,15 +19,28 @@ class RobotState:
     enabled: bool | None
     homed: bool
     fault: str | None
+    packet_index: int | None = None
+    host_monotonic_ns: int | None = None
+    encoder_sign_bytes: dict[str, int] | None = None
+    signed_encoder_counts: dict[str, int] | None = None
 
 
 def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
-                 homed: bool, fault: str | None) -> RobotState:
+                 homed: bool, fault: str | None, packet_index: int | None = None,
+                 host_monotonic_ns: int | None = None) -> RobotState:
     if len(packet) < 49:
         raise ValueError(f"Controller packet is too short: {len(packet)} bytes")
     counts = {
         name: int.from_bytes(packet[offset:offset + 2], "little")
         for name, offset in zip(JOINTS, ENCODER_OFFSETS)
+    }
+    signs = {name: packet[offset + 2] for name, offset in zip(JOINTS, ENCODER_OFFSETS)}
+    for name, sign in signs.items():
+        if sign not in (127, 128):
+            raise ValueError(f"Invalid encoder sign byte for {name}: {sign}")
+    signed = {
+        name: counts[name] if signs[name] == 128 else counts[name] - 65535
+        for name in JOINTS
     }
     errors = {
         name: int.from_bytes(packet[offset:offset + 2], "little")
@@ -42,4 +55,8 @@ def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
         enabled=enabled,
         homed=homed,
         fault=fault,
+        packet_index=packet_index,
+        host_monotonic_ns=host_monotonic_ns,
+        encoder_sign_bytes=signs,
+        signed_encoder_counts=signed,
     )

@@ -4,7 +4,7 @@ This path needs only Windows, VS Code, an internet connection, and the original 
 
 ## 1. Get the project and Python
 
-1. On the robot PC, open the [standalone GitHub repository](https://github.com/Sebastianr8243/scorbot-er4u-python). Select **Code → Download ZIP**, then extract it to a writable folder. Open that extracted folder in VS Code. A ZIP downloaded from GitHub contains source code but not the optional Zadig executable from the locally built bench kit.
+1. On the robot PC, open the [lab branch](https://github.com/Sebastianr8243/scorbot-er4u-python/tree/feat/arm-control-bench-calibration). Confirm the branch selector reads **feat/arm-control-bench-calibration**, then select **Code → Download ZIP**. Extract it to a writable folder and open that folder in VS Code. The default-branch ZIP does not contain these lab changes. A GitHub ZIP does not contain the optional Zadig executable from a locally built bench kit.
 2. Open **Terminal → New Terminal** in VS Code and select PowerShell. The terminal should be in the folder containing `pyproject.toml` and `scripts/`.
 3. Run `py -3 --version`. If Python is missing or older than 3.10, install [Python 3.13 from Python.org](https://www.python.org/downloads/release/python-31315/) using the Windows installer for that PC's architecture. Reopen the VS Code terminal after installing and check again. Python 3.13.5 passed this project's software setup on the development PC.
 
@@ -30,6 +30,6 @@ The script lists any present Windows device with hardware ID `VID_09F1&PID_0007`
 
 If Windows does not list the ID, check power, cable, USB port, and the controller's **Hardware Ids** in Device Manager. If Windows lists the correct ID but Python preflight fails, read [the USB driver section of the bench guide](docs/WINDOWS_BENCH_RUN.md#2-usb-driver-and-read-only-preflight). Only consider [official Zadig](https://zadig.akeo.ie/) for that exact device after recording the current driver. Changing the driver can prevent the original Intelitek software from using the controller.
 
-After the preflight passes, follow the [state-only session](docs/WINDOWS_BENCH_RUN.md#3-state-only-python-session). Connecting starts the legacy USB handshake, so do that step with an operator at the arm. Do not run the homing and jog example until the required physical homing start pose is known and the state-only session succeeds.
+After the preflight passes, follow the [first lab visit runbook](docs/ARM_CONTROL_BENCH.md). Connecting starts the legacy USB handshake, so the idle capture also requires an operator at the arm. Do not run a home or jog until the start pose from a prior successful ScorBot-software home has been reproduced and the idle capture succeeds.
 
-After that session, use [the calibration guide](docs/CALIBRATION_START.md) to record raw encoder data and plan measured joint calibration.
+Keep the visit's raw logs for review. [Physical calibration](docs/PHYSICAL_CALIBRATION.md) is a later step that requires independent angle measurements.

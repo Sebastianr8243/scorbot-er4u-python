@@ -1,6 +1,6 @@
 # ScorBot ER-4U Python control
 
-This repository contains the original OpenScorbot USB controller code and a small Python adapter for the **Intelitek ScorBot ER-4U**. The current milestone is supervised Python control through the original controller. The adapter exposes raw encoder readings, legacy homing, and small **relative** joint jogs. It does not yet provide calibrated absolute joint positions, Cartesian motion, a verified software stop, or autonomous control.
+This repository contains the original OpenScorbot USB controller code and a small Python adapter for the **Intelitek ScorBot ER-4U**. The current milestone is supervised Python control through the original controller. The adapter exposes fresh raw USB responses, legacy homing, and small **relative** joint jogs. Calibrated absolute base/shoulder/elbow moves are gated behind per-arm physical measurements and a validated calibration file. It does not provide Cartesian motion, a verified software stop, or autonomous control.
 
 ## Windows installation
 
@@ -14,7 +14,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m scorbot.preflight
 ```
 
-To move this working version to the robot PC, run `python scripts/build_bench_kit.py` here and copy the ZIP from `dist/`. The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`. You can also clone the standalone [scorbot-er4u-python repository](https://github.com/Sebastianr8243/scorbot-er4u-python). The original OpenScorbot repository does not contain these SDK changes.
+To move this working version to the robot PC, use the [lab branch](https://github.com/Sebastianr8243/scorbot-er4u-python/tree/feat/arm-control-bench-calibration) or build a ZIP from that branch with `python scripts/build_bench_kit.py`. The default branch does not contain the first-visit workflow. The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`.
 
 The preflight only enumerates USB; it does not reset or command the robot. The original controller is identified in the legacy code as USB vendor/product `09F1:0007`. PyUSB also needs a libusb backend and a compatible Windows device driver. The `windows` extra supplies a libusb library, but it does not change the device driver. See the [PyUSB Windows FAQ](https://github.com/pyusb/pyusb/blob/master/docs/faq.rst) if discovery fails. Confirm the driver choice for your lab setup before changing it, since it may affect the Intelitek software. Follow the [Windows bench runbook](docs/WINDOWS_BENCH_RUN.md) on the robot PC.
 
@@ -34,9 +34,9 @@ with Scorbot(log_path="session.jsonl") as robot:
     robot.disable()
 ```
 
-The complete script is in [examples/python_control.py](examples/python_control.py). After installation, run it from the repository root with `.\.venv\Scripts\python.exe examples\python_control.py`. Start by running just `connect()` and `get_state()`, then verify the homing start pose and each direction before allowing a jog. `jog_joint` accepts `base`, `shoulder`, `elbow`, `wrist_pitch`, or `wrist_roll`; each call is limited to 5 degrees and legacy speed values 1–20. The positive direction mapping is inherited from the old code and needs physical verification.
+This snippet illustrates the API. For the first hardware session, follow the [first lab visit procedure](docs/ARM_CONTROL_BENCH.md); it captures idle responses and requires a physical home check before offering a jog. `jog_joint` currently accepts `base`, `shoulder`, or `elbow`; live wrist jogs remain gated pending two-motor measurements. Each call is limited to 5 degrees and legacy speed values 1–20. The positive direction mapping is inherited from the old code and needs physical verification. Use the [offline jog preview](docs/OFFLINE_SAFETY_FIXES.md) to inspect planned motor counts before a supervised trial.
 
-To begin calibrating your arm, follow [the calibration measurement guide](docs/CALIBRATION_START.md). It starts with [a raw-state recording script](examples/record_raw_state.py) and explains which home, encoder, angle, and wrist measurements are needed before calibrated motion can be implemented.
+For one-joint supervised trials, follow the [arm-control bench procedure](docs/ARM_CONTROL_BENCH.md). Start with [raw-state recording](examples/record_raw_state.py), then use [bench_joint.py](examples/bench_joint.py) and [review_lab_logs.py](scripts/review_lab_logs.py). Use the [measurement and calibration guide](docs/PHYSICAL_CALIBRATION.md) when an independent angle reference is available. The fitter in `scripts/fit_calibration.py` refuses vendor-only data and requires holdout and movement verification before emitting a calibrated file.
 
 `disable()` is a queued controller command. It cannot interrupt a stalled command and is **not** an emergency stop. The physical emergency stop remains authoritative. If a command times out, the SDK faults and rejects more motion; it cannot guarantee motor shutdown after USB loss or a Python crash.
 
@@ -56,13 +56,13 @@ The original code remains under `openScorbot/`. The new adapter is under `scorbo
 
 ## Development checks
 
-The tests do not open USB or move the robot:
+The tests use synthetic USB responses and measurements; they do not open USB or move the robot:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-The current adapter is based on static code inspection. Hardware communication, homing completion, joint directions, and stop behavior still require supervised bench validation on your ER-4U.
+The current adapter is based on static code inspection. Hardware communication, homing completion, joint directions, and stop behavior still require supervised bench validation on your ER-4U. The SDK timestamps successful USB reads, but a new packet does not by itself prove movement or a switch state. Motor behavior after communication failure has not been verified with this Python path.
 
 ## Original project
 

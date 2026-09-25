@@ -328,6 +328,10 @@ def getStruct(orden, signal_out, msg):
 
 	return section
 
+# Decrementa o incrementa, en funcion de la orden, el valor de los encoders
+# en el mensaje de escritura. Se hace uso de esta función en los movimientos
+# de cadera, hombro y codo en el script libcomm.
+def builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=None):
 # Increments or decrements the encoder values in the write message according to the
 # order. This function is used in the base, shoulder, and elbow motions in libcomm.
 def builder(b_1, dato_in, i, ite, orden, vel, media, buffer):
@@ -336,9 +340,9 @@ def builder(b_1, dato_in, i, ite, orden, vel, media, buffer):
 	cadena = cadena.format(f_byte(b_1))
 	cadena = fill_msg(cadena, 24)
 	if orden == 5 or orden == 6 or orden == 9 or orden == 14:
-		dato_in = suma(dato_in, i+1, vel, ite)
+		dato_in = suma(dato_in, i+1, vel, ite, step=step)
 	else:
-		dato_in = resta(dato_in, i+1, vel, ite)
+		dato_in = resta(dato_in, i+1, vel, ite, step=step)
 
 	signal_out = detrans(dato_in[0])
 	signal_out += dato_in[1]
@@ -482,8 +486,8 @@ def get_signo(pos, buffer):
 ## reached the maximum resolution and the summed value becomes the difference between the
 ## previous added result and the maximum. In addition, the sign must change.
 #
-def suma(dato_in,cont,vel,ite):
-	dato_in[0] += incremento(cont,vel,ite)
+def suma(dato_in,cont,vel,ite,step=None):
+	dato_in[0] += incremento(cont,vel,ite) if step is None else step
 	if dato_in[0] > 65535:
 		dato_in[0] -= 65535
 		dato_in[1] = '0000'
@@ -504,8 +508,8 @@ def suma(dato_in,cont,vel,ite):
 ## difference between the maximum and the previous subtraction result. In addition, the
 ## sign must change.
 ###
-def resta(dato_in,cont,vel,ite):
-	dato_in[0] -= incremento(cont,vel,ite)
+def resta(dato_in,cont,vel,ite,step=None):
+	dato_in[0] -= incremento(cont,vel,ite) if step is None else step
 	if dato_in[0] < 0:
 		dato_in[0] = 65535 + dato_in[0]
 		dato_in[1] = 'ffff'

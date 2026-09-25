@@ -3,11 +3,16 @@
 from dataclasses import asdict
 import importlib
 import json
+import math
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 import queue
 import sys
 import threading
 
+from .calibration import load_calibration
+from .packet import TrackedInputEndpoint
 from .state import RobotState, decode_state
 
 
@@ -18,8 +23,8 @@ class ScorbotError(RuntimeError):
 class Scorbot:
     """ER-4U legacy USB adapter.
 
-    Joint motions are *relative* jogs. This is not a calibrated absolute-motion
-    controller and its disable command is not an emergency stop.
+    Legacy jogs are relative. Calibrated absolute steps require measured data;
+    the queued disable command is not an emergency stop.
     """
 
     _JOG_CODES = {
@@ -31,12 +36,27 @@ class Scorbot:
     }
 
     def __init__(self, *, log_path: str | Path | None = None,
-                 command_timeout: float = 30.0, max_jog_degrees: float = 5.0):
-        if command_timeout <= 0 or max_jog_degrees <= 0:
-            raise ValueError("Timeout and maximum jog angle must be positive")
+                 command_timeout: float = 30.0, max_jog_degrees: float = 5.0,
+                 response_timeout: float = 2.0, robot_id: str | None = None,
+                 calibration_path: str | Path | None = None):
+        if (not math.isfinite(command_timeout) or command_timeout <= 0
+                or not math.isfinite(max_jog_degrees) or not 0 < max_jog_degrees <= 5
+                or not math.isfinite(response_timeout) or response_timeout <= 0):
+            raise ValueError("Timeouts must be positive; maximum jog must be 0-5 degrees")
+        if calibration_path is not None and not robot_id:
+            raise ValueError("robot_id is required when loading calibration")
         self.log_path = Path(log_path) if log_path else None
         self.command_timeout = command_timeout
         self.max_jog_degrees = max_jog_degrees
+        self.response_timeout = response_timeout
+        self.robot_id = robot_id
+        self._calibration = (load_calibration(calibration_path, robot_id=robot_id)
+                             if calibration_path is not None else None)
+        self._input = None
+        self._last_state_index = 0
+        self._home_counts = None
+        self._motion_lock = threading.RLock()
+        self._state_lock = threading.Lock()
         self._device = None
         self._buffer = None
         self._sync_thread = None
@@ -69,7 +89,10 @@ class Scorbot:
         if self.log_path is None:
             return
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        row = {"event": event, **fields}
+        row = {"event": event,
+               "host_monotonic_ns": time.monotonic_ns(),
+               "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+               "robot_id": self.robot_id, **fields}
         with self.log_path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(row, allow_nan=False) + "\n")
 
@@ -118,6 +141,8 @@ class Scorbot:
                 usb.util.endpoint_direction(endpoint.bEndpointAddress) == usb.util.ENDPOINT_OUT)
             if endpoint_in is None or endpoint_out is None:
                 raise ScorbotError("The USB controller endpoints were not found")
+            endpoint_in = TrackedInputEndpoint(endpoint_in)
+            self._input = endpoint_in
             buffer = usb.util.create_buffer(endpoint_in.wMaxPacketSize)
             sequence, encoder_mean = legacy_sync.msg_start(endpoint_out, endpoint_in, buffer)
             self._buffer = buffer
@@ -147,6 +172,7 @@ class Scorbot:
             self._enabled = None
             self._record("connect_failed", error=self._fault)
             self._cancel_event.set()
+            self._home_counts = None
             try:
                 self.disconnect()
             except Exception as cleanup_error:
@@ -169,6 +195,7 @@ class Scorbot:
             raise ScorbotError(f"Controller is faulted: {self._fault}")
         wait_timeout = self.command_timeout if timeout is None else timeout
         with self._lock:
+            self._record("command_start", payload=payload)
             self._commands.put(payload)
             try:
                 result = self._results.get(timeout=wait_timeout)
@@ -189,6 +216,7 @@ class Scorbot:
                 self._commands.put([16, 1, 1])  # Best effort if worker recovers.
                 self._enabled = None
                 self._homed = False
+                self._home_counts = None
                 self._record("command_timeout", payload=payload)
                 raise ScorbotError(self._fault) from exc
             except ScorbotError as exc:
@@ -202,6 +230,7 @@ class Scorbot:
                     self._record("disable_after_error", result=disable_result)
                 self._enabled = None
                 self._homed = False
+                self._home_counts = None
                 self._record("command_error", payload=payload, error=self._fault)
                 raise
             except (KeyboardInterrupt, SystemExit):
@@ -210,50 +239,216 @@ class Scorbot:
                 self._commands.put([16, 1, 1])
                 self._enabled = None
                 self._homed = False
+                self._home_counts = None
                 self._record("command_interrupted", payload=payload)
                 raise
-            self._record("command", payload=payload, state=asdict(self.get_state()))
+            self._record("command_complete", payload=payload)
 
-    def get_state(self) -> RobotState:
-        if self._device is None or self._buffer is None:
+    def get_state(self, *, after_index: int | None = None) -> RobotState:
+        """Return a copied, recent USB response; optionally wait for a newer one."""
+        if self._device is None or self._input is None:
             raise ScorbotError("Not connected")
-        return decode_state(bytes(self._buffer), connected=True,
+        try:
+            with self._state_lock:
+                required_index = max(self._last_state_index, after_index or 0)
+                sample = self._input.snapshot(
+                    after_index=required_index, timeout=self.response_timeout,
+                    max_age=self.response_timeout)
+                self._last_state_index = sample.index
+        except TimeoutError as exc:
+            raise ScorbotError(str(exc)) from exc
+        return decode_state(sample.data, connected=True,
                             enabled=self._enabled, homed=self._homed,
-                            fault=self._fault)
+                            fault=self._fault, packet_index=sample.index,
+                            host_monotonic_ns=sample.host_monotonic_ns)
+
+    def _motion_state(self, *, after_index=None):
+        try:
+            return self.get_state(after_index=after_index)
+        except (ScorbotError, ValueError) as exc:
+            self._fault = f"Controller feedback is unavailable: {exc}"
+            self._enabled = None
+            self._homed = False
+            self._home_counts = None
+            if self._command_thread is not None and self._command_thread.is_alive():
+                self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
+            self._record("feedback_fault", error=self._fault)
+            raise ScorbotError(self._fault) from exc
 
     def enable(self):
-        self._command([17, 1, 1])
-        self._enabled = True
+        with self._motion_lock:
+            self._motion_state()
+            self._command([17, 1, 1])
+            self._enabled = True
 
     def disable(self):
         """Queue a motor-disable command while the worker is responsive."""
-        self._command([16, 1, 1])
-        self._enabled = False
-        self._homed = False
+        with self._motion_lock:
+            self._command([16, 1, 1])
+            self._enabled = False
+            self._homed = False
+            self._home_counts = None
 
     def home(self, *, start_position_confirmed: bool = False):
-        """Run legacy homing only from its required physical start position."""
-        if not start_position_confirmed:
-            raise ValueError("Confirm the legacy homing start position first")
-        if not self._enabled:
-            raise ScorbotError("Enable motors before homing")
-        self._homed = False
-        self._command([18, 1, 1], timeout=180.0)
-        self._homed = True
+        """Search switches from the confirmed legacy start pose; never Go Home."""
+        with self._motion_lock:
+            if not start_position_confirmed:
+                raise ValueError("Confirm the legacy homing start position first")
+            if not self._enabled:
+                raise ScorbotError("Enable motors before homing")
+            before = self._motion_state()
+            self._homed = False
+            self._home_counts = None
+            self._record("home_start", state=asdict(before))
+            self._command([18, 1, 1], timeout=180.0)
+            after = self._motion_state(after_index=before.packet_index)
+            counts = after.encoder_counts
+            if self._calibration:
+                try:
+                    for calibration in self._calibration.joints.values():
+                        calibration.validate_home(counts[calibration.encoder])
+                except ValueError as exc:
+                    self._fault = f"Home verification failed: {exc}"
+                    self._enabled = None
+                    self._record("home_failed", error=self._fault, state=asdict(after))
+                    raise ScorbotError(self._fault) from exc
+            self._home_counts = counts.copy()
+            self._homed = True
+            self._record("home_complete", state=asdict(self._motion_state()))
 
-    def jog_joint(self, joint: str, delta_degrees: float, *, speed: int = 10):
-        """Move one named joint by a small relative angle in legacy speed units."""
+    def preview_jog(self, joint: str, delta_degrees: float, *, speed: int = 10,
+                    starting_signed_counts: dict[str, int] | None = None) -> dict:
+        """Plan motor setpoints offline; this never opens USB or queues a command."""
         if joint not in self._JOG_CODES:
             raise ValueError(f"Unknown joint: {joint}")
-        if isinstance(delta_degrees, bool) or not isinstance(delta_degrees, (int, float)) or not 0 < abs(delta_degrees) <= self.max_jog_degrees:
-            raise ValueError(f"Jog must be nonzero and at most {self.max_jog_degrees} degrees")
-        if isinstance(speed, bool) or not isinstance(speed, int) or not 1 <= speed <= 20:
-            raise ValueError("Legacy speed must be an integer from 1 to 20")
-        if not self._enabled or not self._homed:
-            raise ScorbotError("Enable and home before jogging")
-        positive, negative = self._JOG_CODES[joint]
-        self._command([positive if delta_degrees > 0 else negative,
-                       speed, abs(delta_degrees)])
+        if (isinstance(delta_degrees, bool)
+                or not isinstance(delta_degrees, (int, float))
+                or not math.isfinite(delta_degrees)
+                or not 0 < abs(delta_degrees) <= self.max_jog_degrees):
+            raise ValueError("Jog must be finite, nonzero and within the jog ceiling")
+        order = self._JOG_CODES[joint][0 if delta_degrees > 0 else 1]
+        plan = self._legacy("motion_profile").plan_jog(order, abs(delta_degrees), speed)
+        plan["increments"] = list(plan["increments"])
+        plan["execution_status"] = (
+            "wrist jog disabled pending physical two-motor verification"
+            if joint.startswith("wrist_") else "supervised jog only after homing")
+        if starting_signed_counts is not None:
+            if not isinstance(starting_signed_counts, dict):
+                raise ValueError("Starting signed counts must be a mapping")
+            targets = {}
+            for motor, delta in plan["motor_count_deltas"].items():
+                value = starting_signed_counts.get(motor)
+                if type(value) is not int or not -65535 <= value <= 65535:
+                    raise ValueError(f"Missing or invalid signed count for {motor}")
+                targets[motor] = value + delta
+            plan["starting_signed_counts"] = {
+                motor: starting_signed_counts[motor]
+                for motor in targets
+            }
+            plan["target_signed_counts"] = targets
+        return plan
+
+    def jog_joint(self, joint: str, delta_degrees: float, *, speed: int = 10):
+        """Move one joint by a bounded legacy relative jog; read back raw state."""
+        with self._motion_lock:
+            if joint not in self._JOG_CODES:
+                raise ValueError(f"Unknown joint: {joint}")
+            if joint.startswith("wrist_"):
+                raise ScorbotError("Wrist jogs are disabled until two-motor bench verification")
+            if (isinstance(delta_degrees, bool)
+                    or not isinstance(delta_degrees, (int, float))
+                    or not math.isfinite(delta_degrees)
+                    or not 0 < abs(delta_degrees) <= self.max_jog_degrees):
+                raise ValueError(f"Jog must be finite, nonzero and at most {self.max_jog_degrees} degrees")
+            if isinstance(speed, bool) or not isinstance(speed, int) or not 1 <= speed <= 20:
+                raise ValueError("Legacy speed must be an integer from 1 to 20")
+            if not self._enabled or not self._homed:
+                raise ScorbotError("Enable and home before jogging")
+            before = self._motion_state()
+            if self._calibration and joint in self._calibration.joints:
+                calibration = self._calibration.joints[joint]
+                if self._home_counts is None:
+                    raise ScorbotError("Session home count is unavailable")
+                try:
+                    current_angle = calibration.angle(
+                        before.encoder_counts[calibration.encoder],
+                        self._home_counts[calibration.encoder])
+                except ValueError as exc:
+                    self._fault = f"Calibrated state invalid: {exc}"
+                    self._homed = False
+                    self._home_counts = None
+                    raise ScorbotError(self._fault) from exc
+                if (not calibration.soft_min_deg <= current_angle <= calibration.soft_max_deg
+                        or not calibration.soft_min_deg <= current_angle + delta_degrees <= calibration.soft_max_deg):
+                    raise ValueError("Jog would leave measured soft limits")
+            positive, negative = self._JOG_CODES[joint]
+            preview = self.preview_jog(
+                joint, delta_degrees, speed=speed,
+                starting_signed_counts=before.signed_encoder_counts)
+            self._record("motion_preview", plan=preview, state=asdict(before))
+            self._record("motion_start", joint=joint, requested_delta_deg=delta_degrees,
+                         speed=speed, state=asdict(before))
+            self._command([positive if delta_degrees > 0 else negative,
+                           speed, abs(delta_degrees)])
+            after = self._motion_state(after_index=before.packet_index)
+            self._record("motion_complete", joint=joint,
+                         requested_delta_deg=delta_degrees, speed=speed,
+                         state=asdict(after))
+            return after
+
+    def get_joint_angles(self) -> dict[str, float]:
+        """Return calibrated angles only after a verified home on this arm."""
+        with self._motion_lock:
+            if self._calibration is None:
+                raise ScorbotError("No validated physical calibration is loaded")
+            if not self._homed or self._home_counts is None or self._fault:
+                raise ScorbotError("A verified home is required for calibrated angles")
+            state = self._motion_state()
+            result = {}
+            try:
+                for name, calibration in self._calibration.joints.items():
+                    result[name] = calibration.angle(
+                        state.encoder_counts[calibration.encoder],
+                        self._home_counts[calibration.encoder])
+            except ValueError as exc:
+                self._fault = f"Calibrated state invalid: {exc}"
+                self._homed = False
+                self._home_counts = None
+                self._record("calibration_fault", error=self._fault)
+                raise ScorbotError(self._fault) from exc
+            return result
+
+    def move_joint(self, joint: str, target_degrees: float, *, speed: int = 10):
+        """One bounded calibrated target step, using the existing jog backend."""
+        with self._motion_lock:
+            if self._calibration is None or joint not in self._calibration.joints:
+                raise ScorbotError(f"No validated physical calibration for {joint}")
+            if (isinstance(target_degrees, bool)
+                    or not isinstance(target_degrees, (int, float))
+                    or not math.isfinite(target_degrees)):
+                raise ValueError("Target angle must be finite")
+            calibration = self._calibration.joints[joint]
+            if not calibration.soft_min_deg <= target_degrees <= calibration.soft_max_deg:
+                raise ValueError("Target exceeds the measured soft limits")
+            current = self.get_joint_angles()[joint]
+            delta = target_degrees - current
+            if abs(delta) > self.max_jog_degrees:
+                raise ValueError("Absolute target exceeds one bounded jog")
+            if abs(delta) < 0.01:
+                return current
+            self.jog_joint(joint, delta, speed=speed)
+            achieved = self.get_joint_angles()[joint]
+            if abs(achieved - target_degrees) > 2.0:
+                self._fault = "Calibrated move did not reach target within 2 degrees"
+                self._enabled = None
+                self._homed = False
+                self._home_counts = None
+                self._record("following_error", joint=joint,
+                             target_deg=target_degrees, achieved_deg=achieved)
+                raise ScorbotError(self._fault)
+            self._record("absolute_move_complete", joint=joint,
+                         target_deg=target_degrees, achieved_deg=achieved)
+            return achieved
 
     def disconnect(self):
         if self._device is None:
@@ -280,5 +475,8 @@ class Scorbot:
         usb.util.dispose_resources(self._device)
         self._device = None
         self._buffer = None
+        self._input = None
+        self._last_state_index = 0
         self._enabled = False
         self._homed = False
+        self._home_counts = None

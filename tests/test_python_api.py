@@ -16,11 +16,28 @@ class StateTests(unittest.TestCase):
         packet[5] = 0b10101
         for index, offset in enumerate((19, 24, 29, 34, 39, 44), start=1):
             packet[offset:offset + 2] = (index * 1000).to_bytes(2, "little")
+            packet[offset + 2] = 128
         state = decode_state(bytes(packet), connected=True, enabled=False,
                              homed=False, fault=None)
         self.assertEqual(state.encoder_counts["base"], 1000)
         self.assertEqual(state.encoder_counts["gripper"], 6000)
         self.assertEqual(state.home_switch_bits, 0b10101)
+
+    def test_decodes_negative_ones_complement_count_and_rejects_bad_sign(self):
+        packet = bytearray(64)
+        for offset in (19, 24, 29, 34, 39, 44):
+            packet[offset + 2] = 128
+        packet[19:21] = (65534).to_bytes(2, "little")
+        packet[21] = 127
+        state = decode_state(bytes(packet), connected=True, enabled=False,
+                             homed=False, fault=None)
+        self.assertEqual(state.encoder_counts["base"], 65534)
+        self.assertEqual(state.encoder_sign_bytes["base"], 127)
+        self.assertEqual(state.signed_encoder_counts["base"], -1)
+        packet[21] = 0
+        with self.assertRaisesRegex(ValueError, "sign byte"):
+            decode_state(bytes(packet), connected=True, enabled=False,
+                         homed=False, fault=None)
 
     def test_rejects_short_packet(self):
         with self.assertRaises(ValueError):
