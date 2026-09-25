@@ -430,6 +430,10 @@ class CliAndExampleTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertNotIn("Traceback", result.stderr + result.stdout)
 
+    def test_package_exports_the_documented_names(self):
+        from scorbot.session import SessionError, SessionWriter, load_session, nearest
+        self.assertTrue(all((SessionError, SessionWriter, load_session, nearest)))
+
     def test_importing_session_package_loads_no_hardware_code(self):
         import subprocess
         import sys

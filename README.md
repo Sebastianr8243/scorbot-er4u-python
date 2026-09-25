@@ -38,6 +38,8 @@ The complete script is in [examples/python_control.py](examples/python_control.p
 
 To begin calibrating your arm, follow [the calibration measurement guide](docs/CALIBRATION_START.md). It starts with [a raw-state recording script](examples/record_raw_state.py) and explains which home, encoder, angle, and wrist measurements are needed before calibrated motion can be implemented.
 
+To record an experiment (commands, controller state, camera frames, operator decisions) and replay it without hardware, see [Recording and replaying experiments](docs/EXPERIMENT_RECORDING.md). Try it first with `.\.venv\Scripts\python.exe examples\make_synthetic_session.py`.
+
 `disable()` is a queued controller command. It cannot interrupt a stalled command and is **not** an emergency stop. The physical emergency stop remains authoritative. If a command times out, the SDK faults and rejects more motion; it cannot guarantee motor shutdown after USB loss or a Python crash.
 
 Legacy homing switch searches now have a provisional 30-second deadline per axis and check a cancellation signal. That deadline has not been tuned on the physical arm. An error or `homed: true` from the SDK is not independent proof of motor state or home calibration.
