@@ -299,13 +299,15 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         self.assertIn("!!! LED mismatch after_disable: Software says motors are DISABLED",
                       watch.stdout)
 
-    def test_idle_without_led_answers_records_unsure_and_still_finishes(self):
+    def test_idle_without_led_answers_stops_before_sampling(self):
         result = self.idle(stdin="")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 1, result.stderr)
         rows = [json.loads(line) for line in (self.logs / "idle-01.jsonl").read_text().splitlines()]
         leds = [r for r in rows if r["type"] == "led_observation"]
         self.assertEqual([(r["step"], r["motors_led"]) for r in leds],
-                         [("after_connect", "unsure"), ("after_exit", "unsure")])
+                         [("after_connect", "unsure")])
+        self.assertFalse(any(r["type"] == "sample" for r in rows))
+        self.assertEqual(rows[-1]["type"], "session_failed")
 
     def test_missing_nested_session_root_is_created(self):
         root = Path(self._tmp.name) / "new" / "nested sessions"
@@ -415,8 +417,9 @@ class BenchRecorderIsSecondaryTests(unittest.TestCase):
 
         code, rows, out = self.run_bench(patch.object(SessionWriter, "log_command_result",
                                                       failing))
-        self.assertEqual(code, 0, out)
-        self.assertEqual([r["type"] for r in rows], BENCH_TYPES)
+        self.assertEqual(code, 1, out)
+        self.assertEqual([r["type"] for r in rows], BENCH_TYPES + ["recorder_failed"])
+        self.assertIn("MCAP recording is incomplete", out)
         self.assertIn("MCAP recording stopped", out)
 
     def test_interrupt_during_the_jog_marks_the_open_command_faulted_once(self):
@@ -476,7 +479,8 @@ class BenchRecorderIsSecondaryTests(unittest.TestCase):
         logs = Path(self._tmp.name) / "rehearsal"
         idle = run_script("examples/record_raw_state.py", "--output", logs / "idle.jsonl",
                           *LABELS, "--pose-note", "desk", "--seconds", "1", "--hz", "2",
-                          "--simulate", "--acknowledge-connect-handshake")
+                          "--simulate", "--acknowledge-connect-handshake",
+                          stdin=LED_CONNECT + "n\ng\n")
         self.assertEqual(idle.returncode, 0, idle.stderr)
         review = run_script("scripts/review_lab_logs.py", "--idle", logs / "idle.jsonl")
         self.assertIn("SIMULATED", review.stdout.strip().splitlines()[-1])

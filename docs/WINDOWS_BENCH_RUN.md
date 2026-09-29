@@ -4,36 +4,16 @@ Use this on the Windows PC connected to the **original ScorBot ER-4U USB control
 
 ## 1. Copy and install
 
-If this PC only has VS Code, follow [START_HERE_WINDOWS.md](../START_HERE_WINDOWS.md) first. It does not require Git.
-
-Copy the **current working tree** to the robot PC, including `scorbot/`, `openScorbot/`, `examples/`, `pyproject.toml`, and `tests/`. The easiest transfer is the ZIP created by `python scripts/build_bench_kit.py`; extract it to a writable directory on the robot PC. This ZIP also includes `usb-tools/zadig-2.9.exe` when the verified download is present in `dist/usb-tools/`. Alternatively, clone the standalone [scorbot-er4u-python repository](https://github.com/Sebastianr8243/scorbot-er4u-python):
-
-```powershell
-git clone https://github.com/Sebastianr8243/scorbot-er4u-python.git
-cd scorbot-er4u-python
-git switch main
-```
-
-A fresh clone of the original OpenScorbot repository does not include the Python adapter. In PowerShell, change to the extracted or cloned repository directory. Python 3.10 or newer and internet access are required for this install:
-
-```powershell
-py -3 --version
-py -3 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[windows,test]"
-.\.venv\Scripts\python.exe -m pip check
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
-The tests do not access USB. If `py -3` is unavailable, install a current Python 3 release from [Python.org](https://www.python.org/downloads/windows/), then repeat this section. The Python package installs the `libusb-package` library, **not** a Windows USB device driver.
+Follow [Start here on the robot PC](../START_HERE_WINDOWS.md) for the ZIP and the one-time Python setup. Git is optional. If `.venv` already worked in this checkout, skip the reinstall and continue with the read-only USB check. The Python package installs the `libusb-package` library, **not** a Windows USB device driver. A locally built bench-kit ZIP may also include Zadig under `usb-tools/`; a GitHub ZIP does not.
 
 ## 2. USB driver and read-only preflight
 
 In Windows Device Manager, inspect the controller's **Hardware Ids**. Confirm vendor/product `VID_09F1&PID_0007`, and record its current driver before changing anything. The [libusb Windows guide](https://github.com/libusb/libusb/wiki/Windows#driver-installation) recommends WinUSB for libusb access. PyUSB's [project README](https://github.com/pyusb/pyusb/blob/master/README.rst) explains the separate Windows libusb library requirement.
 
-With the arm clear and the physical stop accessible, run:
+With the arm clear and the physical stop accessible, run the combined Windows listing and Python preflight:
 
 ```powershell
-.\.venv\Scripts\python.exe -m scorbot.preflight
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.ps1
 ```
 
 Expected: PASS for Python, required packages, the Windows libusb backend, and USB controller `09F1:0007`; exit code 0. This preflight only enumerates USB. It does **not** reset the controller, open the robot session, enable motors, or command motion. Check the exit code with `$LASTEXITCODE`. If any check fails, stop here, keep the full error output, and fix that check before connecting.

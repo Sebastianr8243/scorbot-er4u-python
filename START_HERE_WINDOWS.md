@@ -1,10 +1,12 @@
 # Start here on the robot PC
 
-This path needs only Windows, VS Code, an internet connection, and the original ScorBot ER-4U USB controller. You do **not** need Git, the old OpenScorbot GUI, a camera, or an AI model for the first connection check. VS Code is an editor; install Python separately.
+This is the shortest path for a lab PC that may have only VS Code. Git, the old OpenScorbot GUI, a camera, and an AI model are not needed for the first USB check. VS Code is an editor; Python is installed separately.
+
+If this checkout already has a working `.venv` and the setup script passed earlier, skip to step 3. You do not need to reinstall packages or rerun the full test suite on every lab visit. If you downloaded a new ZIP or changed Python, run step 2 once for that checkout.
 
 ## 1. Get the project and Python
 
-1. On the robot PC, open the [repository](https://github.com/Sebastianr8243/scorbot-er4u-python). Confirm the branch selector reads **main**, then select **Code → Download ZIP**. Extract it to a writable folder and open that folder in VS Code. A GitHub ZIP does not contain the optional Zadig executable from a locally built bench kit.
+1. On the robot PC, open the [repository](https://github.com/Sebastianr8243/scorbot-er4u-python). Select the branch you intend to test, then choose **Code → Download ZIP**. Extract it to a writable folder and open that folder in VS Code. If Git already works, pulling the same branch is fine. A GitHub ZIP does not contain the optional Zadig executable from a locally built bench kit.
 2. Open **Terminal → New Terminal** in VS Code and select PowerShell. The terminal should be in the folder containing `pyproject.toml` and `scripts/`.
 3. Run `py -3 --version`. If Python is missing or older than 3.10, install [Python 3.13 from Python.org](https://www.python.org/downloads/release/python-31315/) using the Windows installer for that PC's architecture. Reopen the VS Code terminal after installing and check again. Python 3.13.5 passed this project's software setup on the development PC.
 
@@ -16,7 +18,7 @@ In the VS Code PowerShell terminal, run:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1
 ```
 
-This creates `.venv`, installs the package, PyUSB, NumPy, the Windows libusb library, and Hypothesis for the software tests, then runs those tests. It does not access USB, change drivers, or move the arm. The execution-policy option applies only to this one PowerShell process. If Python is missing, the script prints the official download page and stops. Internet access is needed for the package install.
+This creates or reuses `.venv`, installs the Python packages, and runs the offline tests. Run it once for a new checkout; it does not access USB, change drivers, or move the arm. The execution-policy option applies only to this one PowerShell process. If Python is missing, the script prints the official download page and stops. Internet access is needed for the package install. If installation or tests fail, save the exact output; you can still diagnose Windows USB visibility in Device Manager, but do not start a live Python controller session.
 
 ## 3. Check that Windows and Python see the controller
 
@@ -26,7 +28,7 @@ Plug the **original ER-4U controller** into the PC with a USB data cable and pow
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.ps1
 ```
 
-The script lists any present Windows device with hardware ID `VID_09F1&PID_0007`, then runs the read-only Python preflight. The desired result is `PASS USB 09F1:0007`. This proves the PC and Python can enumerate the controller; it does **not** prove that robot commands work. Neither the Windows listing nor the preflight sends motion commands.
+The script lists any present Windows device with hardware ID `VID_09F1&PID_0007`, then runs the read-only Python preflight. The desired result is `PASS USB 09F1:0007`. This shows that the PC and Python can enumerate the controller; it does not test robot commands. Neither check sends motion commands. If the Python part cannot run because setup failed, the Windows device listing is still useful evidence.
 
 If Windows does not list the ID, check power, cable, USB port, and the controller's **Hardware Ids** in Device Manager. If Windows lists the correct ID but Python preflight fails, read [the USB driver section of the bench guide](docs/WINDOWS_BENCH_RUN.md#2-usb-driver-and-read-only-preflight). Only consider [official Zadig](https://zadig.akeo.ie/) for that exact device after recording the current driver. Changing the driver can prevent the original Intelitek software from using the controller.
 
