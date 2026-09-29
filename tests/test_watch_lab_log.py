@@ -57,6 +57,23 @@ class WatchLabLogTests(unittest.TestCase):
         self.assertIn("!!! sync_worker_crashed: USB read failed", screen)
         self.assertIn("physical stop", screen)
 
+    def test_latest_led_observation_is_shown_and_mismatch_is_an_alarm(self):
+        view = RunView()
+        view.add({"type": "led_observation", "step": "after_connect",
+                  "motors_led": "off", "power_led": "green"}, "run")
+        view.add({"type": "led_observation", "step": "after_enable",
+                  "motors_led": "off", "power_led": "green"}, "run")
+        screen = view.render()
+        self.assertIn("LEDs (operator, after enable): MOTORS off  POWER green", screen)
+        self.assertNotIn("after connect)", screen)
+        self.assertNotIn("!!!", screen)
+        view.add({"type": "led_mismatch", "step": "after_enable", "led": "motors",
+                  "message": "Software says motors are ENABLED but the MOTORS LED was "
+                             "reported OFF."}, "run")
+        screen = view.render()
+        self.assertIn("!!! LED mismatch after_enable: Software says motors are ENABLED", screen)
+        self.assertIn("physical stop", screen)
+
     def test_older_state_never_replaces_newer_one(self):
         view = RunView()
         disabled = dict(state(9), enabled=False)

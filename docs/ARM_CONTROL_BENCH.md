@@ -50,7 +50,9 @@ Choose `--delta 1` or `--delta -1` based on **visible physical clearance**, not 
 
 The script asks you to confirm the start pose before `HOME`. Watch the complete home search. It then records your description and requires `HOME_OK` before preparing any jog. If the result looks wrong, decline the prompt and end the run. Before `MOVE`, review the printed plan: joint, signed motor-count target, and integer increment sequence. The preview describes requested controller setpoints; it cannot confirm the actual movement.
 
-After the jog, record observed direction and approximate movement, whether any other joint moved, controller indicators, and any issue. Preserve both the bench JSONL and its `.controller.jsonl` companion. Then review:
+**LED checks.** Both scripts ask for the controller's front-panel LEDs: `record_raw_state.py` after connect and after exit, `bench_joint.py` after connect, after `enable`, after the jog, and after `disable`. Answer each question with one key and Enter: `MOTORS LED lit? [y/n/u=unsure]` and `POWER LED colour? [g=green/o=orange/f=flashing/u=unsure]`. An invalid key is asked again; after three tries, or if input ends, the answer is recorded as `unsure`. The script does not show what it expects until you have answered. If the answer contradicts the software (for example MOTORS lit after `disable`, or POWER orange while connected) it prints a `!!! WARNING` block and logs a `led_mismatch` row. It does not stop by itself: the operator decides, and the physical stop is authoritative. After `enable`, where homing would follow straight away, a mismatch asks you to type `CONTINUE`, and anything else ends the run. The review lists every LED answer and reports each mismatch or missing check as a problem.
+
+After the jog, record observed direction and approximate movement, whether any other joint moved, other controller indicators or sounds, and any issue. Preserve both the bench JSONL and its `.controller.jsonl` companion. Then review:
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\review_lab_logs.py --idle .\logs\idle-01.jsonl --bench .\logs\base-first-01.jsonl

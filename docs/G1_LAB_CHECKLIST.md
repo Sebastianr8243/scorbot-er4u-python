@@ -22,7 +22,7 @@ Roles. Write names, and don't let one person hold two roles:
   .\.venv\Scripts\python.exe .\examples\bench_joint.py --output .\rehearsal\base-first-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --start-pose-note rehearsal --joint base --delta 1 --simulate --acknowledge-supervised-motion
   .\.venv\Scripts\python.exe .\scripts\review_lab_logs.py --idle .\rehearsal\idle-01.jsonl --bench .\rehearsal\base-first-01.jsonl
   ```
-  Everyone practises the prompts (`HOME`, `HOME_OK`, `MOVE`) and the review. Every output says **SIMULATED**.
+  Everyone practises the prompts (`HOME`, `HOME_OK`, `MOVE`, and the one-key LED checks) and the review. Every output says **SIMULATED**.
 - [ ] Commit to record: `git rev-parse HEAD` → ______________________
 - [ ] Printed: this checklist, one observation sheet per planned run, and a photo or sketch of the ScorBot-software home start pose.
 
@@ -41,7 +41,7 @@ Roles. Write names, and don't let one person hold two roles:
 
 ## C. Idle capture (no motion requested)
 
-- [ ] Run `record_raw_state.py` with a **new** output name, e.g. `logs\idle-01.jsonl` (see bench guide §3).
+- [ ] Run `record_raw_state.py` with a **new** output name, e.g. `logs\idle-01.jsonl` (see bench guide §3). It asks for the LEDs after connect and after exit.
 - [ ] Run `scripts\review_lab_logs.py --idle ...`. Packet indices increase, there is no fault, and counts are steady at rest.
 - [ ] `home_switch_bits` at the start pose is below 32, and record which bits are set: ______. The legacy switch decoder (`libdef.get_switch`) misreads byte 5 when any bit ≥ 32 is set: the shoulder search would miss its switch and the elbow, pitch and roll would be treated as already home. **If it is 32 or more, do not home today.** `home()` also refuses such a byte before sending anything.
 - [ ] **Stop and review if anything looks wrong.** Homing waits until the idle log is understood.
@@ -54,6 +54,7 @@ Roles. Write names, and don't let one person hold two roles:
 - [ ] Watch the entire home search. Type `HOME_OK` **only** if it looked right. Otherwise decline, and the run ends.
 - [ ] Read the printed plan (joint, signed target counts, increments) aloud before typing `MOVE`.
 - [ ] Answer the post-jog prompts honestly. "Not sure" is a valid answer.
+- [ ] At each `LED check` (after connect, `enable`, the jog, `disable`) the recorder reads the front panel aloud and the keyboard operator types one key: MOTORS `y`/`n`/`u`, POWER `g`/`o`/`f`/`u`. The script does not say what it expects. A `!!! WARNING` means the answer contradicts the software: stop and check. The run never stops on its own; after `enable`, a mismatch asks for `CONTINUE` before homing starts.
 - [ ] Run `review_lab_logs.py --idle ... --bench ...`. An exit code of 0 only means the log can be read. It does **not** mean the motion was safe.
 
 ## E. Stop immediately if any of these happen
@@ -97,7 +98,7 @@ After a stop: press the physical stop. Don't retry the command in this session. 
 | Observed direction (use a lab reference, e.g. "toward the door") | |
 | Approximate displacement | |
 | Any other joint moved? | |
-| POWER / MOTORS LEDs: after connect, after `enable`, after the jog, after `disable`, after exit | |
+| POWER / MOTORS LEDs: the LED checks log each step; note here any warning, anything seen between prompts, and after exit | |
 | Controller sounds | |
 | Python returned normally? (yes / error text) | |
 | How the run ended (normal / declined prompt / emergency stop / error) | |

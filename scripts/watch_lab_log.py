@@ -75,6 +75,7 @@ class RunView:
         self.events = []
         self.alarms = []
         self.samples = 0
+        self.led = None
 
     def add(self, row: dict, source: str):
         kind = row.get("type") or row.get("event")
@@ -82,10 +83,16 @@ class RunView:
             return
         if kind == "session":
             self.session = row
+        if kind == "led_observation":
+            self.led = row
+        elif kind == "led_mismatch":
+            self.alarms.append(f"LED mismatch {row.get('step')}: "
+                               f"{row.get('message') or row.get('led')}")
         if kind == "sample":
             self.samples += 1
         elif kind not in QUIET_EVENTS:
-            detail = row.get("error") or row.get("text") or ""
+            detail = (row.get("error") or row.get("text") or row.get("message")
+                      or row.get("step") or "")
             self.events.append((source, kind, str(detail)))
             del self.events[:-8]
         if kind in ALARM_EVENTS:
@@ -125,6 +132,10 @@ class RunView:
         if self.alarms:
             lines += ["", *(f"!!! {alarm}" for alarm in self.alarms[-3:]),
                       "!!! If motion or motor state is uncertain, use the physical stop."]
+        if self.led:
+            led = self.led
+            lines += ["", f"LEDs (operator, {str(led.get('step')).replace('_', ' ')}): "
+                          f"MOTORS {led.get('motors_led')}  POWER {led.get('power_led')}"]
         if self.state is None:
             lines += ["", "Waiting for the first controller state..."]
         else:

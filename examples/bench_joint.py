@@ -18,6 +18,99 @@ from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder, SessionWriter
 
+# Operator LED observations. The SDK's ``enabled`` is only command history; the
+# controller's green MOTORS LED is the only independent evidence of motor power,
+# and POWER is green while the controller is communicating with the PC (orange:
+# not communicating, flashing: USB timeout). See docs/HARDWARE_REFERENCE.md.
+MOTORS_KEYS = {"y": "lit", "n": "off", "u": "unsure"}
+POWER_KEYS = {"g": "green", "o": "orange", "f": "flashing", "u": "unsure"}
+_WORDS = {"yes": "lit", "no": "off", "lit": "lit", "off": "off", "unsure": "unsure",
+          "green": "green", "orange": "orange", "flashing": "flashing"}
+LED_ATTEMPTS = 3
+_MISMATCH_TEXT = {
+    ("motors", "off", "lit"): "Software says motors are DISABLED but the MOTORS LED was "
+                              "reported LIT. Stop and check; the physical stop is "
+                              "authoritative.",
+    ("motors", "lit", "off"): "Software says motors are ENABLED but the MOTORS LED was "
+                              "reported OFF. The controller may have cut motor power (COFF, "
+                              "emergency stop, timeout or over-current). Stop and check.",
+    ("power", "green", "orange"): "Software is talking to the controller but the POWER LED "
+                                  "was reported ORANGE (not communicating). Stop and check.",
+    ("power", "green", "flashing"): "Software is talking to the controller but the POWER LED "
+                                    "was reported FLASHING (USB timeout). Stop and check.",
+}
+
+
+def ask_key(question, keys, ask=None):
+    """Return (value, answered) for a single-key answer; never loops forever.
+
+    Keys are case-insensitive and the full word (``yes``, ``green``...) works
+    too. Invalid input is asked again, at most LED_ATTEMPTS times in all; after
+    that, or at end of input, the answer is recorded as ``unsure``.
+    """
+    ask = ask or input  # Looked up per call, so a patched input() is honoured.
+    for _ in range(LED_ATTEMPTS):
+        try:
+            answer = ask(question).strip().lower()
+        except EOFError:
+            print("\n  No answer (end of input); recording 'unsure'.")
+            return "unsure", False
+        value = keys.get(answer) or _WORDS.get(answer)
+        if value in keys.values():
+            return value, True
+        print(f"  Type one key: {'/'.join(keys)}.")
+    print("  No valid answer; recording 'unsure'.")
+    return "unsure", False
+
+
+def observe_leds(step, write, rec, *, expect_motors=None, expect_power=None,
+                 gate=False, ask=None):
+    """Ask for the MOTORS and POWER LEDs, record the answers, and flag mismatches.
+
+    The expectation is never shown before the answer, so it cannot lead the
+    observer. A contradiction prints a prominent warning and writes a
+    ``led_mismatch`` row. Nothing aborts automatically: the operator and the
+    physical stop decide. With ``gate`` (motion follows with no other prompt in
+    between) a mismatch asks the operator whether to continue.
+    """
+    ask = ask or input
+    print(f"LED check {step.replace('_', ' ')}: look at the controller front panel.")
+    motors, motors_ok = ask_key("  MOTORS LED lit? [y/n/u=unsure] ", MOTORS_KEYS, ask)
+    power, power_ok = ask_key("  POWER LED colour? [g=green/o=orange/f=flashing/u=unsure] ",
+                              POWER_KEYS, ask)
+    row = dict(step=step, motors_led=motors, power_led=power,
+               expected_motors_led=expect_motors, expected_power_led=expect_power)
+    defaulted = [name for name, ok in (("motors_led", motors_ok), ("power_led", power_ok))
+                 if not ok]
+    if defaulted:
+        row["defaulted_to_unsure"] = defaulted
+    write("led_observation", **row)
+    rec.log_decision(f"motors_led={motors} power_led={power}",
+                     reason=f"LED observation {step} (expected motors_led={expect_motors}, "
+                            f"power_led={expect_power})")
+    mismatches = [(led, expected, observed) for led, expected, observed in
+                  (("motors", expect_motors, motors), ("power", expect_power, power))
+                  if expected is not None and observed not in ("unsure", expected)]
+    for led, expected, observed in mismatches:
+        message = _MISMATCH_TEXT.get(
+            (led, expected, observed),
+            f"{led.upper()} LED reported {observed}; software expects {expected}. "
+            "Stop and check.")
+        write("led_mismatch", step=step, led=led, observed=observed, expected=expected,
+              message=message)
+        rec.log_note(f"LED MISMATCH {step}: {message}")
+        print("!" * 72)
+        print(f"!!! WARNING ({step.replace('_', ' ')}): {message}")
+        print("!!! Nothing was stopped automatically. If in doubt, use the physical stop.")
+        print("!" * 72)
+    if mismatches and gate:
+        answer = ask("Type CONTINUE to go on anyway; anything else ends the run: ").strip()
+        rec.log_decision("CONTINUE" if answer == "CONTINUE" else "declined",
+                         reason=f"typed {answer!r} after LED mismatch {step}")
+        if answer != "CONTINUE":
+            raise RuntimeError(f"Operator stopped after LED mismatch {step}")
+    return row
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -104,17 +197,23 @@ def main() -> int:
               software_commit=revision, motion_source_sha256=motion_source_sha256(),
               controller_event_log=events.name,
               joint=args.joint, requested_delta_deg=args.delta, speed=args.speed,
-              data_source=data_source, mcap_session=rec.path.name)
+              data_source=data_source, mcap_session=rec.path.name, led_prompts=True)
         open_command = None
         try:
             with robot_class(log_path=events, robot_id=args.robot_id) as robot:
                 state = robot.get_state()
                 write("connected", state=asdict(state))
                 rec.log_state(state)
+                # Connect ends with a motor-disable request, so motors should be off.
+                observe_leds("after_connect", write, rec,
+                             expect_motors="off", expect_power="green")
                 print("Confirm the arm is in the documented legacy homing start pose.")
                 if prompt("Type HOME to search home: ", "HOME") != "HOME":
                     raise RuntimeError("Operator canceled before homing")
                 robot.enable()
+                # home() follows with no other prompt, so a mismatch asks to continue.
+                observe_leds("after_enable", write, rec, expect_motors="lit",
+                             expect_power="green", gate=True)
                 open_command = rec.log_command("home", {"start_position_confirmed": True})
                 robot.home(start_position_confirmed=True)
                 command_id, open_command = open_command, None
@@ -153,9 +252,11 @@ def main() -> int:
                 rec.log_command_result(command_id, "completed",
                                        completion_source="jog_joint() returned")
                 rec.log_state(after)
+                observe_leds("after_jog", write, rec,
+                             expect_motors="lit", expect_power="green")
                 direction = input("Observed joint direction and approximate displacement: ").strip()
                 other_motion = input("Did any other joint move? Describe what you saw: ").strip()
-                indicators = input("Controller indicators after jog: ").strip()
+                indicators = input("Other controller indicators or sounds after jog: ").strip()
                 issue = input("Fault, noise, unexpected motion, or other issue (write 'none' if none): ").strip()
                 observation = dict(
                     direction_and_displacement=direction or "not recorded",
@@ -168,6 +269,8 @@ def main() -> int:
                 disabled = robot.get_state()
                 write("disabled", state=asdict(disabled))
                 rec.log_state(disabled)
+                observe_leds("after_disable", write, rec,
+                             expect_motors="off", expect_power="green")
         except (Exception, KeyboardInterrupt) as exc:
             write("session_failed", error=str(exc))
             if open_command is not None:

@@ -44,6 +44,27 @@ def _packet_checks(states):
     return sorted(set(problems))
 
 
+IDLE_LED_STEPS = ("after_connect", "after_exit")
+BENCH_LED_STEPS = ("after_connect", "after_enable", "after_jog", "after_disable")
+
+
+def _led_review(rows, session, steps):
+    """Operator LED answers, plus problems for mismatches and missing answers.
+
+    Logs written before the LED prompts existed have no ``led_prompts`` flag in
+    their session row; for them a missing observation is not a problem.
+    """
+    observations = [{key: row.get(key) for key in ("step", "motors_led", "power_led")}
+                    for row in rows if row.get("type") == "led_observation"]
+    problems = [f"LED mismatch {row.get('step')}: {row.get('led')} LED reported "
+                f"{row.get('observed')}, software expected {row.get('expected')}"
+                for row in rows if row.get("type") == "led_mismatch"]
+    if (session or {}).get("led_prompts") is True:
+        seen = {row["step"] for row in observations}
+        problems += [f"led observation missing {step}" for step in steps if step not in seen]
+    return observations, problems
+
+
 def review_idle(path):
     rows = read_rows(path)
     session = next((row for row in rows if row.get("type") == "session"), None)
@@ -69,11 +90,14 @@ def review_idle(path):
                 problems.append(f"ambiguous {joint} count change at rest")
                 continue
             ranges[joint] = max(offsets) - min(offsets)
+    leds, led_problems = _led_review(rows, session, IDLE_LED_STEPS)
+    problems += led_problems
     return {
         "file": str(path), "kind": "idle", "robot_id": session.get("robot_id") if session else None,
         "data_source": (session or {}).get("data_source", "real"),
         "motion_source_sha256": session.get("motion_source_sha256") if session else None,
         "samples": len(samples), "count_range_at_rest": ranges,
+        "led_observations": leds,
         "problems": sorted(set(problems)),
         "physical_review_required": True,
     }
@@ -118,13 +142,15 @@ def review_bench(path):
             "difference": observed - predicted,
         }
     session = events.get("session", {})
+    leds, led_problems = _led_review(rows, session, BENCH_LED_STEPS)
+    problems += led_problems
     return {
         "file": str(path), "kind": "bench", "robot_id": session.get("robot_id"),
         "data_source": session.get("data_source", "real"),
         "motion_source_sha256": session.get("motion_source_sha256"),
         "joint": session.get("joint"), "requested_delta_deg": session.get("requested_delta_deg"),
         "count_deltas": deltas, "home_observation": events.get("home_observation"),
-        "operator_observation": observation,
+        "operator_observation": observation, "led_observations": leds,
         "problems": sorted(set(problems)),
         "physical_review_required": True,
     }

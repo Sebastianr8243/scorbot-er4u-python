@@ -171,10 +171,15 @@ class SimulatedRobotTests(unittest.TestCase):
 LABELS = ["--robot-id", "rehearsal-arm", "--arm-label", "arm-plate",
           "--controller-label", "controller-plate", "--driver", "none (simulated)",
           "--operator", "tester"]
-BENCH_TYPES = ["session", "connected", "home_complete", "home_observation",
-               "motion_preview", "before_jog", "after_jog", "operator_observation",
-               "disabled"]
-BENCH_ANSWERS = "HOME\nhome looked normal\nHOME_OK\nMOVE\ntoward door ~1 deg\nnone\nno LEDs\nnone\n"
+BENCH_TYPES = ["session", "connected", "led_observation", "led_observation",
+               "home_complete", "home_observation", "motion_preview", "before_jog",
+               "after_jog", "led_observation", "operator_observation", "disabled",
+               "led_observation"]
+# LED answers (MOTORS then POWER) that match the software at each step.
+LED_CONNECT, LED_ENABLE, LED_JOG, LED_DISABLE = "n\ng\n", "y\ng\n", "y\ng\n", "n\ng\n"
+BENCH_ANSWERS = (LED_CONNECT + "HOME\n" + LED_ENABLE + "home looked normal\nHOME_OK\nMOVE\n"
+                 + LED_JOG + "toward door ~1 deg\nnone\nno sounds\nnone\n" + LED_DISABLE)
+IDLE_ANSWERS = "n\ng\nn\no\n"
 
 
 def run_script(path, *args, stdin=""):
@@ -195,10 +200,11 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def idle(self, seconds="1", hz="2", name="idle-01.jsonl"):
+    def idle(self, seconds="1", hz="2", name="idle-01.jsonl", stdin=IDLE_ANSWERS):
         return run_script("examples/record_raw_state.py", "--output", self.logs / name,
                           *LABELS, "--pose-note", "desk rehearsal", "--seconds", seconds,
-                          "--hz", hz, "--simulate", "--acknowledge-connect-handshake")
+                          "--hz", hz, "--simulate", "--acknowledge-connect-handshake",
+                          stdin=stdin)
 
     def test_idle_sample_counts_match_at_the_rate_limits(self):
         from scorbot.session import load_session
@@ -258,6 +264,48 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         results = {e["payload"]["command_id"]: e["payload"]["status"]
                    for e in events if e["topic"] == "/robot/command_result"}
         self.assertEqual({results[cid] for cid in commands.values()}, {"completed"})
+        self.assertEqual([r["step"] for r in bench_rows if r["type"] == "led_observation"],
+                         ["after_connect", "after_enable", "after_jog", "after_disable"])
+        decisions = [e["payload"]["choice"] for e in events
+                     if e["topic"] == "/operator/decision"]
+        self.assertIn("motors_led=lit power_led=green", decisions)
+        self.assertNotIn("WARNING", bench.stdout)
+        watch = run_script("scripts/watch_lab_log.py", "--once",
+                           self.logs / "base-first-01.jsonl")
+        self.assertIn("LEDs (operator, after disable): MOTORS off  POWER green", watch.stdout)
+        self.assertNotIn("!!!", watch.stdout)
+
+    def test_led_mismatch_warns_is_recorded_and_fails_review_without_aborting(self):
+        # Invalid key first, then a valid one; MOTORS reported lit after disable.
+        answers = BENCH_ANSWERS.replace(LED_CONNECT, "x\nN\ng\n", 1)
+        answers = answers[:-len(LED_DISABLE)] + "y\ng\n"
+        self.assertEqual(self.idle().returncode, 0)
+        bench = self.bench(answers)
+        self.assertEqual(bench.returncode, 0, bench.stderr + bench.stdout)
+        self.assertIn("Type one key: y/n/u", bench.stdout)
+        self.assertIn("!!! WARNING (after disable): Software says motors are DISABLED but "
+                      "the MOTORS LED was reported LIT", bench.stdout)
+        rows = [json.loads(l) for l in (self.logs / "base-first-01.jsonl").read_text().splitlines()]
+        connect = next(r for r in rows if r["type"] == "led_observation")
+        self.assertEqual((connect["motors_led"], connect["power_led"]), ("off", "green"))
+        [mismatch] = [r for r in rows if r["type"] == "led_mismatch"]
+        self.assertEqual((mismatch["step"], mismatch["led"]), ("after_disable", "motors"))
+        review = run_script("scripts/review_lab_logs.py", "--idle", self.logs / "idle-01.jsonl",
+                            "--bench", self.logs / "base-first-01.jsonl")
+        self.assertEqual(review.returncode, 1, review.stdout)
+        self.assertIn("LED mismatch after_disable: motors LED reported lit", review.stdout)
+        watch = run_script("scripts/watch_lab_log.py", "--once",
+                           self.logs / "base-first-01.jsonl")
+        self.assertIn("!!! LED mismatch after_disable: Software says motors are DISABLED",
+                      watch.stdout)
+
+    def test_idle_without_led_answers_records_unsure_and_still_finishes(self):
+        result = self.idle(stdin="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rows = [json.loads(l) for l in (self.logs / "idle-01.jsonl").read_text().splitlines()]
+        leds = [r for r in rows if r["type"] == "led_observation"]
+        self.assertEqual([(r["step"], r["motors_led"]) for r in leds],
+                         [("after_connect", "unsure"), ("after_exit", "unsure")])
 
     def test_missing_nested_session_root_is_created(self):
         root = Path(self._tmp.name) / "new" / "nested sessions"
@@ -267,7 +315,8 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
 
     def test_interrupted_run_leaves_a_loadable_faulted_record(self):
         from scorbot.session import load_session
-        result = self.bench("HOME\nhome looked normal\n")  # stdin ends at HOME_OK prompt
+        # stdin ends at the HOME_OK prompt
+        result = self.bench(LED_CONNECT + "HOME\n" + LED_ENABLE + "home looked normal\n")
         self.assertNotEqual(result.returncode, 0)
         rows = [json.loads(l) for l in (self.logs / "base-first-01.jsonl").read_text().splitlines()]
         self.assertEqual(rows[-1]["type"], "session_failed")
