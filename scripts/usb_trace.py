@@ -16,7 +16,7 @@ import math
 from pathlib import Path
 import struct
 
-from scorbot.state import decode_state
+from scorbot.state import PACKET_MIN_LENGTH, decode_state
 
 
 LINKTYPE_USBPCAP = 249
@@ -31,7 +31,6 @@ PCAP_MAGICS = {
     b"\xd4\xc3\xb2\xa1": ("<", 1e-6), b"\xa1\xb2\xc3\xd4": (">", 1e-6),
     b"\x4d\x3c\xb2\xa1": ("<", 1e-9), b"\xa1\xb2\x3c\x4d": (">", 1e-9),
 }
-STATE_MIN_LENGTH = 49  # scorbot.state.decode_state needs this many bytes
 OUT_BYTE_FIELDS = 8    # byte0 is the sequence byte, byte4 the command (openScorbot/libhex.py)
 
 
@@ -93,13 +92,12 @@ def _pcapng_frames(data):
     while offset < len(data):
         if offset + 12 > len(data):
             raise ValueError(f"pcapng block header truncated at byte {offset}")
-        block_type = struct.unpack_from("<I", data, offset)[0]
+        # The section header type 0x0A0D0D0A reads the same in either byte order.
+        block_type = struct.unpack_from(endian + "I", data, offset)[0]
         if block_type == PCAPNG_SHB:
             magic = struct.unpack_from("<I", data, offset + 8)[0]
             endian = "<" if magic == PCAPNG_BYTE_ORDER_MAGIC else ">"
             interfaces = []  # interface IDs restart in every section
-        else:
-            block_type = struct.unpack_from(endian + "I", data, offset)[0]
         length = struct.unpack_from(endian + "I", data, offset + 4)[0]
         if length < 12 or offset + length > len(data):
             raise ValueError(f"pcapng block truncated at byte {offset}")
@@ -121,7 +119,7 @@ def _pcapng_frames(data):
 
 def parse_capture(data):
     """Return every USBPcap packet in a pcap/pcapng byte stream, in file order."""
-    data = memoryview(bytes(data))
+    data = memoryview(data)
     if len(data) < 4:
         raise ValueError("capture file is empty or truncated")
     if bytes(data[:4]) in PCAP_MAGICS:
@@ -134,7 +132,7 @@ def parse_capture(data):
     for timestamp, linktype, frame in frames:
         if linktype != LINKTYPE_USBPCAP:
             continue
-        packet = parse_usbpcap_header(bytes(frame))
+        packet = parse_usbpcap_header(frame)
         packet["t"] = timestamp
         packets.append(packet)
     return packets
@@ -198,7 +196,7 @@ def export_rows(transfers):
         if packet["direction"] == "out":
             for position in range(OUT_BYTE_FIELDS):
                 row[f"byte{position}"] = payload[position] if position < len(payload) else None
-        elif len(payload) >= STATE_MIN_LENGTH:
+        elif len(payload) >= PACKET_MIN_LENGTH:
             row.update(_decoded_state(payload))
         rows.append(row)
     return rows
@@ -226,17 +224,16 @@ def percentile(values, fraction):
 def _sequence_stats(values):
     stats = {"count": len(values), "min": min(values, default=None),
              "max": max(values, default=None), "zero_seen": values.count(0),
-             "wraps": [], "other_steps": Counter()}
+             "wraps": Counter(), "other_steps": Counter()}
     for earlier, later in zip(values, values[1:]):
         if later == earlier + 1:
             continue
         if later < earlier and earlier >= 128 and later < 16:
-            stats["wraps"].append(f"{earlier}->{later}")
+            stats["wraps"][f"{earlier}->{later}"] += 1
         else:
             stats["other_steps"][later - earlier] += 1
-    stats["wraps"] = dict(Counter(stats["wraps"]))
-    stats["other_steps"] = dict(stats["other_steps"])
-    return stats
+    return {key: dict(value) if isinstance(value, Counter) else value
+            for key, value in stats.items()}
 
 
 def compare_stats(rows, header_bytes=4, header_skip=1):
@@ -280,6 +277,7 @@ def compare_stats(rows, header_bytes=4, header_skip=1):
                          "p95": percentile(latencies, 0.95)},
         "sequence_byte0": _sequence_stats(sequence),
         "headers": dict(headers),
+        "header_range": f"{header_skip}..{header_skip + header_bytes - 1}",
         "home_switch_bits": dict(Counter(row["home_switch_bits"] for row in ins
                                          if "home_switch_bits" in row)),
         "encoder_sign_bytes": dict(sign_bytes),
@@ -297,7 +295,7 @@ def _fmt(value):
     return str(value)
 
 
-def format_compare(a, b, name_a="A", name_b="B", header_bytes=4, header_skip=1):
+def format_compare(a, b, name_a="A", name_b="B"):
     """Render two compare_stats results as plain text."""
     lines = []
     width = 28
@@ -319,7 +317,7 @@ def format_compare(a, b, name_a="A", name_b="B", header_bytes=4, header_skip=1):
     row("home_switch_bits", a["home_switch_bits"], b["home_switch_bits"])
     row("encoder sign bytes", a["encoder_sign_bytes"], b["encoder_sign_bytes"])
     lines.append("")
-    lines.append(f"OUT headers: bytes {header_skip}..{header_skip + header_bytes - 1} (hex)")
+    lines.append(f"OUT headers: bytes {a['header_range']} (hex)")
     totals = Counter(a["headers"]) + Counter(b["headers"])
     for header, _ in sorted(totals.items(), key=lambda kv: (-kv[1], kv[0])):
         left, right = a["headers"].get(header, 0), b["headers"].get(header, 0)
@@ -369,10 +367,9 @@ def main():
                 handle.write(json.dumps(row) + "\n")
         print(f"Wrote {len(rows)} transfers to {args.out}")
         return 0
-    stats = [compare_stats(read_rows(path), args.header_bytes, args.header_skip)
-             for path in (args.a, args.b)]
-    print(format_compare(stats[0], stats[1], args.a.name, args.b.name,
-                         args.header_bytes, args.header_skip))
+    a, b = (compare_stats(read_rows(path), args.header_bytes, args.header_skip)
+            for path in (args.a, args.b))
+    print(format_compare(a, b, args.a.name, args.b.name))
     return 0
 
 

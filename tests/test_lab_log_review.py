@@ -1,12 +1,14 @@
 """Synthetic first-visit logs; reviewer never opens USB."""
 
+from dataclasses import asdict
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
 from scripts.review_lab_logs import review_idle, review_bench
-from scorbot.state import JOINTS
+from scorbot.simulated import encode_packet
+from scorbot.state import JOINTS, decode_state
 
 
 def state(index, base=100):
@@ -39,19 +41,20 @@ class LabLogReviewTests(unittest.TestCase):
             self.assertTrue(result["physical_review_required"])
 
     def test_idle_range_is_wrap_aware_at_the_zero_seam(self):
-        def seam_state(index, raw, sign):
-            sample = state(index)
-            sample["encoder_counts"]["base"] = raw
-            sample["encoder_sign_bytes"]["base"] = sign
-            sample["signed_encoder_counts"]["base"] = raw if sign == 128 else raw - 65535
-            return sample
+        # Raw 65535/sign 128 and raw 65534/sign 127 are one count apart, but their
+        # signed values (+65535 and -1) differ by 65536.
+        def seam_state(index, signed_base):
+            decoded = decode_state(encode_packet({"base": signed_base}), connected=True,
+                                   enabled=False, homed=False, fault=None,
+                                   packet_index=index)
+            return asdict(decoded)
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "idle.jsonl"
             write_rows(path, [
                 {"type": "session", "robot_id": "arm-1", "motion_source_sha256": "a" * 64},
-                {"type": "sample", "state": seam_state(1, 65535, 128)},
-                {"type": "sample", "state": seam_state(2, 65534, 127)},
+                {"type": "sample", "state": seam_state(1, 65535)},
+                {"type": "sample", "state": seam_state(2, -1)},
             ])
             self.assertEqual(review_idle(path)["count_range_at_rest"]["base"], 1)
 

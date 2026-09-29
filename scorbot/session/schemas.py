@@ -89,7 +89,9 @@ PROPERTIES = {
         "host_monotonic_ns": _t("integer", nullable=True),
         "encoder_sign_bytes": {**_joint_map("Sign byte per joint: 127 or 128"),
                                "type": ["object", "null"]},
-        "signed_encoder_counts": {**_joint_map("Unwrapped signed counts; plot these"),
+        "signed_encoder_counts": {**_joint_map(
+            "Sign-byte decoded counts (+/-65535); plot these, but they jump at the "
+            "0/65535 seam, so take differences from encoder_counts"),
                                   "type": ["object", "null"]},
         "simulated": _t("boolean"),
         "raw_packet_hex": _t("string"),

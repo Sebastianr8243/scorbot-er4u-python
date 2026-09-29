@@ -238,32 +238,29 @@ class LegacyKnownBugs(unittest.TestCase):
         self.assertGreaterEqual(out[0], 0)
         self.assertEqual(len(self.lib.detrans(out[0])), 4)
 
-    @unittest.expectedFailure
-    def test_known_bug_settle_check_not_wrap_aware(self):
-        # openScorbot/libcomm.py:86/135/185/266 loop on
+    def test_legacy_settle_check_is_not_wrap_aware(self):
+        # Documents openScorbot/libcomm.py:86/135/185/266, which loop on
         #   abs(dato_in[0] - media[i]) > 20
-        # Counterexample: target raw 3, measured raw 65533. The physical
-        # distance is 5 counts (mod 65535) but abs() gives 65530 > 20, so a
-        # move that crosses the 0/65535 seam never "settles" and runs until
-        # the error counter (MAX_ERROR) aborts with a spurious motion error.
+        # That check sits inside a USB loop, so it is restated here rather than
+        # run; this test cannot notice a fix in libcomm, only record the gap.
+        # Target raw 3 and measured raw 65533 are 5 counts apart (mod 65535),
+        # but abs() gives 65530 > 20: a move that crosses the 0/65535 seam never
+        # settles and aborts with a spurious motion error.
         target, measured = 3, 65533
-        naive_still_moving = abs(target - measured) > 20
-        wrap_aware_still_moving = abs(signed_count_delta(target, measured)) > 20
-        self.assertEqual(naive_still_moving, wrap_aware_still_moving)
+        self.assertTrue(abs(target - measured) > 20)
+        self.assertFalse(abs(signed_count_delta(target, measured)) > 20)
 
-    @unittest.expectedFailure
-    def test_known_bug_signed_state_disagrees_with_delta_at_seam(self):
-        # Counterexample: raw 65535 sign 128 (signed +65535) vs raw 65534 sign
-        # 127 (signed -1). signed_count_delta says 1 count apart, the
-        # state.signed_encoder_counts difference is 65536: the 65535 modulus
-        # means signed values are not a linear scale across +/-65535, so
-        # anything subtracting signed counts directly (rather than using
-        # signed_count_delta) sees a 65536-count jump for a 1-count move.
+    def test_signed_counts_are_not_linear_across_the_seam(self):
+        # By design, not a bug: the sign byte gives +/-65535 over a counter that
+        # wraps at 65535, so raw 65535/sign 128 (+65535) and raw 65534/sign 127
+        # (-1) are one count apart but differ by 65536 as signed values. Take
+        # differences from encoder_counts with signed_count_delta instead.
         a = decode_state(encode_packet({"base": 65535}), connected=True, enabled=None,
                          homed=False, fault=None).signed_encoder_counts["base"]
         b = decode_state(encode_packet({"base": -1}), connected=True, enabled=None,
                          homed=False, fault=None).signed_encoder_counts["base"]
-        self.assertEqual(a - b, signed_count_delta(65535, 65534))
+        self.assertEqual(a - b, 65536)
+        self.assertEqual(signed_count_delta(65535, 65534), 1)
 
 
 @unittest.skipUnless(HAVE_HYPOTHESIS, "hypothesis is not installed")
