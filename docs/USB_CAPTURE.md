@@ -48,7 +48,7 @@ Copy the `.pcapng` files to any machine with this repository (the analysis does 
 python scripts/usb_trace.py summary intelitek.pcapng
 ```
 
-Lists every bus/device/endpoint with packet counts and payload sizes. The ER-4U is the device with a bulk OUT endpoint carrying 128-byte payloads (every Python message is padded to 128 bytes by `openScorbot/libdef.py:set_msg`) and an IN endpoint returning state packets of at least 49 bytes. `--device N` limits the listing to one device. Device numbers can change after re-plugging, so run `summary` on each file.
+Lists every bus/device/endpoint with packet counts and payload sizes. The ER-4U is the device with a bulk OUT endpoint carrying 64-byte payloads (`openScorbot/libdef.py:set_msg` pads each message to 128 hex characters, which `bytes.fromhex` turns into 64 bytes; see [PROTOCOL.md](PROTOCOL.md)) and an IN endpoint returning state packets of at least 49 bytes. `--device N` limits the listing to one device. Device numbers can change after re-plugging, so run `summary` on each file.
 
 ```
 python scripts/usb_trace.py export intelitek.pcapng --device 5 --out intelitek.jsonl

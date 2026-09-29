@@ -32,7 +32,7 @@ Per-joint sleeps (`conf.py:setup`), write / read, and the resulting sleep-only c
 
 The sleeps are a lower bound on the cycle time. USB round-trip time is added, and `conf.readData` re-opens and parses `data.json` on every call (several calls per message in `set_msg`, `check`, `countByte1`), so the real period is longer and unmeasured (U). `scripts/usb_trace.py compare` reports the OUT-to-OUT interval and OUT-to-IN latency.
 
-**Payload-size discrepancy.** [USB_CAPTURE.md](USB_CAPTURE.md) says every message is padded to 128 bytes. By the code above the OUT payload is 64 bytes. A capture showing 64-byte OUT transfers matches the code; anything else needs explaining before the summary heuristic ("bulk OUT with 128-byte payloads") is trusted.
+**Payload size.** By the code the OUT payload is 64 bytes (128 hex characters). [USB_CAPTURE.md](USB_CAPTURE.md) uses that size to identify the controller in `usb_trace.py summary`; a capture with any other OUT size needs explaining first (unknown 1 in section 10).
 
 ## 2. OUT message layout
 
@@ -227,7 +227,7 @@ sequenceDiagram
     loop each profile increment i
         E->>C: mov_comm(1) 0D + region, joint region replaced by stepped target
         C-->>E: response
-        Note over E: getError of the joint; at or above 40 puts 1 and breaks
+        Note over E: getError of the joint, at or above 40 puts 1 and breaks
     end
     loop settle, at most 101 sends
         E->>C: mov_comm(1) 0D + region with last target
