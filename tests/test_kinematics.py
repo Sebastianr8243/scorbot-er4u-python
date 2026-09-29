@@ -9,6 +9,7 @@ import numpy as np
 
 from scorbot import Scorbot
 from scorbot import kinematics as kin
+from scorbot import nominal
 
 
 def _angle_error(a, b):
@@ -46,6 +47,30 @@ class ForwardKinematicsTests(unittest.TestCase):
         for q in ([0, 0, 0, 0], [0, 0, 0, 0, math.nan]):
             with self.assertRaises(ValueError):
                 kin.forward(q)
+
+
+class ManualGeometryTests(unittest.TestCase):
+    """Nominal DH values against the ER-4u manual (#100343 Rev. B, pp. 4-6)."""
+
+    def test_link_lengths_match_manual_side_view(self):
+        self.assertEqual(kin.NOMINAL.d[0], nominal.BASE_HEIGHT_MM.value)   # 364
+        self.assertEqual(kin.NOMINAL.a[1], nominal.UPPER_ARM_MM.value)     # 220
+        self.assertEqual(kin.NOMINAL.a[2], nominal.FOREARM_MM.value)       # 220
+
+    def test_straight_horizontal_reach_near_manual_radius(self):
+        # Arm straight out horizontally with the tool along the forearm
+        # (pitch 0 => wrist_pitch = 90 under the module's ASSUMED convention).
+        q = [0, 0, 0, 90, 0]
+        self.assertAlmostEqual(kin.tool_pitch_roll(q)[0], 0.0)
+        x, y, z = kin.tool_position(q)
+        reach = math.hypot(x, y)
+        # Model: a1 + a2 + a3 + d5 = 16 + 220 + 220 + 145.125 = 601.125 mm,
+        # 8.9 mm short of the manual's 610 mm maximum operating radius. The
+        # manual's radius is presumably to the gripper tip (TCP) while d5 is
+        # the legacy conf.py tool length; neither is measured. Tolerance 15 mm.
+        self.assertAlmostEqual(reach, 601.125, places=9)
+        self.assertAlmostEqual(z, nominal.BASE_HEIGHT_MM.value, places=9)
+        self.assertLess(abs(reach - nominal.MAX_OPERATING_RADIUS_MM.value), 15.0)
 
 
 class InverseKinematicsTests(unittest.TestCase):
