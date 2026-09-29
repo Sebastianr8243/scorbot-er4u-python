@@ -11,7 +11,10 @@ import math
 from pathlib import Path
 from statistics import mean, median
 
+from openScorbot.motion_profile import COUNTS_PER_DEGREE as LEGACY_COUNTS_PER_DEGREE
 from scorbot.calibration import CALIBRATED_JOINTS, signed_count_delta
+from scorbot.nominal import (HYPOTHESIS_COUNTS_PER_MOTOR_REV, axis_range,
+                             check_soft_limit_span, implied_counts_per_motor_rev)
 
 
 COLUMNS = {"robot_id", "joint", "role", "approach", "reference_source",
@@ -98,6 +101,8 @@ def fit(measurements: Path, limits_path: Path, robot_id: str) -> dict:
             raise ValueError(f"{joint}: soft limits must be finite")
         if not min(angles) + 2.5 <= lower < home_angle < upper <= max(angles) - 2.5:
             raise ValueError(f"{joint}: soft limits must lie inside measured range with 2.5 degree margin")
+        # The loader enforces this too; refuse here so no unloadable file is written.
+        check_soft_limit_span(joint, lower, upper)
         joints[joint] = {
             "encoder": joint,
             "home_count": home_count,
@@ -125,6 +130,31 @@ def fit(measurements: Path, limits_path: Path, robot_id: str) -> dict:
     }
 
 
+def scale_warnings(result: dict, tolerance: float = 0.10) -> list[str]:
+    """Advisory lines comparing fitted scales with the legacy software scale.
+
+    Never blocks a fit: the legacy scale is an inherited assumption, not a
+    measurement. The implied counts per motor revolution (manual gear ratio,
+    ignoring belts after the gearbox) tests the ~400 CPR hypothesis.
+    """
+    lines = []
+    for joint, row in result["joints"].items():
+        fitted = abs(row["counts_per_degree"])
+        legacy = LEGACY_COUNTS_PER_DEGREE[joint]
+        cpr = implied_counts_per_motor_rev(fitted, joint)
+        ratio = axis_range(joint).gear_ratio
+        difference = fitted / legacy - 1
+        if abs(difference) > tolerance:
+            lines.append(
+                f"WARNING {joint}: fitted {fitted:.2f} counts/deg differs from legacy "
+                f"{legacy:.2f} by {difference:+.0%}; implies {cpr:.1f} counts/motor rev "
+                f"at {ratio}:1 (hypothesis ~{HYPOTHESIS_COUNTS_PER_MOTOR_REV:.0f})")
+        else:
+            lines.append(f"{joint}: {fitted:.2f} counts/deg (legacy {legacy:.2f}); "
+                         f"implies {cpr:.1f} counts/motor rev at {ratio}:1")
+    return lines
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--measurements", required=True, type=Path)
@@ -138,6 +168,8 @@ def main() -> int:
         json.dump(result, stream, indent=2, allow_nan=False)
         stream.write("\n")
     print(f"Validated {', '.join(result['joints'])}; wrote {args.output}")
+    for line in scale_warnings(result):
+        print(line)
     return 0
 
 

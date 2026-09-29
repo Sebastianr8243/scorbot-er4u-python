@@ -41,6 +41,14 @@ Save that as `limits.json`, then run:
 
 The fitter never connects to USB and refuses to overwrite an existing output. The JSON records robot ID, CSV hash, fit and verification counts, measured limits, home repeatability, and directional bias. Keep the source CSV and bench logs with it. Review actual repeated target-versus-achieved results before loading the calibration for supervised `move_joint` use.
 
+## Manual priors and bounds
+
+`scorbot/nominal.py` holds the ER-4u manual's values (#100343 Rev. B, pp. 4-6), each with its source. They are **nominal, from the manual, not measured**, and serve only as priors and sanity bounds:
+
+- **Soft-limit span.** `load_calibration` rejects a joint whose `soft_max_deg - soft_min_deg` exceeds the manual travel: base 310°, shoulder 165° (+130/−35), elbow 260° (±130). Only the span is checked. The manual does not define where 0° is or which way is positive, and this code's home angle comes from your protractor, so the manual's signed limits cannot be compared with calibrated angles.
+- **Counts per degree.** Expected scale = encoder counts per motor revolution × gear ratio / 360 (127.1:1 for motors 1-3). The manuals do not give encoder counts per revolution. The legacy base scale 2837/20 counts/° implies about 402 counts per motor revolution: a hypothesis only. Shoulder and elbow also have timing belts after the gearbox, so their legacy scales differ from the base.
+- **Fit check.** After fitting, `fit_calibration.py` prints each joint's counts per degree and the implied counts per motor revolution. It prints a `WARNING` (and still writes the file) when the fitted magnitude differs from the legacy `motion_profile.COUNTS_PER_DEGREE` by more than 10%. Record these lines with the calibration; across joints and arms they test the ~400 counts/revolution hypothesis. The sign of the fitted scale is not compared.
+
 ## Count wrap and wrist
 
 Raw counts are unsigned 16-bit values. The fitter uses the shortest modular difference to the home count and rejects the exactly ambiguous half-range case. Its measured region must stay small enough that the actual path from home cannot cross half the counter range; if it can, collect a continuous trace and extend the unwrapping model before using those rows.

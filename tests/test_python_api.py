@@ -3,11 +3,21 @@ import threading
 import time
 import unittest
 import importlib.util
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scorbot import Scorbot
 from scorbot.robot import ScorbotError
+from scorbot.packet import PacketSnapshot
 from scorbot.state import decode_state
+
+
+def crashing_sync(delay=0.0):
+    """A stand-in for libsync whose loop dies the way a USB read error kills it."""
+    def syncro(*_args):
+        time.sleep(delay)
+        raise RuntimeError("USB read failed: pipe error")
+    return SimpleNamespace(syncro=syncro)
 
 
 class StateTests(unittest.TestCase):
@@ -86,6 +96,90 @@ class CommandTests(unittest.TestCase):
         self.assertTrue(self.robot._cancel_event.is_set())
         self.assertEqual(self.robot._commands.get_nowait(), [18, 1, 1])
         self.assertEqual(self.robot._commands.get_nowait(), [16, 1, 1])
+
+    def test_sync_worker_crash_faults_session_and_blocks_state(self):
+        self.robot._input = object()
+        with patch("sys.stderr") as stderr:
+            thread = threading.Thread(target=self.robot._run_sync_worker,
+                                      args=(crashing_sync(), None))
+            thread.start()
+            thread.join(timeout=1)
+        self.robot._sync_thread = thread
+        self.assertIn("sync worker stopped", self.robot._fault)
+        self.assertTrue(self.robot._cancel_event.is_set())
+        self.assertIsNone(self.robot._enabled)
+        self.assertFalse(self.robot._homed)
+        self.assertTrue(any("physical stop" in str(call) for call in stderr.write.call_args_list))
+        with self.assertRaisesRegex(ScorbotError, "sync worker is not running"):
+            self.robot.get_state()
+        with self.assertRaisesRegex(ScorbotError, "faulted"):
+            self.robot._command([17, 1, 1])
+        self.assertTrue(self.robot._commands.empty())
+
+    def test_sync_worker_crash_wakes_a_pending_command(self):
+        self.robot.command_timeout = 5.0
+        with patch("sys.stderr"):
+            threading.Thread(target=self.robot._run_sync_worker,
+                             args=(crashing_sync(delay=0.05),)).start()
+            started = time.monotonic()
+            with self.assertRaisesRegex(ScorbotError, "sync worker stopped"):
+                self.robot._command([4, 10, 1])
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    @unittest.skipUnless(importlib.util.find_spec("usb"), "PyUSB is not installed")
+    def test_disconnect_after_sync_crash_does_not_queue_exit(self):
+        class DeadThread:
+            def is_alive(self):
+                return False
+
+        class SpinningWorker:
+            def is_alive(self):
+                return True
+
+            def join(self, timeout):
+                raise AssertionError("must not wait on a worker with no sequence byte")
+
+        self.robot._fault = "USB sync worker stopped: test"
+        self.robot._sync_thread = DeadThread()
+        self.robot._command_thread = SpinningWorker()
+        with patch("usb.util.dispose_resources") as dispose:
+            self.robot.disconnect()
+            dispose.assert_called_once()
+        self.assertTrue(self.robot._commands.empty())
+        self.assertIsNone(self.robot._device)
+
+    def test_sync_worker_normal_exit_is_not_a_fault(self):
+        self.robot._run_sync_worker(SimpleNamespace(syncro=lambda *_args: None))
+        self.assertIsNone(self.robot._fault)
+        self.assertFalse(self.robot._cancel_event.is_set())
+
+    def test_command_worker_crash_is_loud_and_names_the_worker(self):
+        def crash(*_args):
+            raise RuntimeError("USB write failed")
+
+        with patch("sys.stderr") as stderr:
+            self.robot._run_command_worker(None, SimpleNamespace(execute=crash))
+            with self.assertRaisesRegex(ScorbotError, "USB command worker stopped"):
+                self.robot._command([4, 10, 1])
+        self.assertTrue(self.robot._cancel_event.is_set())
+        self.assertTrue(any("physical stop" in str(call) for call in stderr.write.call_args_list))
+
+    def test_home_refuses_switch_byte_the_legacy_decoder_misreads(self):
+        packet = bytearray(64)
+        for offset in (19, 24, 29, 34, 39, 44):
+            packet[offset + 2] = 128
+        packet[5] = 34  # bit 32 plus shoulder: get_switch would miss the shoulder.
+
+        class Input:
+            def snapshot(self, **_kwargs):
+                return PacketSnapshot(bytes(packet), 1, time.monotonic_ns())
+
+        self.robot._input = Input()
+        self.robot._enabled = True
+        with self.assertRaisesRegex(ScorbotError, "unexpected bits 0x20"):
+            self.robot.home(start_position_confirmed=True)
+        self.assertTrue(self.robot._commands.empty())
+        self.assertIsNone(self.robot._fault)
 
     @unittest.skipUnless(importlib.util.find_spec("usb"), "PyUSB is not installed")
     def test_faulted_disconnect_keeps_usb_handle_if_worker_is_active(self):

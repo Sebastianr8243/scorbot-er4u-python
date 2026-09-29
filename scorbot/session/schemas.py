@@ -11,6 +11,8 @@ from importlib import resources
 import json
 import re
 
+from scorbot.state import JOINTS
+
 SCHEMA_VERSION = 1
 DATA_SOURCES = ("real", "simulated", "synthetic")
 COMMAND_STATUSES = ("completed", "faulted", "timeout", "rejected")
@@ -55,9 +57,83 @@ def schema_name_for_topic(topic: str) -> str | None:
     return None
 
 
+def _t(kind, *, nullable=False, **extra):
+    return {"type": [kind, "null"] if nullable else kind, **extra}
+
+
+def _joint_map(description):
+    """Object keyed by joint name, so viewers can autocomplete ``.base`` etc."""
+    return {"type": "object", "description": description, "additionalProperties": True,
+            "properties": {joint: {"type": "integer"} for joint in JOINTS}}
+
+
+# Every payload also carries a recorder-added "_rec" block (see record.py).
+_REC = {"type": "object", "description": "Recorder bookkeeping: seq, logged/observed "
+        "monotonic ns, and camera extras", "additionalProperties": True,
+        "properties": {"seq": _t("integer"), "logged_monotonic_ns": _t("integer"),
+                       "observed_monotonic_ns": _t("integer", nullable=True)}}
+
+# "required" always comes from REQUIRED; properties here are descriptive and
+# permissive (additionalProperties stays true) so older sessions still fit.
+PROPERTIES = {
+    "scorbot.RobotState": {
+        "timestamp_utc": _t("string"),
+        "encoder_counts": _joint_map("Raw unsigned 16-bit counts; wraps (sawtooth)"),
+        "controller_error_counts": _joint_map("Controller position error counts"),
+        "home_switch_bits": _t("integer"),
+        "connected": _t("boolean"),
+        "enabled": _t("boolean", nullable=True),
+        "homed": _t("boolean"),
+        "fault": _t("string", nullable=True),
+        "packet_index": _t("integer", nullable=True),
+        "host_monotonic_ns": _t("integer", nullable=True),
+        "encoder_sign_bytes": {**_joint_map("Sign byte per joint: 127 or 128"),
+                               "type": ["object", "null"]},
+        "signed_encoder_counts": {**_joint_map(
+            "Sign-byte decoded counts (+/-65535); plot these, but they jump at the "
+            "0/65535 seam, so take differences from encoder_counts"),
+                                  "type": ["object", "null"]},
+        "simulated": _t("boolean"),
+        "raw_packet_hex": _t("string"),
+    },
+    "scorbot.Command": {
+        "command_id": _t("string"),
+        "kind": _t("string"),
+        "params": {"type": "object", "additionalProperties": True},
+    },
+    "scorbot.CommandResult": {
+        "command_id": _t("string"),
+        "status": _t("string", enum=list(COMMAND_STATUSES)),
+        "completion_source": _t("string", nullable=True),
+        "detail": _t("string", nullable=True),
+    },
+    "scorbot.Detection": {
+        "camera_id": _t("string"),
+        "frame_number": _t("integer"),
+        "label": _t("string"),
+        "bbox_xyxy": {"type": "array", "items": {"type": "number"},
+                      "minItems": 4, "maxItems": 4},
+        "confidence": _t("number"),
+        "model_id": _t("string"),
+        "operator_correction": {},
+    },
+    "scorbot.Decision": {
+        "choice": _t("string"),
+        "refers_to_seq": _t("integer", nullable=True),
+        "reason": _t("string", nullable=True),
+    },
+    "scorbot.Fault": {
+        "message": _t("string"),
+        "command_id": _t("string", nullable=True),
+    },
+    "scorbot.Note": {"text": _t("string")},
+}
+
+
 def schema_json(name: str) -> bytes:
     if name == IMAGE_SCHEMA:
         return resources.files(__package__).joinpath("foxglove_CompressedImage.json").read_bytes()
     schema = {"title": name, "type": "object", "required": list(REQUIRED[name]),
-              "properties": {}}
+              "properties": {**PROPERTIES[name], "_rec": _REC},
+              "additionalProperties": True}
     return json.dumps(schema).encode()

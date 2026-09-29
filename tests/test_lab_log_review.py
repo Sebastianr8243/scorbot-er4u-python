@@ -1,12 +1,14 @@
 """Synthetic first-visit logs; reviewer never opens USB."""
 
+from dataclasses import asdict
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
 from scripts.review_lab_logs import review_idle, review_bench
-from scorbot.state import JOINTS
+from scorbot.simulated import encode_packet
+from scorbot.state import JOINTS, decode_state
 
 
 def state(index, base=100):
@@ -38,6 +40,24 @@ class LabLogReviewTests(unittest.TestCase):
             self.assertEqual(result["count_range_at_rest"]["base"], 1)
             self.assertTrue(result["physical_review_required"])
 
+    def test_idle_range_is_wrap_aware_at_the_zero_seam(self):
+        # Raw 65535/sign 128 and raw 65534/sign 127 are one count apart, but their
+        # signed values (+65535 and -1) differ by 65536.
+        def seam_state(index, signed_base):
+            decoded = decode_state(encode_packet({"base": signed_base}), connected=True,
+                                   enabled=False, homed=False, fault=None,
+                                   packet_index=index)
+            return asdict(decoded)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idle.jsonl"
+            write_rows(path, [
+                {"type": "session", "robot_id": "arm-1", "motion_source_sha256": "a" * 64},
+                {"type": "sample", "state": seam_state(1, 65535)},
+                {"type": "sample", "state": seam_state(2, -1)},
+            ])
+            self.assertEqual(review_idle(path)["count_range_at_rest"]["base"], 1)
+
     def test_bench_reports_count_mismatch_without_claiming_motion_safe(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bench.jsonl"
@@ -60,6 +80,44 @@ class LabLogReviewTests(unittest.TestCase):
             self.assertEqual(result["count_deltas"]["base"]["observed"], 136)
             self.assertEqual(result["count_deltas"]["base"]["difference"], -6)
             self.assertTrue(result["physical_review_required"])
+
+    def test_led_observations_are_reported_and_checked_only_for_new_logs(self):
+        def led(step, motors="off"):
+            return {"type": "led_observation", "step": step, "motors_led": motors,
+                    "power_led": "green"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idle.jsonl"
+            base = [{"type": "sample", "state": state(1)}, {"type": "sample", "state": state(2)}]
+            session = {"type": "session", "robot_id": "arm-1", "motion_source_sha256": "a" * 64}
+            write_rows(path, [session, led("after_connect"), *base])
+            # Old logs have no led_prompts flag, so a missing observation is fine.
+            result = review_idle(path)
+            self.assertEqual(result["problems"], [])
+            self.assertEqual(result["led_observations"],
+                             [{"step": "after_connect", "motors_led": "off",
+                               "power_led": "green"}])
+            write_rows(path, [dict(session, led_prompts=True), led("after_connect"), *base])
+            self.assertEqual(review_idle(path)["problems"],
+                             ["led observation missing after_exit"])
+            write_rows(path, [dict(session, led_prompts=True), led("after_connect"), *base,
+                              led("after_exit", "lit"),
+                              {"type": "led_mismatch", "step": "after_exit", "led": "motors",
+                               "observed": "lit", "expected": "off", "message": "stop"}])
+            self.assertEqual(review_idle(path)["problems"],
+                             ["LED mismatch after_exit: motors LED reported lit, "
+                              "software expected off"])
+
+    def test_bench_with_led_prompts_needs_every_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bench.jsonl"
+            write_rows(path, [{"type": "session", "robot_id": "arm-1", "led_prompts": True},
+                              {"type": "led_observation", "step": "after_connect",
+                               "motors_led": "off", "power_led": "green"}])
+            problems = review_bench(path)["problems"]
+            for step in ("after_enable", "after_jog", "after_disable"):
+                self.assertIn(f"led observation missing {step}", problems)
+            self.assertNotIn("led observation missing after_connect", problems)
 
     def test_missing_operator_note_is_incomplete(self):
         with tempfile.TemporaryDirectory() as directory:

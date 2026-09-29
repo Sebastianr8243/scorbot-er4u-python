@@ -24,7 +24,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -e .
+      - run: python -m pip install -e ".[dev]"
+      # The toolbox is large; one OS is enough for the kinematics cross-check.
+      - if: matrix.os == 'ubuntu-latest'
+        run: python -m pip install -e ".[dev,kinematics]"
       - run: python -m compileall -q scorbot openScorbot scripts examples tests
       - run: python -m unittest discover -s tests -v
       - name: Synthetic session smoke test

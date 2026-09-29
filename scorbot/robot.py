@@ -10,10 +10,11 @@ from pathlib import Path
 import queue
 import sys
 import threading
+import traceback
 
 from .calibration import load_calibration
 from .packet import TrackedInputEndpoint
-from .state import RobotState, decode_state
+from .state import HOME_SWITCH_BITS, RobotState, decode_state
 
 
 class ScorbotError(RuntimeError):
@@ -153,8 +154,8 @@ class Scorbot:
             self._sync.put(sequence)
             self._reads.put(encoder_mean)
             self._sync_thread = threading.Thread(
-                target=legacy_sync.syncro,
-                args=(self._sync, self._reads, endpoint_out, endpoint_in, buffer),
+                target=self._run_sync_worker,
+                args=(legacy_sync, self._sync, self._reads, endpoint_out, endpoint_in, buffer),
                 daemon=True,
                 name="scorbot-sync")
             self._command_thread = threading.Thread(
@@ -172,11 +173,9 @@ class Scorbot:
             self._record("connect", state=asdict(self.get_state()))
             return self
         except Exception as exc:
-            self._fault = str(exc)
-            self._enabled = None
+            self._latch_fault(str(exc))
             self._record("connect_failed", error=self._fault)
             self._cancel_event.set()
-            self._home_counts = None
             try:
                 self.disconnect()
             except Exception as cleanup_error:
@@ -185,12 +184,66 @@ class Scorbot:
                 f"Connection failed: {exc}. Controller motor state is unverified; "
                 "use the physical stop if needed") from exc
 
+    def _latch_fault(self, message: str, *, keep_first: bool = False) -> None:
+        """Reject motion from now on; motor and home state become unverified."""
+        if not (keep_first and self._fault):
+            self._fault = message
+        self._enabled = None
+        self._homed = False
+        self._home_counts = None
+
+    def _sync_dead(self) -> bool:
+        return self._sync_thread is not None and not self._sync_thread.is_alive()
+
+    def _link_alive(self) -> bool:
+        """Whether a queued command can still reach USB.
+
+        The legacy workers pass the sequence byte between them, so if either one
+        has died a queued command is never executed.
+        """
+        return (self._command_thread is not None and self._command_thread.is_alive()
+                and not self._sync_dead())
+
+    def _run_sync_worker(self, legacy_sync, *args):
+        try:
+            legacy_sync.syncro(*args)
+        except Exception as exc:
+            self._worker_died("sync", exc)
+
     def _run_command_worker(self, *args):
         *legacy_args, legacy_comm = args
         try:
             legacy_comm.execute(*legacy_args, self._cancel_event)
         except Exception as exc:
-            self._results.put(exc)
+            self._worker_died("command", exc)
+
+    def _worker_died(self, name: str, exc: Exception) -> None:
+        # The legacy loops have no error handling. A dead worker stops idle packets,
+        # possibly while the operator is at a prompt and nothing reads state, so
+        # fault, wake any waiting command, and say so on the terminal.
+        message = f"USB {name} worker stopped: {exc}"
+        self._latch_fault(message, keep_first=True)
+        self._cancel_event.set()
+        self._results.put(_WorkerCrashed(
+            f"{message}. Motor state is unverified; use the physical stop if needed"))
+        print(f"\n*** {message}. The controller is no longer receiving idle "
+              "packets and motor state is unverified; use the physical stop. ***",
+              file=sys.stderr, flush=True)
+        try:
+            self._record(f"{name}_worker_crashed", error=str(exc),
+                         traceback=traceback.format_exc())
+        except Exception:
+            pass  # A log write failure must not replace the banner with a traceback.
+
+    def _next_result(self, timeout: float):
+        result = self._results.get(timeout=timeout)
+        if isinstance(result, _WorkerCrashed):
+            raise result
+        if isinstance(result, Exception):
+            raise _WorkerCrashed(
+                f"USB command worker crashed: {result}. Motor state is unverified; "
+                "use the physical stop if needed") from result
+        return result
 
     def _command(self, payload: list[int | float], *, timeout: float | None = None) -> None:
         if self._device is None:
@@ -202,37 +255,23 @@ class Scorbot:
             self._record("command_start", payload=payload)
             self._commands.put(payload)
             try:
-                result = self._results.get(timeout=wait_timeout)
-                if isinstance(result, Exception):
-                    raise _WorkerCrashed(
-                        f"USB command worker crashed: {result}. Motor state is unverified; "
-                        "use the physical stop if needed") from result
+                result = self._next_result(wait_timeout)
                 if result != 0:
-                    while True:
-                        next_result = self._results.get(timeout=wait_timeout)
-                        if isinstance(next_result, Exception):
-                            raise _WorkerCrashed(
-                                f"USB command worker crashed: {next_result}. Motor state is "
-                                "unverified; use the physical stop if needed") from next_result
-                        if next_result == 0:
-                            break
+                    while self._next_result(wait_timeout) != 0:
+                        pass
                     raise ScorbotError(f"Legacy controller returned error code {result}")
             except queue.Empty as exc:
-                self._fault = "Command timed out; physical stop may be required"
+                self._latch_fault("Command timed out; physical stop may be required")
                 self._cancel_event.set()
                 self._commands.put([16, 1, 1])  # Best effort if worker recovers.
-                self._enabled = None
-                self._homed = False
-                self._home_counts = None
                 self._record("command_timeout", payload=payload)
                 raise ScorbotError(self._fault) from exc
             except ScorbotError as exc:
-                self._fault = str(exc)
+                self._latch_fault(str(exc))
                 # A crashed worker may still look alive while it exits, but it will
                 # never answer a disable; waiting for one only delays the fault.
                 if (payload[0] != 16 and not isinstance(exc, _WorkerCrashed)
-                        and self._command_thread is not None
-                        and self._command_thread.is_alive()):
+                        and self._link_alive()):
                     self._commands.put([16, 1, 1])
                     try:
                         disable_result = self._results.get(timeout=min(2.0, self.command_timeout))
@@ -241,18 +280,12 @@ class Scorbot:
                     self._record("disable_after_error", result=disable_result)
                 elif isinstance(exc, _WorkerCrashed):
                     self._record("disable_skipped_worker_crashed")
-                self._enabled = None
-                self._homed = False
-                self._home_counts = None
                 self._record("command_error", payload=payload, error=self._fault)
                 raise
             except (KeyboardInterrupt, SystemExit):
-                self._fault = "Python interrupted during a controller command"
+                self._latch_fault("Python interrupted during a controller command")
                 self._cancel_event.set()
                 self._commands.put([16, 1, 1])
-                self._enabled = None
-                self._homed = False
-                self._home_counts = None
                 self._record("command_interrupted", payload=payload)
                 raise
             self._record("command_complete", payload=payload)
@@ -261,6 +294,8 @@ class Scorbot:
         """Return a copied, recent USB response; optionally wait for a newer one."""
         if self._device is None or self._input is None:
             raise ScorbotError("Not connected")
+        if self._sync_dead():
+            raise ScorbotError(f"USB sync worker is not running: {self._fault}")
         try:
             with self._state_lock:
                 required_index = max(self._last_state_index, after_index or 0)
@@ -277,16 +312,18 @@ class Scorbot:
 
     def _motion_state(self, *, after_index=None):
         try:
-            return self.get_state(after_index=after_index)
+            state = self.get_state(after_index=after_index)
         except (ScorbotError, ValueError) as exc:
-            self._fault = f"Controller feedback is unavailable: {exc}"
-            self._enabled = None
-            self._homed = False
-            self._home_counts = None
-            if self._command_thread is not None and self._command_thread.is_alive():
+            self._latch_fault(f"Controller feedback is unavailable: {exc}")
+            if self._link_alive():
                 self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
             self._record("feedback_fault", error=self._fault)
             raise ScorbotError(self._fault) from exc
+        # A worker can fault the session between commands; no motion step may
+        # proceed (or mark the arm homed) on a state read after that.
+        if self._fault:
+            raise ScorbotError(f"Controller is faulted: {self._fault}")
+        return state
 
     def enable(self):
         with self._motion_lock:
@@ -310,6 +347,14 @@ class Scorbot:
             if not self._enabled:
                 raise ScorbotError("Enable motors before homing")
             before = self._motion_state()
+            unknown_bits = before.home_switch_bits & ~sum(HOME_SWITCH_BITS.values())
+            if unknown_bits:
+                # libdef.get_switch assumes byte 5 < 32; higher bits make it misread
+                # every switch, so the search would miss or skip joints.
+                self._record("home_refused", state=asdict(before))
+                raise ScorbotError(
+                    f"Home switch byte {before.home_switch_bits} has unexpected bits "
+                    f"{unknown_bits:#x}; legacy homing would misread the switches")
             self._homed = False
             self._home_counts = None
             self._record("home_start", state=asdict(before))
@@ -321,8 +366,7 @@ class Scorbot:
                     for calibration in self._calibration.joints.values():
                         calibration.validate_home(counts[calibration.encoder])
                 except ValueError as exc:
-                    self._fault = f"Home verification failed: {exc}"
-                    self._enabled = None
+                    self._latch_fault(f"Home verification failed: {exc}")
                     self._record("home_failed", error=self._fault, state=asdict(after))
                     raise ScorbotError(self._fault) from exc
             self._home_counts = counts.copy()
@@ -452,10 +496,7 @@ class Scorbot:
             self.jog_joint(joint, delta, speed=speed)
             achieved = self.get_joint_angles()[joint]
             if abs(achieved - target_degrees) > 2.0:
-                self._fault = "Calibrated move did not reach target within 2 degrees"
-                self._enabled = None
-                self._homed = False
-                self._home_counts = None
+                self._latch_fault("Calibrated move did not reach target within 2 degrees")
                 self._record("following_error", joint=joint,
                              target_deg=target_degrees, achieved_deg=achieved)
                 raise ScorbotError(self._fault)
@@ -467,7 +508,9 @@ class Scorbot:
         if self._device is None:
             return
         self._cancel_event.set()
-        if self._command_thread is not None and self._command_thread.is_alive():
+        # If either worker died, an exit command can never reach USB; leave the
+        # daemon thread, since the session is already faulted.
+        if self._link_alive():
             if self._fault is None:
                 self._command([528, 1, 1])
             else:
