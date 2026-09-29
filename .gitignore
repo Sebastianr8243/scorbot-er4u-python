@@ -12,3 +12,6 @@ openScorbot/*.log
 sessions/
 *.stackdump
 rehearsal/
+
+# Claude Code agent worktrees (temporary, per session)
+.claude/worktrees/
