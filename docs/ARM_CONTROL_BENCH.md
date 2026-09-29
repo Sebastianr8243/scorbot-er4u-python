@@ -1,27 +1,18 @@
 # First ER-4U lab visit: small movements and evidence
 
-Use the `main` branch of [this repository](https://github.com/Sebastianr8243/scorbot-er4u-python), at commit `55e6ecb` or later. [PR #1](https://github.com/Sebastianr8243/scorbot-er4u-python/pull/1) is merged there, and earlier `main` commits fail to import `libdef.py`. This visit checks Python communication, homing, and one small joint movement at a time. It does not establish safe joint limits or calibrated physical angles. No manufacturer value or vendor display is used as calibration data.
+Use the tested branch or ZIP you intend to run on the robot PC. This visit checks Python communication, homing, and one small joint movement at a time. It does not establish safe joint limits or calibrated physical angles. No manufacturer value or vendor display is used as calibration data.
 
-Print the one-page [G1 lab checklist and observation sheet](G1_LAB_CHECKLIST.md) and tick it off during the visit.
+Keep the [G1 lab checklist and observation sheet](G1_LAB_CHECKLIST.md) open or printed during the visit.
 
 ## 1. Prepare the robot PC
 
-From the repository root in PowerShell:
+Follow [Start here on the robot PC](../START_HERE_WINDOWS.md) once to get Python and `.venv` working. Git is optional. If setup already passed in this checkout, do not reinstall everything for each visit. From the repository root, run the read-only USB check:
 
 ```powershell
-git fetch origin
-git switch main
-git pull
-py -3 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[windows,test]"
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-.\.venv\Scripts\python.exe -m scorbot.preflight
-git rev-parse HEAD
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.ps1
 ```
 
-If the PC has no Git, download the ZIP of the default branch (`main`) from the repository page. Run the install, tests, and preflight commands from the extracted folder. The logs include a SHA-256 fingerprint of the motion source even when a ZIP has no Git metadata.
-
-The tests never command USB. Preflight only enumerates the controller; stop if it fails. Record the PC, Python version, USB driver, arm and controller labels, operator initials, and source commit or ZIP date. Do not change a working USB driver merely for this visit.
+The check lists the Windows device and asks Python to enumerate it; it does not start a controller session or move the arm. If Python preflight fails, stop before any live connection and keep the error output. Record the arm, controller, driver, operator, and pose in the prompts below. The logs also include a source fingerprint when the checkout came from a ZIP. Do not change a working USB driver merely for this visit.
 
 ## 2. Prepare the physical workspace
 
@@ -31,15 +22,15 @@ Close ScorBot software and the old GUI before Python connects. Reproduce the phy
 
 ## 3. Capture idle responses first
 
-Use a new filename. Enter the actual labels and pose description when prompted; the sample text is not evidence of your hardware:
+Use a new filename. Enter short, consistent IDs you can recognize later. A sticker or nameplate helps, but if one is missing, use your own short ID; enter `unknown` for a driver you cannot identify. Describe the pose in one sentence. Do not copy example words into the log:
 
 ```powershell
-$robotId = Read-Host 'Unique ID for this arm'
-$armLabel = Read-Host 'Exact arm nameplate'
-$controllerLabel = Read-Host 'Exact controller nameplate'
-$usbDriver = Read-Host 'Windows USB driver in use'
+$robotId = Read-Host 'Short ID for this arm'
+$armLabel = Read-Host 'Arm sticker/nameplate, or short ID'
+$controllerLabel = Read-Host 'Controller sticker/nameplate, or short ID'
+$usbDriver = Read-Host 'Windows USB driver, or unknown'
 $operator = Read-Host 'Operator initials'
-$poseNote = Read-Host 'Describe the actual starting pose or photo reference'
+$poseNote = Read-Host 'Starting pose in one sentence'
 .\.venv\Scripts\python.exe .\examples\record_raw_state.py --output .\logs\idle-01.jsonl --robot-id $robotId --arm-label $armLabel --controller-label $controllerLabel --driver $usbDriver --operator $operator --pose-note $poseNote --seconds 10 --hz 2 --acknowledge-connect-handshake
 .\.venv\Scripts\python.exe .\scripts\review_lab_logs.py --idle .\logs\idle-01.jsonl
 ```
@@ -51,13 +42,15 @@ Keep `idle-01.jsonl` and `idle-01.controller.jsonl`. Review increasing packet in
 Choose `--delta 1` or `--delta -1` based on **visible physical clearance**, not an assumed positive direction. Use a new output filename for each run. Re-enter the label variables above if this is a new PowerShell session:
 
 ```powershell
-$startPoseNote = Read-Host 'Describe the actual starting pose or photo reference'
+$startPoseNote = Read-Host 'Starting pose in one sentence'
 .\.venv\Scripts\python.exe .\examples\bench_joint.py --output .\logs\base-first-01.jsonl --robot-id $robotId --arm-label $armLabel --controller-label $controllerLabel --driver $usbDriver --operator $operator --start-pose-note $startPoseNote --joint base --delta 1 --speed 10 --acknowledge-supervised-motion
 ```
 
 The script asks you to confirm the start pose before `HOME`. Watch the complete home search. It then records your description and requires `HOME_OK` before preparing any jog. If the result looks wrong, decline the prompt and end the run. Before `MOVE`, review the printed plan: joint, signed motor-count target, and integer increment sequence. The preview describes requested controller setpoints; it cannot confirm the actual movement.
 
-**LED checks.** Both scripts ask for the controller's front-panel LEDs: `record_raw_state.py` after connect and after exit, `bench_joint.py` after connect, after `enable`, after the jog, and after `disable`. Answer each question with one key and Enter: `MOTORS LED lit? [y/n/u=unsure]` and `POWER LED colour? [g=green/o=orange/f=flashing/u=unsure]`. An invalid key is asked again; after three tries, or if input ends, the answer is recorded as `unsure`. The script does not show what it expects until you have answered. A contradictory answer prints a `!!! WARNING` block and logs a `led_mismatch` row. After connect, either script ends the run before sampling or motion if either required LED is contradictory or unsure. The bench script also ends before homing if the after-enable check is contradictory or unsure. These are failed sessions, not operator declines. Later checks still record warnings for review. Software cleanup does not prove motor power is off; use the physical stop if motor state is uncertain. The review lists every LED answer and reports mismatches, unsure answers, and missing checks as problems.
+**LED prompt keys:** Look at the controller's labeled LEDs and enter what you see. For MOTORS, use `y` lit, `n` off, or `u` unsure. For POWER, use `g` green, `o` orange, `f` flashing, or `u` unsure. The script asks after connect and exit during idle capture, and after connect, enable, jog, and disable during the bench run.
+
+An unsure or contradictory answer after connect ends either script before sampling or motion. In the bench run, it also ends before homing if the after-enable LEDs are unsure or contradictory. Later warnings are saved for review. If motor state is uncertain, use the physical stop; Python cleanup does not prove motor power is off.
 
 After the jog, record observed direction and approximate movement, whether any other joint moved, other controller indicators or sounds, and any issue. Preserve both the bench JSONL and its `.controller.jsonl` companion. Then review:
 
