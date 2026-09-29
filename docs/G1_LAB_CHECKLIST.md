@@ -33,7 +33,9 @@ Roles. Write names, and don't let one person hold two roles:
 - [ ] The base is secured, and the **whole** possible arm path is clear of people, cables, and objects.
 - [ ] The stop operator presses the emergency stop and releases it once, so everyone knows where it is and that it works.
 - [ ] Everyone knows: **connecting briefly energises the motors.** `disable()` is **not** an emergency stop.
+- [ ] `openScorbot\data.json` does not exist, or was reviewed. The legacy code creates it once and never overwrites it, so an old or hand-edited copy silently replaces the packet timing and limits in `conf.py`. If unsure, delete it; the next run recreates the defaults.
 - [ ] Preflight passes: `.\.venv\Scripts\python.exe -m scorbot.preflight`. If it fails, stop here.
+- [ ] Optional: the recorder opens a second terminal with the read-only live view, using the same output path as the run: `.\.venv\Scripts\python.exe -m scripts.watch_lab_log .\logs\base-first-01.jsonl`. It only reads the log files and cannot command the arm. Closing it does not affect the run.
 - [ ] The arm is in the documented start pose, and a photo was taken. Photo file: ____________
 
 ## C. Idle capture (no motion requested)
@@ -57,6 +59,7 @@ Roles. Write names, and don't let one person hold two roles:
 - The arm moves when no motion was requested, or a joint other than the one requested moves.
 - The direction disagrees with the plan, or the count change disagrees with the observed motion.
 - There is a timeout, a stale response, an error, or the motor state is uncertain.
+- The terminal prints `*** USB sync worker stopped ...`, even while waiting at a prompt. The controller is no longer receiving packets.
 - Anyone asks to stop.
 
 After a stop: press the physical stop. Don't retry the command in this session. Photograph the pose, and write down what happened while it's fresh.

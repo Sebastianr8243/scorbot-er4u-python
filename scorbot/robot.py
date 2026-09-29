@@ -153,8 +153,8 @@ class Scorbot:
             self._sync.put(sequence)
             self._reads.put(encoder_mean)
             self._sync_thread = threading.Thread(
-                target=legacy_sync.syncro,
-                args=(self._sync, self._reads, endpoint_out, endpoint_in, buffer),
+                target=self._run_sync_worker,
+                args=(legacy_sync, self._sync, self._reads, endpoint_out, endpoint_in, buffer),
                 daemon=True,
                 name="scorbot-sync")
             self._command_thread = threading.Thread(
@@ -184,6 +184,28 @@ class Scorbot:
             raise ScorbotError(
                 f"Connection failed: {exc}. Controller motor state is unverified; "
                 "use the physical stop if needed") from exc
+
+    def _run_sync_worker(self, legacy_sync, *args):
+        # The legacy sync loop has no error handling. If it dies, idle packets stop
+        # and the command worker can never get the sequence byte, possibly while
+        # the operator is at a prompt and nothing is reading state. Make it loud.
+        try:
+            legacy_sync.syncro(*args)
+        except Exception as exc:
+            message = f"USB sync worker stopped: {exc}"
+            if self._fault is None:
+                self._fault = message
+            self._enabled = None
+            self._homed = False
+            self._home_counts = None
+            self._cancel_event.set()
+            print(f"\n*** {message}. The controller is no longer receiving idle "
+                  "packets and motor state is unverified; use the physical stop. ***",
+                  file=sys.stderr, flush=True)
+            try:
+                self._record("sync_worker_crashed", error=str(exc))
+            except Exception:
+                pass
 
     def _run_command_worker(self, *args):
         *legacy_args, legacy_comm = args
@@ -261,6 +283,8 @@ class Scorbot:
         """Return a copied, recent USB response; optionally wait for a newer one."""
         if self._device is None or self._input is None:
             raise ScorbotError("Not connected")
+        if self._sync_thread is not None and not self._sync_thread.is_alive():
+            raise ScorbotError(f"USB sync worker is not running: {self._fault}")
         try:
             with self._state_lock:
                 required_index = max(self._last_state_index, after_index or 0)

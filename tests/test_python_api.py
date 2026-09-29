@@ -87,6 +87,40 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(self.robot._commands.get_nowait(), [18, 1, 1])
         self.assertEqual(self.robot._commands.get_nowait(), [16, 1, 1])
 
+    def test_sync_worker_crash_faults_session_and_blocks_state(self):
+        class CrashingSync:
+            @staticmethod
+            def syncro(*_args):
+                raise RuntimeError("USB read failed: pipe error")
+
+        self.robot._input = object()
+        with patch("sys.stderr") as stderr:
+            thread = threading.Thread(target=self.robot._run_sync_worker,
+                                      args=(CrashingSync, None))
+            thread.start()
+            thread.join(timeout=1)
+        self.robot._sync_thread = thread
+        self.assertIn("sync worker stopped", self.robot._fault)
+        self.assertTrue(self.robot._cancel_event.is_set())
+        self.assertIsNone(self.robot._enabled)
+        self.assertFalse(self.robot._homed)
+        self.assertTrue(any("physical stop" in str(call) for call in stderr.write.call_args_list))
+        with self.assertRaisesRegex(ScorbotError, "sync worker is not running"):
+            self.robot.get_state()
+        with self.assertRaisesRegex(ScorbotError, "faulted"):
+            self.robot._command([17, 1, 1])
+        self.assertTrue(self.robot._commands.empty())
+
+    def test_sync_worker_normal_exit_is_not_a_fault(self):
+        class ExitingSync:
+            @staticmethod
+            def syncro(*_args):
+                return None
+
+        self.robot._run_sync_worker(ExitingSync)
+        self.assertIsNone(self.robot._fault)
+        self.assertFalse(self.robot._cancel_event.is_set())
+
     @unittest.skipUnless(importlib.util.find_spec("usb"), "PyUSB is not installed")
     def test_faulted_disconnect_keeps_usb_handle_if_worker_is_active(self):
         class StuckWorker:
