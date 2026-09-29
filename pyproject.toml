@@ -14,6 +14,10 @@ dependencies = ["mcap>=1.5,<2", "numpy>=1.26,<3", "pyusb>=1.2,<2"]
 [project.optional-dependencies]
 windows = ["libusb-package"]
 gui = ["PyQt5>=5.15,<6"]
+# Property-based tests for the encoder and packet arithmetic.
+dev = ["hypothesis>=6.100,<7"]
+# Cross-checks the offline kinematics model against an independent implementation.
+kinematics = ["roboticstoolbox-python>=1.1,<2"]
 
 [tool.setuptools]
 packages = ["scorbot", "scorbot.session", "openScorbot"]
