@@ -54,7 +54,7 @@ Status column: **stable** describes current behaviour; **plan** is forward-looki
 | [`HARDWARE_REFERENCE.md`](HARDWARE_REFERENCE.md) | Manual facts (LEDs, controller protections, travel, homing) and what each means for the code | Interpreting a LED, a limit or a manual claim | stable, nominal values |
 | [`SAFETY_CASE.md`](SAFETY_CASE.md) | Hazard register, defence layers, fault response, gates G1-G3, open questions | Changing a gate, a prompt, a fault path or a limit; planning G2 | stable, not a certification |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Systems review: legacy code assessment, target SDK structure, roadmap, risks | Changing module boundaries or adding a backend | mixed: proposal and status; some statements predate later fixes |
-| [`PROTOCOL.md`](PROTOCOL.md) | USB packet layout and legacy command semantics (being written) | Editing packet code, decoding a capture, changing the handshake | pending |
+| [`PROTOCOL.md`](PROTOCOL.md) | USB packet layout and legacy command semantics | Editing packet code, decoding a capture, changing the handshake | stable |
 | [`OFFLINE_SAFETY_FIXES.md`](OFFLINE_SAFETY_FIXES.md) | Exact-count jog planner, signed decoder, wrist hold, jog preview | Reading or changing jog planning | stable |
 | [`OPERATOR_UX.md`](OPERATOR_UX.md) | Evidence behind prompts and warnings; UX backlog | Changing a prompt, warning or exit code | stable |
 | [`PHYSICAL_CALIBRATION.md`](PHYSICAL_CALIBRATION.md) | Measurement file formats, manual priors and bounds, count wrap, wrist | Collecting or fitting calibration data | stable |
@@ -68,8 +68,8 @@ Status column: **stable** describes current behaviour; **plan** is forward-looki
 
 | File | Purpose | Read when |
 |---|---|---|
-| `CLAUDE.md` (repository root, being written) | Rules of engagement: no USB, no motion, verification and style conventions | Before any change |
-| `CLAUDE.md` in `scorbot/`, `openScorbot/`, `scripts/`, `examples/`, `tests/` (being written; each exists only when present in the tree) | Per-directory constraints and pointers | Before editing that directory |
+| `CLAUDE.md` (repository root) | Rules of engagement: no USB, no motion, verification and style conventions | Before any change |
+| `CLAUDE.md` in `scorbot/`, `openScorbot/`, `scripts/`, `examples/`, `tests/` | Per-directory constraints and pointers | Before editing that directory |
 | [`SAFETY_CASE.md`](SAFETY_CASE.md) | Which mitigation each test verifies; hazards with no test or no mitigation | Before weakening a gate, changing a fault path, or claiming a behaviour is safe |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md), [`PROTOCOL.md`](PROTOCOL.md) | Module responsibilities and packet facts | Before touching `scorbot/` or `openScorbot/` |
 

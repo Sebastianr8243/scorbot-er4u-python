@@ -137,4 +137,3 @@ Known gap: `Scorbot.jog_joint` and `Scorbot.get_joint_angles` set `_fault` direc
 | Q9 | Should the legacy settle loops in `openScorbot/libcomm.py` be made wrap aware, and should jogs be cancellable by `cancel_event`? | HZ-10, HZ-12 |
 | Q10 | Can `home()` be replaced or gated so wrist motion during homing is verified before G3? | HZ-14 |
 | Q11 | Should `review_bench` treat an `operator_declined` run as complete rather than as missing steps? | HZ-15 |
-| Q12 | `docs/ARCHITECTURE.md` section 24 says `libsync.send_wait` has no deadline; `libsync.HANDSHAKE_WAIT_TIMEOUT_S` now provides 30 s (`tests/test_python_api.py::LegacyPacketTests::test_handshake_acknowledgment_wait_has_deadline`). Update that document. | Documentation |

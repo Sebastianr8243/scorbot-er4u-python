@@ -1,8 +1,8 @@
 # ER-4U Python SDK: system architecture
 
-Status: describes the code on `claude/docs-system-engineering` (merged main). Nothing here is verified on hardware; see section 10.
+Status: describes the code as of 2026-09-29. Nothing here is verified on hardware; see section 10.
 
-Related: [PROTOCOL.md](PROTOCOL.md) (packet layout, being written), [SAFETY_CASE.md](SAFETY_CASE.md) (hazards and controls, being written), [HARDWARE_REFERENCE.md](HARDWARE_REFERENCE.md) (manual facts), [EXPERIMENT_RECORDING.md](EXPERIMENT_RECORDING.md) (MCAP sessions), [USB_CAPTURE.md](USB_CAPTURE.md) (USBPcap traces).
+Related: [PROTOCOL.md](PROTOCOL.md) (packet layout), [SAFETY_CASE.md](SAFETY_CASE.md) (hazards and controls), [HARDWARE_REFERENCE.md](HARDWARE_REFERENCE.md) (manual facts), [EXPERIMENT_RECORDING.md](EXPERIMENT_RECORDING.md) (MCAP sessions), [USB_CAPTURE.md](USB_CAPTURE.md) (USBPcap traces).
 
 ## 1. Purpose and scope
 

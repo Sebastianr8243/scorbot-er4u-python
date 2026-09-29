@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Python SDK, legacy USB protocol code, lab bench tools and offline research tools for the Intelitek ScorBot ER-4U arm (USB `09F1:0007`, original Controller-USB). Nothing here is hardware-validated. Milestone: supervised connect, raw state, legacy homing, small relative joint jogs. Deeper docs: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/PROTOCOL.md](docs/PROTOCOL.md) and [docs/SAFETY_CASE.md](docs/SAFETY_CASE.md) (the last two are being written; they may not exist yet), [docs/HARDWARE_REFERENCE.md](docs/HARDWARE_REFERENCE.md).
+Python SDK, legacy USB protocol code, lab bench tools and offline research tools for the Intelitek ScorBot ER-4U arm (USB `09F1:0007`, original Controller-USB). Nothing here is hardware-validated. Milestone: supervised connect, raw state, legacy homing, small relative joint jogs. Deeper docs: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/PROTOCOL.md](docs/PROTOCOL.md) and [docs/SAFETY_CASE.md](docs/SAFETY_CASE.md), [docs/HARDWARE_REFERENCE.md](docs/HARDWARE_REFERENCE.md).
 
 Each subdirectory has its own CLAUDE.md with module-level rules. Read it before editing there.
 
@@ -85,8 +85,8 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | Question | File |
 |---|---|
 | Why is the design what it is, open risks | `docs/ARCHITECTURE.md` |
-| Packet layout, command codes | `docs/PROTOCOL.md` (pending), `openScorbot/libhex.py`, `scorbot/state.py` |
-| Safety argument | `docs/SAFETY_CASE.md` (pending) |
+| Packet layout, command codes | `docs/PROTOCOL.md`, `openScorbot/libhex.py`, `scorbot/state.py` |
+| Safety argument | `docs/SAFETY_CASE.md` |
 | Manual facts, LEDs, controller safety | `docs/HARDWARE_REFERENCE.md` |
 | First lab visit | `docs/G1_LAB_CHECKLIST.md`, `docs/ARM_CONTROL_BENCH.md`, `docs/WINDOWS_BENCH_RUN.md` |
 | Prompt and warning design | `docs/OPERATOR_UX.md` |
