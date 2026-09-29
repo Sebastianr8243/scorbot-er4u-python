@@ -56,6 +56,10 @@ Python script
 
 The original code remains under `openScorbot/`. The new adapter is under `scorbot/`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the system review, known gaps, and the path toward a research SDK. The old PyQt GUI is retained as reference code; it is not the SDK interface.
 
+## Hardware reference
+
+Specifications, controller safety behaviour and LED meanings from the Intelitek ER-4u and Controller-USB manuals are summarised in [docs/HARDWARE_REFERENCE.md](docs/HARDWARE_REFERENCE.md). The manuals themselves are copyrighted and kept out of this public repository.
+
 ## Research tools (offline)
 
 None of these open USB or command the arm.
