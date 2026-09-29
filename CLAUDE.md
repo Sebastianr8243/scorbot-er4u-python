@@ -87,6 +87,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | Why is the design what it is, open risks | `docs/ARCHITECTURE.md` |
 | Packet layout, command codes | `docs/PROTOCOL.md`, `openScorbot/libhex.py`, `scorbot/state.py` |
 | Safety argument | `docs/SAFETY_CASE.md` |
+| Known bugs and next work | `docs/BACKLOG.md` |
 | Manual facts, LEDs, controller safety | `docs/HARDWARE_REFERENCE.md` |
 | First lab visit | `docs/G1_LAB_CHECKLIST.md`, `docs/ARM_CONTROL_BENCH.md`, `docs/WINDOWS_BENCH_RUN.md` |
 | Prompt and warning design | `docs/OPERATOR_UX.md` |

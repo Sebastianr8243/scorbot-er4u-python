@@ -1,0 +1,80 @@
+# Backlog: known bugs and open work
+
+Everything found in the September 2026 reviews that is not yet fixed. Each item cites the code and says how it was found. Nothing here is verified on hardware; items marked **verify first** need bench data before any code change.
+
+Priority:
+- **P0**: must be resolved before motion beyond G1.
+- **P1**: fix soon; affects correctness or safety margins.
+- **P2**: quality, tooling or research.
+
+Hazard IDs (HZ-nn) refer to [SAFETY_CASE.md](SAFETY_CASE.md). Protocol details are in [PROTOCOL.md](PROTOCOL.md).
+
+## P0: before any motion beyond G1
+
+| # | Item | Where | Evidence | Next step |
+|---|---|---|---|---|
+| 1 | Homing search travel is bounded only by the 30 s per-axis deadline and the controller error word; a wrong start pose can sweep the base 140-200 degrees (HZ-05) | `openScorbot/setHome.py:homing` | Legacy USB review H2 | Add a per-axis travel cap, bounded by the manual's joint span (`scorbot/nominal.py`). **Verify first:** switch position and search direction |
+| 2 | Homing "braking" does not ramp: `cont_vel` stays 88, so 12 full-speed steps run past the switch; about 120-240 counts for shoulder, elbow and base and about 720 per wrist motor. The vendor procedure backs off until the switch releases (HZ-06) | `openScorbot/setHome.py:homing`, `libdef.py:incremento` | Legacy review H3; protocol review | Implement a vendor-style back-off. **Verify first:** a USB capture of SCORBASE homing |
+| 3 | `home()` drives wrist pitch and roll although wrist jogs are gated; wrist overshoot is the largest | `scorbot/robot.py:Scorbot.home`, `setHome.py:homing` | Safety case HZ-14 | Decide: gate wrist homing, or verify the two-motor mapping first |
+| 4 | Pitch homing steps the motors in order 11's direction, the opposite of jog order 10 | `openScorbot/setHome.py:homing` | Protocol review | **Verify first** on the bench: record which way pitch moves during homing |
+| 5 | Settle loops are not wrap-aware: `abs(target - media) > 20` never converges across 0/65535, and a good move ends as result 2 after 101 packets | `openScorbot/libcomm.py:move_hips/move_shoulder/move_elbow/move_wrist`, `setHome.py`, `moveXYZ.py` | Property test `tests/test_properties.py::LegacyKnownBugs::test_legacy_settle_check_is_not_wrap_aware` | Use a wrap-aware distance once the wrap convention is confirmed by a trace |
+| 6 | No real software stop: `cancel_event` is read only by the homing search, so `disable()` queues behind a jog (HZ-10) | `openScorbot/libcomm.py:execute`, jog loops | Legacy and SDK reviews | Find the motors-off packet from a SCORBASE capture, matched against the MOTORS LED; add a cancel check to jog loops |
+| 7 | The controller's "motor power shutdown on communication failure" is stated by the manual but never observed (HZ-16) | Controller-USB manual p. 6 | `docs/HARDWARE_REFERENCE.md` | G2 test: stop packets with the arm at rest, hand on e-stop, time until the MOTORS LED goes off |
+| 8 | Jog direction and counts per degree are inherited assumptions (HZ-02) | `openScorbot/motion_profile.py:COUNTS_PER_DEGREE`, `MOTOR_DIRECTIONS` | Manual gives no encoder CPR; base legacy scale implies ~402 counts per motor revolution (hypothesis) | Measure with an inclinometer or ArUco markers; `scripts/fit_calibration.py` warns on disagreement |
+
+## P1: legacy code bugs (openScorbot/)
+
+| # | Item | Where | Evidence |
+|---|---|---|---|
+| 9 | `get_switch` misdecodes byte 5 when any bit >= 32 is set. Mitigated: `home()` refuses such a byte | `libdef.py:get_switch` | Legacy review H1; `tests/test_python_api.py::CommandTests::test_home_refuses_switch_byte_the_legacy_decoder_misreads`. Fix: `bool(byte & bit)` |
+| 10 | `cIn` drops the 16 mm shoulder offset (element-wise `*` where a matrix product was meant), ignores the 145 mm tool length, and returns `[-1, -1, -1]` for unreachable targets, which is a valid angle; shoulder and elbow are off by 4-12 degrees | `libdef.py:cIn`, `moveXYZ.py:controlXYZ` | `tests/test_kinematics.py` (measured disagreement); fix against `scorbot/kinematics.py` after measuring poses |
+| 11 | `controlXYZ` success path returns the encoder vector where `execute` expects `posRef` | `moveXYZ.py:controlXYZ`, `libcomm.py:execute` | Protocol review |
+| 12 | `suma`/`resta` overflow twice for a step above 65535 and emit a 5-digit or negative hex field. Real steps are 20 or less | `libdef.py:suma`, `resta` | `tests/test_properties.py` (two `expectedFailure` tests) |
+| 13 | Gripper `clamp`: the timeout loop condition is inverted (waits while not moved) and puts result 1, not 2 | `libcomm.py:clamp` | Protocol review |
+| 14 | `getError` threshold is asymmetric: +40 one way, about -36 the other | `libdef.py:getError` | Protocol review |
+| 15 | The pause marker is hard-coded `256` in `syncro` while `libcomm` reads `MAX_COUNT`; an edited `data.json` would allow two token holders | `libsync.py:syncro` | Legacy review H6 |
+| 16 | `execute` spins on the pause marker with no sleep | `libcomm.py:execute` | Legacy review H7; add `time.sleep(0.001)` after timing is measured |
+| 17 | `conf.readData` re-reads and parses `data.json` on every call (about 8 times per packet); `data.json` is created once and never overwritten, so a stale copy silently wins | `conf.py:readData`, `setup` | Legacy review. Cache only after the packet period is measured in an idle capture |
+| 18 | Disconnect handshake waits up to 30 s for ack 13, equal to the command timeout, so a slow ack faults a good run | `libcomm.py:scorbotoff`, `libsync.py:send_wait` | Legacy review H9 |
+| 19 | `from numpy import *` shadows `round`, `abs`, `sum`; mixed tabs and spaces across modules | `libdef.py` and others | CLAUDE.md review |
+
+## P1: SDK and lab scripts
+
+| # | Item | Where | Evidence |
+|---|---|---|---|
+| 20 | Calibration faults set `_fault` directly, bypassing `_latch_fault`, so `enabled` stays true; the same in `SimulatedScorbot.connect` | `scorbot/robot.py:jog_joint`, `get_joint_angles`; `scorbot/simulated.py:SimulatedScorbot.connect` | Simplify and architecture reviews. Decide whether `enabled` should become unknown |
+| 21 | `home()` timeout is 180 s against up to 5 x 30 s of search plus braking and transitions | `scorbot/robot.py:Scorbot.home` | SDK review H4. Set from a measured home duration |
+| 22 | Ctrl-C may not interrupt `queue.get` on Windows until the timeout expires | `scorbot/robot.py:_command` | SDK review H5, unverified. Test in a Windows rehearsal with `step_delay_s` |
+| 23 | `review_bench` counts an operator-declined run's missing steps as problems (exit 1) | `scripts/review_lab_logs.py:review_bench` | Safety case Q11. Decide the intended verdict |
+| 24 | A tiny `--delta` (e.g. 0.001) passes argparse but fails in `preview_jog` only after homing | `examples/bench_joint.py:main` | SDK review M6. Call `preview_jog` offline before connecting |
+| 25 | `session_failed` records `str(exc)`, which is empty for `KeyboardInterrupt` | `examples/bench_joint.py:main` | SDK review M7. Use `f"{type(exc).__name__}: {exc}"` |
+| 26 | `git rev-parse` runs in the current directory, not the repo, so a run from elsewhere records the wrong commit | `examples/bench_joint.py:main` | SDK review. `record.py` already uses the repo root |
+| 27 | Enter presses typed during homing sit in stdin and answer the next prompt (they can only decline) | `examples/bench_joint.py` | SDK review M8 |
+| 28 | `record_raw_state.py` opens its output before connecting, so a failed connect leaves an empty file that blocks reuse of the name | `examples/record_raw_state.py:main` | LED-prompt agent report |
+| 29 | `examples/python_control.py` connects and moves on run, with no guard or confirmation | `examples/python_control.py` | CLAUDE.md review |
+| 30 | `build_bench_kit.py` zips all of `references/`, so local copyrighted Intelitek PDFs go into the kit | `scripts/build_bench_kit.py` | CLAUDE.md review. Fine for the lab PC; never publish the ZIP |
+| 31 | `preview_jog` adds deltas to signed counts, which can cross the ±65535 seam (display only) | `scorbot/robot.py:preview_jog` | Altitude review |
+
+## P1: recording (scorbot/session/)
+
+| # | Item | Where |
+|---|---|---|
+| 32 | Power loss can lose about the last second of MCAP data: flush only, fsync at close. Add a time-based fsync | `record.py:SessionWriter._emit` |
+| 33 | SIGTERM or closing the Windows console skips `close()`, so `metadata.json` lacks end fields. Map SIGTERM/SIGBREAK to `KeyboardInterrupt` in the lab scripts | `examples/*.py` |
+| 34 | A `KeyboardInterrupt` inside `add_message` is not caught by `except Exception`, so `_broken` stays unset | `record.py:SessionWriter._emit` |
+| 35 | `os.replace` of `metadata.json` can fail on Windows when antivirus or OneDrive holds the file; add a short retry | `record.py:_write_json_atomic` |
+| 36 | `compare` is quadratic in commands times states (35 s at 6000 commands); use `bisect` | `analysis.py:command_records` |
+
+## P2: tooling, simulator, research
+
+| # | Item |
+|---|---|
+| 37 | Verify against real files: the USBPcap header layout and direction inference in `scripts/usb_trace.py`, the Foxglove layout keys, the PlotJuggler path syntax in `docs/EXPERIMENT_RECORDING.md` |
+| 38 | Capture SCORBASE "Go Home", control on/off and e-stop with USBPcap; if Go Home is a single controller command, use it instead of building one |
+| 39 | `return_to_home()`: count-based, bounded jogs, retract first and base last, typed plan confirmation; simulator only until G2 |
+| 40 | Simulator: homing sequence with switch bits and overshoot; start near the 0/65535 seam with rest jitter; sync-worker crash injection; simulated LED state; replay of recorded lab data |
+| 41 | Kinematics: model reach is 601 mm against the manual's 610 mm; measure the tool length and home pose, then fix `cIn` (item 10) |
+| 42 | Ruff in CI with the rule set used in reviews (`F`, plus selected `B`/`SIM`); the repo has no Ruff config yet |
+| 43 | Operator UX backlog (plan-based `MOVE` confirmation, observe before the plan is shown, structured observations, readable review verdict, alarm banner, `--config lab.toml`, one-page checklist cards): see [OPERATOR_UX.md](OPERATOR_UX.md) |
+| 44 | Hazards with no test yet: HZ-05, HZ-06, HZ-09, HZ-16, HZ-19, HZ-20 (see [SAFETY_CASE.md](SAFETY_CASE.md)) |
+| 45 | Later roadmap: URDF from measured geometry, then `ikpy`/MuJoCo; optional ROS 2 driver; LeRobot-compatible dataset export |

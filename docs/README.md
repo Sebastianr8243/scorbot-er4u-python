@@ -57,6 +57,7 @@ Status column: **stable** describes current behaviour; **plan** is forward-looki
 | [`PROTOCOL.md`](PROTOCOL.md) | USB packet layout and legacy command semantics | Editing packet code, decoding a capture, changing the handshake | stable |
 | [`OFFLINE_SAFETY_FIXES.md`](OFFLINE_SAFETY_FIXES.md) | Exact-count jog planner, signed decoder, wrist hold, jog preview | Reading or changing jog planning | stable |
 | [`OPERATOR_UX.md`](OPERATOR_UX.md) | Evidence behind prompts and warnings; UX backlog | Changing a prompt, warning or exit code | stable |
+| [`BACKLOG.md`](BACKLOG.md) | Every known bug and open item, prioritised, with code references | Choosing the next piece of work | plan |
 | [`PHYSICAL_CALIBRATION.md`](PHYSICAL_CALIBRATION.md) | Measurement file formats, manual priors and bounds, count wrap, wrist | Collecting or fitting calibration data | stable |
 | [`CALIBRATION_START.md`](CALIBRATION_START.md) | First measurement steps toward a validated calibration | Starting calibration work | plan |
 | [`EXPERIMENT_RECORDING.md`](EXPERIMENT_RECORDING.md) | MCAP session recording, replay, analysis CLI, simulated robot, viewers | Recording, replaying or comparing runs; rehearsing without hardware | stable |
