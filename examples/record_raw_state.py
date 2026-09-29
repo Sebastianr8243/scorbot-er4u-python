@@ -102,40 +102,47 @@ def main() -> int:
                                      **fields}, allow_nan=False) + "\n")
             stream.flush()
 
-        with robot_class(log_path=event_log, robot_id=args.robot_id.strip()) as robot:
-            session = {
-                "type": "session",
-                "schema_version": 1,
-                "robot_id": args.robot_id.strip(),
-                "arm_label": args.arm_label.strip(),
-                "controller_label": args.controller_label.strip(),
-                "driver": args.driver.strip(),
-                "operator": args.operator.strip(),
-                "pose_note": args.pose_note.strip(),
-                "motion_source_sha256": motion_source_sha256(),
-                "started_utc": datetime.now(timezone.utc).isoformat(),
-                "requested_seconds": args.seconds,
-                "requested_hz": args.hz,
-                "controller_event_log": event_log.name,
-                "data_source": data_source,
-                "mcap_session": rec.path.name,
-                "led_prompts": True,
-            }
-            stream.write(json.dumps(session, allow_nan=False) + "\n")
-            # Connect ends with a motor-disable request, so motors should be off.
-            # Asked before sampling so a lit MOTORS LED is caught straight away.
-            observe_leds("after_connect", write, rec,
-                         expect_motors="off", expect_power="green")
-            next_sample = time.monotonic()
-            for index in range(sample_count):
-                time.sleep(max(0.0, next_sample - time.monotonic()))
-                state = robot.get_state()
-                write("sample", index=index, state=asdict(state))
-                rec.log_state(state)
-                next_sample += 1 / args.hz
-        # The controller is released, so motors must be off. POWER has no fixed
-        # expectation here: the manual does not say which colour follows a close.
-        observe_leds("after_exit", write, rec, expect_motors="off")
+        try:
+            with robot_class(log_path=event_log, robot_id=args.robot_id.strip()) as robot:
+                session = {
+                    "type": "session",
+                    "schema_version": 1,
+                    "robot_id": args.robot_id.strip(),
+                    "arm_label": args.arm_label.strip(),
+                    "controller_label": args.controller_label.strip(),
+                    "driver": args.driver.strip(),
+                    "operator": args.operator.strip(),
+                    "pose_note": args.pose_note.strip(),
+                    "motion_source_sha256": motion_source_sha256(),
+                    "started_utc": datetime.now(timezone.utc).isoformat(),
+                    "requested_seconds": args.seconds,
+                    "requested_hz": args.hz,
+                    "controller_event_log": event_log.name,
+                    "data_source": data_source,
+                    "mcap_session": rec.path.name,
+                    "led_prompts": True,
+                }
+                stream.write(json.dumps(session, allow_nan=False) + "\n")
+                # Connect ends with a motor-disable request, so motors should be off.
+                # Asked before sampling so a lit MOTORS LED is caught straight away.
+                observe_leds("after_connect", write, rec,
+                             expect_motors="off", expect_power="green")
+                next_sample = time.monotonic()
+                for index in range(sample_count):
+                    time.sleep(max(0.0, next_sample - time.monotonic()))
+                    state = robot.get_state()
+                    write("sample", index=index, state=asdict(state))
+                    rec.log_state(state)
+                    next_sample += 1 / args.hz
+            # The controller is released, so motors must be off. POWER has no fixed
+            # expectation here: the manual does not say which colour follows a close.
+            observe_leds("after_exit", write, rec, expect_motors="off")
+        except (Exception, KeyboardInterrupt) as exc:
+            # If the robot context was entered, its exit path attempted disconnect.
+            # Never infer an after-exit LED answer from software cleanup.
+            write("session_failed", error_type=type(exc).__name__, error=str(exc))
+            print("Idle capture failed. If motor state is uncertain, use the physical stop.")
+            raise
 
     print(f"Saved {sample_count} raw samples to {output}")
     print(f"Saved controller events to {event_log}")

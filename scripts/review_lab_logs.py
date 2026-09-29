@@ -73,6 +73,8 @@ def review_idle(path):
     problems = []
     if session is None:
         problems.append("missing session metadata")
+    if any(row.get("type") == "session_failed" for row in rows):
+        problems.append("session reported failure")
     if len(samples) < 2:
         problems.append("need at least two idle samples")
     problems += _packet_checks(samples)
