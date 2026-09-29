@@ -111,6 +111,44 @@ class CommandTests(unittest.TestCase):
             self.robot._command([17, 1, 1])
         self.assertTrue(self.robot._commands.empty())
 
+    def test_sync_worker_crash_wakes_a_pending_command(self):
+        class CrashingSync:
+            @staticmethod
+            def syncro(*_args):
+                time.sleep(0.05)
+                raise RuntimeError("USB read failed")
+
+        self.robot.command_timeout = 5.0
+        with patch("sys.stderr"):
+            threading.Thread(target=self.robot._run_sync_worker,
+                             args=(CrashingSync,)).start()
+            started = time.monotonic()
+            with self.assertRaisesRegex(ScorbotError, "sync worker stopped"):
+                self.robot._command([4, 10, 1])
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    @unittest.skipUnless(importlib.util.find_spec("usb"), "PyUSB is not installed")
+    def test_disconnect_after_sync_crash_does_not_queue_exit(self):
+        class DeadThread:
+            def is_alive(self):
+                return False
+
+        class SpinningWorker:
+            def is_alive(self):
+                return True
+
+            def join(self, timeout):
+                raise AssertionError("must not wait on a worker with no sequence byte")
+
+        self.robot._fault = "USB sync worker stopped: test"
+        self.robot._sync_thread = DeadThread()
+        self.robot._command_thread = SpinningWorker()
+        with patch("usb.util.dispose_resources") as dispose:
+            self.robot.disconnect()
+            dispose.assert_called_once()
+        self.assertTrue(self.robot._commands.empty())
+        self.assertIsNone(self.robot._device)
+
     def test_sync_worker_normal_exit_is_not_a_fault(self):
         class ExitingSync:
             @staticmethod

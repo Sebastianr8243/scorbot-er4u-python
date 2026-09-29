@@ -16,7 +16,7 @@ Roles. Write names, and don't let one person hold two roles:
 - [ ] On the robot PC, or on a laptop with the same setup, these pass:
   - `.\.venv\Scripts\python.exe -m unittest discover -s tests`
   - `.\.venv\Scripts\python.exe examples\preview_jog.py --joint base --delta 1`, which is offline and prints the plan only
-- [ ] **Rehearse the whole visit at a desk with the simulated robot.** Use a rehearsal folder, **not** `logs\`, so rehearsal files never mix with lab evidence:
+- [ ] **Rehearse the whole visit at a desk with the simulated robot.** If rehearsing on the robot PC, unplug or power off the controller first: a command pasted without `--simulate` is a real connect, and the handshake energises the motors. Use a rehearsal folder, **not** `logs\`, so rehearsal files never mix with lab evidence:
   ```powershell
   .\.venv\Scripts\python.exe .\examples\record_raw_state.py --output .\rehearsal\idle-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --pose-note rehearsal --seconds 2 --simulate --acknowledge-connect-handshake
   .\.venv\Scripts\python.exe .\examples\bench_joint.py --output .\rehearsal\base-first-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --start-pose-note rehearsal --joint base --delta 1 --simulate --acknowledge-supervised-motion
@@ -33,15 +33,16 @@ Roles. Write names, and don't let one person hold two roles:
 - [ ] The base is secured, and the **whole** possible arm path is clear of people, cables, and objects.
 - [ ] The stop operator presses the emergency stop and releases it once, so everyone knows where it is and that it works.
 - [ ] Everyone knows: **connecting briefly energises the motors.** `disable()` is **not** an emergency stop.
-- [ ] `openScorbot\data.json` does not exist, or was reviewed. The legacy code creates it once and never overwrites it, so an old or hand-edited copy silently replaces the packet timing and limits in `conf.py`. If unsure, delete it; the next run recreates the defaults.
+- [ ] `openScorbot\data.json` was freshly created on this PC by the step A checks, not copied from elsewhere or hand-edited. The legacy code creates it once from the defaults in `conf.py` and never overwrites it, so an old copy silently replaces the packet timing and limits. If unsure, delete it; the next run recreates the defaults.
 - [ ] Preflight passes: `.\.venv\Scripts\python.exe -m scorbot.preflight`. If it fails, stop here.
-- [ ] Optional: the recorder opens a second terminal with the read-only live view, using the same output path as the run: `.\.venv\Scripts\python.exe -m scripts.watch_lab_log .\logs\base-first-01.jsonl`. It only reads the log files and cannot command the arm. Closing it does not affect the run.
+- [ ] Optional: the recorder opens a second terminal **in the repository root** with the read-only live view, using the same output path as the run: `.\.venv\Scripts\python.exe -m scripts.watch_lab_log .\logs\base-first-01.jsonl`. It only reads the log files and cannot command the arm. Closing it does not affect the run.
 - [ ] The arm is in the documented start pose, and a photo was taken. Photo file: ____________
 
 ## C. Idle capture (no motion requested)
 
 - [ ] Run `record_raw_state.py` with a **new** output name, e.g. `logs\idle-01.jsonl` (see bench guide §3).
 - [ ] Run `scripts\review_lab_logs.py --idle ...`. Packet indices increase, there is no fault, and counts are steady at rest.
+- [ ] `home_switch_bits` at the start pose is below 32, and record which bits are set: ______. The legacy switch decoder (`libdef.get_switch`) misreads byte 5 when any bit ≥ 32 is set: the shoulder search would miss its switch and the elbow, pitch and roll would be treated as already home. **If it is 32 or more, do not home today.**
 - [ ] **Stop and review if anything looks wrong.** Homing waits until the idle log is understood.
 
 ## D. One home and one base jog
@@ -61,6 +62,8 @@ Roles. Write names, and don't let one person hold two roles:
 - There is a timeout, a stale response, an error, or the motor state is uncertain.
 - The terminal prints `*** USB sync worker stopped ...`, even while waiting at a prompt. The controller is no longer receiving packets.
 - Anyone asks to stop.
+
+Ctrl-C, a Python timeout, or closing the console window does **not** stop a move in progress. The disable is queued behind the current motion, and closing the window can skip it entirely. Use the physical stop.
 
 After a stop: press the physical stop. Don't retry the command in this session. Photograph the pose, and write down what happened while it's fresh.
 

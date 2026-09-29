@@ -15,7 +15,6 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from scorbot.calibration import signed_count_delta
@@ -38,9 +37,11 @@ class Follower:
         self._offset = 0
         self._partial = b""
         self.bad_lines = 0
+        self.modified_epoch = None
 
     def poll(self) -> list[dict]:
         try:
+            self.modified_epoch = self.path.stat().st_mtime
             with self.path.open("rb") as stream:
                 stream.seek(self._offset)
                 chunk = stream.read()
@@ -78,13 +79,13 @@ class RunView:
         self.events = []
         self.alarms = []
         self.samples = 0
-        self.last_row_utc = None
+        # Idle sample rows carry no wall-clock stamp, so age comes from file writes.
+        self.last_write_epoch = None
 
     def add(self, row: dict, source: str):
         kind = row.get("type") or row.get("event")
         if not kind:
             return
-        self.last_row_utc = row.get("timestamp_utc") or self.last_row_utc
         if kind == "session":
             self.session = row
         if kind == "sample":
@@ -164,13 +165,18 @@ class RunView:
                 active = [name for name, bit in SWITCH_BITS if bits & bit]
                 lines += ["", f"home switch bits {bits:#07b}  set: {', '.join(active) or 'none'}"
                               "  (legacy decode; polarity unverified)"]
+                if bits >= 32:
+                    lines.append(f"!!! byte 5 = {bits} has a bit >= 32; legacy homing misreads the "
+                                 "switches. Do not home.")
         if self.samples:
             lines.append(f"idle samples {self.samples}")
         lines += ["", "recent events:"]
         for source, kind, detail in self.events:
             lines.append(f"  {source:<10} {kind:<22} {detail[:width - 36]}")
-        age = _age(self.last_row_utc)
-        lines += [rule, f"last row {age}. A quiet screen does not prove the USB link is alive."]
+        age = ("never" if self.last_write_epoch is None
+               else f"{max(0.0, time.time() - self.last_write_epoch):.1f} s ago")
+        lines += [rule, f"last log write {age}. A quiet screen does not prove the USB link "
+                        "is alive."]
         return "\n".join(lines)
 
 
@@ -185,16 +191,6 @@ def _delta(later, earlier):
         return f"{signed_count_delta(later, earlier):+d}"
     except ValueError:
         return "?"
-
-
-def _age(timestamp_utc):
-    if not timestamp_utc:
-        return "never"
-    try:
-        then = datetime.fromisoformat(timestamp_utc)
-    except ValueError:
-        return "unknown"
-    return f"{(datetime.now(timezone.utc) - then).total_seconds():.1f} s ago"
 
 
 def main(argv=None) -> int:
@@ -218,6 +214,8 @@ def main(argv=None) -> int:
         rows.sort(key=lambda item: item[0] if type(item[0]) is int else -1)
         for _stamp, source, row in rows:
             view.add(row, source)
+        stamps = [f.modified_epoch for _, f in followers if f.modified_epoch is not None]
+        view.last_write_epoch = max(stamps) if stamps else None
 
     if args.once:
         refresh()

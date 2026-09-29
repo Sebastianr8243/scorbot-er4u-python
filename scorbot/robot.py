@@ -10,6 +10,7 @@ from pathlib import Path
 import queue
 import sys
 import threading
+import traceback
 
 from .calibration import load_calibration
 from .packet import TrackedInputEndpoint
@@ -199,11 +200,15 @@ class Scorbot:
             self._homed = False
             self._home_counts = None
             self._cancel_event.set()
+            # A command queued now can never get the sequence byte; wake its waiter
+            # instead of letting it sit out the full command timeout.
+            self._results.put(ScorbotError(message))
             print(f"\n*** {message}. The controller is no longer receiving idle "
                   "packets and motor state is unverified; use the physical stop. ***",
                   file=sys.stderr, flush=True)
             try:
-                self._record("sync_worker_crashed", error=str(exc))
+                self._record("sync_worker_crashed", error=str(exc),
+                             traceback=traceback.format_exc())
             except Exception:
                 pass
 
@@ -349,6 +354,8 @@ class Scorbot:
                     self._enabled = None
                     self._record("home_failed", error=self._fault, state=asdict(after))
                     raise ScorbotError(self._fault) from exc
+            if self._fault:
+                raise ScorbotError(self._fault)
             self._home_counts = counts.copy()
             self._homed = True
             self._record("home_complete", state=asdict(self._motion_state()))
@@ -491,7 +498,12 @@ class Scorbot:
         if self._device is None:
             return
         self._cancel_event.set()
-        if self._command_thread is not None and self._command_thread.is_alive():
+        # With the sync worker dead the sequence byte is gone: an exit command would
+        # spin in the legacy worker forever and never reach USB. Leave the daemon
+        # thread; the session is already faulted.
+        sync_dead = self._sync_thread is not None and not self._sync_thread.is_alive()
+        if (self._command_thread is not None and self._command_thread.is_alive()
+                and not sync_dead):
             if self._fault is None:
                 self._command([528, 1, 1])
             else:

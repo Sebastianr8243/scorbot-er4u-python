@@ -66,6 +66,11 @@ class WatchLabLogTests(unittest.TestCase):
                  "controller")
         self.assertIn("enabled False", view.render())
 
+    def test_switch_byte_with_high_bit_warns_not_to_home(self):
+        view = RunView()
+        view.add({"type": "sample", "state": state(1, switches=34)}, "run")
+        self.assertIn("Do not home", view.render())
+
     def test_simulated_run_is_labelled(self):
         view = RunView()
         view.add({"type": "session", "data_source": "simulated"}, "run")
