@@ -1,6 +1,5 @@
 """The live lab view reads JSONL only; it never opens USB."""
 
-import json
 from pathlib import Path
 import tempfile
 import unittest
