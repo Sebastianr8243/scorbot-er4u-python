@@ -18,15 +18,15 @@ import time
 from pathlib import Path
 
 from scorbot.calibration import signed_count_delta
-from scorbot.state import JOINTS
+from scorbot.state import HOME_SWITCH_BITS, JOINTS
 
-# Legacy switch codes (libdef.get_switch); physical polarity unverified.
-SWITCH_BITS = (("base", 1), ("shoulder", 2), ("elbow", 4), ("pitch", 8), ("roll", 16))
 ALARM_EVENTS = {"command_timeout", "command_error", "command_interrupted", "feedback_fault",
-                "sync_worker_crashed", "home_failed", "following_error", "calibration_fault",
-                "connect_failed", "session_failed", "disable_skipped_worker_crashed"}
+                "sync_worker_crashed", "command_worker_crashed", "home_refused",
+                "home_failed", "following_error", "calibration_fault", "connect_failed",
+                "session_failed", "disable_skipped_worker_crashed"}
 # Every SDK command logs these around it; they bury the events worth reading.
 QUIET_EVENTS = {"command_start", "command_complete"}
+KNOWN_SWITCH_MASK = sum(HOME_SWITCH_BITS.values())
 
 
 class Follower:
@@ -36,7 +36,6 @@ class Follower:
         self.path = path
         self._offset = 0
         self._partial = b""
-        self.bad_lines = 0
         self.modified_epoch = None
 
     def poll(self) -> list[dict]:
@@ -52,13 +51,10 @@ class Follower:
         self._partial = lines.pop()
         rows = []
         for line in lines:
-            if not line.strip():
-                continue
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
-                self.bad_lines += 1
-                continue
+                continue  # Blank or corrupt; review_lab_logs.py reports corruption.
             if isinstance(row, dict):
                 rows.append(row)
         return rows
@@ -69,18 +65,16 @@ class RunView:
 
     def __init__(self):
         self.session = None
-        self.first_state = None
+        self.first_counts = {}
         self.state = None
         self.state_source = None
-        self.state_ns = -1
-        self.plan = None
-        self.motion_before = None
-        self.motion_after = None
+        self.state_index = -1
+        self.plan_deltas = None
+        self.before_counts = {}
+        self.after_counts = {}
         self.events = []
         self.alarms = []
         self.samples = 0
-        # Idle sample rows carry no wall-clock stamp, so age comes from file writes.
-        self.last_write_epoch = None
 
     def add(self, row: dict, source: str):
         kind = row.get("type") or row.get("event")
@@ -95,89 +89,87 @@ class RunView:
             self.events.append((source, kind, str(detail)))
             del self.events[:-8]
         if kind in ALARM_EVENTS:
-            self.alarms.append(f"{kind}: {row.get('error', '')}".rstrip(": "))
-        plan = row.get("plan")
-        if kind == "motion_preview" and isinstance(plan, dict):
-            self.plan = plan
+            error = row.get("error")
+            self.alarms.append(f"{kind}: {error}" if error else kind)
+        if kind == "motion_preview" and isinstance(row.get("plan"), dict):
+            self.plan_deltas = row["plan"].get("motor_count_deltas", {})
         state = row.get("state")
-        if isinstance(state, dict) and isinstance(state.get("encoder_counts"), dict):
-            if self.first_state is None:
-                self.first_state = state
-            # Rows from the two files arrive per poll, not in time order; never let
-            # an older state replace a newer one (e.g. "enabled" after "disabled").
-            stamp = row.get("host_monotonic_ns")
-            if not (type(stamp) is int and stamp < self.state_ns):
-                self.state, self.state_source = state, f"{source}:{kind}"
-                if type(stamp) is int:
-                    self.state_ns = stamp
-            if kind in ("before_jog", "motion_start"):
-                self.motion_before, self.motion_after = state, None
-            elif kind in ("after_jog", "motion_complete"):
-                self.motion_after = state
+        if not (isinstance(state, dict) and isinstance(state.get("encoder_counts"), dict)):
+            return
+        counts = state["encoder_counts"]
+        if not self.first_counts:
+            self.first_counts = counts
+        # Both files are polled in turn, so a newer state can arrive before an older
+        # one. The SDK reads a strictly newer packet on every call, so the packet
+        # index orders states (e.g. keeps "disabled" over an earlier "enabled").
+        index = state.get("packet_index")
+        if type(index) is not int or index >= self.state_index:
+            self.state, self.state_source = state, f"{source}:{kind}"
+            if type(index) is int:
+                self.state_index = index
+        if kind in ("before_jog", "motion_start"):
+            self.before_counts, self.after_counts = counts, {}
+        elif kind in ("after_jog", "motion_complete"):
+            self.after_counts = counts
 
-    def render(self, width: int = 78) -> str:
-        lines = []
+    def render(self, width: int = 78, last_write_epoch: float | None = None) -> str:
         rule = "-" * width
         simulated = (self.session or {}).get("data_source") == "simulated" or (
             (self.state or {}).get("simulated") is True)
-        title = "SCORBOT LAB VIEW (read-only, sends nothing)"
-        if simulated:
-            title += "   *** SIMULATED ***"
-        lines += [title, rule]
+        lines = ["SCORBOT LAB VIEW (read-only, sends nothing)"
+                 + ("   *** SIMULATED ***" if simulated else ""), rule]
         if self.session:
             s = self.session
             lines.append(f"robot {s.get('robot_id')}  operator {s.get('operator')}  "
                          f"joint {s.get('joint', '-')}  delta {s.get('requested_delta_deg', '-')}")
         if self.alarms:
-            lines.append("")
-            for alarm in self.alarms[-3:]:
-                lines.append(f"!!! {alarm}")
-            lines.append("!!! If motion or motor state is uncertain, use the physical stop.")
-        state = self.state
-        if state is None:
+            lines += ["", *(f"!!! {alarm}" for alarm in self.alarms[-3:]),
+                      "!!! If motion or motor state is uncertain, use the physical stop."]
+        if self.state is None:
             lines += ["", "Waiting for the first controller state..."]
         else:
-            fault = state.get("fault")
-            lines += ["",
-                      f"enabled {state.get('enabled')}  homed {state.get('homed')}  "
-                      f"packet {state.get('packet_index')}  from {self.state_source}",
-                      f"fault   {fault if fault else 'none'}",
-                      ""]
-            lines.append(f"{'joint':<15}{'raw':>8}{'signed':>9}{'sign':>6}{'err':>6}"
-                         f"{'d_start':>9}{'plan':>8}{'moved':>8}")
-            counts = state.get("encoder_counts", {})
-            signed = state.get("signed_encoder_counts") or {}
-            signs = state.get("encoder_sign_bytes") or {}
-            errors = state.get("controller_error_counts") or {}
-            first = (self.first_state or {}).get("encoder_counts", {})
-            planned = (self.plan or {}).get("motor_count_deltas", {})
-            before = (self.motion_before or {}).get("encoder_counts", {})
-            after = (self.motion_after or {}).get("encoder_counts", {})
-            for joint in JOINTS:
-                lines.append(
-                    f"{joint:<15}{_cell(counts.get(joint)):>8}{_cell(signed.get(joint)):>9}"
-                    f"{_cell(signs.get(joint)):>6}{_cell(errors.get(joint)):>6}"
-                    f"{_delta(counts.get(joint), first.get(joint)):>9}"
-                    f"{_cell(planned.get(joint, '') if self.plan else ''):>8}"
-                    f"{_delta(after.get(joint), before.get(joint)):>8}")
-            bits = state.get("home_switch_bits")
-            if isinstance(bits, int):
-                active = [name for name, bit in SWITCH_BITS if bits & bit]
-                lines += ["", f"home switch bits {bits:#07b}  set: {', '.join(active) or 'none'}"
-                              "  (legacy decode; polarity unverified)"]
-                if bits >= 32:
-                    lines.append(f"!!! byte 5 = {bits} has a bit >= 32; legacy homing misreads the "
-                                 "switches. Do not home.")
+            lines += self._state_lines(self.state)
         if self.samples:
             lines.append(f"idle samples {self.samples}")
         lines += ["", "recent events:"]
-        for source, kind, detail in self.events:
-            lines.append(f"  {source:<10} {kind:<22} {detail[:width - 36]}")
-        age = ("never" if self.last_write_epoch is None
-               else f"{max(0.0, time.time() - self.last_write_epoch):.1f} s ago")
+        lines += [f"  {source:<10} {kind:<22} {detail[:width - 36]}"
+                  for source, kind, detail in self.events]
+        age = ("never" if last_write_epoch is None
+               else f"{max(0.0, time.time() - last_write_epoch):.1f} s ago")
         lines += [rule, f"last log write {age}. A quiet screen does not prove the USB link "
                         "is alive."]
         return "\n".join(lines)
+
+    def _state_lines(self, state: dict) -> list[str]:
+        fault = state.get("fault")
+        lines = ["",
+                 f"enabled {state.get('enabled')}  homed {state.get('homed')}  "
+                 f"packet {state.get('packet_index')}  from {self.state_source}",
+                 f"fault   {fault if fault else 'none'}",
+                 "",
+                 f"{'joint':<15}{'raw':>8}{'signed':>9}{'sign':>6}{'err':>6}"
+                 f"{'d_start':>9}{'plan':>8}{'moved':>8}"]
+        counts = state["encoder_counts"]
+        signed = state.get("signed_encoder_counts") or {}
+        signs = state.get("encoder_sign_bytes") or {}
+        errors = state.get("controller_error_counts") or {}
+        planned = self.plan_deltas or {}
+        for joint in JOINTS:
+            lines.append(
+                f"{joint:<15}{_cell(counts.get(joint)):>8}{_cell(signed.get(joint)):>9}"
+                f"{_cell(signs.get(joint)):>6}{_cell(errors.get(joint)):>6}"
+                f"{_delta(counts.get(joint), self.first_counts.get(joint)):>9}"
+                f"{_cell(planned.get(joint)):>8}"
+                f"{_delta(self.after_counts.get(joint), self.before_counts.get(joint)):>8}")
+        bits = state.get("home_switch_bits")
+        if isinstance(bits, int):
+            active = [name for name, bit in HOME_SWITCH_BITS.items() if bits & bit]
+            lines += ["", f"home switch bits {bits:#07b}  set: {', '.join(active) or 'none'}"
+                          "  (legacy decode; polarity unverified)"]
+            if bits & ~KNOWN_SWITCH_MASK:
+                lines.append(f"!!! byte 5 = {bits} has a bit >= 32; legacy homing misreads the "
+                             "switches. Do not home.")
+        return lines
 
 
 def _cell(value):
@@ -210,23 +202,25 @@ def main(argv=None) -> int:
     def refresh():
         rows = [(row.get("host_monotonic_ns"), source, row)
                 for source, follower in followers for row in follower.poll()]
-        # Rows without a monotonic stamp (the idle session header) keep file order first.
+        # Display events in time order; unstamped rows (the idle header) go first.
         rows.sort(key=lambda item: item[0] if type(item[0]) is int else -1)
         for _stamp, source, row in rows:
             view.add(row, source)
+
+    def screen():
         stamps = [f.modified_epoch for _, f in followers if f.modified_epoch is not None]
-        view.last_write_epoch = max(stamps) if stamps else None
+        return view.render(last_write_epoch=max(stamps, default=None))
 
     if args.once:
         refresh()
-        print(view.render())
+        print(screen())
         return 0
     if sys.platform == "win32":
         os.system("")  # Enables ANSI escape handling in the classic Windows console.
     try:
         while True:
             refresh()
-            sys.stdout.write("\x1b[H\x1b[2J" + view.render() + "\n\n(Ctrl-C closes this view only)\n")
+            sys.stdout.write("\x1b[H\x1b[2J" + screen() + "\n\n(Ctrl-C closes this view only)\n")
             sys.stdout.flush()
             time.sleep(args.interval)
     except KeyboardInterrupt:

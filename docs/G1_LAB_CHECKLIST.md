@@ -42,7 +42,7 @@ Roles. Write names, and don't let one person hold two roles:
 
 - [ ] Run `record_raw_state.py` with a **new** output name, e.g. `logs\idle-01.jsonl` (see bench guide §3).
 - [ ] Run `scripts\review_lab_logs.py --idle ...`. Packet indices increase, there is no fault, and counts are steady at rest.
-- [ ] `home_switch_bits` at the start pose is below 32, and record which bits are set: ______. The legacy switch decoder (`libdef.get_switch`) misreads byte 5 when any bit ≥ 32 is set: the shoulder search would miss its switch and the elbow, pitch and roll would be treated as already home. **If it is 32 or more, do not home today.**
+- [ ] `home_switch_bits` at the start pose is below 32, and record which bits are set: ______. The legacy switch decoder (`libdef.get_switch`) misreads byte 5 when any bit ≥ 32 is set: the shoulder search would miss its switch and the elbow, pitch and roll would be treated as already home. **If it is 32 or more, do not home today.** `home()` also refuses such a byte before sending anything.
 - [ ] **Stop and review if anything looks wrong.** Homing waits until the idle log is understood.
 
 ## D. One home and one base jog

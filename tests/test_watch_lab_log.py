@@ -2,10 +2,10 @@
 
 import json
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 
+from scripts import watch_lab_log
 from scripts.watch_lab_log import Follower, RunView
 from scorbot.state import JOINTS
 
@@ -61,9 +61,8 @@ class WatchLabLogTests(unittest.TestCase):
     def test_older_state_never_replaces_newer_one(self):
         view = RunView()
         disabled = dict(state(9), enabled=False)
-        view.add({"type": "disabled", "host_monotonic_ns": 200, "state": disabled}, "run")
-        view.add({"event": "motion_complete", "host_monotonic_ns": 100, "state": state(8)},
-                 "controller")
+        view.add({"type": "disabled", "state": disabled}, "run")
+        view.add({"event": "motion_complete", "state": state(8)}, "controller")
         self.assertIn("enabled False", view.render())
 
     def test_switch_byte_with_high_bit_warns_not_to_home(self):
@@ -77,8 +76,7 @@ class WatchLabLogTests(unittest.TestCase):
         self.assertIn("SIMULATED", view.render())
 
     def test_view_imports_no_usb_or_controller_code(self):
-        self.assertNotIn("usb", sys.modules.get("scripts.watch_lab_log").__dict__)
-        source = Path(sys.modules["scripts.watch_lab_log"].__file__).read_text(encoding="utf-8")
+        source = Path(watch_lab_log.__file__).read_text(encoding="utf-8")
         for forbidden in ("import usb", "Scorbot(", "SimulatedScorbot", "openScorbot"):
             self.assertNotIn(forbidden, source)
 

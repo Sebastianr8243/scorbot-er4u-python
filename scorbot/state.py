@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 JOINTS = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2", "gripper")
 ENCODER_OFFSETS = (19, 24, 29, 34, 39, 44)
 ERROR_OFFSETS = (22, 27, 32, 37, 42, 47)
+# Legacy home-switch bits in packet byte 5 (libdef.get_switch); polarity unverified.
+HOME_SWITCH_BITS = {"base": 1, "shoulder": 2, "elbow": 4, "wrist_pitch": 8, "wrist_roll": 16}
 
 
 @dataclass(frozen=True)
