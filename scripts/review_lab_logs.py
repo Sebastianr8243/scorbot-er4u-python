@@ -59,10 +59,16 @@ def review_idle(path):
         problems.append("idle sample does not report motors disabled")
     ranges = {}
     for joint in JOINTS:
-        values = [state.get("signed_encoder_counts", {}).get(joint)
-                  for state in samples]
+        values = [state.get("encoder_counts", {}).get(joint) for state in samples]
         if values and all(type(value) is int for value in values):
-            ranges[joint] = max(values) - min(values)
+            # Measure against the first sample with the wrap-aware delta: signed
+            # counts jump by 65536 when a joint at rest jitters across 0/65535.
+            try:
+                offsets = [signed_count_delta(value, values[0]) for value in values]
+            except ValueError:
+                problems.append(f"ambiguous {joint} count change at rest")
+                continue
+            ranges[joint] = max(offsets) - min(offsets)
     return {
         "file": str(path), "kind": "idle", "robot_id": session.get("robot_id") if session else None,
         "data_source": (session or {}).get("data_source", "real"),

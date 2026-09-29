@@ -38,6 +38,23 @@ class LabLogReviewTests(unittest.TestCase):
             self.assertEqual(result["count_range_at_rest"]["base"], 1)
             self.assertTrue(result["physical_review_required"])
 
+    def test_idle_range_is_wrap_aware_at_the_zero_seam(self):
+        def seam_state(index, raw, sign):
+            sample = state(index)
+            sample["encoder_counts"]["base"] = raw
+            sample["encoder_sign_bytes"]["base"] = sign
+            sample["signed_encoder_counts"]["base"] = raw if sign == 128 else raw - 65535
+            return sample
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idle.jsonl"
+            write_rows(path, [
+                {"type": "session", "robot_id": "arm-1", "motion_source_sha256": "a" * 64},
+                {"type": "sample", "state": seam_state(1, 65535, 128)},
+                {"type": "sample", "state": seam_state(2, 65534, 127)},
+            ])
+            self.assertEqual(review_idle(path)["count_range_at_rest"]["base"], 1)
+
     def test_bench_reports_count_mismatch_without_claiming_motion_safe(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bench.jsonl"
