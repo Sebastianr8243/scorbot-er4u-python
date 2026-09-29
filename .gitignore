@@ -16,3 +16,10 @@ rehearsal/
 .coverage.*
 .hypothesis/
 .pytest_cache/
+
+# Claude Code agent worktrees (temporary, per session)
+.claude/worktrees/
+
+# Intelitek manuals: copyrighted; keep local, do not publish (see docs/HARDWARE_REFERENCE.md)
+references/er4u_manual_100343-b.pdf
+references/controller_usb_manual_100341-g.pdf

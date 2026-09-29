@@ -23,6 +23,11 @@ from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder, SessionWriter
 
+try:
+    from examples.bench_joint import observe_leds
+except ImportError:  # Run as a script: examples/ itself is on sys.path.
+    from bench_joint import observe_leds
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -89,42 +94,48 @@ def main() -> int:
         robot_id=args.robot_id.strip(), controller_id=args.controller_label.strip(),
         operator=args.operator.strip(), task=f"idle capture ({output.name})",
         start_pose_note=args.pose_note.strip(), usb_driver=args.driver.strip())
-    with recorder as writer, \
-            robot_class(log_path=event_log, robot_id=args.robot_id.strip()) as robot, \
-            output.open("x", encoding="utf-8") as stream:
+    with recorder as writer, output.open("x", encoding="utf-8") as stream:
         rec = BestEffortRecorder(writer)
-        session = {
-            "type": "session",
-            "schema_version": 1,
-            "robot_id": args.robot_id.strip(),
-            "arm_label": args.arm_label.strip(),
-            "controller_label": args.controller_label.strip(),
-            "driver": args.driver.strip(),
-            "operator": args.operator.strip(),
-            "pose_note": args.pose_note.strip(),
-            "motion_source_sha256": motion_source_sha256(),
-            "started_utc": datetime.now(timezone.utc).isoformat(),
-            "requested_seconds": args.seconds,
-            "requested_hz": args.hz,
-            "controller_event_log": event_log.name,
-            "data_source": data_source,
-            "mcap_session": rec.path.name,
-        }
-        stream.write(json.dumps(session, allow_nan=False) + "\n")
-        next_sample = time.monotonic()
-        for index in range(sample_count):
-            time.sleep(max(0.0, next_sample - time.monotonic()))
-            state = robot.get_state()
-            sample = {
-                "type": "sample",
-                "index": index,
-                "host_monotonic_ns": time.monotonic_ns(),
-                "state": asdict(state),
-            }
-            stream.write(json.dumps(sample, allow_nan=False) + "\n")
+
+        def write(kind, **fields):
+            stream.write(json.dumps({"type": kind, "host_monotonic_ns": time.monotonic_ns(),
+                                     **fields}, allow_nan=False) + "\n")
             stream.flush()
-            rec.log_state(state)
-            next_sample += 1 / args.hz
+
+        with robot_class(log_path=event_log, robot_id=args.robot_id.strip()) as robot:
+            session = {
+                "type": "session",
+                "schema_version": 1,
+                "robot_id": args.robot_id.strip(),
+                "arm_label": args.arm_label.strip(),
+                "controller_label": args.controller_label.strip(),
+                "driver": args.driver.strip(),
+                "operator": args.operator.strip(),
+                "pose_note": args.pose_note.strip(),
+                "motion_source_sha256": motion_source_sha256(),
+                "started_utc": datetime.now(timezone.utc).isoformat(),
+                "requested_seconds": args.seconds,
+                "requested_hz": args.hz,
+                "controller_event_log": event_log.name,
+                "data_source": data_source,
+                "mcap_session": rec.path.name,
+                "led_prompts": True,
+            }
+            stream.write(json.dumps(session, allow_nan=False) + "\n")
+            # Connect ends with a motor-disable request, so motors should be off.
+            # Asked before sampling so a lit MOTORS LED is caught straight away.
+            observe_leds("after_connect", write, rec,
+                         expect_motors="off", expect_power="green")
+            next_sample = time.monotonic()
+            for index in range(sample_count):
+                time.sleep(max(0.0, next_sample - time.monotonic()))
+                state = robot.get_state()
+                write("sample", index=index, state=asdict(state))
+                rec.log_state(state)
+                next_sample += 1 / args.hz
+        # The controller is released, so motors must be off. POWER has no fixed
+        # expectation here: the manual does not say which colour follows a close.
+        observe_leds("after_exit", write, rec, expect_motors="off")
 
     print(f"Saved {sample_count} raw samples to {output}")
     print(f"Saved controller events to {event_log}")

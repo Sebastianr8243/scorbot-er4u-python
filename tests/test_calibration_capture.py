@@ -56,7 +56,8 @@ class RawCaptureTests(unittest.TestCase):
                     patch.object(record_raw_state, "run_checks",
                                  return_value=[Check("USB", True, "mocked")]), \
                     patch.object(record_raw_state, "Scorbot", FakeRobot), \
-                    patch.object(record_raw_state.time, "sleep"):
+                    patch.object(record_raw_state.time, "sleep"), \
+                    patch("builtins.input", side_effect=["n", "g", "n", "o"]):
                 self.assertEqual(record_raw_state.main(), 0)
 
             rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
@@ -64,7 +65,8 @@ class RawCaptureTests(unittest.TestCase):
             self.assertEqual(rows[0]["robot_id"], "test-arm")
             self.assertEqual(rows[0]["arm_label"], "arm-plate")
             self.assertEqual(len(rows[0]["motion_source_sha256"]), 64)
-            self.assertEqual(rows[1]["state"], asdict(state))
+            samples = [row for row in rows if row["type"] == "sample"]
+            self.assertEqual(samples[0]["state"], asdict(state))
 
 
 if __name__ == "__main__":

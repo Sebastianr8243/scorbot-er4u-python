@@ -337,7 +337,7 @@ class CliTests(TempDirCase):
              "--joint", "base", "--delta", "1", "--simulate",
              "--acknowledge-supervised-motion"],
             cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
-            input="HOME\nok\nHOME_OK\nMOVE\nleft\nnone\nnone\nnone\n")
+            input="n\ng\nHOME\ny\ng\nok\nHOME_OK\nMOVE\ny\ng\nleft\nnone\nnone\nnone\nn\ng\n")
         self.assertEqual(bench.returncode, 0, bench.stderr)
         sys.path.insert(0, str(REPO_ROOT / "scripts"))
         try:

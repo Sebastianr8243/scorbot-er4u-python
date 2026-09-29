@@ -1,0 +1,170 @@
+{
+  "configById": {
+    "Plot!counts": {
+      "foxglovePanelTitle": "Joint counts",
+      "paths": [
+        {
+          "value": "/robot/state.signed_encoder_counts.base",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/robot/state.signed_encoder_counts.shoulder",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/robot/state.signed_encoder_counts.elbow",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/robot/state.signed_encoder_counts.wrist_motor_1",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/robot/state.signed_encoder_counts.wrist_motor_2",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showLegend": true,
+      "isSynced": true
+    },
+    "Plot!errors": {
+      "foxglovePanelTitle": "Controller error",
+      "paths": [
+        {
+          "value": "/robot/state.controller_error_counts.base",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/robot/state.controller_error_counts.shoulder",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/robot/state.controller_error_counts.elbow",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/robot/state.controller_error_counts.wrist_motor_1",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        },
+        {
+          "value": "/robot/state.controller_error_counts.wrist_motor_2",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showLegend": true,
+      "isSynced": true
+    },
+    "Plot!switches": {
+      "foxglovePanelTitle": "Switch bits",
+      "paths": [
+        {
+          "value": "/robot/state.home_switch_bits",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showLegend": true,
+      "isSynced": true
+    },
+    "StateTransitions!cmd": {
+      "foxglovePanelTitle": "Command kind",
+      "paths": [
+        {
+          "value": "/robot/command.kind",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "isSynced": true
+    },
+    "StateTransitions!result": {
+      "foxglovePanelTitle": "Command result",
+      "paths": [
+        {
+          "value": "/robot/command_result.status",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "isSynced": true
+    },
+    "StateTransitions!decision": {
+      "foxglovePanelTitle": "Operator decision",
+      "paths": [
+        {
+          "value": "/operator/decision.choice",
+          "enabled": true,
+          "timestampMethod": "receiveTime"
+        }
+      ],
+      "isSynced": true
+    },
+    "RawMessages!fault": {
+      "foxglovePanelTitle": "Faults",
+      "topicPath": "/session/fault"
+    },
+    "RawMessages!note": {
+      "foxglovePanelTitle": "Notes",
+      "topicPath": "/session/note"
+    },
+    "Image!cam0": {
+      "foxglovePanelTitle": "Camera cam0",
+      "imageMode": {
+        "imageTopic": "/camera/cam0/image"
+      }
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "direction": "row",
+    "first": "Image!cam0",
+    "second": {
+      "direction": "row",
+      "first": {
+        "direction": "column",
+        "first": "Plot!counts",
+        "second": {
+          "direction": "column",
+          "first": "Plot!errors",
+          "second": "Plot!switches"
+        }
+      },
+      "second": {
+        "direction": "column",
+        "first": "StateTransitions!cmd",
+        "second": {
+          "direction": "column",
+          "first": "StateTransitions!result",
+          "second": {
+            "direction": "column",
+            "first": "StateTransitions!decision",
+            "second": {
+              "direction": "column",
+              "first": "RawMessages!fault",
+              "second": "RawMessages!note"
+            }
+          }
+        }
+      },
+      "splitPercentage": 65
+    },
+    "splitPercentage": 22
+  }
+}

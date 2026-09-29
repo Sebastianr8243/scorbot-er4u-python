@@ -5,6 +5,8 @@ import json
 import math
 from pathlib import Path
 
+from .nominal import check_soft_limit_span
+
 
 CALIBRATED_JOINTS = ("base", "shoulder", "elbow")
 
@@ -88,6 +90,8 @@ def load_calibration(path: str | Path, *, robot_id: str) -> Calibration:
             raise ValueError(f"Missing physical validation counts for {name}")
         if abs(scale) < 1 or lower >= upper or not lower <= home_angle <= upper or error < 0 or error > 2 or motion_error < 0 or motion_error > 2:
             raise ValueError(f"Invalid fitted range or error for {name}")
+        # Manual travel bounds the span only; sign and zero are unverified.
+        check_soft_limit_span(name, lower, upper)
         joints[name] = JointCalibration(
             name, home, home_angle, scale, lower, upper, tolerance, error, motion_error)
     return Calibration(robot_id, source, joints)

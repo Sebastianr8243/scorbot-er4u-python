@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import threading
 import time
 
+from .state import PACKET_MIN_LENGTH
+
 
 @dataclass(frozen=True)
 class PacketSnapshot:
@@ -42,7 +44,7 @@ class TrackedInputEndpoint:
         with self._condition:
             while True:
                 sample = self._latest
-                if (sample is not None and len(sample.data) >= 49
+                if (sample is not None and len(sample.data) >= PACKET_MIN_LENGTH
                         and (after_index is None or sample.index > after_index)
                         and time.monotonic_ns() - sample.host_monotonic_ns
                         <= int(max_age * 1e9)):

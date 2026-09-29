@@ -16,13 +16,13 @@ Roles. Write names, and don't let one person hold two roles:
 - [ ] On the robot PC, or on a laptop with the same setup, these pass:
   - `.\.venv\Scripts\python.exe -m unittest discover -s tests`
   - `.\.venv\Scripts\python.exe examples\preview_jog.py --joint base --delta 1`, which is offline and prints the plan only
-- [ ] **Rehearse the whole visit at a desk with the simulated robot.** Use a rehearsal folder, **not** `logs\`, so rehearsal files never mix with lab evidence:
+- [ ] **Rehearse the whole visit at a desk with the simulated robot.** If rehearsing on the robot PC, unplug or power off the controller first: a command pasted without `--simulate` is a real connect, and the handshake energises the motors. Use a rehearsal folder, **not** `logs\`, so rehearsal files never mix with lab evidence:
   ```powershell
   .\.venv\Scripts\python.exe .\examples\record_raw_state.py --output .\rehearsal\idle-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --pose-note rehearsal --seconds 2 --simulate --acknowledge-connect-handshake
   .\.venv\Scripts\python.exe .\examples\bench_joint.py --output .\rehearsal\base-first-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --start-pose-note rehearsal --joint base --delta 1 --simulate --acknowledge-supervised-motion
   .\.venv\Scripts\python.exe .\scripts\review_lab_logs.py --idle .\rehearsal\idle-01.jsonl --bench .\rehearsal\base-first-01.jsonl
   ```
-  Everyone practises the prompts (`HOME`, `HOME_OK`, `MOVE`) and the review. Every output says **SIMULATED**.
+  Everyone practises the prompts (`HOME`, `HOME_OK`, `MOVE`, and the one-key LED checks) and the review. Every output says **SIMULATED**.
 - [ ] Commit to record: `git rev-parse HEAD` → ______________________
 - [ ] Printed: this checklist, one observation sheet per planned run, and a photo or sketch of the ScorBot-software home start pose.
 
@@ -33,33 +33,45 @@ Roles. Write names, and don't let one person hold two roles:
 - [ ] The base is secured, and the **whole** possible arm path is clear of people, cables, and objects.
 - [ ] The stop operator presses the emergency stop and releases it once, so everyone knows where it is and that it works.
 - [ ] Everyone knows: **connecting briefly energises the motors.** `disable()` is **not** an emergency stop.
+- [ ] The recorder can see the controller's front panel. The green **MOTORS** LED is the only independent evidence of motor power; the SDK's `enabled` is command history. **POWER**: green = communicating with the PC, orange = not communicating, flashing = USB timeout ([hardware reference](HARDWARE_REFERENCE.md)). Before connecting: POWER ______ MOTORS ______
+- [ ] `openScorbot\data.json` was freshly created on this PC by the step A checks, not copied from elsewhere or hand-edited. The legacy code creates it once from the defaults in `conf.py` and never overwrites it, so an old copy silently replaces the packet timing and limits. If unsure, delete it; the next run recreates the defaults.
 - [ ] Preflight passes: `.\.venv\Scripts\python.exe -m scorbot.preflight`. If it fails, stop here.
+- [ ] Optional: the recorder opens a second terminal **in the repository root** with the read-only live view, using the same output path as the run: `.\.venv\Scripts\python.exe -m scripts.watch_lab_log .\logs\base-first-01.jsonl`. It only reads the log files and cannot command the arm. Closing it does not affect the run.
 - [ ] The arm is in the documented start pose, and a photo was taken. Photo file: ____________
 
 ## C. Idle capture (no motion requested)
 
-- [ ] Run `record_raw_state.py` with a **new** output name, e.g. `logs\idle-01.jsonl` (see bench guide §3).
+- [ ] Run `record_raw_state.py` with a **new** output name, e.g. `logs\idle-01.jsonl` (see bench guide §3). It asks for the LEDs after connect and after exit.
 - [ ] Run `scripts\review_lab_logs.py --idle ...`. Packet indices increase, there is no fault, and counts are steady at rest.
+- [ ] `home_switch_bits` at the start pose is below 32, and record which bits are set: ______. The legacy switch decoder (`libdef.get_switch`) misreads byte 5 when any bit ≥ 32 is set: the shoulder search would miss its switch and the elbow, pitch and roll would be treated as already home. **If it is 32 or more, do not home today.** `home()` also refuses such a byte before sending anything.
 - [ ] **Stop and review if anything looks wrong.** Homing waits until the idle log is understood.
 
 ## D. One home and one base jog
+
+**Pause points (spoken, everyone stops):** ⏸ before `HOME`, ⏸ before `MOVE`. At each one the keyboard operator reads the step aloud and the stop operator answers "clear, hand on stop" before anything is typed. During motion, all eyes are on the arm and the LEDs, not on a screen.
 
 - [ ] Choose `--delta 1` or `--delta -1` from **visible clearance**, not from an assumed "positive" direction. Chosen: ______
 - [ ] Run `bench_joint.py --joint base --speed 10` with a new output name (see bench guide §4).
 - [ ] At the `HOME` prompt, the stop operator confirms they are ready and the start pose matches the photo.
 - [ ] Watch the entire home search. Type `HOME_OK` **only** if it looked right. Otherwise decline, and the run ends.
-- [ ] Read the printed plan (joint, signed target counts, increments) aloud before typing `MOVE`.
-- [ ] Answer the post-jog prompts honestly. "Not sure" is a valid answer.
+- [ ] ⏸ Read the printed plan (joint, sign, signed target counts) aloud; the stop operator repeats the joint and direction back before `MOVE` is typed.
+- [ ] **Record blind:** right after the jog, the recorder writes the observed direction (against a lab landmark), whether any other joint moved, and the LEDs on the sheet **before** looking at the plan, the terminal or the live view. The stop operator says what they saw first; then the keyboard operator types it. "Not sure" is a valid answer.
+- [ ] At each `LED check` (after connect, `enable`, the jog, `disable`) the recorder reads the front panel aloud and the keyboard operator types one key: MOTORS `y`/`n`/`u`, POWER `g`/`o`/`f`/`u`. The script does not say what it expects. A `!!! WARNING` means the answer contradicts the software: stop and check. The run never stops on its own; after `enable`, a mismatch asks for `CONTINUE` before homing starts.
 - [ ] Run `review_lab_logs.py --idle ... --bench ...`. An exit code of 0 only means the log can be read. It does **not** mean the motion was safe.
+- [ ] Declining at `HOME`, `HOME_OK`, `MOVE` or `CONTINUE` is the procedure working: the script disconnects, prints "Run ended by the operator", exits with code 3 and logs `operator_declined`, with no alarm. A "Session failed ... physical stop" message means a real fault.
 
 ## E. Stop immediately if any of these happen
 
 - The arm moves when no motion was requested, or a joint other than the one requested moves.
 - The direction disagrees with the plan, or the count change disagrees with the observed motion.
 - There is a timeout, a stale response, an error, or the motor state is uncertain.
+- The terminal prints `*** USB ... worker stopped ...`, even while waiting at a prompt. The controller is no longer receiving packets.
+- The MOTORS LED is on when the software says motors are disabled, or POWER turns orange or flashes during a run.
 - Anyone asks to stop.
 
-After a stop: press the physical stop. Don't retry the command in this session. Photograph the pose, and write down what happened while it's fresh.
+Ctrl-C, a Python timeout, or closing the console window does **not** stop a move in progress. The disable is queued behind the current motion, and closing the window can skip it entirely. Use the physical stop.
+
+After a stop: press the physical stop. Don't retry the command in this session. After the e-stop is released the controller stays in control-off (MOTORS LED off) until a new control-on, and the SDK no longer knows the motor state, so any further motion needs a **new Python session** after the logs are reviewed. Photograph the pose, and write down what happened while it's fresh.
 
 ## F. Before any second movement
 
@@ -95,11 +107,13 @@ stop, error, or other: <what happened>.
 | Home search: what moved, in what order, anything odd | |
 | Typed `HOME_OK`? If not, why | |
 | Planned count change (from the printed plan) | |
-| **Observed direction** (a lab reference, e.g. "toward the door", and about how far) | |
+| **Observed direction** (a lab reference, e.g. "toward the door") | |
+| Approximate displacement | |
 | **Other joints moved** (yes / no) | |
-| Controller LEDs or sounds | |
+| POWER / MOTORS LEDs (warnings, changes between prompts, and state after exit) | |
+| Controller sounds | |
 | **Python returned normally** (yes / error text) | |
-| **How run ended** | |
+| **How run ended** (normal return / declined prompt / emergency stop / error) | |
 | Log review: planned vs observed counts | |
 | **Discrepancies** (between this sheet and the log; "none" if none) | |
 | **Reviewed by** (name / date, filled in later) | |

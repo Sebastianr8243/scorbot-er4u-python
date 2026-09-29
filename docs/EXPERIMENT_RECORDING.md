@@ -58,6 +58,23 @@ Camera frames use Foxglove's official `foxglove.CompressedImage` schema, so
 they display without any plugin. Both viewers read MCAP `log_time` as wall
 time.
 
+## Viewing recordings
+
+The `scorbot.*` schemas list every field, so viewers autocomplete paths such as
+`/robot/state.signed_encoder_counts.base`.
+
+- **Foxglove:** open `session.mcap`, then **Layouts > Import from file** and
+  choose `tools/foxglove/scorbot_lab_layout.json`. It has joint-count, error and
+  switch-bit plots, command/result/decision timelines, fault and note panels,
+  and the `cam0` image. If a panel looks empty, re-pick its topic path; the
+  layout was written by hand and not opened in Foxglove.
+- **PlotJuggler:** open the MCAP with its MCAP data-loader plugin and plot the
+  same paths (for example `/robot/state/signed_encoder_counts/base`).
+- **Rerun:** not supported yet; a future exporter could feed it.
+
+Plot `signed_encoder_counts`. The unsigned `encoder_counts` are 16-bit and draw
+a sawtooth each time they wrap.
+
 ## Recording from your own script
 
 ```python
