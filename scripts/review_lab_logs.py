@@ -112,6 +112,7 @@ def review_bench(path):
     problems = [f"missing {kind}" for kind in required if kind not in events]
     if "session_failed" in events:
         problems.append("session reported failure")
+    declined = events.get("operator_declined", {}).get("text")
     states = [events[kind]["state"] for kind in
               ("connected", "home_complete", "before_jog", "after_jog", "disabled")
               if isinstance(events.get(kind, {}).get("state"), dict)]
@@ -151,6 +152,7 @@ def review_bench(path):
         "joint": session.get("joint"), "requested_delta_deg": session.get("requested_delta_deg"),
         "count_deltas": deltas, "home_observation": events.get("home_observation"),
         "operator_observation": observation, "led_observations": leds,
+        "operator_declined": declined,
         "problems": sorted(set(problems)),
         "physical_review_required": True,
     }

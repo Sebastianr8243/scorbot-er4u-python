@@ -48,14 +48,17 @@ Roles. Write names, and don't let one person hold two roles:
 
 ## D. One home and one base jog
 
+**Pause points (spoken, everyone stops):** ⏸ before `HOME`, ⏸ before `MOVE`. At each one the keyboard operator reads the step aloud and the stop operator answers "clear, hand on stop" before anything is typed. During motion, all eyes are on the arm and the LEDs, not on a screen.
+
 - [ ] Choose `--delta 1` or `--delta -1` from **visible clearance**, not from an assumed "positive" direction. Chosen: ______
 - [ ] Run `bench_joint.py --joint base --speed 10` with a new output name (see bench guide §4).
 - [ ] At the `HOME` prompt, the stop operator confirms they are ready and the start pose matches the photo.
 - [ ] Watch the entire home search. Type `HOME_OK` **only** if it looked right. Otherwise decline, and the run ends.
-- [ ] Read the printed plan (joint, signed target counts, increments) aloud before typing `MOVE`.
-- [ ] Answer the post-jog prompts honestly. "Not sure" is a valid answer.
+- [ ] ⏸ Read the printed plan (joint, sign, signed target counts) aloud; the stop operator repeats the joint and direction back before `MOVE` is typed.
+- [ ] **Record blind:** right after the jog, the recorder writes the observed direction (against a lab landmark), whether any other joint moved, and the LEDs on the sheet **before** looking at the plan, the terminal or the live view. The stop operator says what they saw first; then the keyboard operator types it. "Not sure" is a valid answer.
 - [ ] At each `LED check` (after connect, `enable`, the jog, `disable`) the recorder reads the front panel aloud and the keyboard operator types one key: MOTORS `y`/`n`/`u`, POWER `g`/`o`/`f`/`u`. The script does not say what it expects. A `!!! WARNING` means the answer contradicts the software: stop and check. The run never stops on its own; after `enable`, a mismatch asks for `CONTINUE` before homing starts.
 - [ ] Run `review_lab_logs.py --idle ... --bench ...`. An exit code of 0 only means the log can be read. It does **not** mean the motion was safe.
+- [ ] Declining at `HOME`, `HOME_OK`, `MOVE` or `CONTINUE` is the procedure working: the script disconnects, prints "Run ended by the operator", exits with code 3 and logs `operator_declined`, with no alarm. A "Session failed ... physical stop" message means a real fault.
 
 ## E. Stop immediately if any of these happen
 
@@ -68,7 +71,7 @@ Roles. Write names, and don't let one person hold two roles:
 
 Ctrl-C, a Python timeout, or closing the console window does **not** stop a move in progress. The disable is queued behind the current motion, and closing the window can skip it entirely. Use the physical stop.
 
-After a stop: press the physical stop. Don't retry the command in this session. Photograph the pose, and write down what happened while it's fresh.
+After a stop: press the physical stop. Don't retry the command in this session. After the e-stop is released the controller stays in control-off (MOTORS LED off) until a new control-on, and the SDK no longer knows the motor state, so any further motion needs a **new Python session** after the logs are reviewed. Photograph the pose, and write down what happened while it's fresh.
 
 ## F. Before any second movement
 

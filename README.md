@@ -68,6 +68,7 @@ None of these open USB or command the arm.
 - `scripts/usb_trace.py` with [docs/USB_CAPTURE.md](docs/USB_CAPTURE.md): read Wireshark/USBPcap captures and compare the Intelitek software's packets with this code's.
 - `scorbot.kinematics` and `examples/kinematics_check.py`: nominal DH model (forward and inverse kinematics, trapezoidal trajectories) for validating the legacy `libdef.cIn`. The geometry is unmeasured, and the model is not wired into any motion command.
 - `tools/foxglove/scorbot_lab_layout.json`: Foxglove layout for recorded sessions; see [Viewing recordings](docs/EXPERIMENT_RECORDING.md).
+- [docs/OPERATOR_UX.md](docs/OPERATOR_UX.md): the evidence behind the prompts and warnings, and the UX backlog.
 - `tests/test_properties.py`: Hypothesis property tests for the encoder and packet arithmetic. Install with `pip install -e ".[dev]"`; add `kinematics` to also run the Robotics Toolbox cross-check.
 
 ## Development checks

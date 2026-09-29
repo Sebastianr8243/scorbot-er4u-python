@@ -15,7 +15,7 @@ from scorbot.state import RobotState
 
 
 class BenchGateTests(unittest.TestCase):
-    def run_bench(self, answers, expected_error):
+    def run_bench(self, answers, expected_reason):
         calls = self.calls = []
         stdout = io.StringIO()
         state = RobotState(
@@ -64,9 +64,11 @@ class BenchGateTests(unittest.TestCase):
                     patch.object(bench_joint, "Scorbot", FakeRobot), \
                     patch("builtins.input", side_effect=answers), \
                     contextlib.redirect_stdout(stdout):
-                with self.assertRaisesRegex(RuntimeError, expected_error):
-                    bench_joint.main()
+                self.assertEqual(bench_joint.main(), bench_joint.EXIT_DECLINED)
             rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(rows[-1]["type"], "operator_declined")
+        self.assertIn(expected_reason, rows[-1]["text"])
+        self.assertNotIn("Traceback", stdout.getvalue())
         return rows, stdout.getvalue()
 
     def test_operator_declining_home_prevents_jog(self):
@@ -74,7 +76,9 @@ class BenchGateTests(unittest.TestCase):
                                  "no jog requested")
         self.assertEqual(self.calls, ["connect", "enable", "home", "disconnect"])
         self.assertTrue(any(row.get("type") == "home_observation" for row in rows))
-        self.assertTrue(any(row.get("type") == "session_failed" for row in rows))
+        self.assertEqual(rows[-1], {**rows[-1], "type": "operator_declined",
+                                    "text": "stopped after homing; no jog requested"})
+        self.assertFalse(any(row.get("type") == "session_failed" for row in rows))
         self.assertEqual([r["step"] for r in rows if r["type"] == "led_observation"],
                          ["after_connect", "after_enable"])
         self.assertFalse(any(r["type"] == "led_mismatch" for r in rows))

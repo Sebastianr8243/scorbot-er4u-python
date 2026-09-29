@@ -18,6 +18,13 @@ from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder, SessionWriter
 
+# Exit code for a run the operator ended at a prompt (0 = completed, 1 = failed).
+EXIT_DECLINED = 3
+
+
+class OperatorDeclined(Exception):
+    """The operator chose not to continue at a confirmation prompt."""
+
 # Operator LED observations. The SDK's ``enabled`` is only command history; the
 # controller's green MOTORS LED is the only independent evidence of motor power,
 # and POWER is green while the controller is communicating with the PC (orange:
@@ -108,7 +115,7 @@ def observe_leds(step, write, rec, *, expect_motors=None, expect_power=None,
         rec.log_decision("CONTINUE" if answer == "CONTINUE" else "declined",
                          reason=f"typed {answer!r} after LED mismatch {step}")
         if answer != "CONTINUE":
-            raise RuntimeError(f"Operator stopped after LED mismatch {step}")
+            raise OperatorDeclined(f"stopped after LED mismatch {step}")
     return row
 
 
@@ -209,7 +216,7 @@ def main() -> int:
                              expect_motors="off", expect_power="green")
                 print("Confirm the arm is in the documented legacy homing start pose.")
                 if prompt("Type HOME to search home: ", "HOME") != "HOME":
-                    raise RuntimeError("Operator canceled before homing")
+                    raise OperatorDeclined("declined before homing")
                 robot.enable()
                 # home() follows with no other prompt, so a mismatch asks to continue.
                 observe_leds("after_enable", write, rec, expect_motors="lit",
@@ -227,7 +234,7 @@ def main() -> int:
                 rec.log_note(f"home observation: {home_observation or 'not recorded'}")
                 if prompt("If home looked correct and travel is clear, type HOME_OK: ",
                           "HOME_OK") != "HOME_OK":
-                    raise RuntimeError("Operator stopped after homing; no jog requested")
+                    raise OperatorDeclined("stopped after homing; no jog requested")
                 preview_state = robot.get_state()
                 preview = robot.preview_jog(
                     args.joint, args.delta, speed=args.speed,
@@ -238,7 +245,7 @@ def main() -> int:
                 print(json.dumps(preview, indent=2))
                 print("Clear the travel path and keep the emergency stop within reach.")
                 if prompt("Type MOVE for one bounded jog: ", "MOVE") != "MOVE":
-                    raise RuntimeError("Operator canceled before jog")
+                    raise OperatorDeclined("declined before the jog")
                 before = robot.get_state()
                 write("before_jog", state=asdict(before))
                 rec.log_state(before)
@@ -271,6 +278,13 @@ def main() -> int:
                 rec.log_state(disabled)
                 observe_leds("after_disable", write, rec,
                              expect_motors="off", expect_power="green")
+        except OperatorDeclined as exc:
+            # A decline is the procedure working, not a fault: no traceback, no
+            # alarm, and a distinct exit code. Disconnect has already run.
+            write("operator_declined", text=str(exc))
+            rec.log_note(f"operator declined: {exc}")
+            print(f"Run ended by the operator ({exc}). Confirm the MOTORS LED is off.")
+            return EXIT_DECLINED
         except (Exception, KeyboardInterrupt) as exc:
             write("session_failed", error=str(exc))
             if open_command is not None:
