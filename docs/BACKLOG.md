@@ -47,7 +47,6 @@ Hazard IDs (HZ-nn) refer to [SAFETY_CASE.md](SAFETY_CASE.md). Protocol details a
 | 22 | Ctrl-C may not interrupt `queue.get` on Windows until the timeout expires | `scorbot/robot.py:_command` | SDK review H5, unverified. Test in a Windows rehearsal with `step_delay_s` |
 | 23 | `review_bench` counts an operator-declined run's missing steps as problems (exit 1) | `scripts/review_lab_logs.py:review_bench` | Safety case Q11. Decide the intended verdict |
 | 24 | A tiny `--delta` (e.g. 0.001) passes argparse but fails in `preview_jog` only after homing | `examples/bench_joint.py:main` | SDK review M6. Call `preview_jog` offline before connecting |
-| 25 | `session_failed` records `str(exc)`, which is empty for `KeyboardInterrupt` | `examples/bench_joint.py:main` | SDK review M7. Use `f"{type(exc).__name__}: {exc}"` |
 | 26 | `git rev-parse` runs in the current directory, not the repo, so a run from elsewhere records the wrong commit | `examples/bench_joint.py:main` | SDK review. `record.py` already uses the repo root |
 | 27 | Enter presses typed during homing sit in stdin and answer the next prompt (they can only decline) | `examples/bench_joint.py` | SDK review M8 |
 | 28 | `record_raw_state.py` opens its output before connecting, so a failed connect leaves an empty file that blocks reuse of the name | `examples/record_raw_state.py:main` | LED-prompt agent report |

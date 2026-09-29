@@ -24,9 +24,9 @@ from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder, SessionWriter
 
 try:
-    from examples.bench_joint import observe_leds
+    from examples.bench_joint import observe_leds, reject_example_values
 except ImportError:  # Run as a script: examples/ itself is on sys.path.
-    from bench_joint import observe_leds
+    from bench_joint import observe_leds, reject_example_values
 
 
 def main() -> int:
@@ -64,6 +64,9 @@ def main() -> int:
             args.robot_id, args.arm_label, args.controller_label,
             args.driver, args.operator, args.pose_note)):
         parser.error("All session labels and the pose note must be nonempty")
+    reject_example_values(parser, arm_label=args.arm_label,
+                          controller_label=args.controller_label, driver=args.driver,
+                          operator=args.operator, pose_note=args.pose_note)
 
     output = args.output.resolve()
     event_log = output.with_name(output.stem + ".controller.jsonl")
@@ -123,10 +126,11 @@ def main() -> int:
                     "led_prompts": True,
                 }
                 stream.write(json.dumps(session, allow_nan=False) + "\n")
-                # Connect ends with a motor-disable request, so motors should be off.
-                # Asked before sampling so a lit MOTORS LED is caught straight away.
+                # Connect ends with a motor-disable request; the LED must confirm it.
+                # A contradictory or unsure answer ends the run before sampling.
                 observe_leds("after_connect", write, rec,
-                             expect_motors="off", expect_power="green")
+                             expect_motors="off", expect_power="green",
+                             require_expected=True)
                 next_sample = time.monotonic()
                 for index in range(sample_count):
                     time.sleep(max(0.0, next_sample - time.monotonic()))
@@ -134,8 +138,8 @@ def main() -> int:
                     write("sample", index=index, state=asdict(state))
                     rec.log_state(state)
                     next_sample += 1 / args.hz
-            # The controller is released, so motors must be off. POWER has no fixed
-            # expectation here: the manual does not say which colour follows a close.
+            # Verify motor power after release. POWER has no fixed expectation here:
+            # the manual does not say which colour follows a close.
             observe_leds("after_exit", write, rec, expect_motors="off")
         except (Exception, KeyboardInterrupt) as exc:
             # If the robot context was entered, its exit path attempted disconnect.
@@ -143,11 +147,16 @@ def main() -> int:
             write("session_failed", error_type=type(exc).__name__, error=str(exc))
             print("Idle capture failed. If motor state is uncertain, use the physical stop.")
             raise
+        if rec.failure is not None:
+            write("recorder_failed", error_type=type(rec.failure).__name__,
+                  error=str(rec.failure))
+            print("MCAP recording is incomplete; review the JSONL and recorder failure.")
 
     print(f"Saved {sample_count} raw samples to {output}")
     print(f"Saved controller events to {event_log}")
-    print(f"Saved MCAP session to {rec.path}")
-    return 0
+    if rec.failure is None:
+        print(f"Saved MCAP session to {rec.path}")
+    return 1 if rec.failure is not None else 0
 
 
 if __name__ == "__main__":

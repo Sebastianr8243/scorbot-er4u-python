@@ -31,10 +31,16 @@ Close ScorBot software and the old GUI before Python connects. Reproduce the phy
 
 ## 3. Capture idle responses first
 
-Use a new filename and your actual labels:
+Use a new filename. Enter the actual labels and pose description when prompted; the sample text is not evidence of your hardware:
 
 ```powershell
-.\.venv\Scripts\python.exe .\examples\record_raw_state.py --output .\logs\idle-01.jsonl --robot-id lab-er4u-1 --arm-label "arm nameplate" --controller-label "controller nameplate" --driver "current Windows driver" --operator "your initials" --pose-note "photo/sketch of known start pose" --seconds 10 --hz 2 --acknowledge-connect-handshake
+$robotId = Read-Host 'Unique ID for this arm'
+$armLabel = Read-Host 'Exact arm nameplate'
+$controllerLabel = Read-Host 'Exact controller nameplate'
+$usbDriver = Read-Host 'Windows USB driver in use'
+$operator = Read-Host 'Operator initials'
+$poseNote = Read-Host 'Describe the actual starting pose or photo reference'
+.\.venv\Scripts\python.exe .\examples\record_raw_state.py --output .\logs\idle-01.jsonl --robot-id $robotId --arm-label $armLabel --controller-label $controllerLabel --driver $usbDriver --operator $operator --pose-note $poseNote --seconds 10 --hz 2 --acknowledge-connect-handshake
 .\.venv\Scripts\python.exe .\scripts\review_lab_logs.py --idle .\logs\idle-01.jsonl
 ```
 
@@ -42,15 +48,16 @@ Keep `idle-01.jsonl` and `idle-01.controller.jsonl`. Review increasing packet in
 
 ## 4. One supervised home and base jog
 
-Choose `--delta 1` or `--delta -1` based on **visible physical clearance**, not an assumed positive direction. Use a new output filename for each run:
+Choose `--delta 1` or `--delta -1` based on **visible physical clearance**, not an assumed positive direction. Use a new output filename for each run. Re-enter the label variables above if this is a new PowerShell session:
 
 ```powershell
-.\.venv\Scripts\python.exe .\examples\bench_joint.py --output .\logs\base-first-01.jsonl --robot-id lab-er4u-1 --arm-label "arm nameplate" --controller-label "controller nameplate" --driver "current Windows driver" --operator "your initials" --start-pose-note "same known pose as idle capture" --joint base --delta 1 --speed 10 --acknowledge-supervised-motion
+$startPoseNote = Read-Host 'Describe the actual starting pose or photo reference'
+.\.venv\Scripts\python.exe .\examples\bench_joint.py --output .\logs\base-first-01.jsonl --robot-id $robotId --arm-label $armLabel --controller-label $controllerLabel --driver $usbDriver --operator $operator --start-pose-note $startPoseNote --joint base --delta 1 --speed 10 --acknowledge-supervised-motion
 ```
 
 The script asks you to confirm the start pose before `HOME`. Watch the complete home search. It then records your description and requires `HOME_OK` before preparing any jog. If the result looks wrong, decline the prompt and end the run. Before `MOVE`, review the printed plan: joint, signed motor-count target, and integer increment sequence. The preview describes requested controller setpoints; it cannot confirm the actual movement.
 
-**LED checks.** Both scripts ask for the controller's front-panel LEDs: `record_raw_state.py` after connect and after exit, `bench_joint.py` after connect, after `enable`, after the jog, and after `disable`. Answer each question with one key and Enter: `MOTORS LED lit? [y/n/u=unsure]` and `POWER LED colour? [g=green/o=orange/f=flashing/u=unsure]`. An invalid key is asked again; after three tries, or if input ends, the answer is recorded as `unsure`. The script does not show what it expects until you have answered. If the answer contradicts the software (for example MOTORS lit after `disable`, or POWER orange while connected) it prints a `!!! WARNING` block and logs a `led_mismatch` row. It does not stop by itself: the operator decides, and the physical stop is authoritative. After `enable`, where homing would follow straight away, a mismatch asks you to type `CONTINUE`, and anything else ends the run. The review lists every LED answer and reports each mismatch or missing check as a problem.
+**LED checks.** Both scripts ask for the controller's front-panel LEDs: `record_raw_state.py` after connect and after exit, `bench_joint.py` after connect, after `enable`, after the jog, and after `disable`. Answer each question with one key and Enter: `MOTORS LED lit? [y/n/u=unsure]` and `POWER LED colour? [g=green/o=orange/f=flashing/u=unsure]`. An invalid key is asked again; after three tries, or if input ends, the answer is recorded as `unsure`. The script does not show what it expects until you have answered. A contradictory answer prints a `!!! WARNING` block and logs a `led_mismatch` row. After connect, either script ends the run before sampling or motion if either required LED is contradictory or unsure. The bench script also ends before homing if the after-enable check is contradictory or unsure. These are failed sessions, not operator declines. Later checks still record warnings for review. Software cleanup does not prove motor power is off; use the physical stop if motor state is uncertain. The review lists every LED answer and reports mismatches, unsure answers, and missing checks as problems.
 
 After the jog, record observed direction and approximate movement, whether any other joint moved, other controller indicators or sounds, and any issue. Preserve both the bench JSONL and its `.controller.jsonl` companion. Then review:
 

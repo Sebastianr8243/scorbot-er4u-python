@@ -60,8 +60,16 @@ def _led_review(rows, session, steps):
                 f"{row.get('observed')}, software expected {row.get('expected')}"
                 for row in rows if row.get("type") == "led_mismatch"]
     if (session or {}).get("led_prompts") is True:
-        seen = {row["step"] for row in observations}
+        seen = {row["step"] for row in observations if isinstance(row["step"], str)}
         problems += [f"led observation missing {step}" for step in steps if step not in seen]
+        valid_answers = {"motors_led": ("lit", "off"),
+                         "power_led": ("green", "orange", "flashing")}
+        for row in observations:
+            if row["step"] not in steps:
+                continue
+            for led, valid in valid_answers.items():
+                if row[led] not in valid:
+                    problems.append(f"LED observation {row['step']}: {led} is unsure or invalid")
     return observations, problems
 
 
@@ -75,6 +83,8 @@ def review_idle(path):
         problems.append("missing session metadata")
     if any(row.get("type") == "session_failed" for row in rows):
         problems.append("session reported failure")
+    if any(row.get("type") == "recorder_failed" for row in rows):
+        problems.append("MCAP recorder reported failure")
     if len(samples) < 2:
         problems.append("need at least two idle samples")
     problems += _packet_checks(samples)
@@ -114,6 +124,8 @@ def review_bench(path):
     problems = [f"missing {kind}" for kind in required if kind not in events]
     if "session_failed" in events:
         problems.append("session reported failure")
+    if "recorder_failed" in events:
+        problems.append("MCAP recorder reported failure")
     declined = events.get("operator_declined", {}).get("text")
     states = [events[kind]["state"] for kind in
               ("connected", "home_complete", "before_jog", "after_jog", "disabled")

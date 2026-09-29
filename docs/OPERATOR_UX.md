@@ -6,7 +6,7 @@ Why the bench tools prompt, warn and log the way they do, and what to change nex
 
 | Principle | Evidence | Where it shows |
 |---|---|---|
-| Typed, specific confirmations resist habituation better than y/n | Bravo-Lillo et al. 2014; Anderson et al. 2015 (attention to a repeated warning drops sharply after the second exposure) | `HOME`, `HOME_OK`, `MOVE`, `CONTINUE`; a typo declines, the safe failure |
+| Typed, specific confirmations resist habituation better than y/n | Bravo-Lillo et al. 2014; Anderson et al. 2015 (attention to a repeated warning drops sharply after the second exposure) | `HOME`, `HOME_OK`, `MOVE`; a typo declines, the safe failure |
 | Record observations before seeing the expected result | Holman et al. 2015 (non-blind studies report larger effects) | LED prompts never state the expectation and warn only after the answer; the checklist's blind-recording step |
 | Every alarm needs a defined operator action; avoid floods | ISA-18.2 / EEMUA 191 | A decline is `operator_declined` (exit 3, no alarm); `!!!` is reserved for faults and LED mismatches |
 | Short checklists with spoken pause points and critical items | Degani & Wiener 1993; WHO Surgical Safety Checklist (Haynes et al. 2009); Gawande | G1 pause points before `HOME` and `MOVE`, with a spoken read-back |

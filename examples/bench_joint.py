@@ -25,6 +25,11 @@ EXIT_DECLINED = 3
 class OperatorDeclined(Exception):
     """The operator chose not to continue at a confirmation prompt."""
 
+
+class LedCheckFailed(RuntimeError):
+    """A required controller LED state was not confirmed before motion."""
+
+
 # Operator LED observations. The SDK's ``enabled`` is only command history; the
 # controller's green MOTORS LED is the only independent evidence of motor power,
 # and POWER is green while the controller is communicating with the PC (orange:
@@ -34,6 +39,11 @@ POWER_KEYS = {"g": "green", "o": "orange", "f": "flashing", "u": "unsure"}
 _WORDS = {"yes": "lit", "no": "off", "lit": "lit", "off": "off", "unsure": "unsure",
           "green": "green", "orange": "orange", "flashing": "flashing"}
 LED_ATTEMPTS = 3
+_EXAMPLE_VALUES = frozenset({
+    "arm nameplate", "controller nameplate", "current windows driver",
+    "your initials", "photo/sketch of known start pose",
+    "same known pose as idle capture",
+})
 _MISMATCH_TEXT = {
     ("motors", "off", "lit"): "Software says motors are DISABLED but the MOTORS LED was "
                               "reported LIT. Stop and check; the physical stop is "
@@ -46,6 +56,15 @@ _MISMATCH_TEXT = {
     ("power", "green", "flashing"): "Software is talking to the controller but the POWER LED "
                                     "was reported FLASHING (USB timeout). Stop and check.",
 }
+
+
+def reject_example_values(parser, **values):
+    """Reject the literal sample labels before a controller connection."""
+    examples = [f"--{name.replace('_', '-')}" for name, value in values.items()
+                if value.strip().lower() in _EXAMPLE_VALUES]
+    if examples:
+        parser.error("Replace example values with actual lab metadata before connecting: "
+                     + ", ".join(examples))
 
 
 def ask_key(question, keys, ask=None):
@@ -71,14 +90,13 @@ def ask_key(question, keys, ask=None):
 
 
 def observe_leds(step, write, rec, *, expect_motors=None, expect_power=None,
-                 gate=False, ask=None):
+                 require_expected=False, ask=None):
     """Ask for the MOTORS and POWER LEDs, record the answers, and flag mismatches.
 
     The expectation is never shown before the answer, so it cannot lead the
     observer. A contradiction prints a prominent warning and writes a
-    ``led_mismatch`` row. Nothing aborts automatically: the operator and the
-    physical stop decide. With ``gate`` (motion follows with no other prompt in
-    between) a mismatch asks the operator whether to continue.
+    ``led_mismatch`` row. Required checks end the software run if either LED
+    differs or is unsure. The physical stop remains authoritative.
     """
     ask = ask or input
     print(f"LED check {step.replace('_', ' ')}: look at the controller front panel.")
@@ -108,14 +126,20 @@ def observe_leds(step, write, rec, *, expect_motors=None, expect_power=None,
         rec.log_note(f"LED MISMATCH {step}: {message}")
         print("!" * 72)
         print(f"!!! WARNING ({step.replace('_', ' ')}): {message}")
-        print("!!! Nothing was stopped automatically. If in doubt, use the physical stop.")
+        print("!!! This warning does not stop motor power. If in doubt, use the physical stop.")
         print("!" * 72)
-    if mismatches and gate:
-        answer = ask("Type CONTINUE to go on anyway; anything else ends the run: ").strip()
-        rec.log_decision("CONTINUE" if answer == "CONTINUE" else "declined",
-                         reason=f"typed {answer!r} after LED mismatch {step}")
-        if answer != "CONTINUE":
-            raise OperatorDeclined(f"stopped after LED mismatch {step}")
+    if require_expected:
+        unconfirmed = [(led, expected, observed) for led, expected, observed in
+                       (("motors", expect_motors, motors), ("power", expect_power, power))
+                       if expected is not None and observed != expected]
+        if unconfirmed:
+            reason = (f"LED check {step} not confirmed: " + ", ".join(
+                f"{led}={observed} (expected {expected})"
+                for led, expected, observed in unconfirmed))
+            write("led_gate_failed", step=step, reason=reason)
+            rec.log_note(reason)
+            print(f"!!! {reason}. End this run; use the physical stop if motor state is uncertain.")
+            raise LedCheckFailed(reason)
     return row
 
 
@@ -148,6 +172,9 @@ def main() -> int:
                                            args.controller_label, args.driver,
                                            args.operator, args.start_pose_note)):
         parser.error("All labels and the pose note must be nonempty")
+    reject_example_values(parser, arm_label=args.arm_label,
+                          controller_label=args.controller_label, driver=args.driver,
+                          operator=args.operator, start_pose_note=args.start_pose_note)
     output = args.output.resolve()
     events = output.with_name(output.stem + ".controller.jsonl")
     if output.exists() or events.exists():
@@ -211,16 +238,17 @@ def main() -> int:
                 state = robot.get_state()
                 write("connected", state=asdict(state))
                 rec.log_state(state)
-                # Connect ends with a motor-disable request, so motors should be off.
+                # Connect requests motor-disable; require LED confirmation.
                 observe_leds("after_connect", write, rec,
-                             expect_motors="off", expect_power="green")
+                             expect_motors="off", expect_power="green",
+                             require_expected=True)
                 print("Confirm the arm is in the documented legacy homing start pose.")
                 if prompt("Type HOME to search home: ", "HOME") != "HOME":
                     raise OperatorDeclined("declined before homing")
                 robot.enable()
-                # home() follows with no other prompt, so a mismatch asks to continue.
+                # A contradictory or unsure LED cannot lead to homing.
                 observe_leds("after_enable", write, rec, expect_motors="lit",
-                             expect_power="green", gate=True)
+                             expect_power="green", require_expected=True)
                 open_command = rec.log_command("home", {"start_position_confirmed": True})
                 robot.home(start_position_confirmed=True)
                 command_id, open_command = open_command, None
@@ -286,15 +314,20 @@ def main() -> int:
             print(f"Run ended by the operator ({exc}). Confirm the MOTORS LED is off.")
             return EXIT_DECLINED
         except (Exception, KeyboardInterrupt) as exc:
-            write("session_failed", error=str(exc))
+            write("session_failed", error_type=type(exc).__name__, error=str(exc))
             if open_command is not None:
                 rec.log_command_result(open_command, "faulted", detail=str(exc))
             rec.log_fault(f"{type(exc).__name__}: {exc}")
             print("Session failed. If motion or motor state is uncertain, use the physical stop.")
             raise
+        if rec.failure is not None:
+            write("recorder_failed", error_type=type(rec.failure).__name__,
+                  error=str(rec.failure))
+            print("MCAP recording is incomplete; review the JSONL and recorder failure.")
     print(f"Saved bench record to {output} and controller events to {events}")
-    print(f"Saved MCAP session to {rec.path}")
-    return 0
+    if rec.failure is None:
+        print(f"Saved MCAP session to {rec.path}")
+    return 1 if rec.failure is not None else 0
 
 
 if __name__ == "__main__":

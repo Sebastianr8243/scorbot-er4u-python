@@ -15,7 +15,38 @@ from scorbot.state import RobotState
 
 
 class BenchGateTests(unittest.TestCase):
-    def run_bench(self, answers, expected_reason):
+    def test_example_metadata_is_rejected_before_preflight_or_usb(self):
+        examples = {
+            "--arm-label": "arm nameplate",
+            "--controller-label": "controller nameplate",
+            "--driver": "current Windows driver",
+            "--operator": "your initials",
+            "--start-pose-note": "photo/sketch of known start pose",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            base_argv = [
+                "bench_joint.py", "--output", str(Path(directory) / "bench.jsonl"),
+                "--robot-id", "test-arm", "--arm-label", "arm-plate",
+                "--controller-label", "controller-plate", "--driver", "WinUSB",
+                "--operator", "tester", "--start-pose-note", "known pose",
+                "--joint", "base", "--delta", "1",
+                "--acknowledge-supervised-motion",
+            ]
+            for option, example in examples.items():
+                with self.subTest(option=option):
+                    argv = base_argv.copy()
+                    argv[argv.index(option) + 1] = example
+                    with patch.object(sys, "argv", argv), \
+                            patch.object(bench_joint, "run_checks") as checks, \
+                            patch.object(bench_joint, "Scorbot") as robot, \
+                            contextlib.redirect_stderr(io.StringIO()):
+                        with self.assertRaises(SystemExit) as caught:
+                            bench_joint.main()
+                    self.assertEqual(caught.exception.code, 2)
+                    checks.assert_not_called()
+                    robot.assert_not_called()
+
+    def run_bench(self, answers, expected_reason, *, led_failure=False):
         calls = self.calls = []
         stdout = io.StringIO()
         state = RobotState(
@@ -64,10 +95,15 @@ class BenchGateTests(unittest.TestCase):
                     patch.object(bench_joint, "Scorbot", FakeRobot), \
                     patch("builtins.input", side_effect=answers), \
                     contextlib.redirect_stdout(stdout):
-                self.assertEqual(bench_joint.main(), bench_joint.EXIT_DECLINED)
+                if led_failure:
+                    with self.assertRaises(bench_joint.LedCheckFailed):
+                        bench_joint.main()
+                else:
+                    self.assertEqual(bench_joint.main(), bench_joint.EXIT_DECLINED)
             rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(rows[-1]["type"], "operator_declined")
-        self.assertIn(expected_reason, rows[-1]["text"])
+        self.assertEqual(rows[-1]["type"], "session_failed" if led_failure
+                         else "operator_declined")
+        self.assertIn(expected_reason, rows[-1]["error" if led_failure else "text"])
         self.assertNotIn("Traceback", stdout.getvalue())
         return rows, stdout.getvalue()
 
@@ -83,14 +119,33 @@ class BenchGateTests(unittest.TestCase):
                          ["after_connect", "after_enable"])
         self.assertFalse(any(r["type"] == "led_mismatch" for r in rows))
 
-    def test_motors_led_off_after_enable_warns_and_lets_the_operator_stop(self):
-        rows, out = self.run_bench(["n", "g", "HOME", "n", "g", "stop"],
-                                   "LED mismatch after_enable")
+    def test_motors_led_lit_after_connect_stops_before_enable(self):
+        rows, out = self.run_bench(["y", "g"], "LED check after_connect",
+                                   led_failure=True)
+        self.assertEqual(self.calls, ["connect", "disconnect"])
+        self.assertTrue(any(r["type"] == "led_gate_failed" for r in rows))
+        self.assertIn("physical stop", out)
+
+    def test_unsure_led_after_connect_stops_before_enable(self):
+        rows, _ = self.run_bench(["u", "g"], "LED check after_connect",
+                                 led_failure=True)
+        self.assertEqual(self.calls, ["connect", "disconnect"])
+        self.assertTrue(any(r["type"] == "led_gate_failed" for r in rows))
+
+    def test_motors_led_off_after_enable_stops_before_home(self):
+        rows, out = self.run_bench(["n", "g", "HOME", "n", "g"],
+                                   "LED check after_enable", led_failure=True)
         self.assertEqual(self.calls, ["connect", "enable", "disconnect"])  # no home
         [mismatch] = [r for r in rows if r["type"] == "led_mismatch"]
         self.assertEqual((mismatch["led"], mismatch["observed"], mismatch["expected"]),
                          ("motors", "off", "lit"))
         self.assertIn("!!! WARNING (after enable): Software says motors are ENABLED", out)
+
+    def test_unsure_led_after_enable_stops_before_home(self):
+        rows, _ = self.run_bench(["n", "g", "HOME", "u", "g"],
+                                 "LED check after_enable", led_failure=True)
+        self.assertEqual(self.calls, ["connect", "enable", "disconnect"])
+        self.assertTrue(any(r["type"] == "led_gate_failed" for r in rows))
 
 
 class LedPromptTests(unittest.TestCase):

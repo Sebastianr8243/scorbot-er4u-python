@@ -119,6 +119,39 @@ class LabLogReviewTests(unittest.TestCase):
                 self.assertIn(f"led observation missing {step}", problems)
             self.assertNotIn("led observation missing after_connect", problems)
 
+    def test_idle_required_led_answers_cannot_be_unsure_or_invalid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idle.jsonl"
+            write_rows(path, [
+                {"type": "session", "robot_id": "arm-1", "led_prompts": True},
+                {"type": "led_observation", "step": "after_connect",
+                 "motors_led": "unsure", "power_led": "green"},
+                {"type": "sample", "state": state(1)},
+                {"type": "sample", "state": state(2)},
+                {"type": "led_observation", "step": "after_exit",
+                 "motors_led": "off", "power_led": "unknown"},
+            ])
+            self.assertEqual(review_idle(path)["problems"], [
+                "LED observation after_connect: motors_led is unsure or invalid",
+                "LED observation after_exit: power_led is unsure or invalid",
+            ])
+
+    def test_bench_required_led_answers_cannot_be_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bench.jsonl"
+            write_rows(path, [
+                {"type": "session", "robot_id": "arm-1", "led_prompts": True},
+                {"type": "led_observation", "step": "after_connect",
+                 "motors_led": "off"},
+                {"type": "led_observation", "step": "after_enable",
+                 "power_led": "green"},
+            ])
+            problems = review_bench(path)["problems"]
+            self.assertIn("LED observation after_connect: power_led is unsure or invalid",
+                          problems)
+            self.assertIn("LED observation after_enable: motors_led is unsure or invalid",
+                          problems)
+
     def test_missing_operator_note_is_incomplete(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bench.jsonl"

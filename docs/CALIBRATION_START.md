@@ -8,11 +8,7 @@ The two wrist encoder values are **motor** counts; neither is a wrist pitch or r
 
 Finish [Windows setup](../START_HERE_WINDOWS.md) and the USB preflight in the [bench runbook](WINDOWS_BENCH_RUN.md) first. Secure the robot base, clear the workspace, keep the physical emergency stop within reach, and have an operator at the arm. Close Intelitek software and the old GUI before Python uses USB. The Python connection handshake briefly sends motor-on packets before requesting motor-disable, even though this script requests no motion.
 
-From the repository root in PowerShell:
-
-```powershell
-.\.venv\Scripts\python.exe .\examples\record_raw_state.py --output .\logs\idle-01.jsonl --robot-id lab-er4u-1 --arm-label "arm nameplate" --controller-label "controller nameplate" --driver "current Windows driver" --operator "your initials" --pose-note "initial stationary pose" --seconds 10 --acknowledge-connect-handshake
-```
+From the repository root in PowerShell, use the prompted idle-capture command in the [bench procedure](ARM_CONTROL_BENCH.md#3-capture-idle-responses-first). Enter the actual arm, controller, driver, operator, and pose values. Stop if its LED check fails; resolve the observed state before any homing.
 
 The script checks that Python, USB libraries, and controller `09F1:0007` are visible, then saves approximately 20 samples and a separate controller event log. It refuses to overwrite either file. `logs/idle-01.jsonl` starts with session metadata; each following line contains `host_monotonic_ns` and the raw `RobotState`. `logs/idle-01.controller.jsonl` contains controller events. Keep both files and note the date, controller label, driver, arm pose, and anything the arm did. If the arm moves unexpectedly or the motor state is uncertain, use the physical stop and end the session.
 
