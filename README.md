@@ -82,7 +82,7 @@ The tests use synthetic USB responses and measurements; they do not open USB or 
 .\.venv\Scripts\ruff.exe check .                          # correctness lint
 ```
 
-`python -m unittest discover -s tests` still works without the dev tools.
+`python -m unittest discover -s tests` works with the small `test` extra; the Windows setup script installs it automatically.
 GitHub runs all of this on Windows and Linux, with Python 3.10 and 3.13, on
 every push. The coverage table appears on each run's summary page.
 

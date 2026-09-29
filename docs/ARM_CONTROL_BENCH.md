@@ -13,7 +13,7 @@ git fetch origin
 git switch main
 git pull
 py -3 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[windows]"
+.\.venv\Scripts\python.exe -m pip install -e ".[windows,test]"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 .\.venv\Scripts\python.exe -m scorbot.preflight
 git rev-parse HEAD

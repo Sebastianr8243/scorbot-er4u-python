@@ -13,6 +13,7 @@ dependencies = ["mcap>=1.5,<2", "numpy>=1.26,<3", "pyusb>=1.2,<2"]
 
 [project.optional-dependencies]
 windows = ["libusb-package"]
+test = ["hypothesis>=6.100,<7"]
 gui = ["PyQt5>=5.15,<6"]
 plot = ["matplotlib>=3.8,<4"]
 dev = [

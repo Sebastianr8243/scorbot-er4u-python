@@ -9,7 +9,7 @@ Offline analysis tools and Windows setup. None of the Python scripts open USB or
 | `watch_lab_log.py` | Read-only live view of a running lab script from a second terminal | the run's `--output` JSONL and `<stem>.controller.jsonl` | Imports no controller code. `--once` prints one snapshot |
 | `usb_trace.py` | Parse USBPcap `.pcapng`/`.pcap`; `summary`, `export`, `compare` | capture files | Stdlib plus `scorbot.state`. Runbook: `docs/USB_CAPTURE.md` |
 | `build_bench_kit.py` | Zip the working tree for the Windows PC into `dist/` | repo files | Includes all of `references/` (no PDF exclusion) and `dist/usb-tools/zadig-2.9.exe` if present. Check `references/` before running |
-| `setup_windows.ps1` | Create `.venv`, `pip install -e ".[windows]"`, `pip check`, run unit tests | | No USB access, no driver change |
+| `setup_windows.ps1` | Create `.venv`, `pip install -e ".[windows,test]"`, `pip check`, run unit tests | | No USB access, no driver change |
 | `windows_usb_check.ps1` | List `VID_09F1&PID_0007` in Windows and run enumeration-only preflight | | Read-only |
 
 ## fit_calibration.py

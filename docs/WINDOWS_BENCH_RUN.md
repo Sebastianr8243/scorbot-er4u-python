@@ -19,7 +19,7 @@ A fresh clone of the original OpenScorbot repository does not include the Python
 ```powershell
 py -3 --version
 py -3 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[windows]"
+.\.venv\Scripts\python.exe -m pip install -e ".[windows,test]"
 .\.venv\Scripts\python.exe -m pip check
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```

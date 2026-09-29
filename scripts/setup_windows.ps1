@@ -50,8 +50,8 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
     Write-Host "Reusing .venv with Python $environmentVersion"
 }
 
-Write-Host 'Installing the ScorBot package and Windows USB backend...'
-& $venvPython -m pip install -e '.[windows]'
+Write-Host 'Installing the ScorBot package, Windows USB backend, and test dependency...'
+& $venvPython -m pip install -e '.[windows,test]'
 if ($LASTEXITCODE -ne 0) { throw 'Package installation failed. Save the pip error output.' }
 
 & $venvPython -m pip check

@@ -16,7 +16,7 @@ In the VS Code PowerShell terminal, run:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_windows.ps1
 ```
 
-This creates `.venv`, installs the package, PyUSB, NumPy, and the Windows libusb library, then runs the software tests. It does not access USB, change drivers, or move the arm. The execution-policy option applies only to this one PowerShell process. If Python is missing, the script prints the official download page and stops. Internet access is needed for the package install.
+This creates `.venv`, installs the package, PyUSB, NumPy, the Windows libusb library, and Hypothesis for the software tests, then runs those tests. It does not access USB, change drivers, or move the arm. The execution-policy option applies only to this one PowerShell process. If Python is missing, the script prints the official download page and stops. Internet access is needed for the package install.
 
 ## 3. Check that Windows and Python see the controller
 
