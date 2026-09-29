@@ -1,0 +1,126 @@
+# AI Systems Engineering Handoff: ER-4U Idle Capture LED Mismatch
+
+**Date:** 2026-09-29  
+**Purpose:** Give a follow-on AI enough verified context to diagnose the real idle-capture discrepancy, make a justified software change if one is warranted, and identify what still requires supervised hardware work.
+
+## Executive Summary
+
+The Windows host can enumerate the ER-4U controller, Python's read-only USB preflight passed, and a real `record_raw_state.py` session opened the controller and collected state samples. The arm did not move; that is expected for an idle capture, which does not request motion.
+
+The unresolved observation is that the operator recorded the controller's MOTORS LED as `lit` after connect, although the SDK had completed its motor-disable command and the capture expected the LED to be `off`. The review correctly reports this as an LED mismatch. It is not evidence that USB setup failed, and a zero encoder-count range does not prove motor power was off.
+
+The raw log has no `after_exit` LED row. The MCAP session identifies a `KeyboardInterrupt` near the end of sampling, and the controller event log then records its normal exit command completing. This explains the missing final observation more specifically than the original log review alone: the run was interrupted before the post-exit LED prompt was recorded, but disconnect was attempted and its software command returned success.
+
+**Do not hide the mismatch by changing the expected LED to `lit`. Do not run a real home or jog based on this handoff.** Resolve the LED observation with a qualified person at the bench and the controller documentation before any further live connection.
+
+## Verified Environment And Work Completed
+
+- `scripts/setup_windows.ps1` completed; the virtual environment uses Python 3.12.5, dependency checking passed, and the script reported setup passed after running the unit suite.
+- `scripts/windows_usb_check.ps1` passed on a later read-only check. Windows listed `USB\VID_09F1&PID_0007...` with status `OK`; Python, NumPy 2.5.3, PyUSB 1.3.1, and the Windows libusb-package backend loaded. Preflight reported the controller enumerated and explicitly sent no connection, reset, configuration, or application packets.
+- The read-only check establishes USB enumeration only. It does not establish a live SDK session, controller motor state, or motion readiness.
+- A simulated rehearsal was completed under `rehearsal/`, not `logs/`: simulated idle capture, simulated one-degree base jog, and log review. The simulated jog planned and observed +142 legacy counts. Both reviews had no structural problems and were labelled SIMULATED. These files are not physical-arm evidence.
+- The user ran one real idle capture. No real `bench_joint.py`, home, or jog was run in this session.
+- The user reports the arm did not move during idle capture, which is expected.
+- The user reports power-cycling the controller. The exact current physical state is not established by this handoff. The later read-only check did see the controller enumerated.
+- No source code or documentation has been changed for this issue yet.
+
+## Real Capture Evidence
+
+Primary files:
+
+- [`logs/idle-01.jsonl`](../logs/idle-01.jsonl)
+- [`logs/idle-01.controller.jsonl`](../logs/idle-01.controller.jsonl)
+- MCAP session: `logs/sessions/20260929T192825Z-44e1de/session.mcap`
+
+The primary JSONL identifies `data_source` as `real`, requests 10 seconds at 2 Hz, and contains 19 state samples, indices 0 through 18. Its reported `motion_source_sha256` is `56c396b7a27514348ac26d774c1edef92e837d5288ad177071f6ead04393df5c`.
+
+At `after_connect`, the recorded operator answers were `motors_led=lit` and `power_led=green`; the script's expectations were `motors_led=off` and `power_led=green`. This is the review's concrete problem:
+
+```text
+LED mismatch after_connect: motors LED reported lit, software expected off
+led observation missing after_exit
+```
+
+The mismatch row is explicitly present in the primary JSONL and MCAP. The user says the motor LED was not glowing once the controller was powered off. That later observation does not establish its state during the capture.
+
+Across the 19 state samples:
+
+- `connected=true`, `enabled=false`, `homed=false`, `fault=null`.
+- `home_switch_bits=0`.
+- Raw counts stayed at base 65534, shoulder 65535, elbow 65535, wrist motor 1 65535, wrist motor 2 65534, gripper 1. Signed counts stayed at base -1, shoulder 0, elbow 0, wrist motor 1 0, wrist motor 2 -1, gripper 1.
+- The reviewer computed zero count range for every motor. This shows stable reported counts during the sample window; it does not independently establish motor power or physical safety.
+
+The controller event sidecar records:
+
+| Event | Payload | Result |
+|---|---|---|
+| `command_start` | `[16, 1, 1]` | Motor-disable command queued during connection |
+| `command_complete` | `[16, 1, 1]` | SDK received legacy result 0 |
+| `connect` | state has `enabled=false` | Software state recorded after command 16 |
+| `command_start` | `[528, 1, 1]` | Normal exit command started |
+| `command_complete` | `[528, 1, 1]` | SDK received legacy result 0 |
+
+A `command_complete` event proves only that the legacy worker returned result 0. It is not independent confirmation that controller motor power is off. The MOTORS LED is the independent observation used by the procedure.
+
+The MCAP replay reports 22 events: 19 `/robot/state`, one `/operator/decision`, one `/session/note`, and one `/session/fault`. Its fault payload is `KeyboardInterrupt:` at about 9.953 seconds. The session has no integrity errors. The primary JSONL ends after sample 18 and contains no `after_exit` row. The event sidecar's exit command completes at 19:28:57.300923 UTC. These facts are consistent with interruption late in sampling, followed by context-manager disconnect; the post-exit LED observation was not recorded. Treat the interruption source as unknown unless the operator confirms it.
+
+## Relevant Implementation
+
+- [`scorbot/robot.py`](../scorbot/robot.py): `Scorbot.connect()` calls the inherited handshake, which sends motor-on packets, then issues `[16, 1, 1]` and sets `_enabled=False`. That boolean is command history, not a measured controller state.
+- [`scorbot/robot.py`](../scorbot/robot.py): `_command()` logs `command_complete` after receiving result 0. This return path does not read the MOTORS LED.
+- [`scorbot/robot.py`](../scorbot/robot.py): `disconnect()` sends `[528, 1, 1]` when the workers are responsive, then disposes USB resources. The event sidecar shows the exit command returned successfully in this capture.
+- [`examples/record_raw_state.py`](../examples/record_raw_state.py): `observe_leds("after_connect", ..., expect_motors="off", expect_power="green")` runs before sampling. After normal exit from the `with robot` block, it prompts for `after_exit`. The JSONL observation is written only after the prompt answers return.
+- [`scripts/review_lab_logs.py`](../scripts/review_lab_logs.py): correctly flags the after-connect LED mismatch and missing `after_exit` observation, and marks physical review as required.
+- [`docs/HARDWARE_REFERENCE.md`](HARDWARE_REFERENCE.md): describes green MOTORS as motor power supplied, while POWER green indicates communication. Manual-derived behavior is not a substitute for bench verification.
+
+## Problem Statement
+
+Determine why the operator-observed MOTORS LED was lit after the SDK's connection-time disable command returned success, and decide whether the right response is:
+
+1. a hardware/protocol behavior that needs supervised bench verification;
+2. an operator/indicator-identification issue;
+3. a software expectation or prompt-design issue supported by evidence; or
+4. a code defect in disable handling or status reporting.
+
+Do not collapse these into “USB connected” or “command returned success.” The SDK currently has no independent electrical motor-state readback; the recorded LED answer is a human observation.
+
+## Investigation Plan For The Next AI
+
+1. **Keep the distinction between facts and hypotheses.** Start with the real JSONL, controller event JSONL, and MCAP listed above. The MCAP has a `KeyboardInterrupt`; the sidecar has completed command 16 and 528; the LED answer is a separate operator report.
+2. **Inspect the exact legacy order-16 implementation and its tests without executing it on hardware.** Trace what `[16, 1, 1]` dispatches to and what result 0 means in code. Do not infer physical motor-off solely from result 0.
+3. **Check prompt and record behavior in simulation/fakes.** If changing the script's response to a mismatch or its interrupt/final-observation logging, add focused tests for the exact branch. Preserve the distinction between an operator declining/unsure and a controller fault.
+4. **Do not alter `openScorbot/` packet bytes, sequence handling, or sleeps without captured traces.** The protocol is documented as unverified against Intelitek captures. Any protocol repair needs independent evidence and the repository's USB-capture review process.
+5. **Do not change the expected MOTORS LED value to `lit` merely to make review pass.** First validate the indicator label and the controller's behavior with a qualified operator and the hardware documentation. If evidence shows the documented expectation is wrong for this controller state, update the expectation, rationale, tests, and operator docs together; preserve the raw observation.
+6. **Review interrupted idle-capture behavior.** The MCAP records `KeyboardInterrupt`; primary JSONL has no final failure row and the after-exit LED observation is absent. Consider whether a narrow logging improvement is warranted, but do not claim the absence of a row proves disconnect failed. Test interruptions with simulated/fake controllers only.
+7. **Only after a defensible diagnosis, make the smallest justified code/docs change.** Update relevant tests and the runbook/checklist if operator behavior changes. Do not run any real hardware verification as an AI agent.
+
+## Validation Boundaries
+
+Allowed here:
+
+- Read and analyze the recorded files.
+- Run unit tests, simulator rehearsals, log review, MCAP replay, and read-only USB enumeration as allowed by repository instructions.
+- Test new behavior with `SimulatedScorbot`, fake endpoints, and scripted stdin.
+
+Not allowed here:
+
+- Run `record_raw_state.py` without `--simulate` or `bench_joint.py` without `--simulate`.
+- Call real `Scorbot.connect()`, run `examples/python_control.py`, or run any command that can enable, home, jog, or otherwise move the arm.
+- Treat simulation or preflight enumeration as hardware validation.
+- Treat `disable()` as an emergency stop or claim the software stopped the motors.
+
+For any human bench work, the [G1 checklist](G1_LAB_CHECKLIST.md) and [bench procedure](ARM_CONTROL_BENCH.md) govern. A trained operator at the arm and the physical emergency stop are required. The existing real LED mismatch must be explained before proceeding to home/jog. The repository's safety case also lists homing travel and overshoot as open hazards; this handoff does not authorize motion.
+
+## Acceptance Criteria For A Software-Side Resolution
+
+- The diagnosis explains the LED mismatch without equating USB enumeration, command result 0, SDK `enabled`, and physical motor power.
+- No evidence is discarded or relabelled to force a clean report.
+- A change to interrupt/final-observation behavior has focused tests and accurately records whether the robot context disconnected; it does not invent an LED answer.
+- The log reviewer continues to surface real LED contradictions and missing observations.
+- Relevant focused tests and the full offline unit suite pass.
+- No real USB connection, motor enable, homing, or jog is run by the AI.
+- Documentation makes clear what remains unverified on the physical arm.
+
+## Short Prompt For A Follow-On AI
+
+> Diagnose the ER-4U idle-capture discrepancy using this handoff and the cited files. First establish what `[16,1,1]` and `[528,1,1]` prove in code versus what the MOTORS LED proves physically. Explain the MCAP `KeyboardInterrupt` and missing `after_exit` row. If a software defect is demonstrated, implement the smallest tested fix and update docs. Do not change LED expectations to suppress the finding. Never connect to or move the real arm; use only simulation, fakes, offline log review, and tests. Report findings, changes, tests, and remaining hardware-only questions.
