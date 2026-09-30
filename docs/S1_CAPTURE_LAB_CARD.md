@@ -40,10 +40,12 @@ For each capture: pick the `USBPcapN` interface for the controller's hub (if uns
 
 | `intelitek_D_control.pcapng` | Arm at rest after homing: **Control Off**, wait 5 s, **Control On**, wait 5 s, Control Off, close | MOTORS LED state after each click, and how long it took to change |
 | `intelitek_E_estop.pcapng` | Arm at rest: start capture, wait 5 s, **press the physical e-stop**, wait 5 s, release it per the lab procedure, note what SCORBASE shows, close | LEDs and SCORBASE messages after press and release; whether homing is needed again |
+| `intelitek_F_stop.pcapng` | Home, then start a small go-to move and press **F9 Stop** while it moves; close | Did the arm stop at once? Did control stay on? (SCORBASE says F9 is sent to the controller, so this may reveal a real stop command) |
 
 Keep go-to moves small (a few degrees per joint) and away from the table and cables.
 Home runs inside capture A, so it also shows how SCORBASE homes (BACKLOG 1, 2, 38).
-D looks for the real motors-off message, which a software stop needs (BACKLOG 6).
+D looks for the real motors-off message and F for the stop command, which a software stop needs (BACKLOG 6).
+For every capture, note the teach-pendant switch position (Auto, Teach or unplugged) and which speed scale you set (1-10 in Teach Positions, 1-99 % in Go to Position).
 E shows what the controller sends and expects around an e-stop.
 Do E only with the arm at rest, and only if the lab procedure allows pressing the stop.
 
@@ -57,7 +59,7 @@ Do E only with the arm at rest, and only if the lab procedure allows pressing th
 
 ## 4. Take home
 
-- [ ] Every `.pcapng` file (up to six).
+- [ ] Every `.pcapng` file (up to seven).
 - [ ] The new `logs\` files from step 3.
 - [ ] Driver photos, with a note of which driver was active for each capture.
 - [ ] Your notes: directions, joints that moved, speeds, anything odd (sounds, LEDs, errors).
