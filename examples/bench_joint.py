@@ -5,11 +5,13 @@ rehearsal away from the lab; every record is then labelled simulated.
 """
 
 import argparse
+import contextlib
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
+import signal
 import subprocess
 import time
 
@@ -143,7 +145,38 @@ def observe_leds(step, write, rec, *, expect_motors=None, expect_power=None,
     return row
 
 
+@contextlib.contextmanager
+def termination_as_interrupt():
+    """Treat SIGTERM and Windows SIGBREAK like Ctrl-C while a lab script runs.
+
+    The scripts already record a failure row, disconnect and close the recorder on
+    KeyboardInterrupt. Closing the console window on Windows is expected to arrive
+    as SIGBREAK, with a few seconds before the process is killed (unverified here).
+    """
+    def interrupt(signum, _frame):
+        raise KeyboardInterrupt(f"stopped by signal {signum}")
+
+    previous = {}
+    for name in ("SIGTERM", "SIGBREAK"):
+        number = getattr(signal, name, None)
+        if number is not None:
+            try:
+                previous[number] = signal.signal(number, interrupt)
+            except ValueError:   # not the main thread: leave handlers alone
+                break
+    try:
+        yield
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+
 def main() -> int:
+    with termination_as_interrupt():
+        return _run()
+
+
+def _run() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--robot-id", required=True)
@@ -179,6 +212,12 @@ def main() -> int:
     events = output.with_name(output.stem + ".controller.jsonl")
     if output.exists() or events.exists():
         parser.error("Output already exists; choose a new session filename")
+    # Plan the jog offline now, so a delta below one motor count is refused
+    # before preflight and homing rather than after (preview never opens USB).
+    try:
+        Scorbot().preview_jog(args.joint, args.delta, speed=args.speed)
+    except ValueError as exc:
+        parser.error(f"--delta cannot be planned: {exc}")
 
     # The only difference between a lab run and a rehearsal.
     if args.simulate:
@@ -192,8 +231,10 @@ def main() -> int:
         if not all(check.passed for check in checks):
             return 1
     try:
+        # Ask the checkout this script lives in, not the operator's current folder.
         revision = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], text=True, timeout=3).strip()
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1],
+            text=True, timeout=3).strip()
     except (OSError, subprocess.SubprocessError):
         revision = "unknown"
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -24,12 +24,17 @@ from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder, SessionWriter
 
 try:
-    from examples.bench_joint import observe_leds, reject_example_values
+    from examples.bench_joint import observe_leds, reject_example_values, termination_as_interrupt
 except ImportError:  # Run as a script: examples/ itself is on sys.path.
-    from bench_joint import observe_leds, reject_example_values
+    from bench_joint import observe_leds, reject_example_values, termination_as_interrupt
 
 
 def main() -> int:
+    with termination_as_interrupt():
+        return _run()
+
+
+def _run() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True,
                         help="New JSONL file for raw samples (never overwritten)")

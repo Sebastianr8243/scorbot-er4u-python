@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from examples import bench_joint
+from scorbot import Scorbot as RealScorbot
 from scorbot.preflight import Check
 from scorbot.state import RobotState
 
@@ -46,6 +47,45 @@ class BenchGateTests(unittest.TestCase):
                     checks.assert_not_called()
                     robot.assert_not_called()
 
+    def test_delta_below_one_motor_count_is_rejected_before_preflight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "bench.jsonl"
+            argv = ["bench_joint.py", "--output", str(output),
+                    "--robot-id", "test-arm", "--arm-label", "arm-plate",
+                    "--controller-label", "controller-plate", "--driver", "WinUSB",
+                    "--operator", "tester", "--start-pose-note", "known pose",
+                    "--joint", "base", "--delta", "0.001",
+                    "--acknowledge-supervised-motion"]
+            stderr = io.StringIO()
+            with patch.object(sys, "argv", argv), \
+                    patch.object(bench_joint, "run_checks") as checks, \
+                    contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as caught:
+                    bench_joint.main()
+            self.assertFalse(output.exists())
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("smaller than one motor count", stderr.getvalue())
+        checks.assert_not_called()
+
+    def test_termination_signals_raise_keyboard_interrupt_then_restore(self):
+        import signal
+        before = signal.getsignal(signal.SIGTERM)
+        with bench_joint.termination_as_interrupt():
+            handler = signal.getsignal(signal.SIGTERM)
+            with self.assertRaises(KeyboardInterrupt):
+                handler(signal.SIGTERM, None)
+            if hasattr(signal, "SIGBREAK"):
+                self.assertIs(signal.getsignal(signal.SIGBREAK), handler)
+        self.assertIs(signal.getsignal(signal.SIGTERM), before)
+
+    def test_commit_is_read_from_the_script_checkout(self):
+        with patch.object(bench_joint.subprocess, "check_output",
+                          return_value="abc123\n") as git:
+            rows, _ = self.run_bench(["n", "g", "no"], "declined before homing")
+        self.assertEqual(git.call_args.kwargs["cwd"],
+                         Path(bench_joint.__file__).resolve().parents[1])
+        self.assertEqual(rows[0]["software_commit"], "abc123")
+
     def run_bench(self, answers, expected_reason, *, led_failure=False):
         calls = self.calls = []
         stdout = io.StringIO()
@@ -80,6 +120,9 @@ class BenchGateTests(unittest.TestCase):
 
             def jog_joint(self, *_args, **_kwargs):
                 calls.append("jog")
+
+            def preview_jog(self, *args, **kwargs):
+                return RealScorbot().preview_jog(*args, **kwargs)
 
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "bench.jsonl"
