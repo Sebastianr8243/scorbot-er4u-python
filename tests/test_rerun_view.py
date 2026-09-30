@@ -10,7 +10,9 @@ from unittest.mock import patch
 
 from scorbot.session.__main__ import main as session_main
 from scorbot.session.replay import Finding, Session, load_session
-from scorbot.session.rerun_view import Item, RerunUnavailable, info_markdown, session_items
+from scorbot.session.rerun_view import (
+    Item, RerunUnavailable, info_markdown, iter_items, recording_id, session_items,
+)
 
 T0 = 1_700_000_000_000_000_000
 
@@ -110,6 +112,28 @@ class SessionItemsTests(unittest.TestCase):
         self.assertNotIn("not evidence", real)
         self.assertIn("No findings.", real)
 
+    def test_items_stream_and_flush_boxes_at_the_next_image(self):
+        png = "iVBORw0KGgo="
+        stream = iter_items(session([
+            event(0, "/camera/cam0/image", 0, data=png, format="png"),
+            event(1, "/camera/cam0/detections", 5, frame_number=1, label="a",
+                  bbox_xyxy=[0, 0, 1, 1], confidence=0.5),
+            event(2, "/camera/cam0/detections", 6, frame_number=1, label="b",
+                  bbox_xyxy=[2, 2, 3, 3], confidence=0.25),
+            event(3, "/camera/cam0/image", 100, data=png, format="png"),
+            event(4, "/robot/state", 200, encoder_counts={"base": 1}),
+        ]))
+        self.assertNotIsInstance(stream, list)          # lazy: images are not all held
+        kinds = [(i.kind, i.seq) for i in stream]
+        # The frame-1 box set is complete before the next image clears it.
+        self.assertEqual(kinds, [("document", None), ("clear", 0), ("image", 0),
+                                 ("boxes", 1), ("clear", 3), ("image", 3), ("scalar", 4)])
+
+    def test_recording_ids_are_unique_per_run(self):
+        first, second = recording_id(session()), recording_id(session())
+        self.assertTrue(first.startswith("s1-") and second.startswith("s1-"))
+        self.assertNotEqual(first, second)
+
     def test_synthetic_session_images_and_detections(self):
         from examples.make_synthetic_session import write_synthetic_session
         with tempfile.TemporaryDirectory() as directory:
@@ -161,6 +185,12 @@ class ViewCommandTests(unittest.TestCase):
         self.assertIn('pip install -e ".[viz]"', err)
         self.assertNotIn("Traceback", err)
         self.assertFalse((self.root / "new.rrd").exists())
+
+    def test_save_into_missing_folder_exits_2_without_traceback(self):
+        code, err = self.run_main(self.session_path, "--save", self.root / "nodir" / "x.rrd")
+        self.assertEqual(code, 2)
+        self.assertIn("folder does not exist", err)
+        self.assertNotIn("Traceback", err)
 
     def test_unopenable_session_exits_2(self):
         code, _ = self.run_main(self.root / "missing", "--save", self.root / "x.rrd")

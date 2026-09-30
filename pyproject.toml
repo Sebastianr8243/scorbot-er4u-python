@@ -24,7 +24,7 @@ dev = [
     "pytest-timeout>=2.4,<3",
     "coverage[toml]>=7.10,<8",
     "hypothesis>=6.100,<7",
-    "ruff>=0.6,<1",
+    "ruff==0.16.9",  # same version as .pre-commit-config.yaml, so local and CI agree
     "pre-commit>=4,<5",
     "matplotlib>=3.8,<4",
 ]

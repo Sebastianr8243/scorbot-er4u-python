@@ -332,6 +332,9 @@ def _view(args) -> int:
     if args.save is not None and args.save.exists():
         print(f"{args.save} already exists; choose a new --save name.", file=sys.stderr)
         return 2
+    if args.save is not None and not args.save.resolve().parent.is_dir():
+        print(f"{args.save}: the folder does not exist; create it first.", file=sys.stderr)
+        return 2
     try:
         rerun_view.require_rerun()
     except rerun_view.RerunUnavailable as error:

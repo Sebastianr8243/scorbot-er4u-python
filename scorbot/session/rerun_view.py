@@ -8,9 +8,10 @@ code that touches the Rerun SDK. Nothing here opens USB or writes a session.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import math
 import numbers
+import uuid
 
 from ..state import JOINTS
 from .analysis import event_summary
@@ -119,41 +120,56 @@ def _detection(payload):
     return [float(v) for v in box], label
 
 
-def session_items(session) -> list[Item]:
-    """Everything to show for one session, in recorded order.
+def iter_items(session):
+    """Yield everything to show for one session, in recorded order, lazily.
 
-    Detections of one frame become one box set at the first detection's time,
-    and each new image clears the previous frame's boxes, so the viewer never
-    shows stale or partial detections.
+    Streaming keeps decoded images out of memory on long sessions. Detections
+    of one frame become one box set at the first detection's time; a camera's
+    pending box sets are emitted just before its next image, which then clears
+    them, so the viewer never shows stale or partial detections.
     """
-    items = [Item("session/info", "document", info_markdown(session))]
+    yield Item("session/info", "document", info_markdown(session))
     start = min((e["publish_time"] for e in session.events), default=0)
-    boxes = {}   # (camera_id, frame_number) -> (index in items, xyxy list, label list)
+    pending = {}   # camera_id -> {frame_number: (t, seq, xyxy list, label list)}
+
+    def flush(camera_id):
+        for t, seq, xyxy, labels in pending.pop(camera_id, {}).values():
+            yield Item(f"camera/{camera_id}/image/detections", "boxes",
+                       {"xyxy": xyxy, "labels": labels}, t, seq)
+
     for event in session.events:
         topic, payload = event["topic"], event["payload"]
         t, seq = (event["publish_time"] - start) / 1e9, event["seq"]
         if topic == "/robot/state":
-            items.extend(_state_items(payload, t, seq))
+            yield from _state_items(payload, t, seq)
         elif topic in _LOG_TOPICS:
-            items.append(_log_item(event, t, seq))
+            yield _log_item(event, t, seq)
         elif topic.startswith("/camera/") and topic.count("/") == 3:
             _, _, camera_id, kind = topic.split("/", 3)
-            detections_path = f"camera/{camera_id}/image/detections"
             if kind == "image":
-                items.append(Item(detections_path, "clear", None, t, seq))
+                yield from flush(camera_id)
+                yield Item(f"camera/{camera_id}/image/detections", "clear", None, t, seq)
                 image = _image_item(camera_id, payload, t, seq)
                 if image is not None:
-                    items.append(image)
+                    yield image
             elif kind == "detections" and (found := _detection(payload)) is not None:
-                key = (camera_id, payload.get("frame_number"))
-                if key not in boxes:
-                    boxes[key] = (len(items), [], [])
-                    items.append(Item(detections_path, "boxes", None, t, seq))
-                boxes[key][1].append(found[0])
-                boxes[key][2].append(found[1])
-    for index, xyxy, labels in boxes.values():
-        items[index] = replace(items[index], value={"xyxy": xyxy, "labels": labels})
-    return items
+                group = pending.setdefault(camera_id, {}).setdefault(
+                    payload.get("frame_number"), (t, seq, [], []))
+                group[2].append(found[0])
+                group[3].append(found[1])
+    for camera_id in list(pending):
+        yield from flush(camera_id)
+
+
+def session_items(session) -> list[Item]:
+    """iter_items as a list (for tests and small sessions)."""
+    return list(iter_items(session))
+
+
+def recording_id(session) -> str:
+    """Session id plus a per-run suffix, so viewing twice never merges two runs."""
+    base = session.metadata.get("session_id") or str(session.path)
+    return f"{base}-{uuid.uuid4().hex[:8]}"
 
 
 def _archetype(rr, item: Item):
@@ -189,11 +205,10 @@ def send(items, recording) -> None:
 def view(session, save_path=None) -> None:
     """Open one session in the Rerun viewer, or write it to save_path (.rrd)."""
     rr = require_rerun()
-    recording_id = session.metadata.get("session_id") or str(session.path)
-    recording = rr.RecordingStream(APPLICATION_ID, recording_id=recording_id)
+    recording = rr.RecordingStream(APPLICATION_ID, recording_id=recording_id(session))
     if save_path is not None:
         recording.save(str(save_path))
     else:
         recording.spawn()
-    send(session_items(session), recording)
+    send(iter_items(session), recording)
     recording.flush()
