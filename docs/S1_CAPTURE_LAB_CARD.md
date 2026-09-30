@@ -56,3 +56,7 @@ Keep go-to moves small (a few degrees per joint) and away from the table and cab
 - [ ] Your notes: directions, joints that moved, speeds, anything odd (sounds, LEDs, errors).
 
 Stop early if needed. Even capture A alone is useful.
+
+Back at a desk (no arm needed): `export` each capture, then run `setpoints` on
+ours first and the Intelitek go-to captures second
+([USB_CAPTURE.md section 4](USB_CAPTURE.md#4-find-the-device-export-compare)).

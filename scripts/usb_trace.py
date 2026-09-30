@@ -7,16 +7,20 @@ commands the arm; it only reads files that were captured earlier.
   summary CAPTURE [--device N]        list bus/device/endpoints to find the ER-4U
   export  CAPTURE --device N --out F  one JSONL row per bulk/interrupt transfer
   compare A.jsonl B.jsonl             side-by-side protocol statistics
+  setpoints A.jsonl [--csv F]         does the arm follow the OUT per-joint region?
 """
 
 import argparse
+import bisect
 from collections import Counter
+import csv
 import json
 import math
 from pathlib import Path
 import struct
 
-from scorbot.state import PACKET_MIN_LENGTH, decode_state
+from scorbot.calibration import signed_count_delta
+from scorbot.state import JOINTS, PACKET_MIN_LENGTH, decode_state
 
 
 LINKTYPE_USBPCAP = 249
@@ -32,6 +36,7 @@ PCAP_MAGICS = {
     b"\x4d\x3c\xb2\xa1": ("<", 1e-9), b"\xa1\xb2\x3c\x4d": (">", 1e-9),
 }
 OUT_BYTE_FIELDS = 8    # byte0 is the sequence byte, byte4 the command (openScorbot/libhex.py)
+SETPOINT_REGION = 12   # OUT bytes 12-35: per-joint encoder/setpoint region (docs/PROTOCOL.md 2.3)
 
 
 def parse_usbpcap_header(frame):
@@ -326,6 +331,156 @@ def format_compare(a, b, name_a="A", name_b="B"):
     return "\n".join(lines)
 
 
+def decode_setpoint_region(payload):
+    """Per-joint (value, sign word hex) from OUT bytes 12-35; None if absent or all zero.
+
+    Layout from docs/PROTOCOL.md section 2.3: each joint is a 2-byte little-endian
+    value plus a 2-byte sign word. What the controller does with it is unverified.
+    """
+    region = payload[SETPOINT_REGION:SETPOINT_REGION + 4 * len(JOINTS)]
+    if len(region) < 4 * len(JOINTS) or not any(region):
+        return None
+    return {name: (int.from_bytes(region[4 * i:4 * i + 2], "little"),
+                   region[4 * i + 2:4 * i + 4].hex())
+            for i, name in enumerate(JOINTS)}
+
+
+def setpoint_stats(rows, tolerance=20, follow_window_s=2.0, timeline=None):
+    """Does the arm follow the OUT region? Heuristic evidence, not proof.
+
+    Each OUT region value is compared with the latest IN encoder count for that
+    joint (wrap-aware). Within ``tolerance`` counts it is an echo of the measured
+    position; beyond it, a lead. Consecutive leads form an episode; the episode
+    converged if a later IN count came within ``tolerance`` of the episode's final
+    target before the episode ended plus ``follow_window_s``. ``follow_ms`` is timed
+    from the last change of that target. Pass a list as ``timeline`` to collect one
+    row per analysed OUT message (for ``write_timeline``).
+    """
+    joints = {name: {"messages": 0, "echo": 0, "lead": 0, "ambiguous": 0, "max_abs_gap": 0,
+                     "episodes": 0, "converged": 0, "follow_ms": []} for name in JOINTS}
+    skipped, simultaneous, sign_words = Counter(), Counter(), Counter()
+    episodes = {name: [] for name in JOINTS}   # [target, target_t, end_t]
+    open_episode = dict.fromkeys(JOINTS)
+    in_times, in_counts, measured = [], [], None
+
+    for index, row in enumerate(rows):
+        t = row.get("t_s")
+        if row.get("direction") == "in":
+            if "decode_error" in row:
+                skipped["decode_error"] += 1
+            elif row.get("encoder_counts"):
+                measured = row["encoder_counts"]
+                if t is not None:
+                    in_times.append(t)
+                    in_counts.append(measured)
+            continue
+        if row.get("direction") != "out":
+            continue
+        region = decode_setpoint_region(bytes.fromhex(row.get("hex", "")))
+        if region is None:
+            skipped["no_region"] += 1
+            continue
+        if measured is None:
+            skipped["no_reference"] += 1
+            continue
+        entry = {"index": row.get("index", index), "t_s": t} if timeline is not None else None
+        leading = 0
+        for name, (target, sign_word) in region.items():
+            stats, episode = joints[name], open_episode[name]
+            stats["messages"] += 1
+            if sign_word not in ("0000", "ffff"):
+                sign_words[sign_word] += 1
+            try:
+                gap = signed_count_delta(target, measured[name])
+            except (KeyError, ValueError):
+                stats["ambiguous"] += 1
+                label, gap = "ambiguous", None
+            else:
+                stats["max_abs_gap"] = max(stats["max_abs_gap"], abs(gap))
+                label = "lead" if abs(gap) > tolerance else "echo"
+                stats[label] += 1
+            if label == "lead":
+                leading += 1
+                if episode is None:
+                    episode = open_episode[name] = [target, t, None]
+                    episodes[name].append(episode)
+                elif episode[0] != target:
+                    episode[0], episode[1] = target, t
+            elif label == "echo" and episode is not None:
+                episode[2] = t
+                open_episode[name] = None
+            if entry is not None:
+                entry.update({f"{name}_target": target, f"{name}_measured": measured.get(name),
+                              f"{name}_gap": gap, f"{name}_label": label})
+        if leading:
+            simultaneous[leading] += 1
+        if entry is not None:
+            entry["leading"] = leading
+            timeline.append(entry)
+
+    for name, found in episodes.items():
+        stats = joints[name]
+        stats["episodes"] = len(found)
+        for target, target_t, end_t in found:
+            if target_t is None:
+                continue
+            deadline = math.inf if end_t is None else end_t + follow_window_s
+            for i in range(bisect.bisect_left(in_times, target_t), len(in_times)):
+                if in_times[i] > deadline:
+                    break
+                try:
+                    reached = abs(signed_count_delta(in_counts[i][name], target)) <= tolerance
+                except (KeyError, ValueError):
+                    reached = False
+                if reached:
+                    stats["converged"] += 1
+                    stats["follow_ms"].append((in_times[i] - target_t) * 1000)
+                    break
+        delays = stats["follow_ms"]
+        stats["follow_ms"] = {"median": percentile(delays, 0.5), "p95": percentile(delays, 0.95)}
+    return {"tolerance": tolerance, "follow_window_s": follow_window_s, "joints": joints,
+            "simultaneous_leads": dict(simultaneous), "skipped": dict(skipped),
+            "unexpected_sign_words": dict(sign_words)}
+
+
+def format_setpoints(stats):
+    """Plain-text per-joint verdicts for setpoint_stats."""
+    tol = stats["tolerance"]
+    lines = [f"{'joint':<14} | {'OUT msgs':>8} | {'echo':>7} | {'lead':>7} | {'max |gap|':>9} | "
+             f"{'episodes':>8} | {'reached':>7} | follow ms (median / p95)"]
+    lines.append("-" * 100)
+    for name, j in stats["joints"].items():
+        lines.append(f"{name:<14} | {j['messages']:>8} | {j['echo']:>7} | {j['lead']:>7} | "
+                     f"{j['max_abs_gap']:>9} | {j['episodes']:>8} | {j['converged']:>7} | "
+                     f"{_fmt(j['follow_ms']['median'])} / {_fmt(j['follow_ms']['p95'])}")
+    lines.append("")
+    for name, j in stats["joints"].items():
+        if not j["lead"]:
+            lines.append(f"{name}: region only echoed the measured position (within +/-{tol} counts).")
+        else:
+            lines.append(f"{name}: {j['episodes']} lead episode(s); the measured position reached "
+                         f"the final target in {j['converged']}.")
+    multi = sum(count for leading, count in stats["simultaneous_leads"].items() if leading >= 2)
+    lines.append(f"OUT messages with 2+ joints leading at once: {multi} "
+                 f"(by count: {_fmt(stats['simultaneous_leads'])})")
+    lines.append(f"Skipped: {_fmt(stats['skipped'])}. "
+                 f"Unexpected sign words: {_fmt(stats['unexpected_sign_words'])}.")
+    lines.append("Heuristic and unverified: a lead the arm then follows is consistent with the "
+                 "region acting as a position target; it does not prove it. Check the same "
+                 "command on our own capture, where the legacy code's use is known.")
+    return "\n".join(lines)
+
+
+def write_timeline(timeline, path):
+    """One CSV row per analysed OUT message (from setpoint_stats(timeline=[])); never overwrites."""
+    columns = ["index", "t_s", "leading"] + [f"{name}_{field}" for name in JOINTS
+                                             for field in ("target", "measured", "gap", "label")]
+    with Path(path).open("x", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(timeline)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -344,6 +499,14 @@ def main():
     compare.add_argument("--header-bytes", type=int, default=4)
     compare.add_argument("--header-skip", type=int, default=1,
                          help="leading OUT bytes excluded from the header (default skips byte0)")
+    setpoints = commands.add_parser("setpoints",
+                                    help="check whether the arm follows the OUT per-joint region")
+    setpoints.add_argument("trace", type=Path, help="JSONL written by export")
+    setpoints.add_argument("--tolerance", type=int, default=20,
+                           help="counts treated as an echo (default 20, the legacy settle band)")
+    setpoints.add_argument("--follow-window", type=float, default=2.0,
+                           help="seconds after a lead ends to still count the arm arriving")
+    setpoints.add_argument("--csv", type=Path, help="write a per-message timeline CSV")
     args = parser.parse_args()
 
     if args.command == "summary":
@@ -366,6 +529,17 @@ def main():
             for row in rows:
                 handle.write(json.dumps(row) + "\n")
         print(f"Wrote {len(rows)} transfers to {args.out}")
+        return 0
+    if args.command == "setpoints":
+        if args.csv and args.csv.exists():
+            print(f"{args.csv} already exists; choose a new --csv name.")
+            return 1
+        timeline = [] if args.csv else None
+        stats = setpoint_stats(read_rows(args.trace), args.tolerance, args.follow_window, timeline)
+        print(format_setpoints(stats))
+        if args.csv:
+            write_timeline(timeline, args.csv)
+            print(f"Wrote {len(timeline)} rows to {args.csv}")
         return 0
     a, b = (compare_stats(read_rows(path), args.header_bytes, args.header_skip)
             for path in (args.a, args.b))

@@ -7,10 +7,11 @@ import tempfile
 import unittest
 
 from scripts.usb_trace import (
-    compare_stats, export_rows, format_compare, parse_capture, parse_usbpcap_header,
-    read_rows, select_transfers, summarize,
+    compare_stats, decode_setpoint_region, export_rows, format_compare, format_setpoints,
+    parse_capture, parse_usbpcap_header, read_rows, select_transfers, setpoint_stats,
+    summarize, write_timeline,
 )
-from scorbot.state import ENCODER_OFFSETS
+from scorbot.state import ENCODER_OFFSETS, JOINTS
 
 
 def usbpcap_frame(payload=b"", *, endpoint=0x01, transfer=3, info=0, device=5, bus=1,
@@ -43,6 +44,25 @@ def exchange(sequence, home_bits=0, base=100, sign=128):
         usbpcap_frame(b"", endpoint=0x81, info=0),                  # IN submission
         usbpcap_frame(state_payload(base, sign, home_bits), endpoint=0x81, info=1),
     ]
+
+
+def region_payload(targets, sign_word=b"\x00\x00"):
+    """OUT message whose bytes 12-35 carry one little-endian value + sign word per joint."""
+    payload = bytearray(out_payload(1))
+    for index, name in enumerate(JOINTS):
+        offset = 12 + 4 * index
+        payload[offset:offset + 2] = targets.get(name, 100).to_bytes(2, "little")
+        payload[offset + 2:offset + 4] = sign_word
+    return bytes(payload)
+
+
+def out_row(t, sign_word=b"\x00\x00", **targets):
+    return {"direction": "out", "t_s": t, "hex": region_payload(targets, sign_word).hex()}
+
+
+def in_row(t, **counts):
+    return {"direction": "in", "t_s": t,
+            "encoder_counts": {name: counts.get(name, 100) for name in JOINTS}}
 
 
 def pcapng(frames, step_us=1000, linktype=249):
@@ -140,6 +160,83 @@ class UsbTraceTests(unittest.TestCase):
         text = format_compare(a, b, "intelitek", "python")
         self.assertIn("seq byte0 zero_seen", text)
         self.assertIn("0000000d", text)
+
+
+class SetpointTests(unittest.TestCase):
+    def test_region_decodes_values_and_sign_words(self):
+        region = decode_setpoint_region(region_payload({"base": 300, "gripper": 65535},
+                                                       b"\xff\xff"))
+        self.assertEqual(region["base"], (300, "ffff"))
+        self.assertEqual(region["gripper"], (65535, "ffff"))
+        self.assertIsNone(decode_setpoint_region(out_payload(1)))   # all-zero region
+        self.assertIsNone(decode_setpoint_region(b"\x01" * 20))     # too short
+
+    def test_idle_echo_has_no_leads(self):
+        rows = [in_row(0.00), out_row(0.01, base=105), in_row(0.02), out_row(0.03)]
+        stats = setpoint_stats(rows)
+        base = stats["joints"]["base"]
+        self.assertEqual((base["messages"], base["echo"], base["lead"]), (2, 2, 0))
+        self.assertEqual(base["max_abs_gap"], 5)
+        self.assertEqual(stats["simultaneous_leads"], {})
+        self.assertIn("only echoed", format_setpoints(stats))
+
+    def test_single_joint_lead_that_the_arm_follows(self):
+        rows = [in_row(0.00),
+                out_row(0.10, base=200), in_row(0.11, base=130),
+                out_row(0.20, base=300), in_row(0.21, base=220),
+                out_row(0.30, base=300), in_row(0.31, base=295),   # re-sent target, still a lead
+                out_row(0.40, base=296), in_row(0.41, base=296)]   # echo ends the episode
+        stats = setpoint_stats(rows)
+        base = stats["joints"]["base"]
+        self.assertEqual(base["lead"], 3)
+        self.assertEqual(base["episodes"], 1)
+        self.assertEqual(base["converged"], 1)
+        # Timed from the last target change (0.20), not the unchanged re-send at 0.30.
+        self.assertAlmostEqual(base["follow_ms"]["median"], 110.0, places=3)
+        self.assertEqual(stats["joints"]["shoulder"]["lead"], 0)
+        self.assertEqual(stats["simultaneous_leads"], {1: 3})
+
+    def test_simultaneous_leads_and_unfollowed_target(self):
+        rows = [in_row(0.0),
+                out_row(0.1, base=400, shoulder=400, elbow=400), in_row(0.2),
+                out_row(0.3), in_row(0.4)]                  # back to echo; arm never moved
+        stats = setpoint_stats(rows, follow_window_s=0.5)
+        self.assertEqual(stats["simultaneous_leads"], {3: 1})
+        self.assertEqual(stats["joints"]["elbow"]["episodes"], 1)
+        self.assertEqual(stats["joints"]["elbow"]["converged"], 0)
+        self.assertIn("2+ joints", format_setpoints(stats))
+
+    def test_counts_wrap_and_bad_rows_are_counted_not_fatal(self):
+        rows = [out_row(0.0),                                # no IN yet
+                in_row(0.1, base=65530),
+                out_row(0.2, base=3),                        # 8 counts across the wrap: echo
+                out_row(0.3, sign_word=b"\x12\x34", base=65530),
+                {"direction": "out", "t_s": 0.4, "hex": out_payload(2).hex()},  # no region
+                {"direction": "in", "t_s": 0.5, "decode_error": "bad sign"}]
+        stats = setpoint_stats(rows)
+        self.assertEqual(stats["skipped"], {"no_reference": 1, "no_region": 1,
+                                            "decode_error": 1})
+        self.assertEqual(stats["joints"]["base"]["echo"], 2)
+        self.assertEqual(stats["joints"]["base"]["max_abs_gap"], 8)
+        self.assertEqual(stats["unexpected_sign_words"], {"1234": 6})
+
+    def test_timeline_csv_and_export_pipeline(self):
+        frames = [usbpcap_frame(state_payload(), endpoint=0x81, info=1),
+                  usbpcap_frame(region_payload({"base": 250}), endpoint=0x01, info=0)]
+        rows = export_rows(select_transfers(parse_capture(pcapng(frames)), device=5))
+        timeline = []
+        stats = setpoint_stats(rows, timeline=timeline)
+        self.assertEqual(stats["joints"]["base"]["lead"], 1)
+        self.assertEqual(timeline[0]["base_label"], "lead")
+        self.assertEqual(timeline[0]["base_gap"], 150)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "timeline.csv"
+            write_timeline(timeline, path)
+            lines = path.read_text(encoding="utf-8").splitlines()
+            with self.assertRaises(FileExistsError):
+                write_timeline(timeline, path)
+        self.assertTrue(lines[0].startswith("index,t_s,leading,base_target"))
+        self.assertEqual(len(lines), 2)
 
 
 if __name__ == "__main__":

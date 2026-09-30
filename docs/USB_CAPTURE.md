@@ -63,6 +63,14 @@ python scripts/usb_trace.py compare intelitek.jsonl python.jsonl [--header-bytes
 
 Plain-text side-by-side table. OUT "headers" are bytes `header-skip .. header-skip+header-bytes-1`; byte0 is skipped by default because the sequence byte changes on every packet.
 
+```
+python scripts/usb_trace.py setpoints intelitek_B_goto.jsonl [--tolerance 20] [--follow-window 2] [--csv timeline.csv]
+```
+
+Checks whether the arm follows the per-joint OUT region (bytes 12-35, [PROTOCOL.md 2.3](PROTOCOL.md#23-encoder--setpoint-region-offsets-12-35)). Each OUT value is compared with the latest IN encoder count for that joint, wrap-aware. Within `--tolerance` counts it is an **echo** of the measured position; beyond it, a **lead**. Consecutive leads form an episode; **reached** counts episodes whose final target a later IN count came within tolerance of, and `follow ms` times that from the last target change. The summary also counts OUT messages with two or more joints leading at once. `--csv` writes one row per OUT message for plotting. The captures with multi-joint go-to moves (B and C on the [S1 lab card](S1_CAPTURE_LAB_CARD.md)) are the ones this is for.
+
+Run it on our own capture first. The legacy code leads with one joint during a jog and echoes the others, so `python_A_basic` should show exactly that; if it does not, fix the analysis before reading the Intelitek result. Two known blind spots: the legacy echo is a smoothed position, so during fast motion an echo can exceed the tolerance and read as a lead; and jog steps are at most 20 counts, so a target the arm tracks closely may never exceed it. Compare `max |gap|` between the two captures and rerun with another `--tolerance` if the self-check looks off. The output is heuristic evidence, not proof of setpoint semantics. `--csv` refuses to overwrite an existing file.
+
 ## 5. What each comparison answers
 
 | Question | Where to look |
@@ -72,6 +80,7 @@ Plain-text side-by-side table. OUT "headers" are bytes `header-skip .. header-sk
 | Encoder wrap at 0/65535: two's or ones' complement? | Export rows for the jog: watch `encoder_counts` and `encoder_sign_bytes` while the base crosses zero. `scorbot.state` assumes sign byte 128/127 and `count - 65535` (ones' complement style); if the Intelitek trace shows e.g. 65535 followed by 0 with a sign-byte change, compare against both conventions. `decode_errors` and `encoder sign bytes` flag unexpected sign values. |
 | Braking after the homing switch | `home_switch_bits` values, then the OUT rows just after the bit changes in the Intelitek trace: which command bytes it sends, and how fast encoder counts settle. |
 | Stop / disable packets | The last OUT rows of each file (disconnect) and any header only in one file; compare with `libhex.motorsoff` and `get_scorbotoff`. |
+| Setpoints: does the controller act on the per-joint region, and for several joints at once? | `setpoints` on the Intelitek go-to captures: leads that the measured position then reaches, and messages with 2+ joints leading. Only echoes means the original software does not drive motion through the region. |
 | Timing | `OUT->OUT interval` median/p95 (polling period) and `OUT->IN latency`. Python sleeps `WRITE`/`READ` between write and read in `libdef.check`. |
 
 Findings belong in the lab notes with the capture file names, driver names, and start poses. Do not change the protocol code from a single capture; confirm on a second session first.
