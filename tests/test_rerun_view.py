@@ -73,8 +73,28 @@ class SessionItemsTests(unittest.TestCase):
     def test_bad_image_data_is_skipped(self):
         items = session_items(session([
             event(0, "/camera/cam0/image", 0, data="!!not base64!!", format="png"),
+            event(1, "/camera/cam0/image", 10, data="é", format="png"),   # non-ASCII
         ]))
         self.assertEqual(by_path(items, "camera/cam0/image"), [])
+
+    def test_detections_of_one_frame_are_one_box_set_and_cleared_on_next_frame(self):
+        png = "iVBORw0KGgo="   # base64 of the PNG signature is enough here
+        items = session_items(session([
+            event(0, "/camera/cam0/image", 0, data=png, format="png"),
+            event(1, "/camera/cam0/detections", 5, frame_number=1, label="a",
+                  bbox_xyxy=[0, 0, 1, 1], confidence=0.5),
+            event(2, "/camera/cam0/detections", 6, frame_number=1, label="b",
+                  bbox_xyxy=[2, 2, 3, 3], confidence=0.25),
+            event(3, "/camera/cam0/image", 100, data=png, format="png"),
+        ]))
+        path = "camera/cam0/image/detections"
+        boxes = [i for i in by_path(items, path) if i.kind == "boxes"]
+        self.assertEqual(len(boxes), 1)
+        self.assertEqual(boxes[0].value, {"xyxy": [[0.0, 0.0, 1.0, 1.0], [2.0, 2.0, 3.0, 3.0]],
+                                          "labels": ["a 0.50", "b 0.25"]})
+        self.assertEqual((boxes[0].time_s, boxes[0].seq), (0.005, 1))
+        clears = [(i.time_s, i.seq) for i in by_path(items, path) if i.kind == "clear"]
+        self.assertEqual(clears, [(0.0, 0), (0.1, 3)])   # each new image drops old boxes
 
     def test_info_document_labels_source_and_findings(self):
         empty = session_items(session(data_source="simulated",
@@ -99,10 +119,10 @@ class SessionItemsTests(unittest.TestCase):
         self.assertTrue(images)
         self.assertEqual(images[0].value["media_type"], "image/png")
         self.assertTrue(images[0].value["contents"].startswith(b"\x89PNG"))
-        boxes = by_path(items, "camera/cam0/image/detections")
+        boxes = [i for i in by_path(items, "camera/cam0/image/detections") if i.kind == "boxes"]
         self.assertTrue(boxes)
-        self.assertEqual(len(boxes[0].value["xyxy"]), 4)
-        self.assertEqual(boxes[0].value["label"], "red_block 0.90")
+        self.assertEqual(len(boxes[0].value["xyxy"][0]), 4)
+        self.assertEqual(boxes[0].value["labels"], ["red_block 0.90"])
         self.assertIn("# SYNTHETIC session", items[0].value)
         times = [i.time_s for i in items if i.time_s is not None]
         self.assertEqual(min(times), 0.0)

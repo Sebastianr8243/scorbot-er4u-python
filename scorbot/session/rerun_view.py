@@ -8,8 +8,7 @@ code that touches the Rerun SDK. Nothing here opens USB or writes a session.
 from __future__ import annotations
 
 import base64
-import binascii
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 import numbers
 
@@ -30,7 +29,7 @@ class Item:
     """One thing to log: where, what kind, the value, and when (None = static)."""
 
     path: str
-    kind: str   # scalar | text_log | image | boxes | document
+    kind: str   # scalar | text_log | image | boxes | clear | document
     value: object
     time_s: float | None = None
     seq: int | None = None
@@ -98,32 +97,38 @@ def _log_item(event, t, seq):
     return Item("events", "text_log", f"{topic}: {text}", t, seq, level)
 
 
-def _camera_item(topic, payload, t, seq):
-    _, _, camera_id, kind = topic.split("/", 3)
-    if kind == "image":
-        try:
-            contents = base64.b64decode(payload["data"], validate=True)
-        except (KeyError, TypeError, binascii.Error):
-            return None
-        return Item(f"camera/{camera_id}/image", "image",
-                    {"contents": contents, "media_type": f"image/{payload.get('format')}"},
-                    t, seq)
+def _image_item(camera_id, payload, t, seq):
+    try:
+        # binascii.Error and the non-ASCII error are both ValueError.
+        contents = base64.b64decode(payload["data"], validate=True)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return Item(f"camera/{camera_id}/image", "image",
+                {"contents": contents, "media_type": f"image/{payload.get('format')}"}, t, seq)
+
+
+def _detection(payload):
+    """(xyxy, label) for one detection payload, or None if its box is unusable."""
     box = payload.get("bbox_xyxy")
-    if kind == "detections" and isinstance(box, list) and len(box) == 4 \
-            and all(_number(v) for v in box):
-        confidence = payload.get("confidence")
-        label = str(payload.get("label", ""))
-        if _number(confidence):
-            label = f"{label} {confidence:.2f}"
-        return Item(f"camera/{camera_id}/image/detections", "boxes",
-                    {"xyxy": [float(v) for v in box], "label": label}, t, seq)
-    return None
+    if not (isinstance(box, list) and len(box) == 4 and all(_number(v) for v in box)):
+        return None
+    confidence = payload.get("confidence")
+    label = str(payload.get("label", ""))
+    if _number(confidence):
+        label = f"{label} {confidence:.2f}"
+    return [float(v) for v in box], label
 
 
 def session_items(session) -> list[Item]:
-    """Everything to show for one session, in recorded order."""
+    """Everything to show for one session, in recorded order.
+
+    Detections of one frame become one box set at the first detection's time,
+    and each new image clears the previous frame's boxes, so the viewer never
+    shows stale or partial detections.
+    """
     items = [Item("session/info", "document", info_markdown(session))]
     start = min((e["publish_time"] for e in session.events), default=0)
+    boxes = {}   # (camera_id, frame_number) -> (index in items, xyxy list, label list)
     for event in session.events:
         topic, payload = event["topic"], event["payload"]
         t, seq = (event["publish_time"] - start) / 1e9, event["seq"]
@@ -132,9 +137,22 @@ def session_items(session) -> list[Item]:
         elif topic in _LOG_TOPICS:
             items.append(_log_item(event, t, seq))
         elif topic.startswith("/camera/") and topic.count("/") == 3:
-            item = _camera_item(topic, payload, t, seq)
-            if item is not None:
-                items.append(item)
+            _, _, camera_id, kind = topic.split("/", 3)
+            detections_path = f"camera/{camera_id}/image/detections"
+            if kind == "image":
+                items.append(Item(detections_path, "clear", None, t, seq))
+                image = _image_item(camera_id, payload, t, seq)
+                if image is not None:
+                    items.append(image)
+            elif kind == "detections" and (found := _detection(payload)) is not None:
+                key = (camera_id, payload.get("frame_number"))
+                if key not in boxes:
+                    boxes[key] = (len(items), [], [])
+                    items.append(Item(detections_path, "boxes", None, t, seq))
+                boxes[key][1].append(found[0])
+                boxes[key][2].append(found[1])
+    for index, xyxy, labels in boxes.values():
+        items[index] = replace(items[index], value={"xyxy": xyxy, "labels": labels})
     return items
 
 
@@ -147,8 +165,10 @@ def _archetype(rr, item: Item):
     if item.kind == "image":
         return rr.EncodedImage(contents=value["contents"], media_type=value["media_type"])
     if item.kind == "boxes":
-        return rr.Boxes2D(array=[value["xyxy"]], array_format=rr.Box2DFormat.XYXY,
-                          labels=[value["label"]])
+        return rr.Boxes2D(array=value["xyxy"], array_format=rr.Box2DFormat.XYXY,
+                          labels=value["labels"])
+    if item.kind == "clear":
+        return rr.Clear(recursive=False)
     if item.kind == "document":
         return rr.TextDocument(value, media_type=rr.MediaType.MARKDOWN)
     raise ValueError(f"Unknown item kind: {item.kind}")
