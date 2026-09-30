@@ -46,23 +46,10 @@ Hazard IDs (HZ-nn) refer to [SAFETY_CASE.md](SAFETY_CASE.md). Protocol details a
 | 21 | `home()` timeout is 180 s against up to 5 x 30 s of search plus braking and transitions | `scorbot/robot.py:Scorbot.home` | SDK review H4. Set from a measured home duration |
 | 22 | Ctrl-C may not interrupt `queue.get` on Windows until the timeout expires | `scorbot/robot.py:_command` | SDK review H5, unverified. Test in a Windows rehearsal with `step_delay_s` |
 | 23 | `review_bench` counts an operator-declined run's missing steps as problems (exit 1) | `scripts/review_lab_logs.py:review_bench` | Safety case Q11. Decide the intended verdict |
-| 24 | A tiny `--delta` (e.g. 0.001) passes argparse but fails in `preview_jog` only after homing | `examples/bench_joint.py:main` | SDK review M6. Call `preview_jog` offline before connecting |
-| 26 | `git rev-parse` runs in the current directory, not the repo, so a run from elsewhere records the wrong commit | `examples/bench_joint.py:main` | SDK review. `record.py` already uses the repo root |
 | 27 | Enter presses typed during homing sit in stdin and answer the next prompt (they can only decline) | `examples/bench_joint.py` | SDK review M8 |
-| 28 | `record_raw_state.py` opens its output before connecting, so a failed connect leaves an empty file that blocks reuse of the name | `examples/record_raw_state.py:main` | LED-prompt agent report |
 | 29 | `examples/python_control.py` connects and moves on run, with no guard or confirmation | `examples/python_control.py` | CLAUDE.md review |
 | 30 | `build_bench_kit.py` zips all of `references/`, so local copyrighted Intelitek PDFs go into the kit | `scripts/build_bench_kit.py` | CLAUDE.md review. Fine for the lab PC; never publish the ZIP |
 | 31 | `preview_jog` adds deltas to signed counts, which can cross the ±65535 seam (display only) | `scorbot/robot.py:preview_jog` | Altitude review |
-
-## P1: recording (scorbot/session/)
-
-| # | Item | Where |
-|---|---|---|
-| 32 | Power loss can lose about the last second of MCAP data: flush only, fsync at close. Add a time-based fsync | `record.py:SessionWriter._emit` |
-| 33 | SIGTERM or closing the Windows console skips `close()`, so `metadata.json` lacks end fields. Map SIGTERM/SIGBREAK to `KeyboardInterrupt` in the lab scripts | `examples/*.py` |
-| 34 | A `KeyboardInterrupt` inside `add_message` is not caught by `except Exception`, so `_broken` stays unset | `record.py:SessionWriter._emit` |
-| 35 | `os.replace` of `metadata.json` can fail on Windows when antivirus or OneDrive holds the file; add a short retry | `record.py:_write_json_atomic` |
-| 36 | `compare` is quadratic in commands times states (35 s at 6000 commands); use `bisect` | `analysis.py:command_records` |
 
 ## P2: tooling, simulator, research
 

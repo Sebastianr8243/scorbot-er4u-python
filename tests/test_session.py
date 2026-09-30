@@ -642,5 +642,61 @@ class ReviewFixTests(unittest.TestCase):
         self.assertGreater(clock["monotonic_resolution_s"], 0)
 
 
+class DurabilityTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_fsync_runs_about_once_per_interval(self):
+        from unittest.mock import patch
+        from scorbot.session import record
+        with new_writer(self.root) as writer, patch.object(record.os, "fsync") as fsync:
+            writer._last_fsync_ns = 0            # interval long past
+            writer.log_note("first")
+            writer.log_note("second")            # same interval: no second fsync
+            self.assertEqual(fsync.call_count, 1)
+
+    def test_interrupt_inside_add_message_stops_the_recording(self):
+        from unittest.mock import patch
+        from scorbot.session.record import SessionError
+        writer = new_writer(self.root)
+        with patch.object(writer._writer, "add_message", side_effect=KeyboardInterrupt()):
+            with self.assertRaises(KeyboardInterrupt):
+                writer.log_note("partial")
+        with self.assertRaises(SessionError):
+            writer.log_note("after")
+        writer.close()
+        metadata = json.loads((writer.path / "metadata.json").read_text(encoding="utf-8"))
+        self.assertFalse(metadata["closed_cleanly"])
+        self.assertIn("KeyboardInterrupt", metadata["write_error"])
+
+    def test_metadata_replace_retries_a_briefly_locked_file(self):
+        from unittest.mock import patch
+        from scorbot.session import record
+        target = self.root / "metadata.json"
+        real_replace = record.os.replace
+        attempts = []
+
+        def locked_once(src, dst):
+            attempts.append(dst)
+            if len(attempts) == 1:
+                raise PermissionError("held by antivirus")
+            real_replace(src, dst)
+
+        with patch.object(record, "REPLACE_RETRY_S", 0), \
+                patch.object(record.os, "replace", side_effect=locked_once):
+            record._write_json_atomic(target, {"ok": True})
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"ok": True})
+        with patch.object(record, "REPLACE_RETRY_S", 0), \
+                patch.object(record.os, "replace", side_effect=PermissionError("held")):
+            with self.assertRaises(PermissionError):
+                record._write_json_atomic(target, {"ok": False})
+
+
 if __name__ == "__main__":
     unittest.main()

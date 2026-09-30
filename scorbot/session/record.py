@@ -28,6 +28,9 @@ from . import notes, schemas
 
 IMAGE_FORMATS = ("jpeg", "png", "webp", "avif")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+FSYNC_INTERVAL_NS = 1_000_000_000
+REPLACE_ATTEMPTS = 5
+REPLACE_RETRY_S = 0.1
 
 
 
@@ -51,6 +54,7 @@ class SessionWriter:
         self._channel_ids: dict[str, int] = {}
         self._closed = False
         self._broken: str | None = None
+        self._last_fsync_ns = time.monotonic_ns()
         self._last_fault: str | None = None
         self._clock = metadata["clock"]
 
@@ -287,11 +291,22 @@ class SessionWriter:
             publish_time = (self._epoch(observed_monotonic_ns)
                             if observed_monotonic_ns is not None else log_time)
             try:
-                channel_id = self._channel(topic, schema_name)
-                self._writer.add_message(channel_id=channel_id, log_time=log_time,
-                                         publish_time=max(0, publish_time),
-                                         sequence=seq, data=data)
+                try:
+                    channel_id = self._channel(topic, schema_name)
+                    self._writer.add_message(channel_id=channel_id, log_time=log_time,
+                                             publish_time=max(0, publish_time),
+                                             sequence=seq, data=data)
+                except BaseException as error:
+                    # Ctrl-C inside add_message can leave a partial record: stop too.
+                    if not isinstance(error, Exception):
+                        self._broken = f"{type(error).__name__} during write"
+                    raise
                 self._stream.flush()
+                # flush() only reaches the OS; fsync about once a second bounds
+                # what a power loss can take to that window.
+                if logged - self._last_fsync_ns >= FSYNC_INTERVAL_NS:
+                    os.fsync(self._stream.fileno())
+                    self._last_fsync_ns = logged
             except Exception as error:
                 self._broken = f"{type(error).__name__}: {error}"
                 raise SessionError(f"Recording failed and has stopped: {self._broken}") from error
@@ -356,7 +371,15 @@ def _write_json_atomic(path: Path, value: dict) -> None:
         stream.write(json.dumps(value, indent=2, allow_nan=False) + "\n")
         stream.flush()
         os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    # Antivirus or OneDrive can hold the target for a moment on Windows.
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_RETRY_S)
 
 
 def _calibration(path) -> dict | None:

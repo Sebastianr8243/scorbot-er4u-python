@@ -10,6 +10,7 @@ recorder entries (it includes script overhead), not how long the arm moved.
 
 from __future__ import annotations
 
+import bisect
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
@@ -154,9 +155,13 @@ def command_records(session) -> list[CommandRecord]:
         if result_position is not None and result_position < position:
             result_position = None
         next_start = commands[n + 1] if n + 1 < len(commands) else len(events)
-        before = next((i for i in reversed(states) if previous_end < i < position), None)
-        after = (next((i for i in states if result_position < i < next_start), None)
-                 if result_position is not None else None)
+        # states is sorted: bisect keeps this linear in commands, not commands x states.
+        k = bisect.bisect_left(states, position) - 1
+        before = states[k] if k >= 0 and states[k] > previous_end else None
+        after = None
+        if result_position is not None:
+            k = bisect.bisect_right(states, result_position)
+            after = states[k] if k < len(states) and states[k] < next_start else None
         notes = []
         if result_position is None:
             notes.append("no result")
