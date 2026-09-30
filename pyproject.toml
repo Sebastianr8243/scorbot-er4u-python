@@ -23,6 +23,7 @@ dev = [
     "coverage[toml]>=7.10,<8",
     "hypothesis>=6.100,<7",
     "ruff>=0.6,<1",
+    "pre-commit>=4,<5",
     "matplotlib>=3.8,<4",
 ]
 # Cross-checks the offline kinematics model against an independent implementation.
@@ -57,5 +58,7 @@ skip_covered = true
 extend-exclude = ["openScorbot"]  # legacy code kept as-is
 
 [tool.ruff.lint]
-# Correctness rules only (ruff defaults), pinned so a personal ruff config cannot widen them.
-select = ["E4", "E7", "E9", "F"]
+# Correctness rules (ruff defaults) plus flake8-bugbear, pinned so a personal
+# ruff config cannot change them. B905 (zip strict=) is left out: it is style here.
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = ["B905"]

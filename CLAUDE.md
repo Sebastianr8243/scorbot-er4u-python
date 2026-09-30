@@ -54,7 +54,7 @@ python -m pip install -e ".[dev]"              # add ,kinematics for the Robotic
 python -m compileall -q scorbot openScorbot scripts examples tests
 python -m unittest discover -s tests -v        # ~25 s, 241 tests, 2 expected failures (documented legacy bugs)
 python examples/make_synthetic_session.py --root <tmpdir>   # CI smoke test
-ruff check --select F scorbot scripts examples tests        # clean today; openScorbot/ has legacy F-errors, leave them
+ruff check .                                   # CI rules incl. bugbear (openScorbot/ excluded); `pre-commit install` runs it on every commit
 ```
 
 Simulated rehearsal (no USB; every output says SIMULATED). Use a `rehearsal\` folder, never `logs\`:

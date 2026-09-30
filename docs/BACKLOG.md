@@ -60,7 +60,6 @@ Hazard IDs (HZ-nn) refer to [SAFETY_CASE.md](SAFETY_CASE.md). Protocol details a
 | 39 | `return_to_home()`: count-based, bounded jogs, retract first and base last, typed plan confirmation; simulator only until G2 |
 | 40 | Simulator: homing sequence with switch bits and overshoot; start near the 0/65535 seam with rest jitter; sync-worker crash injection; simulated LED state; replay of recorded lab data |
 | 41 | Kinematics: model reach is 601 mm against the manual's 610 mm; measure the tool length and home pose, then fix `cIn` (item 10) |
-| 42 | Ruff in CI with the rule set used in reviews (`F`, plus selected `B`/`SIM`); the repo has no Ruff config yet |
 | 43 | Operator UX backlog (plan-based `MOVE` confirmation, observe before the plan is shown, structured observations, readable review verdict, alarm banner, `--config lab.toml`, one-page checklist cards): see [OPERATOR_UX.md](OPERATOR_UX.md) |
 | 44 | Hazards with no test yet: HZ-05, HZ-06, HZ-09, HZ-16, HZ-19, HZ-20 (see [SAFETY_CASE.md](SAFETY_CASE.md)) |
 | 45 | Later roadmap: URDF from measured geometry, then `ikpy`/MuJoCo; optional ROS 2 driver; LeRobot-compatible dataset export |

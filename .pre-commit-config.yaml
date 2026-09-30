@@ -1,0 +1,7 @@
+# Runs the same Ruff rules as CI (read from pyproject.toml) before each commit.
+# Install once per clone: python -m pip install -e ".[dev]"; pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check

@@ -215,18 +215,20 @@ class RawCaptureTests(unittest.TestCase):
                 calls = []
 
                 class FakeRobot:
+                    log = calls          # bound per iteration (B023)
+
                     def __init__(self, *, log_path, robot_id):
                         Path(log_path).write_text("", encoding="utf-8")
 
                     def __enter__(self):
-                        calls.append("connect")
+                        self.log.append("connect")
                         return self
 
                     def __exit__(self, *_args):
-                        calls.append("disconnect")
+                        self.log.append("disconnect")
 
                     def get_state(self):
-                        calls.append("get_state")
+                        self.log.append("get_state")
                         raise AssertionError("unsafe LED check must stop before sampling")
 
                 with tempfile.TemporaryDirectory() as directory:
