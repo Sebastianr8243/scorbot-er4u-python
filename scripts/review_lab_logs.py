@@ -174,9 +174,19 @@ def review_bench(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--idle", type=Path, required=True)
+    parser.add_argument("--idle", type=Path)
     parser.add_argument("--bench", type=Path, action="append", default=[])
+    parser.add_argument("--session", type=Path,
+                        help="Guided lab-session log (python -m scorbot.lab)")
+    parser.add_argument("--json", action="store_true", help="With --session: print JSON")
     args = parser.parse_args()
+    if args.session is not None:
+        from scorbot.lab.review import format_session_review, review_session_rows
+        report = review_session_rows(read_rows(args.session))
+        print(json.dumps(report, indent=2) if args.json else format_session_review(report))
+        return 1 if report["problems"] else 0
+    if args.idle is None:
+        parser.error("--idle is required unless --session is given")
     reports = [review_idle(args.idle)] + [review_bench(path) for path in args.bench]
     ids = {report["robot_id"] for report in reports}
     fingerprints = {report["motion_source_sha256"] for report in reports}

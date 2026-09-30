@@ -23,7 +23,8 @@ from scorbot.state import HOME_SWITCH_BITS, JOINTS
 ALARM_EVENTS = {"command_timeout", "command_error", "command_interrupted", "feedback_fault",
                 "sync_worker_crashed", "command_worker_crashed", "home_refused",
                 "home_failed", "following_error", "calibration_fault", "connect_failed",
-                "session_failed", "disable_skipped_worker_crashed"}
+                "session_failed", "disable_skipped_worker_crashed",
+                "led_gate_failed", "jog_refused", "jog_failed", "disable_failed"}
 # Every SDK command logs these around it; they bury the events worth reading.
 QUIET_EVENTS = {"command_start", "command_complete"}
 KNOWN_SWITCH_MASK = sum(HOME_SWITCH_BITS.values())

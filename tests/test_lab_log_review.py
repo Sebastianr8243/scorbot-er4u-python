@@ -161,5 +161,77 @@ class LabLogReviewTests(unittest.TestCase):
             self.assertIn("missing before_jog", result["problems"])
 
 
+class LabSessionReviewTests(unittest.TestCase):
+    def rows(self, *, measured_base=-142, shoulder=0, extra=()):
+        return [
+            {"type": "session", "kind": "lab_session", "schema_version": 2,
+             "robot_id": "arm-1", "data_source": "simulated"},
+            {"type": "led_observation", "step": "after_connect", "motors_led": "off",
+             "power_led": "green"},
+            {"type": "led_observation", "step": "after_enable", "motors_led": "lit",
+             "power_led": "green"},
+            {"type": "jog_preview", "n": 1, "joint": "base",
+             "plan": {"motor_count_deltas": {"base": -142}}},
+            {"type": "jog_confirmed", "n": 1, "how": "typed", "move": "BASE -1"},
+            {"type": "before_jog", "n": 1, "state": {}},
+            {"type": "after_jog", "n": 1, "state": {}},
+            {"type": "jog_observation", "n": 1, "direction": "toward",
+             "other_joint_moved": "no"},
+            {"type": "jog_result", "n": 1, "planned": {"base": -142},
+             "measured": {"base": measured_base, "shoulder": shoulder, "elbow": 0}},
+            *extra,
+        ]
+
+    def test_clean_session_has_no_problems_and_a_table(self):
+        from scorbot.lab.review import format_session_review, review_session_rows
+        report = review_session_rows(self.rows())
+        self.assertEqual(report["problems"], [])
+        self.assertEqual(report["jogs"][0]["move"], "BASE -1")
+        text = format_session_review(report)
+        self.assertIn("SIMULATED", text)
+        self.assertIn("BASE -1", text)
+        self.assertTrue(text.rstrip().endswith("LOG CHECK: 0 problems (not a safety verdict)"))
+
+    def test_problems_are_counted(self):
+        from scorbot.lab.review import review_session_rows
+        report = review_session_rows(self.rows(measured_base=140, shoulder=35, extra=[
+            {"type": "jog_preview", "n": 2, "joint": "base", "plan": {}},
+            {"type": "jog_confirmed", "n": 2, "how": "repeat", "move": "BASE -1"},
+            {"type": "led_mismatch", "step": "after_enable", "led": "motors",
+             "observed": "off", "expected": "lit"},
+            {"type": "session_failed", "error": "boom"}]))
+        text = " | ".join(report["problems"])
+        self.assertIn("jog 1: base moved opposite to the plan", text)
+        self.assertIn("jog 1: shoulder moved 35 counts but was not jogged", text)
+        self.assertIn("jog 2: started but has no after_jog", text)
+        self.assertIn("LED mismatch after_enable", text)
+        self.assertIn("session failed: boom", text)
+
+    def test_missing_required_led_and_session_row(self):
+        from scorbot.lab.review import review_session_rows
+        report = review_session_rows([r for r in self.rows()
+                                      if r.get("step") != "after_enable"
+                                      and r["type"] != "session"])
+        self.assertIn("missing session row", report["problems"])
+        self.assertIn("LED observation missing after_enable", report["problems"])
+
+    def test_cli_session_mode_and_json(self):
+        import contextlib
+        import io
+        import sys
+        from unittest.mock import patch
+        from scripts import review_lab_logs
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "s.jsonl"
+            path.write_text("".join(json.dumps(r) + "\n" for r in self.rows()),
+                            encoding="utf-8")
+            for extra, check in (([], "LOG CHECK: 0 problems"), (["--json"], '"jogs"')):
+                out = io.StringIO()
+                with patch.object(sys, "argv", ["review", "--session", str(path), *extra]), \
+                        contextlib.redirect_stdout(out):
+                    self.assertEqual(review_lab_logs.main(), 0)
+                self.assertIn(check, out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
