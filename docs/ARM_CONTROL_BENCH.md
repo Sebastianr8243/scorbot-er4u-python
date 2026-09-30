@@ -1,5 +1,7 @@
 # First ER-4U lab visit: small movements and evidence
 
+> The normal way to run a bench session is now the guided session: [LAB_SESSION.md](LAB_SESSION.md). This page documents the older per-script procedure, which still works as a fallback.
+
 Use the tested branch or ZIP you intend to run on the robot PC. This visit checks Python communication, homing, and one small joint movement at a time. It does not establish safe joint limits or calibrated physical angles. No manufacturer value or vendor display is used as calibration data.
 
 Keep the [G1 lab checklist and observation sheet](G1_LAB_CHECKLIST.md) open or printed during the visit.

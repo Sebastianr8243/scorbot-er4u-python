@@ -16,6 +16,8 @@ Why the bench tools prompt, warn and log the way they do, and what to change nex
 
 ## Backlog (after G1; each changes the operator flow, so rehearse first)
 
+Items 1-4 and 6 are addressed for the guided session ([LAB_SESSION.md](LAB_SESSION.md)): typed move confirmations, observation before numbers, structured observations, a readable review, and a saved profile instead of flags. The per-script procedure keeps the old prompts.
+
 1. **MOVE confirmation from the plan.** Type the joint and sign shown in the plan (for example `BASE -1`) instead of the fixed word `MOVE`. Split `HOME_OK` into "home looked correct?" and "travel clear?". Drop "(write 'none' if none)", which leads the answer. (S)
 2. **Observe before the plan is visible.** Ask the post-jog observation prompts before printing counts, and hide the live view's `plan` and `moved` columns until the operator observation row exists. (M)
 3. **Structured observations.** Direction: toward landmark / away / none / unsure; other joint moved: yes / no / unsure, plus text. Makes the review's checks meaningful. (M)
