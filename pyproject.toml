@@ -32,7 +32,7 @@ dev = [
 kinematics = ["roboticstoolbox-python>=1.1,<2"]
 
 [tool.setuptools]
-packages = ["scorbot", "scorbot.session", "openScorbot"]
+packages = ["scorbot", "scorbot.session", "scorbot.lab", "openScorbot"]
 
 [tool.setuptools.package-data]
 openScorbot = ["*.ui", "*.png"]
