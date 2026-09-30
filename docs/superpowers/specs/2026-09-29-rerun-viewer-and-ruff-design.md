@@ -76,10 +76,11 @@ static `rr.TextDocument(..., media_type=markdown)`.
   recordings in the viewer. One session per call: sessions are never merged,
   so real and simulated data never share a view.
 - Without `--save`: spawns the viewer.
-- With `--save`: writes the file; refuses if it exists (exit 1, nothing written).
-- Exit codes: 0 when the session has no integrity errors; 1 when it has
-  errors (they are still shown in `session/info`), when Rerun is missing, or
-  when `--save` exists.
+- With `--save`: writes the file; refuses if it exists (exit 2, nothing written).
+- Exit codes follow the other subcommands (`replay`, `plot`): 0 when the
+  session has no integrity errors; 1 when it has errors (they are still shown
+  in `session/info`); 2 when Rerun is missing, the session cannot be opened,
+  or `--save` exists.
 - Rerun missing: prints `Viewing needs Rerun: pip install -e ".[viz]"`, no traceback.
 
 ### Packaging and docs
@@ -102,8 +103,8 @@ Without Rerun (always run):
 - A camera frame and a detection map to `image` and `boxes` with the right
   media type and label.
 - `session/info` says `SIMULATED` for a simulated session and lists integrity errors.
-- `view --save` on an existing path exits 1 and leaves the file unchanged.
-- `view` with `require_rerun` patched to raise prints the install hint and exits 1.
+- `view --save` on an existing path exits 2 and leaves the file unchanged.
+- `view` with `require_rerun` patched to raise prints the install hint and exits 2.
 
 With Rerun (skipped when `rerun` is not importable):
 - `view --save` on a session from `examples/make_synthetic_session.py` writes a
