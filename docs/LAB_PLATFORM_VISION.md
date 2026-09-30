@@ -101,7 +101,7 @@ Each sub-project gets its own spec, plan and build cycle.
 | 4 | Capture Intelitek software: A basic (idle, home, 1 degree base), B go-to between two taught positions, C same move slow and fast | Lab | Operator | Setpoint question |
 | 5 | Switch back to WinUSB and capture our code doing A | Lab | Operator | Protocol comparison |
 | 6 | Analyze captures with `scripts/usb_trace.py`; write the S1 findings | Desk | Maintainer | S1 spec, S2 design |
-| 7 | Write a one-page phone lab card for items 1, 3-5 | Desk | Maintainer | Next visit |
+| 7 | Done: [S1 capture lab card](S1_CAPTURE_LAB_CARD.md) for items 1, 3-5 | Desk | Maintainer | Next visit |
 | 8 | Design the S4 dataset exporter (sessions to LeRobot v3.0); spec, then build against simulated sessions | Desk | Maintainer | Imitation learning |
 | 9 | Prototype a LeRobot plugin on `SimulatedScorbot` in a separate Python 3.12 venv | Desk | Maintainer | Record and replay |
 | 10 | Pick a camera and mount; pick a teleop device | Desk | Team | S3, S4 |
