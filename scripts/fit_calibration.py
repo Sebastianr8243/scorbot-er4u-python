@@ -13,8 +13,9 @@ from statistics import mean, median
 
 from openScorbot.motion_profile import COUNTS_PER_DEGREE as LEGACY_COUNTS_PER_DEGREE
 from scorbot.calibration import CALIBRATED_JOINTS, signed_count_delta
-from scorbot.nominal import (HYPOTHESIS_COUNTS_PER_MOTOR_REV, axis_range,
-                             check_soft_limit_span, implied_counts_per_motor_rev)
+from scorbot.nominal import (HYPOTHESIS_COUNTS_PER_MOTOR_REV, VENDOR_COUNTS_PER_DEGREE,
+                             axis_range, check_soft_limit_span,
+                             implied_counts_per_motor_rev)
 
 
 COLUMNS = {"robot_id", "joint", "role", "approach", "reference_source",
@@ -130,12 +131,16 @@ def fit(measurements: Path, limits_path: Path, robot_id: str) -> dict:
     }
 
 
-def scale_warnings(result: dict, tolerance: float = 0.10) -> list[str]:
-    """Advisory lines comparing fitted scales with the legacy software scale.
+def scale_warnings(result: dict, tolerance: float = 0.10,
+                   vendor_tolerance: float = 0.05) -> list[str]:
+    """Advisory lines comparing fitted scales with the legacy and vendor scales.
 
-    Never blocks a fit: the legacy scale is an inherited assumption, not a
-    measurement. The implied counts per motor revolution (manual gear ratio,
-    ignoring belts after the gearbox) tests the ~400 CPR hypothesis.
+    Never blocks a fit: the legacy scale is an inherited assumption and the
+    vendor value is a parameter-file default, neither is a measurement. The
+    implied counts per motor revolution (manual gear ratio, ignoring stages
+    after the gearbox) tests the old ~400 CPR hypothesis. A second WARNING line
+    appears when the fit is more than vendor_tolerance off the vendor default,
+    which usually means a measurement or reference-angle mistake.
     """
     lines = []
     for joint, row in result["joints"].items():
@@ -152,6 +157,12 @@ def scale_warnings(result: dict, tolerance: float = 0.10) -> list[str]:
         else:
             lines.append(f"{joint}: {fitted:.2f} counts/deg (legacy {legacy:.2f}); "
                          f"implies {cpr:.1f} counts/motor rev at {ratio}:1")
+        vendor = VENDOR_COUNTS_PER_DEGREE.get(joint)
+        if vendor is not None and abs(fitted / vendor.value - 1) > vendor_tolerance:
+            lines.append(
+                f"WARNING {joint}: fitted {fitted:.2f} counts/deg differs from vendor default "
+                f"{vendor.value:.2f} by {fitted / vendor.value - 1:+.0%} ({vendor.status}); "
+                "check the reference angles and the sign before trusting this fit")
     return lines
 
 

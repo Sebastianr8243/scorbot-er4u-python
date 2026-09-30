@@ -49,6 +49,25 @@ class NominalValueTests(unittest.TestCase):
                 self.assertTrue(value.source.manual and value.source.page)
                 self.assertEqual(value.status, "nominal, from manual, not measured")
 
+    def test_vendor_priors_are_labelled_and_separate(self):
+        cpd = nominal.VENDOR_COUNTS_PER_DEGREE
+        self.assertAlmostEqual(cpd["base"].value, 12770 / 90, places=6)
+        self.assertAlmostEqual(cpd["shoulder"].value, 10216 / 90, places=6)
+        self.assertAlmostEqual(cpd["elbow"].value, 10216 / 90, places=6)
+        self.assertAlmostEqual(cpd["wrist_pitch"].value, 2511 / 90, places=6)
+        self.assertAlmostEqual(cpd["wrist_roll"].value, 2511 / 90, places=6)
+        geometry = (nominal.VENDOR_BASE_HEIGHT_MM, nominal.VENDOR_UPPER_ARM_MM,
+                    nominal.VENDOR_FOREARM_MM, nominal.VENDOR_GRIPPER_LENGTH_MM)
+        self.assertEqual([g.value for g in geometry], [349.0, 221.0, 221.0, 145.0])
+        for prior in [*cpd.values(), *geometry]:
+            with self.subTest(prior=prior):
+                self.assertIsInstance(prior, nominal.VendorPrior)
+                self.assertNotIsInstance(prior, nominal.NominalValue)
+                self.assertEqual(prior.status, "vendor default, not measured")
+                self.assertIn("parameter file", prior.source)
+        with self.assertRaises(TypeError):
+            cpd["base"] = None
+
     def test_values_are_frozen(self):
         with self.assertRaises(AttributeError):
             nominal.BASE_HEIGHT_MM.value = 1
@@ -138,7 +157,7 @@ class ManualBoundsIntegrationTests(unittest.TestCase):
 
     def test_scale_warning_reports_implied_cpr(self):
         lines = scale_warnings(self.fitted("base", 10))
-        self.assertEqual(len(lines), 1)
+        self.assertEqual(len(lines), 2)   # legacy line, then the vendor-prior warning
         self.assertTrue(lines[0].startswith("WARNING base:"))
         self.assertIn("implies 28.3 counts/motor rev", lines[0])
         self.assertIn("hypothesis ~402", lines[0])
@@ -146,6 +165,20 @@ class ManualBoundsIntegrationTests(unittest.TestCase):
         lines = scale_warnings(self.fitted("base", 2837 / 20))
         self.assertFalse(lines[0].startswith("WARNING"))
         self.assertIn("implies 401.", lines[0])
+
+    def test_scale_warning_compares_with_vendor_prior(self):
+        vendor = 12770 / 90
+        lines = scale_warnings(self.fitted("base", vendor * 1.08))   # within legacy 10%
+        self.assertEqual(len(lines), 2)
+        self.assertFalse(lines[0].startswith("WARNING"))
+        self.assertTrue(lines[1].startswith("WARNING base:"))
+        self.assertIn("vendor default 141.89", lines[1])
+        self.assertIn("+8%", lines[1])
+        self.assertIn("not measured", lines[1])
+        # Within 5% of the vendor value: no vendor line.
+        self.assertEqual(len(scale_warnings(self.fitted("base", vendor * 1.01))), 1)
+        # A reversed sign is still compared by magnitude.
+        self.assertEqual(len(scale_warnings(self.fitted("base", -vendor))), 1)
 
     def test_main_prints_warning_but_still_writes(self):
         self.fitted("base", 10)

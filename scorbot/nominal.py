@@ -6,7 +6,9 @@ reader can check it. Use these only as priors and sanity bounds; per-arm
 calibration still comes from physical measurement (docs/PHYSICAL_CALIBRATION.md).
 
 What the manual does NOT give: encoder counts per revolution, encoder zero,
-where each joint's 0 degrees is, and which direction is positive. That is why
+where each joint's 0 degrees is, and which direction is positive. Vendor
+parameter-file defaults for some of these are kept separately below as
+``VendorPrior`` values, which are priors too, never calibration. That is why
 joint ranges are enforced as spans (max - min) and never as signed limits.
 
 Standard library only: this module is imported by calibration loading and
@@ -105,6 +107,52 @@ MAX_PATH_SPEED_MM_S = NominalValue(600.0, "mm/s", SPECS)
 # legacy scale was right. Real fits (scripts/fit_calibration.py) test it.
 LEGACY_BASE_COUNTS_PER_DEGREE = 2837 / 20
 HYPOTHESIS_COUNTS_PER_MOTOR_REV = LEGACY_BASE_COUNTS_PER_DEGREE * 360.0 / GEAR_RATIO_ARM.value
+
+
+# -- Vendor defaults (not from the user manual) ---------------------------------
+#
+# Intelitek's own ER-4u controller parameter files (ER4Ax1-6.ini, ROB_4u.INI,
+# dated 2001-2003) as bundled in the USNA Kutzer ScorBot Toolbox. They are the
+# vendor's defaults, not measurements of our arms: use them as priors to sanity
+# check a physical calibration, never as one. They supersede the ~402 counts per
+# motor revolution hypothesis above: 20-slot disk x 4 = 80 counts per motor rev,
+# 127.7:1 gearbox, then a final stage (base 5:1, shoulder/elbow 4:1, wrist 23:12)
+# reproduces every axis (inference). Wrist values are per motor; the legacy pitch
+# scale (33.8) disagrees and is unresolved. See docs/MANUAL_AND_PRIOR_ART_FINDINGS.md.
+
+VENDOR_STATUS = "vendor default, not measured"
+VENDOR_INI = ("Intelitek ER-4u controller parameter files (ER4Ax*.ini, ROB_4u.INI), "
+              "via github.com/kutzer/ScorBotToolbox ScorBotToolboxSupport/Par/er4u")
+
+
+@dataclass(frozen=True)
+class VendorPrior:
+    """A vendor default value. Deliberately not a NominalValue (manual) type."""
+
+    value: float
+    unit: str
+    source: str
+    status: str = VENDOR_STATUS
+
+
+def _per_degree(counts_per_90: int, axis: str) -> VendorPrior:
+    return VendorPrior(abs(counts_per_90) / 90.0, "encoder counts per joint degree",
+                       f"{VENDOR_INI}, {axis} NoEnc90={counts_per_90}")
+
+
+# Magnitudes only; the files' signs (base and shoulder negative) are the vendor's
+# direction convention and are not verified on our arms.
+VENDOR_COUNTS_PER_DEGREE = MappingProxyType({
+    "base": _per_degree(-12770, "ER4Ax1.ini"),
+    "shoulder": _per_degree(-10216, "ER4Ax2.ini"),
+    "elbow": _per_degree(10216, "ER4Ax3.ini"),
+    "wrist_pitch": _per_degree(2511, "ER4Ax4.ini"),
+    "wrist_roll": _per_degree(2511, "ER4Ax5.ini"),
+})
+VENDOR_BASE_HEIGHT_MM = VendorPrior(349.0, "mm", f"{VENDOR_INI}, ROB_4u.INI")
+VENDOR_UPPER_ARM_MM = VendorPrior(221.0, "mm", f"{VENDOR_INI}, ROB_4u.INI")
+VENDOR_FOREARM_MM = VendorPrior(221.0, "mm", f"{VENDOR_INI}, ROB_4u.INI")
+VENDOR_GRIPPER_LENGTH_MM = VendorPrior(145.0, "mm", f"{VENDOR_INI}, ROB_4u.INI")
 
 
 def axis_range(joint: str) -> AxisRange:
