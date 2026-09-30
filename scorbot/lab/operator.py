@@ -33,6 +33,7 @@ class Operator(Protocol):
     def text(self, prompt: str) -> str: ...
     def show(self, message: str, level: str = "info") -> None: ...
     def status(self, line: StatusLine) -> None: ...
+    def discard_pending_keys(self) -> int: ...
 
 
 def matches(typed: str, expected: str) -> bool:
@@ -47,6 +48,7 @@ class ScriptedOperator:
         self.prompts: list[str] = []
         self.shown: list[str] = []
         self.statuses: list[StatusLine] = []
+        self.discards = 0
 
     def _next(self, prompt: str) -> str:
         self.prompts.append(prompt)
@@ -73,7 +75,8 @@ class ScriptedOperator:
 
     def key(self, prompt):
         try:
-            return self._next(prompt).strip().lower()[:1] or ENTER
+            # A whole word stays a word, so "quit" can never read as the key q.
+            return self._next(prompt).strip().lower() or ENTER
         except EOFError:
             return ""
 
@@ -88,3 +91,7 @@ class ScriptedOperator:
 
     def status(self, line):
         self.statuses.append(line)
+
+    def discard_pending_keys(self):
+        self.discards += 1
+        return 0

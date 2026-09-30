@@ -160,6 +160,52 @@ class LabSessionTests(unittest.TestCase):
         self.assertIn("disabled", self.types())
         self.assertEqual(self.of("led_observation")[-1]["motors_led"], "unsure")
 
+    def motor_commands_after_enable(self):
+        orders = [c[0] for c in self.ctrl.commands if c]
+        return orders[orders.index(17) + 1:] if 17 in orders else []
+
+    def test_error_while_planning_a_jog_still_finishes(self):
+        from scorbot.robot import ScorbotError
+
+        class BadPreview(SimulatedScorbot):
+            def preview_jog(self, *args, **kwargs):
+                raise ScorbotError("preview broke")
+        self.op = None
+        answers = TO_LOOP + ARM + ["q", "n", "g"]
+        op = ScriptedOperator(answers)
+        code = LabSession(profile=PROFILE, operator=op,
+                          robot_factory=lambda **kw: BadPreview(controller=self.ctrl, **kw),
+                          data_source="simulated", log_path=self.root / "s.jsonl",
+                          session_root=self.root / "sessions", clock=self.clock,
+                          sleep=lambda s: None).run()
+        self.rows = [json.loads(line) for line in
+                     (self.root / "s.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(code, EXIT_FAILED)
+        self.assertEqual(len(self.of("jog_failed")), 1)
+        self.assertIn(16, self.motor_commands_after_enable())
+        self.assertEqual(len(self.of("summary")), 1)
+
+    def test_declining_after_home_disables_and_finishes(self):
+        code = self.run_session(TO_LOOP[:-1] + ["n", "n", "g"])
+        self.assertEqual(code, EXIT_DECLINED)
+        self.assertIn(16, self.motor_commands_after_enable())
+        self.assertIn("disabled", self.types())
+        self.assertEqual(self.of("led_observation")[-1]["step"], "after_disable")
+        self.assertEqual(len(self.of("summary")), 1)
+
+    def test_ctrl_c_in_loop_disables_then_raises(self):
+        def interrupt():
+            raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_session(TO_LOOP + ARM + [interrupt])
+        self.rows = [json.loads(line) for line in
+                     (self.root / "s.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertIn(16, self.motor_commands_after_enable())
+        self.assertIn("session_failed", self.types())
+
+    def test_keys_pressed_during_a_jog_are_discarded_before_questions(self):
+        self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["q"] + OBS + FINISH)
+        self.assertEqual(self.op.discards, 2)
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,17 +16,18 @@ from .operator import CHOICE_ATTEMPTS, ENTER, matches
 SPECIAL = "<special>"
 
 
-def _default_getwch():
+def _msvcrt(name):
     try:
         import msvcrt
     except ImportError:
         return None
-    return msvcrt.getwch
+    return getattr(msvcrt, name)
 
 
 class TerminalOperator:
-    def __init__(self, getwch=None, isatty=None):
-        self._getwch = getwch if getwch is not None else _default_getwch()
+    def __init__(self, getwch=None, isatty=None, kbhit=None):
+        self._getwch = getwch if getwch is not None else _msvcrt("getwch")
+        self._kbhit = kbhit if kbhit is not None else _msvcrt("kbhit")
         self._isatty = isatty or (lambda: sys.stdin.isatty())
 
     def _single_keys(self):
@@ -38,7 +39,9 @@ class TerminalOperator:
                 line = input(prompt).strip().lower()
             except EOFError:
                 return ""
-            return line[:1] or ENTER
+            # Only a single character is a key; "quit" or "exit" is an unknown key,
+            # never q (base minus) or e (elbow minus).
+            return line or ENTER
         print(prompt, end="", flush=True)
         char = self._getwch()
         if char == "\x03":
@@ -52,6 +55,16 @@ class TerminalOperator:
             return ENTER
         print(char)
         return char.lower()
+
+    def discard_pending_keys(self):
+        """Drop keys typed while the arm was moving, so they never answer a question."""
+        if not self._single_keys() or self._kbhit is None:
+            return 0
+        count = 0
+        while self._kbhit():
+            self._getwch()
+            count += 1
+        return count
 
     def choose(self, prompt, options):
         for _ in range(CHOICE_ATTEMPTS):

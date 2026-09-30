@@ -69,7 +69,7 @@ class LabSession:
         self.software_commit = software_commit
         self.rows: list[dict] = []
         self.robot = self.rec = self.fault = self.landmark = None
-        self.homed = self.armed = False
+        self.homed = self.armed = self.enabled = False
         self.joint, self.step = "base", STEPS[0]
         self.confirmed: set = set()
         self.travel = {"base": 0.0, "shoulder": 0.0, "elbow": 0.0}
@@ -142,8 +142,19 @@ class LabSession:
             self._state("connected")
             self._led("after_connect", motors="off", power="green", required=True)
             self._idle()
-            self._home()
-            self._jog_loop()
+            try:
+                self._home()
+                self._jog_loop()
+            except KeyboardInterrupt:
+                # Stop asking questions, but still request motors off.
+                if self.enabled:
+                    self._disable()
+                raise
+            except Exception:
+                # Declined or failed after enable: motors off, LED check, summary.
+                if self.enabled:
+                    self._finish()
+                raise
             self._finish()
         return EXIT_FAILED if self.fault else EXIT_OK
 
@@ -207,6 +218,7 @@ class LabSession:
                                                     "Describe: ") or "not recorded")
         if not self.op.confirm("Type HOME to enable motors and search home: ", "HOME"):
             raise Declined("declined before homing")
+        self.enabled = True          # set first: a failed enable still gets a disable
         self.robot.enable()
         self._write("enabled")
         self._led("after_enable", motors="lit", power="green", required=True)
@@ -285,9 +297,13 @@ class LabSession:
             self._disarm("travel cap")
             return
         n = self.jogs + 1
-        before = self.robot.get_state()
-        plan = self.robot.preview_jog(joint, delta, speed=self.profile.speed,
-                                      starting_signed_counts=before.signed_encoder_counts)
+        try:
+            before = self.robot.get_state()
+            plan = self.robot.preview_jog(joint, delta, speed=self.profile.speed,
+                                          starting_signed_counts=before.signed_encoder_counts)
+        except Exception as error:
+            self._jog_failed(n, error)
+            return
         self._write("jog_preview", n=n, joint=joint, delta_deg=delta, plan=plan)
         move = f"{joint.upper()} {delta:+g}"
         move_key = (joint, sign, self.step)
@@ -311,19 +327,17 @@ class LabSession:
         try:
             after = self.robot.jog_joint(joint, delta, speed=self.profile.speed)
         except Exception as error:
-            self.fault = str(error)
-            self._write("jog_failed", n=n, error=self.fault)
-            self.rec.log_command_result(command, "faulted", detail=self.fault)
-            self.rec.log_fault(self.fault)
-            self.op.show(f"Jog failed: {error}. The session is latched; use the physical "
-                         "stop if anything is still moving.", "alarm")
-            self._disarm("jog failed")
+            self.rec.log_command_result(command, "faulted", detail=str(error))
+            self._jog_failed(n, error)
             return
         self.jogs = n
         self.travel[joint] += delta
         self._write("after_jog", n=n, state=asdict(after))
         self.rec.log_command_result(command, "completed", completion_source="jog_joint() returned")
         self.rec.log_state(after)
+        ignored = self.op.discard_pending_keys()
+        if ignored:
+            self.op.show(f"Ignored {ignored} key(s) pressed while the arm was moving.", "warn")
         direction = self.op.choose(f"Which way did {joint} move relative to {self.landmark}? "
                                    "[t toward / a away / n none / u unsure] ", DIRECTION_KEYS)
         other = self.op.choose("Did any other joint move? [y/n/u] ", YES_NO_UNSURE)
@@ -341,7 +355,15 @@ class LabSession:
         self.op.show(f"Planned {plan['motor_count_deltas']}, measured "
                      f"{ {m: v for m, v in measured.items() if v} or 'no change'}.")
 
-    def _finish(self):
+    def _jog_failed(self, n, error):
+        self.fault = str(error)
+        self._write("jog_failed", n=n, error=self.fault)
+        self.rec.log_fault(self.fault)
+        self.op.show(f"Jog failed: {error}. The session is latched; use the physical "
+                     "stop if anything is still moving.", "alarm")
+        self._disarm("jog failed")
+
+    def _disable(self):
         self.armed = False
         try:
             self.robot.disable()
@@ -350,6 +372,9 @@ class LabSession:
             self._write("disable_failed", error=str(error))
             self.op.show(f"Software disable failed ({error}). The SDK queues a best-effort "
                          "disable after a fault, but only the physical stop is certain.", "alarm")
+
+    def _finish(self):
+        self._disable()
         self._led("after_disable", motors="off")
         report = review_session_rows(self.rows)
         self._write("summary", jogs=self.jogs, fault=self.fault, problems=len(report["problems"]))

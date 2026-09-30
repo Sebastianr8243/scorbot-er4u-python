@@ -44,6 +44,21 @@ class TerminalOperatorTests(unittest.TestCase):
             self.assertTrue(op.confirm("Type: ", "base -1"))
             self.assertEqual(op.key("k: "), "")
 
+    def test_line_mode_word_is_not_a_single_key(self):
+        op = TerminalOperator(getwch=None, isatty=lambda: False)
+        with patch("builtins.input", side_effect=["quit", "Exit"]),                 contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(op.key("k: "), "quit")        # never 'q' (base minus)
+            self.assertEqual(op.key("k: "), "exit")        # never 'e' (elbow minus)
+
+    def test_pending_keys_are_discarded(self):
+        pending = ["a", "d"]
+        op = TerminalOperator(getwch=lambda: pending.pop(0), isatty=lambda: True,
+                              kbhit=lambda: bool(pending))
+        self.assertEqual(op.discard_pending_keys(), 2)
+        self.assertEqual(pending, [])
+        self.assertEqual(TerminalOperator(getwch=None, isatty=lambda: False)
+                         .discard_pending_keys(), 0)
+
     def test_alarm_lines_are_marked(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
