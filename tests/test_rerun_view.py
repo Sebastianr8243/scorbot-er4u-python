@@ -1,11 +1,16 @@
 """Session -> Rerun mapping; runs without rerun installed."""
 
+import contextlib
+import importlib.util
+import io
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
+from scorbot.session.__main__ import main as session_main
 from scorbot.session.replay import Finding, Session, load_session
-from scorbot.session.rerun_view import Item, info_markdown, session_items
+from scorbot.session.rerun_view import Item, RerunUnavailable, info_markdown, session_items
 
 T0 = 1_700_000_000_000_000_000
 
@@ -102,6 +107,62 @@ class SessionItemsTests(unittest.TestCase):
         times = [i.time_s for i in items if i.time_s is not None]
         self.assertEqual(min(times), 0.0)
         self.assertIsInstance(items[0], Item)
+
+
+class ViewCommandTests(unittest.TestCase):
+    def setUp(self):
+        from examples.make_synthetic_session import write_synthetic_session
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.session_path = write_synthetic_session(self.root / "sessions")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_main(self, *args):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = session_main(["view", *map(str, args)])
+        return code, err.getvalue()
+
+    def test_existing_save_path_is_refused_and_kept(self):
+        target = self.root / "out.rrd"
+        target.write_bytes(b"keep")
+        code, err = self.run_main(self.session_path, "--save", target)
+        self.assertEqual(code, 2)
+        self.assertIn("already exists", err)
+        self.assertEqual(target.read_bytes(), b"keep")
+
+    def test_missing_rerun_prints_install_hint(self):
+        with patch("scorbot.session.rerun_view.require_rerun",
+                   side_effect=RerunUnavailable('Viewing needs Rerun: pip install -e ".[viz]"')):
+            code, err = self.run_main(self.session_path, "--save", self.root / "new.rrd")
+        self.assertEqual(code, 2)
+        self.assertIn('pip install -e ".[viz]"', err)
+        self.assertNotIn("Traceback", err)
+        self.assertFalse((self.root / "new.rrd").exists())
+
+    def test_unopenable_session_exits_2(self):
+        code, _ = self.run_main(self.root / "missing", "--save", self.root / "x.rrd")
+        self.assertEqual(code, 2)
+
+    def test_integrity_errors_exit_1_after_viewing(self):
+        damaged = Session(Path("d"), {"data_source": "real"}, [],
+                          [Finding("error", "CRC mismatch")])
+        with patch("scorbot.session.__main__._open", return_value=damaged), \
+                patch("scorbot.session.rerun_view.require_rerun"), \
+                patch("scorbot.session.rerun_view.view") as view:
+            code, err = self.run_main("d", "--save", self.root / "d.rrd")
+        self.assertEqual(code, 1)
+        view.assert_called_once()
+        self.assertIs(view.call_args.args[0], damaged)
+
+    @unittest.skipUnless(importlib.util.find_spec("rerun"), "rerun-sdk not installed")
+    def test_save_writes_a_recording(self):
+        target = self.root / "synthetic.rrd"
+        code, err = self.run_main(self.session_path, "--save", target)
+        self.assertEqual(code, 0, err)
+        self.assertGreater(target.stat().st_size, 0)
 
 
 if __name__ == "__main__":

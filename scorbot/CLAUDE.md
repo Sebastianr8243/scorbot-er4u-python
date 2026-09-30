@@ -22,6 +22,7 @@ Facade and pure helpers over the legacy USB code. Read the root [CLAUDE.md](../C
 - `create()` uses `open(..., "xb")`: sessions are never overwritten. `data_source` is `real`, `simulated` or `synthetic`; `log_state` rejects a state whose `simulated` flag disagrees.
 - `BestEffortRecorder` swallows recorder errors after the first warning. Lab scripts write JSONL first, then call the recorder.
 - `replay.py:load_session` streams records, so crashed sessions load; damaged tail is a warning, earlier corruption an error. `analysis.py` is pure (no printing); its count deltas use `signed_count_delta`, matching `scripts/review_lab_logs.py`.
+- `rerun_view.py`: `session_items` is pure (no Rerun import) and is the unit to test; `send`/`view` are the only Rerun call sites. Keep `rerun` imports inside functions; the `viz` extra is optional and not in `dev`.
 - Adding a topic or field: edit `schemas.py` (`TOPICS`, `REQUIRED`, `PROPERTIES`), keep properties permissive (`additionalProperties` true) so old sessions load, and cover it in `tests/test_schemas.py` and `tests/test_session.py`.
 
 ## Rules

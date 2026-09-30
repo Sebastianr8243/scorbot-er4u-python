@@ -136,3 +136,44 @@ def session_items(session) -> list[Item]:
             if item is not None:
                 items.append(item)
     return items
+
+
+def _archetype(rr, item: Item):
+    value = item.value
+    if item.kind == "scalar":
+        return rr.Scalars(value)
+    if item.kind == "text_log":
+        return rr.TextLog(value, level=item.level)
+    if item.kind == "image":
+        return rr.EncodedImage(contents=value["contents"], media_type=value["media_type"])
+    if item.kind == "boxes":
+        return rr.Boxes2D(array=[value["xyxy"]], array_format=rr.Box2DFormat.XYXY,
+                          labels=[value["label"]])
+    if item.kind == "document":
+        return rr.TextDocument(value, media_type=rr.MediaType.MARKDOWN)
+    raise ValueError(f"Unknown item kind: {item.kind}")
+
+
+def send(items, recording) -> None:
+    """Log Items to a Rerun RecordingStream (the only Rerun logging call site)."""
+    rr = require_rerun()
+    for item in items:
+        static = item.time_s is None
+        if not static:
+            recording.set_time("session_time", duration=item.time_s)
+            if item.seq is not None:
+                recording.set_time("seq", sequence=item.seq)
+        recording.log(item.path, _archetype(rr, item), static=static)
+
+
+def view(session, save_path=None) -> None:
+    """Open one session in the Rerun viewer, or write it to save_path (.rrd)."""
+    rr = require_rerun()
+    recording_id = session.metadata.get("session_id") or str(session.path)
+    recording = rr.RecordingStream(APPLICATION_ID, recording_id=recording_id)
+    if save_path is not None:
+        recording.save(str(save_path))
+    else:
+        recording.spawn()
+    send(session_items(session), recording)
+    recording.flush()

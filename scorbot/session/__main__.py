@@ -5,6 +5,7 @@
   python -m scorbot.session export <session>          write events/states/commands CSV
   python -m scorbot.session compare <paths>...        compare repeated runs
   python -m scorbot.session plot <paths>... --out DIR PNG charts (needs the plot extra)
+  python -m scorbot.session view <session> [--save F] open in Rerun (needs the viz extra)
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from . import analysis
 from .notes import parse_notes
 from .replay import load_session
 
-SUBCOMMANDS = ("replay", "list", "export", "compare", "plot")
+SUBCOMMANDS = ("replay", "list", "export", "compare", "plot", "view")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,9 +58,13 @@ def main(argv: list[str] | None = None) -> int:
     plotting.add_argument("--theme", choices=("light", "dark"), default="light")
     plotting.add_argument("--include-damaged", action="store_true",
                           help="Pool sessions that have integrity errors")
+    viewing = sub.add_parser("view", help="Open one session in Rerun (pip install -e \".[viz]\")")
+    viewing.add_argument("path", help="Session folder or session.mcap")
+    viewing.add_argument("--save", type=Path, default=None,
+                         help="Write a .rrd file instead of opening the viewer (never overwrites)")
     args = parser.parse_args(argv)
     return {"replay": _replay, "list": _list, "export": _export,
-            "compare": _compare, "plot": _plot}[args.command](args)
+            "compare": _compare, "plot": _plot, "view": _view}[args.command](args)
 
 
 def _open(path):
@@ -319,6 +324,27 @@ def _plot(args) -> int:
             print(f"Wrote {draw(pairs, source, args.out / name, args.theme)['path']}")
     return problems
 
+
+# -- view --------------------------------------------------------------------
+
+def _view(args) -> int:
+    from . import rerun_view
+    if args.save is not None and args.save.exists():
+        print(f"{args.save} already exists; choose a new --save name.", file=sys.stderr)
+        return 2
+    try:
+        rerun_view.require_rerun()
+    except rerun_view.RerunUnavailable as error:
+        print(error, file=sys.stderr)
+        return 2
+    session = _open(args.path)
+    if session is None:
+        return 2
+    rerun_view.view(session, args.save)
+    if args.save is not None:
+        print(f"Wrote {args.save}")
+    _findings(session)
+    return 1 if session.errors else 0
 
 if __name__ == "__main__":
     raise SystemExit(main())

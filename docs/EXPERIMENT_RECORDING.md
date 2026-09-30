@@ -70,7 +70,17 @@ The `scorbot.*` schemas list every field, so viewers autocomplete paths such as
   layout was written by hand and not opened in Foxglove.
 - **PlotJuggler:** open the MCAP with its MCAP data-loader plugin and plot the
   same paths (for example `/robot/state/signed_encoder_counts/base`).
-- **Rerun:** not supported yet; a future exporter could feed it.
+- **Rerun:** `pip install -e ".[viz]"`, then
+  `python -m scorbot.session view <session>` opens the viewer, or
+  `... view <session> --save run.rrd` writes a file to share (never
+  overwrites). Panels: `session/info` (REAL or SIMULATED, identity, integrity
+  findings), `state/counts/<joint>` (signed counts), `state/controller_error/<joint>`,
+  `state/home_switch_bits`, `events` (commands, results, decisions, notes;
+  faults as errors, failed results as warnings) and `camera/<id>/image` with
+  detection boxes. Timelines: `session_time` (seconds from the first event,
+  observed time) and `seq`. One session per recording, so real and simulated
+  runs never share a view. Dragging `session.mcap` into Rerun also works
+  (experimental MCAP support) but shows raw JSON, not these panels.
 
 Plot `signed_encoder_counts`. The unsigned `encoder_counts` are 16-bit and draw
 a sawtooth each time they wrap.
