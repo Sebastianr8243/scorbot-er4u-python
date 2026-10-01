@@ -87,10 +87,10 @@ VLA is not planned for the semester demo. If it is attempted, SmolVLA is the can
 
 | # | Decision | Notes |
 |---|---|---|
-| 1 | How the policy's action reaches the lab PC | Options: run inference on the lab PC if it has a GPU; confirm a fixed LeRobot async server and bind it to localhost behind an SSH tunnel; or a small server of our own with authentication and JSON or safetensors only. Never pickle over a network. |
+| 1 | How the policy's action reaches the lab PC | The lab PC has no GPU (decision 4), so inference runs on the server and the link is required. Options: confirm a fixed LeRobot async server and bind it to localhost behind an SSH tunnel; or a small server of our own with authentication and JSON or safetensors only. Never pickle over a network. CPU inference on the lab PC is not ruled out for a small policy but is unmeasured. |
 | 2 | Camera model, mount and exposure settings | A standard OpenCV-compatible webcam is on order. Fix focus and exposure before recording training data. |
 | 3 | Teleop device order | Keyboard first (the lab session already has the keys), gamepad second. A leader arm is deferred: it needs a second arm with readable encoders, which is unverified. |
-| 4 | Whether the lab PC has a GPU | Decides decision 1. |
+| 4 | Whether the lab PC has a GPU | Answered 2026-10-01: no. The lab PC is a small cube Windows PC, GPU not confirmed but assumed absent. Open: is the server on the same network as the lab PC? |
 
 ## Sources
 
