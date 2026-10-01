@@ -1,7 +1,12 @@
 # Lab session: back to start, marked positions, fault guidance
 
-Date: 2026-09-30. Status: design choices delegated by the user; awaiting
-written-spec review.
+Date: 2026-09-30, revised the same day after the manual verification
+(`docs/MANUAL_VERIFICATION_IMPACT.md`). Status: awaiting written-spec review.
+
+The revision adds a counts drift check before every motion, says plainly that
+back to start is not a re-home, and corrects the fault guidance about
+reconnecting. The MOTORS LED check before every arming is already built
+(`LabSession._arm`).
 
 ## Goal
 
@@ -40,6 +45,17 @@ Everything in the guided-session spec still applies. In addition:
 - Joints move one at a time in the order elbow, shoulder, base (retract
   before swinging the base, backlog item 39).
 - A failure latches the session exactly like a keyed jog.
+- **Back to start is not a re-home.** It returns to the counts recorded after
+  homing; it cannot detect or repair a shifted home. The Controller-USB manual
+  (p. 29, troubleshooting item 9) says electrical noise can change Home
+  suddenly, with the robot continuing relative to the new Home.
+- **Counts drift check before every motion** (keyed jog, back, go to): if any
+  motor's counts differ from the counts after the last completed step (or
+  from `home_counts` before the first) by more than `STABLE_COUNTS` (2), the
+  move is refused and the session disarms. Something moved the arm or the
+  counts while nothing was commanded (noise, a push, sagging with motors off),
+  so the logged travel no longer describes the pose. The screen says to finish
+  and re-home in a new session.
 
 ## Design
 
@@ -61,8 +77,8 @@ No robot, no I/O; fully unit-tested.
 | Name | Contract |
 |---|---|
 | `Guidance(key: str, title: str, meaning: str, steps: tuple[str, ...])` | frozen |
-| `guidance_for(error: str) -> Guidance` | matches known SDK/legacy error texts, in order: command timeout; legacy result 1 (joint error word too large: stall, collision or impact); legacy result 2 (did not settle); feedback unavailable or stale; worker crashed; LED gate; controller already faulted; otherwise `unknown` |
-| `COMMON_STEPS` | the steps every guidance ends with: physical stop if anything moves; do not retry in this session; note pose, LEDs and sounds (photo); check the MOTORS LED; to continue, start a new session and home again |
+| `guidance_for(error: str) -> Guidance` | matches known SDK/legacy error texts, in order: command timeout; legacy result 1 (joint error word too large: probably a stall, collision or impact, **or the controller cut motor power: e-stop, over-current or communication time-out**); legacy result 2 (did not settle); feedback unavailable or stale; worker crashed; LED gate (at enable or at arming: motors probably off); counts drift; controller already faulted; otherwise `unknown` |
+| `COMMON_STEPS` | the steps every guidance ends with: physical stop if anything moves; do not retry in this session; note pose, LEDs and sounds (photo); check the MOTORS LED; keep hands clear below the arm (holding with motors off is unverified); to continue, start a new session, but **connecting turns the motors on at the current pose, so first get the arm back to the known start pose per the lab procedure**, then home again |
 
 The texts say "probably" wherever the cause is inferred, per the repo rule.
 
@@ -72,8 +88,15 @@ The texts say "probably" wherever the cause is inferred, per the repo rule.
   for every motion after homing (travel cap, `preview_jog`, `jog_joint`, rows,
   fault handling). `_jog` becomes key handling plus confirmation around it.
   `how` is `typed`, `repeat`, `back` or `goto`.
-- The session keeps `home_counts` (encoder counts at `home_complete`) and
-  `marks: list[MarkedPosition]`.
+- The session keeps `home_counts` (encoder counts at `home_complete`),
+  `last_counts` (counts after the last completed step, `home_counts` at
+  first) and `marks: list[MarkedPosition]`.
+- `_execute` starts with the drift check: read the state, compare every motor
+  with `last_counts` via `signed_count_delta`; beyond `STABLE_COUNTS` write
+  `counts_drift` (per-motor differences), show the warning, disarm, and
+  return False without moving. `_run_plan` runs the same check once before
+  showing a plan. After a completed step, `last_counts` becomes the
+  after-state counts.
 - New keys in the jog loop:
 
 | Key | Action |
@@ -90,7 +113,7 @@ The texts say "probably" wherever the cause is inferred, per the repo rule.
   `plan_complete` with the answer and the counts difference from the target
   (from `home_counts` or the mark's counts, via `signed_count_delta`).
 - Rows: `plan_shown` (name, moves), `plan_declined`, `plan_stopped` (reason,
-  steps done), `plan_complete`. Jog rows keep their existing shape with the
+  steps done), `plan_complete`, `counts_drift`. Jog rows keep their existing shape with the
   new `how` values, so the review table shows them unchanged.
 - On `jog_failed` and `session_failed`, the engine shows `guidance_for(error)`
   and writes `fault_guidance` (key, title).
@@ -115,6 +138,11 @@ resets, so tests can simulate a key pressed during a move.
   a key during the plan stops it after one step and disarms; mark then go to
   it; `g` with no marks and `m` after 9 marks are refused; `b` while disarmed
   does nothing; a fault mid-plan latches, shows guidance, still finishes.
+- Drift: changing the simulated controller's counts by 3 between jogs makes
+  the next keyed jog and `BACK` refuse with a `counts_drift` row and disarm;
+  a change of 2 does not.
+- Guidance: result 1 lists motors off among the probable causes; every
+  guidance says reconnecting energises the motors at the current pose.
 - The review test gains a `how="back"` row.
 
 ## Risks
@@ -122,5 +150,9 @@ resets, so tests can simulate a key pressed during a move.
 - Returning by reversing commanded jogs relies on the legacy scale being
   consistent between directions; the measured count difference at the end
   shows any drift, and the operator confirms the pose.
+- The drift check only sees changes in the counts. A home reference that
+  shifts together with the counts, or a pose change the encoders do not
+  register, is not detected (SAFETY_CASE HZ-22). Whether home survives
+  COFF/CON, e-stop or reconnect is unknown, so marks never outlive a session.
 - Key-to-stop is checked between steps only; a step in progress always
   completes (legacy jogs cannot be interrupted, backlog item 6).
