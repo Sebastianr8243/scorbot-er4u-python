@@ -20,6 +20,7 @@ from ..session import BestEffortRecorder, SessionWriter
 from ..state import JOINTS
 from .operator import ENTER, StatusLine
 from .moves import MAX_MARKS, MarkedPosition, plan_moves
+from .faults import format_guidance, guidance_for
 from .review import format_session_review, review_session_rows
 
 EXIT_OK, EXIT_FAILED, EXIT_DECLINED = 0, 1, 3
@@ -53,11 +54,6 @@ _MISMATCH_TEXT = {
     ("power", "green", "orange"): "POWER LED ORANGE: the controller is not communicating.",
     ("power", "green", "flashing"): "POWER LED FLASHING: USB timeout.",
 }
-
-
-RECOVERY_TEXT = ("To continue later, start a new session. Connecting turns the motors on "
-                 "at whatever pose the arm is in, so do not reconnect until the arm is back "
-                 "in the known start pose (per the lab procedure).")
 
 
 class Declined(Exception):
@@ -106,6 +102,11 @@ class LabSession:
         self.rec.log_state(state)
         return state
 
+    def _guide(self, error_text):
+        guidance = guidance_for(error_text)
+        self._write("fault_guidance", key=guidance.key, title=guidance.title)
+        self.op.show(format_guidance(guidance), "warn")
+
     # -- run ------------------------------------------------------------------
 
     def run(self) -> int:
@@ -138,7 +139,7 @@ class LabSession:
                     self.op.show(f"Session failed: {error}. If motor state is uncertain, "
                                  "use the physical stop.", "alarm")
                     if self.enabled:
-                        self.op.show(RECOVERY_TEXT, "warn")
+                        self._guide(str(error))
                     if isinstance(error, KeyboardInterrupt):
                         raise
                     return EXIT_FAILED
@@ -326,6 +327,7 @@ class LabSession:
                      "The logged travel no longer describes the pose. Finish (x) and home "
                      "again in a new session.", "alarm")
         self._disarm("counts drift")
+        self._guide("counts drift")
         return False
 
     def _prepare(self, joint, delta):
@@ -517,7 +519,7 @@ class LabSession:
         self.rec.log_fault(self.fault)
         self.op.show(f"Jog failed: {error}. The session is latched; use the physical "
                      "stop if anything is still moving.", "alarm")
-        self.op.show(RECOVERY_TEXT, "warn")
+        self._guide(self.fault)
         self._disarm("jog failed")
 
     def _disable(self):

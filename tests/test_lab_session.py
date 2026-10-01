@@ -22,6 +22,13 @@ MIXED = ["q", "BASE -1"] + OBS + ["q"] + OBS + ["e", "ELBOW -1"] + OBS  # base -
 JOG_ORDERS = set(range(4, 14))
 
 
+class _ErrorOneController(SimulatedController):
+    """Answers every jog with legacy result 1 (joint error word too large)."""
+
+    def _apply(self, payload):
+        return 1 if payload[0] in JOG_ORDERS else super()._apply(payload)
+
+
 class Clock:
     def __init__(self):
         self.t = 0.0
@@ -232,6 +239,27 @@ class LabSessionTests(unittest.TestCase):
     def test_keys_pressed_during_a_jog_are_discarded_before_questions(self):
         self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["q"] + OBS + FINISH)
         self.assertEqual(self.op.discards, 2)
+
+    def test_jog_failure_shows_guidance_naming_motors_off(self):
+        self.ctrl = _ErrorOneController()
+        code = self.run_session(TO_LOOP + ARM + ["q", "BASE -1", "n", "g"])
+        self.assertEqual(code, EXIT_FAILED)
+        self.assertEqual(self.of("fault_guidance")[0]["key"], "error_too_large")
+        shown = "\n".join(self.op.shown)
+        self.assertIn("motor power", shown)
+        self.assertIn("start pose", shown)
+
+    def test_led_gate_at_arming_shows_led_guidance(self):
+        self.run_session(TO_LOOP + ["a", "door", "n", "g", "n", "g"])
+        self.assertEqual(self.of("fault_guidance")[0]["key"], "led_gate")
+
+    def test_drift_refusal_shows_drift_guidance(self):
+        self.run_session(TO_LOOP + ARM + [self.nudge("base", 21, "q")] + FINISH)
+        self.assertEqual(self.of("fault_guidance")[0]["key"], "counts_drift")
+
+    def test_declined_before_enable_shows_no_guidance(self):
+        self.run_session(["y", "n"])
+        self.assertFalse(self.of("fault_guidance"))
 
     def nudge(self, motor, counts, then):
         def answer():
