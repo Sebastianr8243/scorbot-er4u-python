@@ -51,8 +51,10 @@ Everything in the guided-session spec still applies. In addition:
   suddenly, with the robot continuing relative to the new Home.
 - **Counts drift check before every motion** (keyed jog, back, go to): if any
   motor's counts differ from the counts after the last completed step (or
-  from `home_counts` before the first) by more than `STABLE_COUNTS` (2), the
-  move is refused and the session disarms. Something moved the arm or the
+  from `home_counts` before the first) by more than `DRIFT_COUNTS` (20, the
+  legacy settle band: `openScorbot/libcomm.py` treats a joint within 20
+  counts of its target as arrived, so a smaller limit would refuse after
+  normal jogs), the move is refused and the session disarms. Something moved the arm or the
   counts while nothing was commanded (noise, a push, sagging with motors off),
   so the logged travel no longer describes the pose. The screen says to finish
   and re-home in a new session.
@@ -92,7 +94,7 @@ The texts say "probably" wherever the cause is inferred, per the repo rule.
   `last_counts` (counts after the last completed step, `home_counts` at
   first) and `marks: list[MarkedPosition]`.
 - `_execute` starts with the drift check: read the state, compare every motor
-  with `last_counts` via `signed_count_delta`; beyond `STABLE_COUNTS` write
+  with `last_counts` via `signed_count_delta`; beyond `DRIFT_COUNTS` write
   `counts_drift` (per-motor differences), show the warning, disarm, and
   return False without moving. `_run_plan` runs the same check once before
   showing a plan. After a completed step, `last_counts` becomes the
@@ -138,9 +140,9 @@ resets, so tests can simulate a key pressed during a move.
   a key during the plan stops it after one step and disarms; mark then go to
   it; `g` with no marks and `m` after 9 marks are refused; `b` while disarmed
   does nothing; a fault mid-plan latches, shows guidance, still finishes.
-- Drift: changing the simulated controller's counts by 3 between jogs makes
+- Drift: changing the simulated controller's counts by 21 between jogs makes
   the next keyed jog and `BACK` refuse with a `counts_drift` row and disarm;
-  a change of 2 does not.
+  a change of 20 does not.
 - Guidance: result 1 lists motors off among the probable causes; every
   guidance says reconnecting energises the motors at the current pose.
 - The review test gains a `how="back"` row.
