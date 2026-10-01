@@ -65,6 +65,7 @@ Status column: **stable** describes current behaviour; **plan** is forward-looki
 | [`EXPERIMENT_RECORDING.md`](EXPERIMENT_RECORDING.md) | MCAP session recording, replay, analysis CLI, simulated robot, viewers | Recording, replaying or comparing runs; rehearsing without hardware | stable |
 | [`USB_CAPTURE.md`](USB_CAPTURE.md) | Wireshark/USBPcap capture and comparison with this code's packets | Capturing the Intelitek software; G2 disable and handshake comparison | stable |
 | [`DEPLOYMENT_OPTIONS.md`](DEPLOYMENT_OPTIONS.md) | Lab PC vs GPU server split, LeRobot plugin constraints, front end choice, demo target | Planning the LeRobot bridge, camera or web UI | plan |
+| [`PROJECT_LOG.md`](PROJECT_LOG.md) | What happened, when and why: decisions, evidence and where each piece lives | Catching up on the project or finding why something was decided | log |
 | [`superpowers/specs/`](superpowers/specs) | Design specs: experiment record, session analysis, simulated robot | Asking why a recording or simulation feature works as it does | history |
 | [`superpowers/plans/`](superpowers/plans) | Implementation plans for the same three features | Tracing how a feature was built | history |
 

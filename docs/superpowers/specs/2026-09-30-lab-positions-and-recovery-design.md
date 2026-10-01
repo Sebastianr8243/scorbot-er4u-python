@@ -1,7 +1,8 @@
 # Lab session: back to start, marked positions, fault guidance
 
 Date: 2026-09-30, revised the same day after the manual verification
-(`docs/MANUAL_VERIFICATION_IMPACT.md`). Status: awaiting written-spec review.
+(`docs/MANUAL_VERIFICATION_IMPACT.md`). Status: built 2026-10-01 (branch
+`feat/lab-positions`); history in `docs/PROJECT_LOG.md`.
 
 The revision adds a counts drift check before every motion, says plainly that
 back to start is not a re-home, and corrects the fault guidance about

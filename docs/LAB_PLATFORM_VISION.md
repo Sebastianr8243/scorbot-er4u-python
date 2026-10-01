@@ -163,7 +163,7 @@ Each sub-project gets its own spec, plan and build cycle.
 | # | Item | Owner | Unblocks |
 |---|---|---|---|
 | 12 | Review and merge `feat/lab-positions-and-recovery` (MOTORS LED check before every arming, reconnect warning, `--rehearse-motors-dropped`) so the lab PC runs it | Team, Maintainer | Safer next visit |
-| 13 | Approve the revised positions spec, then build back to start, marked positions and fault guidance | Team, then Maintainer | Recovery at the bench |
+| 13 | Done 2026-10-01: back to start (`b`), marks (`m`, `g`), counts drift check and fault guidance in `python -m scorbot.lab` | Maintainer | Recovery at the bench |
 | 14 | Done 2026-10-01: every jog logs the packets it exchanged both ways (`motion_trace` event; `usb_trace.py from-log` then `setpoints`). SDK side only, no change to `openScorbot/` | Maintainer | Streaming evidence without a capture |
 | 15 | Rehearse the whole visit with `--simulate` and `--rehearse-motors-dropped` in a Windows console | Operator | Fewer surprises |
 | 16 | Decide the semester goal: a policy moving the arm, or teleop plus recorded datasets | Team | Order of S2-S4 |
