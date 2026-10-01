@@ -61,11 +61,14 @@ whether anything else moved, before the numbers are shown.
 (`BACK`, `GOTO P2`), and the session must be armed. Joints move one at a time:
 elbow, then shoulder, then base. **Any key during the move stops it after the
 current step** and disarms; that is a software pause, the physical stop is the
-stop. At the end you say whether the arm is there, and the count difference
-from the target is logged. Back to start is not a re-home.
+stop. If the terminal cannot read keys during the move (not a console,
+or no key-press support), the session says so and only the physical stop stops
+it; on a real session such a move is refused (`plan_refused`). Keys pressed
+during the last step are discarded and counted in the log. At the end you say
+whether the arm is there, and the count difference from the target is logged. Back to start is not a re-home.
 
-Before every step the counts are compared with the last step. If any motor
-moved more than 20 counts with nothing commanded (noise, a push, sagging), the
+Before every step (and again after a typed confirmation) the counts are compared with the last step. If any motor
+moved more than 20 counts with nothing commanded (probably noise, a push or sagging; unverified), the
 step is refused and the session disarms: finish and home again in a new
 session. Marks are never kept between sessions.
 

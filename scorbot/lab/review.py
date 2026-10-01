@@ -26,6 +26,14 @@ def review_session_rows(rows: list[dict]) -> dict:
                             f"{row.get('observed')}, software expected {row.get('expected')}")
         elif row.get("type") == "led_gate_failed":
             problems.append(f"LED gate failed: {row.get('reason')}")
+        elif row.get("type") == "plan_complete":
+            differences = [d for d in (row.get("count_differences") or {}).values()
+                           if isinstance(d, int)]
+            if row.get("answer") != "yes" or any(abs(d) > UNJOGGED_TOLERANCE
+                                                 for d in differences):
+                problems.append(f"plan to {row.get('name')}: arrival answer "
+                                f"{row.get('answer')}, count differences "
+                                f"{row.get('count_differences')}")
         elif row.get("type") == "counts_drift":
             problems.append(f"counts drift before a step: {row.get('differences')}")
     seen_leds = {r.get("step") for r in rows if r.get("type") == "led_observation"}
@@ -36,6 +44,9 @@ def review_session_rows(rows: list[dict]) -> dict:
         rows_n = by_n[n]
         confirmed = rows_n.get("jog_confirmed")
         if confirmed is None:
+            failed = rows_n.get("jog_failed")
+            if failed:
+                problems.append(f"jog {n}: failed before motion: {failed.get('error')}")
             continue
         if "after_jog" not in rows_n:
             reason = rows_n.get("jog_failed", {}).get("error")

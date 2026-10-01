@@ -47,12 +47,13 @@ class LabSessionTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def run_session(self, answers):
+    def run_session(self, answers, *, stop_on_key=True, data_source="simulated"):
         self.op = ScriptedOperator(answers)
+        self.op.stop_on_key = stop_on_key
         session = LabSession(
             profile=PROFILE, operator=self.op,
             robot_factory=lambda **kw: SimulatedScorbot(controller=self.ctrl, **kw),
-            data_source="simulated", log_path=self.root / "s.jsonl",
+            data_source=data_source, log_path=self.root / "s.jsonl",
             session_root=self.root / "sessions", clock=self.clock, sleep=lambda s: None)
         code = session.run()
         self.rows = [json.loads(line) for line in
@@ -334,6 +335,59 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual(self.of("disarmed")[-1]["reason"], "plan stopped")
         self.assertTrue(any("not an emergency stop" in m for m in self.op.shown))
 
+    def test_drift_during_the_typed_confirmation_refuses_the_jog(self):
+        code = self.run_session(TO_LOOP + ARM + ["q", self.nudge("base", 21, "BASE -1")] + FINISH)
+        self.assertEqual(code, EXIT_OK)
+        drift = self.of("counts_drift")
+        self.assertEqual(len(drift), 1)
+        self.assertEqual(drift[0]["differences"]["base"], 21)
+        self.assertFalse(self.jog_commands())
+        self.assertFalse(self.of("jog_confirmed"))
+        self.assertEqual(self.of("disarmed")[-1]["reason"], "counts drift")
+
+    def test_key_during_the_last_plan_step_cannot_answer_the_arrival_question(self):
+        original, seen = self.ctrl._apply, []
+
+        def apply(payload):
+            code = original(payload)
+            if payload[0] in JOG_ORDERS:
+                seen.append(payload[0])
+                if len(seen) == 6:          # 3 keyed jogs, then the last of 3 plan steps
+                    self.op.pending_keys = 1
+            return code
+        self.ctrl._apply = apply
+        self.run_session(TO_LOOP + ARM + MIXED + ["b", "BACK", "y"] + FINISH)
+        complete = self.of("plan_complete")[0]
+        self.assertEqual(complete["keys_during_last_step"], 1)
+        self.assertEqual(complete["answer"], "yes")
+        self.assertTrue(any("had already finished" in m for m in self.op.shown))
+
+    def test_key_pending_before_the_first_step_stops_the_plan(self):
+        def keyed_confirm():
+            self.op.pending_keys = 1
+            return "BACK"
+        self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["b", keyed_confirm] + FINISH)
+        self.assertEqual(self.of("plan_stopped")[0]["steps_done"], 0)
+        self.assertEqual(len(self.jog_commands()), 1)
+        self.assertEqual(self.op.pending_keys, 0)
+
+    def test_plan_without_key_reading_says_so_in_a_rehearsal(self):
+        self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["b", "BACK", "y"] + FINISH,
+                         stop_on_key=False)
+        self.assertTrue(any("cannot read keys during the move" in m for m in self.op.shown))
+        self.assertFalse(any("Any key during the move" in m for m in self.op.shown))
+        self.assertEqual(len(self.of("plan_complete")), 1)
+
+    def test_plan_without_key_reading_is_refused_on_real_data(self):
+        self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["b"] + FINISH,
+                         stop_on_key=False, data_source="real")
+        refused = self.of("plan_refused")
+        self.assertEqual(len(refused), 1)
+        self.assertIn("cannot read keys", refused[0]["reason"])
+        self.assertEqual(len(self.jog_commands()), 1)
+        self.assertFalse(any("Type BACK" in p for p in self.op.prompts))
+        self.assertEqual(self.of("disarmed")[-1]["reason"], "plan refused")
+
     def test_mark_then_go_to_it(self):
         self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["m", "q"] + OBS
                          + ["g", "1", "GOTO P1", "y"] + FINISH)
@@ -387,10 +441,6 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual(len(self.of("summary")), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class LabCommandTests(unittest.TestCase):
     def test_dropped_motors_rehearsal_needs_simulate(self):
         import contextlib
@@ -400,3 +450,7 @@ class LabCommandTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exit_:
             main(["--rehearse-motors-dropped"])
         self.assertEqual(exit_.exception.code, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

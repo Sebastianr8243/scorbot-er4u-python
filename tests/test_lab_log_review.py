@@ -238,6 +238,23 @@ class LabSessionReviewTests(unittest.TestCase):
             {"type": "counts_drift", "differences": {"base": 25}, "limit": 20}]))
         self.assertTrue(any(p.startswith("counts drift") for p in report["problems"]))
 
+    def test_plan_complete_is_reviewed(self):
+        from scorbot.lab.review import review_session_rows
+        zeros = {"base": 0, "shoulder": 0, "elbow": 0}
+        for answer, diff, bad in (("no", zeros, True), ("yes", {**zeros, "base": 60}, True),
+                                  ("yes", zeros, False)):
+            report = review_session_rows(self.rows(extra=[
+                {"type": "plan_complete", "name": "start", "answer": answer, "steps": 1,
+                 "count_differences": diff}]))
+            self.assertEqual(any(p.startswith("plan to start") for p in report["problems"]),
+                             bad, (answer, diff))
+
+    def test_failed_state_read_before_motion_is_a_problem(self):
+        from scorbot.lab.review import review_session_rows
+        report = review_session_rows(self.rows(extra=[
+            {"type": "jog_failed", "n": 2, "error": "state read failed"}]))
+        self.assertIn("jog 2: failed before motion: state read failed", report["problems"])
+
     def test_cli_session_mode_and_json(self):
         import contextlib
         import io

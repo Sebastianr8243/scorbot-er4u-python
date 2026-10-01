@@ -34,6 +34,7 @@ class Operator(Protocol):
     def show(self, message: str, level: str = "info") -> None: ...
     def status(self, line: StatusLine) -> None: ...
     def discard_pending_keys(self) -> int: ...
+    def can_stop_on_key(self) -> bool: ...
 
 
 def matches(typed: str, expected: str) -> bool:
@@ -50,6 +51,10 @@ class ScriptedOperator:
         self.statuses: list[StatusLine] = []
         self.discards = 0
         self.pending_keys = 0
+        self.stop_on_key = True
+
+    def can_stop_on_key(self):
+        return self.stop_on_key
 
     def _next(self, prompt: str) -> str:
         self.prompts.append(prompt)

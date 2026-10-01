@@ -56,6 +56,10 @@ class TerminalOperator:
         print(char)
         return char.lower()
 
+    def can_stop_on_key(self):
+        """True only if a key pressed during a move can actually be read."""
+        return bool(self._single_keys() and self._kbhit is not None)
+
     def discard_pending_keys(self):
         """Drop keys typed while the arm was moving, so they never answer a question."""
         if not self._single_keys() or self._kbhit is None:

@@ -425,6 +425,15 @@ class LabSession:
                 return
             self.confirmed.add(move_key)
             how = "typed"
+            # The typed confirmation can take a while; counts that moved meanwhile
+            # must not become the new baseline, so check again on a fresh read.
+            try:
+                before = self.robot.get_state()
+            except Exception as error:
+                self._jog_failed(n, error)
+                return
+            if not self._drift_ok(before):
+                return
         self._execute(joint, delta, how, n, before, plan)
 
     # -- multi-step moves -----------------------------------------------------
@@ -467,6 +476,7 @@ class LabSession:
                        self.home_counts, "BACK")
 
     def _stop_plan(self, name, reason, done, total):
+        self.op.discard_pending_keys()     # a buffered key must not reach the jog loop
         self._write("plan_stopped", name=name, reason=reason, steps_done=done)
         self.op.show(f"Move to {name} stopped after {done} of {total} steps ({reason}). "
                      "This is a software pause, not an emergency stop; the physical "
@@ -487,9 +497,20 @@ class LabSession:
         if not moves:
             self.op.show(f"Already at {name}.")
             return
-        self.op.show(f"Move to {name}, one joint at a time: {', '.join(labels)}. Any key "
-                     "during the move stops it after the current step (a software pause, "
-                     "not an emergency stop; the physical stop is the stop).")
+        if self.op.can_stop_on_key():
+            stop_text = ("Any key during the move stops it after the current step (a "
+                         "software pause, not an emergency stop; the physical stop is "
+                         "the stop).")
+        else:
+            stop_text = ("This terminal cannot read keys during the move; only the "
+                         "physical stop stops it.")
+            if self.data_source == "real":
+                reason = "the terminal cannot read keys during the move"
+                self._write("plan_refused", name=name, reason=reason)
+                self.op.show(f"Move to {name} refused: {stop_text}", "alarm")
+                self._disarm("plan refused")
+                return
+        self.op.show(f"Move to {name}, one joint at a time: {', '.join(labels)}. {stop_text}")
         if not self.op.confirm(f"Type {confirm_text} to run it: ", confirm_text):
             self._write("plan_declined", name=name)
             self._disarm("confirmation declined")
@@ -503,13 +524,17 @@ class LabSession:
                                                      *prepared, observe=False):
                 self._stop_plan(name, "step refused or failed", done, len(moves))
                 return
+        ignored = self.op.discard_pending_keys()
+        if ignored:
+            self.op.show(f"{ignored} key(s) pressed during the last step; the move had "
+                         "already finished.", "warn")
         answer = self.op.choose(f"Is the arm at {name}? [y/n/u] ", YES_NO_UNSURE)
         after = self.robot.get_state()
         differences = {motor: signed_count_delta(after.encoder_counts[motor],
                                                  target_counts[motor])
                        for motor in JOINTS}
         self._write("plan_complete", name=name, answer=answer, steps=len(moves),
-                    count_differences=differences)
+                    count_differences=differences, keys_during_last_step=ignored)
         self.op.show(f"At {name}: count differences from the target "
                      f"{ {m: d for m, d in differences.items() if d} or 'none'}.")
 
