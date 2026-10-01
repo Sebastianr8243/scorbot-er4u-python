@@ -26,6 +26,8 @@ def review_session_rows(rows: list[dict]) -> dict:
                             f"{row.get('observed')}, software expected {row.get('expected')}")
         elif row.get("type") == "led_gate_failed":
             problems.append(f"LED gate failed: {row.get('reason')}")
+        elif row.get("type") == "counts_drift":
+            problems.append(f"counts drift before a step: {row.get('differences')}")
     seen_leds = {r.get("step") for r in rows if r.get("type") == "led_observation"}
     problems += [f"LED observation missing {step}" for step in LAB_LED_STEPS
                  if step not in seen_leds]

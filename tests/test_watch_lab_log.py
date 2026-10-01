@@ -91,6 +91,11 @@ class WatchLabLogTests(unittest.TestCase):
         view.add({"type": "session", "data_source": "simulated"}, "run")
         self.assertIn("SIMULATED", view.render())
 
+    def test_counts_drift_is_an_alarm(self):
+        view = RunView()
+        view.add({"type": "counts_drift", "differences": {"base": 25}, "limit": 20}, "session")
+        self.assertIn("!!! counts_drift", view.render())
+
     def test_view_imports_no_usb_or_controller_code(self):
         source = Path(watch_lab_log.__file__).read_text(encoding="utf-8")
         for forbidden in ("import usb", "Scorbot(", "SimulatedScorbot", "openScorbot"):

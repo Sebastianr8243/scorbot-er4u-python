@@ -215,6 +215,29 @@ class LabSessionReviewTests(unittest.TestCase):
         self.assertIn("missing session row", report["problems"])
         self.assertIn("LED observation missing after_enable", report["problems"])
 
+    def test_plan_steps_appear_in_the_table_without_problems(self):
+        from scorbot.lab.review import format_session_review, review_session_rows
+        report = review_session_rows(self.rows(extra=[
+            {"type": "plan_shown", "name": "start", "moves": ["BASE +1"]},
+            {"type": "jog_preview", "n": 2, "joint": "base",
+             "plan": {"motor_count_deltas": {"base": 142}}},
+            {"type": "jog_confirmed", "n": 2, "how": "back", "move": "BASE +1"},
+            {"type": "before_jog", "n": 2, "state": {}},
+            {"type": "after_jog", "n": 2, "state": {}},
+            {"type": "jog_result", "n": 2, "planned": {"base": 142},
+             "measured": {"base": 142, "shoulder": 0, "elbow": 0}},
+            {"type": "plan_complete", "name": "start", "answer": "yes", "steps": 1,
+             "count_differences": {"base": 0}}]))
+        self.assertEqual(report["problems"], [])
+        self.assertEqual(report["jogs"][1]["how"], "back")
+        self.assertIn("back", format_session_review(report))
+
+    def test_counts_drift_is_a_problem(self):
+        from scorbot.lab.review import review_session_rows
+        report = review_session_rows(self.rows(extra=[
+            {"type": "counts_drift", "differences": {"base": 25}, "limit": 20}]))
+        self.assertTrue(any(p.startswith("counts drift") for p in report["problems"]))
+
     def test_cli_session_mode_and_json(self):
         import contextlib
         import io

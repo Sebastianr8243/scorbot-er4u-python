@@ -44,6 +44,9 @@ Whether the arm holds its pose with motors off is unverified (no brake or holdin
 | `3` / `e` | elbow + / - |
 | `s` | step size 1 or 0.5 degree |
 | `a` / `d` | arm / disarm |
+| `b` | back to start: every joint returns to where it was after homing |
+| `m` | mark the current pose as P1..P9 (this session only) |
+| `g` | go to a mark: choose 1-9 |
 | `?` | help |
 | `x` | finish |
 
@@ -53,6 +56,18 @@ repeats it. Unknown keys, 60 s without a key, a declined confirmation or any
 error disarm. Each joint can move at most 10 degrees from home per session
 (legacy scale, not measured). After each move you say which way it went and
 whether anything else moved, before the numbers are shown.
+
+`b` and `g` show the whole move first and need one typed confirmation
+(`BACK`, `GOTO P2`), and the session must be armed. Joints move one at a time:
+elbow, then shoulder, then base. **Any key during the move stops it after the
+current step** and disarms; that is a software pause, the physical stop is the
+stop. At the end you say whether the arm is there, and the count difference
+from the target is logged. Back to start is not a re-home.
+
+Before every step the counts are compared with the last step. If any motor
+moved more than 20 counts with nothing commanded (noise, a push, sagging), the
+step is refused and the session disarms: finish and home again in a new
+session. Marks are never kept between sessions.
 
 ## Logs and review
 
