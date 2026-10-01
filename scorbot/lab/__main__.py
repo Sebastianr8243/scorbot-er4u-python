@@ -43,19 +43,32 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python -m scorbot.lab", description=__doc__)
     parser.add_argument("--simulate", action="store_true",
                         help="Rehearse with the simulated controller: no USB, no robot")
+    parser.add_argument("--rehearse-motors-dropped", action="store_true",
+                        help="With --simulate: the simulated controller cuts motor power "
+                             "right after homing, without telling the software")
     parser.add_argument("--profile", type=Path, default=Path("lab.json"))
     parser.add_argument("--logs", type=Path, default=None,
                         help="Log folder (default: logs, or rehearsal with --simulate)")
     args = parser.parse_args(argv)
+    if args.rehearse_motors_dropped and not args.simulate:
+        parser.error("--rehearse-motors-dropped needs --simulate")
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="backslashreplace")
     operator = TerminalOperator()
     with termination_as_interrupt():
         if args.simulate:
-            from ..simulated import SimulatedScorbot as robot_class
+            from functools import partial
+
+            from ..simulated import SimulatedController, SimulatedScorbot
             source, preflight = "simulated", None
             operator.show("SIMULATED rehearsal: no USB and no robot are used.")
+            controller = SimulatedController(drop_motors_after_home=args.rehearse_motors_dropped)
+            robot_class = partial(SimulatedScorbot, controller=controller)
+            if args.rehearse_motors_dropped:
+                operator.show("SIMULATED FAULT: the controller will cut motor power right "
+                              "after homing. From then on, answer the LED questions as an "
+                              "unlit MOTORS LED would look.", "warn")
         else:
             from ..preflight import run_checks as preflight
             from ..robot import Scorbot as robot_class

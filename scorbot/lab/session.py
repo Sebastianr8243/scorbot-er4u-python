@@ -3,7 +3,9 @@
 Every motion goes through Scorbot's own gates (enable, home, jog_joint) and its
 fault latch. The session only adds stricter limits: 1 degree steps, base,
 shoulder and elbow only, a 10 degree net travel cap per joint from home, and an
-armed state that anything unexpected clears. The physical stop is the stop.
+armed state that anything unexpected clears. Every arming asks for the MOTORS
+LED, because the controller can cut motor power by itself (e-stop, over-current,
+time-out) and nothing the SDK reads shows it. The physical stop is the stop.
 """
 
 from __future__ import annotations
@@ -47,6 +49,11 @@ _MISMATCH_TEXT = {
     ("power", "green", "orange"): "POWER LED ORANGE: the controller is not communicating.",
     ("power", "green", "flashing"): "POWER LED FLASHING: USB timeout.",
 }
+
+
+RECOVERY_TEXT = ("To continue later, start a new session. Connecting turns the motors on "
+                 "at whatever pose the arm is in, so do not reconnect until the arm is back "
+                 "in the known start pose (per the lab procedure).")
 
 
 class Declined(Exception):
@@ -124,6 +131,8 @@ class LabSession:
                                 error=str(error))
                     self.op.show(f"Session failed: {error}. If motor state is uncertain, "
                                  "use the physical stop.", "alarm")
+                    if self.enabled:
+                        self.op.show(RECOVERY_TEXT, "warn")
                     if isinstance(error, KeyboardInterrupt):
                         raise
                     return EXIT_FAILED
@@ -247,6 +256,8 @@ class LabSession:
         if self.landmark is None:
             self.landmark = self.op.text("Name a fixed landmark for directions "
                                          "(e.g. the door): ") or "not recorded"
+        # Raises SessionFailed unless MOTORS is seen lit and POWER green.
+        self._led("before_arm", motors="lit", power="green", required=True)
         self.op.show("Path clear, hand on the physical stop?")
         if self.op.confirm("Type ARM to arm jogging: ", "ARM"):
             self.armed = True
@@ -361,6 +372,7 @@ class LabSession:
         self.rec.log_fault(self.fault)
         self.op.show(f"Jog failed: {error}. The session is latched; use the physical "
                      "stop if anything is still moving.", "alarm")
+        self.op.show(RECOVERY_TEXT, "warn")
         self._disarm("jog failed")
 
     def _disable(self):

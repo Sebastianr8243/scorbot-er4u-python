@@ -105,6 +105,21 @@ class SimulatedRobotTests(unittest.TestCase):
                 finally:
                     robot.disconnect()
 
+    def test_dropped_motors_are_invisible_until_the_next_motion_fails(self):
+        from scorbot import ScorbotError
+        robot = ready_robot()
+        try:
+            robot.sim.inject("motors_dropped")
+            state = robot.get_state()
+            # Like hardware: nothing in the packet shows motor power.
+            self.assertTrue(state.enabled)
+            self.assertTrue(state.homed)
+            with self.assertRaisesRegex(ScorbotError, "error code 5"):
+                robot.jog_joint("base", 1.0)
+            self.assert_latched(robot)
+        finally:
+            robot.disconnect()
+
     def test_stale_feedback_queues_no_motion(self):
         from scorbot import ScorbotError
         robot = ready_robot()

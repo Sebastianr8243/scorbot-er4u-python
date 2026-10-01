@@ -15,8 +15,8 @@ PROFILE = LabProfile("lab-er4u-1", "A-12", "C-3", "WinUSB", "SR")
 CHECKLIST = ["y", "y", "y", "y"]
 TO_LOOP = CHECKLIST + ["n", "g", "pose matches photo", "HOME", "y", "g", "all axes homed", "y"]
 OBS = ["t", "n", ""]                    # toward, no other joint, no note
-ARM = ["a", "door", "ARM"]            # first arming also names the landmark
-REARM = ["a", "ARM"]
+ARM = ["a", "door", "y", "g", "ARM"]  # first arming names the landmark; LEDs every time
+REARM = ["a", "y", "g", "ARM"]
 FINISH = ["x", "n", "g"]
 JOG_ORDERS = set(range(4, 14))
 
@@ -73,7 +73,7 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual(self.of("armed")[0]["landmark"], "door")
         self.assertEqual(self.of("jog_observation")[0]["direction"], "toward")
         self.assertEqual([r["step"] for r in self.of("led_observation")],
-                         ["after_connect", "after_enable", "after_disable"])
+                         ["after_connect", "after_enable", "before_arm", "after_disable"])
         self.assertIn("disabled", self.types())
         summary = self.of("summary")[0]
         self.assertEqual((summary["jogs"], summary["problems"]), (3, 0))
@@ -146,6 +146,31 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual(len(self.of("summary")), 1)
         self.assertTrue(any("physical stop" in m for m in self.op.shown))
 
+    def test_every_arming_asks_for_the_leds(self):
+        self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["d"] + REARM + FINISH)
+        steps = [r["step"] for r in self.of("led_observation")]
+        self.assertEqual(steps.count("before_arm"), 2)
+        self.assertEqual(len(self.of("armed")), 2)
+
+    def test_motors_led_off_at_arming_ends_the_session_without_arming(self):
+        code = self.run_session(TO_LOOP + ["a", "door", "n", "g", "n", "g"])
+        self.assertEqual(code, EXIT_FAILED)
+        self.assertEqual(self.of("led_gate_failed")[0]["step"], "before_arm")
+        self.assertFalse(self.of("armed"))
+        self.assertFalse(self.jog_commands())
+        self.assertIn(16, self.motor_commands_after_enable())
+        self.assertEqual(len(self.of("summary")), 1)
+        self.assertTrue(any("start pose" in m for m in self.op.shown))
+
+    def test_dropped_motors_rehearsal_latches_on_the_next_jog(self):
+        # The operator misses the dark MOTORS LED; the next jog still fails safely.
+        self.ctrl.drop_motors_after_home = True
+        code = self.run_session(TO_LOOP + ARM + ["q", "BASE -1", "n", "g"])
+        self.assertEqual(code, EXIT_FAILED)
+        self.assertEqual(len(self.of("jog_failed")), 1)
+        self.assertFalse(self.jog_commands()[1:])
+        self.assertTrue(any("start pose" in m for m in self.op.shown))
+
     def test_checklist_no_and_home_declined_exit_3(self):
         self.assertEqual(self.run_session(["y", "n"]), EXIT_DECLINED)
         self.assertEqual(self.ctrl.commands, [])
@@ -206,6 +231,17 @@ class LabSessionTests(unittest.TestCase):
     def test_keys_pressed_during_a_jog_are_discarded_before_questions(self):
         self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["q"] + OBS + FINISH)
         self.assertEqual(self.op.discards, 2)
+
+class LabCommandTests(unittest.TestCase):
+    def test_dropped_motors_rehearsal_needs_simulate(self):
+        import contextlib
+        import io
+
+        from scorbot.lab.__main__ import main
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exit_:
+            main(["--rehearse-motors-dropped"])
+        self.assertEqual(exit_.exception.code, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

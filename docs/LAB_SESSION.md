@@ -7,6 +7,9 @@ uses no USB and no robot.
     .\.venv\Scripts\python.exe -m scorbot.lab --simulate     # rehearsal, logs in rehearsal\
     .\.venv\Scripts\python.exe -m scorbot.lab                # real arm, logs in logs\
 
+Add `--rehearse-motors-dropped` to the rehearsal to practise the controller
+cutting motor power by itself right after homing.
+
 **Connecting energises the motors.** Someone stands at the physical stop the
 whole time. Software disarm and disable are not emergency stops.
 
@@ -19,8 +22,16 @@ whole time. Software disarm and disable are not emergency stops.
 | LED checks | Look at the controller: MOTORS `y` lit / `n` off / `u` unsure; POWER `g` / `o` / `f` / `u`. Answer what you see; the expected state is not shown first |
 | Idle | Hands off for 5 s |
 | Home | Describe the start pose, type `HOME`, answer the LEDs, watch the search, describe it, `y` if it looked right |
-| Jog | Press `a`, name a landmark once, type `ARM`. Then keys below |
+| Jog | Press `a`, name a landmark once, answer the LEDs, type `ARM`. Then keys below. Every arming asks for the LEDs again: anything but MOTORS lit and POWER green ends the session |
 | Finish | `x`: motors off, LED check, summary and `LOG CHECK` line |
+
+The controller can turn the motors off by itself (e-stop, over-current,
+communication time-out) and nothing the software reads shows it (SAFETY_CASE
+HZ-21). The MOTORS LED is the only sign, which is why every arming asks for it.
+
+**After a failure:** do not retry in the same session. Connecting a new session
+turns the motors on at whatever pose the arm is in, so do not reconnect until
+the arm is back in the known start pose, per the lab procedure.
 
 Whether the arm holds its pose with motors off is unverified (no brake or holding spec in the manuals, SAFETY_CASE HZ-23). Keep hands and objects clear below the arm on finish, on any stop, and after the physical stop.
 

@@ -90,7 +90,7 @@ class LogPathTests(unittest.TestCase):
 class CommandSmokeTests(unittest.TestCase):
     def test_simulated_session_end_to_end_then_review(self):
         answers = ["", "y", "y", "y", "y", "n", "g", "pose ok", "HOME", "y", "g",
-                   "homed", "y", "a", "door", "ARM", "q", "BASE -1", "t", "n", "",
+                   "homed", "y", "a", "door", "y", "g", "ARM", "q", "BASE -1", "t", "n", "",
                    "q", "t", "n", "", "x", "n", "g"]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

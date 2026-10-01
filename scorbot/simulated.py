@@ -6,6 +6,12 @@ Only ``connect`` and ``disconnect`` are replaced. Commands still pass through
 code as the lab. The motion model is deliberately simple: a jog changes the
 motor counts by exactly the legacy plan; there is no timing, dynamics,
 backlash, gravity or collision model. Every state is marked ``simulated``.
+
+``motors_dropped`` models the controller cutting motor power by itself (e-stop,
+over-current, communication time-out). Nothing in the state packet changes, as
+on hardware no decoded byte is known to show motor power, so the facade still
+believes the motors are on. The next motion command then returns an error
+code. That a real controller answers this way is an assumption (unverified).
 """
 
 from __future__ import annotations
@@ -20,11 +26,11 @@ from .robot import Scorbot, ScorbotError
 from .state import ENCODER_OFFSETS, JOINTS
 
 FAULT_KINDS = ("timeout", "late_answer", "controller_error", "worker_crash",
-               "stale_feedback", "corrupt_packet")
+               "stale_feedback", "corrupt_packet", "motors_dropped")
 MAX_COUNT = 65535
 _EXIT, _MOTORS_OFF, _MOTORS_ON, _HOME = 528, 16, 17, 18
 _JOG_ORDERS = set(range(4, 14))
-_ERROR_UNKNOWN_ORDER, _ERROR_INJECTED, _ERROR_COUNT_RANGE = 1, 3, 4
+_ERROR_UNKNOWN_ORDER, _ERROR_INJECTED, _ERROR_COUNT_RANGE, _ERROR_MOTORS_OFF = 1, 3, 4, 5
 
 
 def encode_packet(signed_counts: dict[str, int], switch_bits: int = 0,
@@ -48,12 +54,14 @@ class SimulatedController:
     """In-memory controller: answers the legacy command queue and serves packets."""
 
     def __init__(self, *, home_counts: dict[str, int] | None = None,
-                 start_counts: dict[str, int] | None = None, step_delay_s: float = 0.0):
+                 start_counts: dict[str, int] | None = None, step_delay_s: float = 0.0,
+                 drop_motors_after_home: bool = False):
         self.home_counts = {name: 0 for name in JOINTS}
         self.home_counts.update(home_counts or {})
         self.counts = {name: 0 for name in JOINTS}
         self.counts.update(start_counts or {})
         self.step_delay_s = step_delay_s
+        self.drop_motors_after_home = drop_motors_after_home
         self.late_answer_s = 0.5
         self.motors_on = False
         self.switch_bits = 0
@@ -64,11 +72,17 @@ class SimulatedController:
         self._plan_jog = None
 
     def inject(self, kind: str) -> None:
-        """Arm a one-shot fault for the next command or feedback read."""
+        """Arm a one-shot fault for the next command or feedback read.
+
+        ``motors_dropped`` acts at once: motor power goes off silently.
+        """
         if kind not in FAULT_KINDS:
             raise ValueError(f"Fault kind must be one of {FAULT_KINDS}")
         with self._lock:
-            self._pending.add(kind)
+            if kind == "motors_dropped":
+                self.motors_on = False
+            else:
+                self._pending.add(kind)
 
     def _take(self, kind: str) -> bool:
         with self._lock:
@@ -128,9 +142,16 @@ class SimulatedController:
         elif order == _MOTORS_ON:
             self.motors_on = True
         elif order == _HOME:
+            if not self.motors_on:
+                return _ERROR_MOTORS_OFF
             with self._lock:
                 self.counts = dict(self.home_counts)
+                if self.drop_motors_after_home:
+                    self.drop_motors_after_home = False
+                    self.motors_on = False
         elif order in _JOG_ORDERS:
+            if not self.motors_on:
+                return _ERROR_MOTORS_OFF
             plan = self._plan_jog(order, float(payload[2]), int(payload[1]))
             deltas = plan["motor_count_deltas"]
             with self._lock:
