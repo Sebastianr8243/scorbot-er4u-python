@@ -49,6 +49,7 @@ class ScriptedOperator:
         self.shown: list[str] = []
         self.statuses: list[StatusLine] = []
         self.discards = 0
+        self.pending_keys = 0
 
     def _next(self, prompt: str) -> str:
         self.prompts.append(prompt)
@@ -94,4 +95,5 @@ class ScriptedOperator:
 
     def discard_pending_keys(self):
         self.discards += 1
-        return 0
+        count, self.pending_keys = self.pending_keys, 0
+        return count
