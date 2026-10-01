@@ -58,7 +58,7 @@ The original code remains under `openScorbot/`. The new adapter is under `scorbo
 
 ## Hardware reference
 
-Specifications, controller safety behaviour and LED meanings from the Intelitek ER-4u and Controller-USB manuals are summarised in [docs/HARDWARE_REFERENCE.md](docs/HARDWARE_REFERENCE.md). The manuals themselves are copyrighted and kept out of this public repository.
+Specifications, controller safety behaviour and LED meanings from the Intelitek ER-4u and Controller-USB manuals are summarised in [docs/HARDWARE_REFERENCE.md](docs/HARDWARE_REFERENCE.md). The manuals themselves are copyrighted and kept out of this public repository. The [complete visual verification report](docs/SCORBOT_Manual_Verification.md) records exact source pages, transcribed tables, contradictions and unanswered questions; its [numeric YAML appendix](docs/SCORBOT_Numeric_Facts.yaml) preserves units and evidence tags. These are manual transcriptions, not hardware calibration or verified runtime limits.
 
 ## Research tools (offline)
 
