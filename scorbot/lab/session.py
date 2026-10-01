@@ -27,6 +27,9 @@ TRAVEL_CAP_DEG = 10.0
 IDLE_DISARM_S = 60.0
 IDLE_SAMPLES = 5
 STABLE_COUNTS = 2
+# A legacy jog ends once the joint is within 20 counts of its target
+# (openScorbot/libcomm.py settle loop), so counts may keep settling that far.
+DRIFT_COUNTS = 20
 JOG_KEYS = {"1": ("base", 1), "q": ("base", -1), "2": ("shoulder", 1),
             "w": ("shoulder", -1), "3": ("elbow", 1), "e": ("elbow", -1)}
 CHECKLIST = (
@@ -81,6 +84,7 @@ class LabSession:
         self.confirmed: set = set()
         self.travel = {"base": 0.0, "shoulder": 0.0, "elbow": 0.0}
         self.jogs = 0
+        self.home_counts = self.last_counts = None
 
     # -- plumbing -------------------------------------------------------------
 
@@ -234,7 +238,9 @@ class LabSession:
         command = self.rec.log_command("home", {"start_position_confirmed": True})
         self.robot.home(start_position_confirmed=True)
         self.rec.log_command_result(command, "completed", completion_source="home() returned")
-        self._state("home_complete")
+        state = self._state("home_complete")
+        self.home_counts = dict(state.encoder_counts)
+        self.last_counts = dict(state.encoder_counts)
         self.homed = True
         self._write("home_observation", text=self.op.text(
             "Describe what moved during homing and the final pose: ") or "not recorded")
@@ -297,25 +303,104 @@ class LabSession:
                 self.op.show(f"Unknown key {key!r}; press ? for help.")
             last = self.clock()
 
-    def _jog(self, joint, sign):
+    def _drift_ok(self, state) -> bool:
+        """False (row, alarm, disarm) if counts moved since the last step unprompted."""
+        if self.last_counts is None:
+            return True
+        differences = {motor: signed_count_delta(state.encoder_counts[motor],
+                                                 self.last_counts[motor])
+                       for motor in JOINTS}
+        drift = {motor: d for motor, d in differences.items() if abs(d) > DRIFT_COUNTS}
+        if not drift:
+            return True
+        self._write("counts_drift", differences=differences, limit=DRIFT_COUNTS)
+        self.op.show(f"Counts moved by {drift} since the last step with nothing commanded. "
+                     "The logged travel no longer describes the pose. Finish (x) and home "
+                     "again in a new session.", "alarm")
+        self._disarm("counts drift")
+        return False
+
+    def _prepare(self, joint, delta):
+        """Travel cap, drift check and preview for one step; None if refused or failed."""
         self.joint = joint
-        delta = sign * self.step
         if abs(self.travel[joint] + delta) > TRAVEL_CAP_DEG + 1e-9:
             reason = (f"{joint} would be {self.travel[joint] + delta:+g} degrees from home; "
                       f"the session cap is {TRAVEL_CAP_DEG:g}")
             self._write("jog_refused", joint=joint, delta_deg=delta, reason=reason)
             self.op.show(f"Refused: {reason}.", "alarm")
             self._disarm("travel cap")
-            return
+            return None
         n = self.jogs + 1
         try:
             before = self.robot.get_state()
+        except Exception as error:
+            self._jog_failed(n, error)
+            return None
+        if not self._drift_ok(before):
+            return None
+        try:
             plan = self.robot.preview_jog(joint, delta, speed=self.profile.speed,
                                           starting_signed_counts=before.signed_encoder_counts)
         except Exception as error:
             self._jog_failed(n, error)
-            return
+            return None
         self._write("jog_preview", n=n, joint=joint, delta_deg=delta, plan=plan)
+        return n, before, plan
+
+    def _execute(self, joint, delta, how, n, before, plan, *, observe=True) -> bool:
+        """Run one prepared step through jog_joint; False if it failed (session latched).
+
+        With observe=False (plan steps) no questions are asked and pending keys
+        are left for the plan loop, which stops on them.
+        """
+        move = f"{joint.upper()} {delta:+g}"
+        self._write("jog_confirmed", n=n, how=how, move=move)
+        self._write("before_jog", n=n, state=asdict(before))
+        self.rec.log_state(before)
+        command = self.rec.log_command("jog_joint", {"joint": joint, "delta_degrees": delta,
+                                                     "speed": self.profile.speed})
+        try:
+            after = self.robot.jog_joint(joint, delta, speed=self.profile.speed)
+        except Exception as error:
+            self.rec.log_command_result(command, "faulted", detail=str(error))
+            self._jog_failed(n, error)
+            return False
+        self.jogs = n
+        self.travel[joint] += delta
+        self.last_counts = dict(after.encoder_counts)
+        self._write("after_jog", n=n, state=asdict(after))
+        self.rec.log_command_result(command, "completed", completion_source="jog_joint() returned")
+        self.rec.log_state(after)
+        if observe:
+            ignored = self.op.discard_pending_keys()
+            if ignored:
+                self.op.show(f"Ignored {ignored} key(s) pressed while the arm was moving.",
+                             "warn")
+            direction = self.op.choose(f"Which way did {joint} move relative to "
+                                       f"{self.landmark}? [t toward / a away / n none / "
+                                       "u unsure] ", DIRECTION_KEYS)
+            other = self.op.choose("Did any other joint move? [y/n/u] ", YES_NO_UNSURE)
+            note = self.op.text("Note (Enter to skip): ")
+            self._write("jog_observation", n=n, direction=direction, other_joint_moved=other,
+                        note=note)
+        measured = {}
+        for motor in JOINTS:
+            try:
+                measured[motor] = signed_count_delta(after.encoder_counts[motor],
+                                                     before.encoder_counts[motor])
+            except (KeyError, ValueError):
+                measured[motor] = None
+        self._write("jog_result", n=n, planned=plan["motor_count_deltas"], measured=measured)
+        self.op.show(f"Planned {plan['motor_count_deltas']}, measured "
+                     f"{ {m: v for m, v in measured.items() if v} or 'no change'}.")
+        return True
+
+    def _jog(self, joint, sign):
+        delta = sign * self.step
+        prepared = self._prepare(joint, delta)
+        if prepared is None:
+            return
+        n, before, plan = prepared
         move = f"{joint.upper()} {delta:+g}"
         move_key = (joint, sign, self.step)
         if move_key in self.confirmed:
@@ -330,41 +415,7 @@ class LabSession:
                 return
             self.confirmed.add(move_key)
             how = "typed"
-        self._write("jog_confirmed", n=n, how=how, move=move)
-        self._write("before_jog", n=n, state=asdict(before))
-        self.rec.log_state(before)
-        command = self.rec.log_command("jog_joint", {"joint": joint, "delta_degrees": delta,
-                                                     "speed": self.profile.speed})
-        try:
-            after = self.robot.jog_joint(joint, delta, speed=self.profile.speed)
-        except Exception as error:
-            self.rec.log_command_result(command, "faulted", detail=str(error))
-            self._jog_failed(n, error)
-            return
-        self.jogs = n
-        self.travel[joint] += delta
-        self._write("after_jog", n=n, state=asdict(after))
-        self.rec.log_command_result(command, "completed", completion_source="jog_joint() returned")
-        self.rec.log_state(after)
-        ignored = self.op.discard_pending_keys()
-        if ignored:
-            self.op.show(f"Ignored {ignored} key(s) pressed while the arm was moving.", "warn")
-        direction = self.op.choose(f"Which way did {joint} move relative to {self.landmark}? "
-                                   "[t toward / a away / n none / u unsure] ", DIRECTION_KEYS)
-        other = self.op.choose("Did any other joint move? [y/n/u] ", YES_NO_UNSURE)
-        note = self.op.text("Note (Enter to skip): ")
-        self._write("jog_observation", n=n, direction=direction, other_joint_moved=other,
-                    note=note)
-        measured = {}
-        for motor in JOINTS:
-            try:
-                measured[motor] = signed_count_delta(after.encoder_counts[motor],
-                                                     before.encoder_counts[motor])
-            except (KeyError, ValueError):
-                measured[motor] = None
-        self._write("jog_result", n=n, planned=plan["motor_count_deltas"], measured=measured)
-        self.op.show(f"Planned {plan['motor_count_deltas']}, measured "
-                     f"{ {m: v for m, v in measured.items() if v} or 'no change'}.")
+        self._execute(joint, delta, how, n, before, plan)
 
     def _jog_failed(self, n, error):
         self.fault = str(error)

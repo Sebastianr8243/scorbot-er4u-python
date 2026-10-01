@@ -232,6 +232,40 @@ class LabSessionTests(unittest.TestCase):
         self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["q"] + OBS + FINISH)
         self.assertEqual(self.op.discards, 2)
 
+    def nudge(self, motor, counts, then):
+        def answer():
+            self.ctrl.counts[motor] += counts
+            return then
+        return answer
+
+    def test_counts_drift_beyond_the_settle_band_refuses_the_next_jog(self):
+        code = self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS
+                                + [self.nudge("base", 21, "q")] + FINISH)
+        self.assertEqual(code, EXIT_OK)
+        drift = self.of("counts_drift")
+        self.assertEqual(len(drift), 1)
+        self.assertEqual(drift[0]["differences"]["base"], 21)
+        self.assertEqual(drift[0]["limit"], 20)
+        self.assertEqual(len(self.jog_commands()), 1)
+        self.assertEqual(self.of("disarmed")[-1]["reason"], "counts drift")
+
+    def test_counts_within_the_settle_band_do_not_refuse(self):
+        self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS
+                         + [self.nudge("base", 20, "q")] + OBS + FINISH)
+        self.assertFalse(self.of("counts_drift"))
+        self.assertEqual(len(self.jog_commands()), 2)
+
+    def test_drift_after_homing_refuses_the_first_jog(self):
+        self.run_session(TO_LOOP + ARM + [self.nudge("elbow", -25, "q")] + FINISH)
+        self.assertEqual(len(self.of("counts_drift")), 1)
+        self.assertFalse(self.jog_commands())
+
+    def test_drift_on_a_motor_no_plan_moves_also_refuses(self):
+        self.run_session(TO_LOOP + ARM + [self.nudge("wrist_motor_1", 21, "q")] + FINISH)
+        self.assertEqual(self.of("counts_drift")[0]["differences"]["wrist_motor_1"], 21)
+        self.assertFalse(self.jog_commands())
+
+
 class LabCommandTests(unittest.TestCase):
     def test_dropped_motors_rehearsal_needs_simulate(self):
         import contextlib
