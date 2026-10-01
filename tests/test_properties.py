@@ -53,7 +53,7 @@ class CountDeltaProperties(unittest.TestCase):
 
 class IncrementProperties(unittest.TestCase):
     @given(st.integers(min_value=1, max_value=2000), st.integers(min_value=1, max_value=20))
-    @settings(max_examples=200)
+    @settings(max_examples=200, deadline=None)  # timing is not under test; slow under parallel load
     def test_increments_sum_to_the_target_and_respect_the_speed(self, total, speed):
         import importlib
         import sys
