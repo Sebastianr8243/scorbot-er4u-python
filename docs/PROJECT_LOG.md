@@ -7,6 +7,12 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 ## 2026-10-01
 
+### Semester goal decided
+
+- Both, in order: M1 teleop plus LeRobot datasets (committed), then M2 an ACT
+  policy moving the arm under supervision (stretch). M1's demonstrations are
+  M2's training data. Recorded in [LAB_PLATFORM_VISION.md](LAB_PLATFORM_VISION.md).
+
 ### Lab PC install pinned with uv
 
 - Branch `chore/uv-setup`: `uv.lock` (78 packages), `.python-version` 3.12,

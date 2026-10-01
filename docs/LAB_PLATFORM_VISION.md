@@ -166,8 +166,22 @@ Each sub-project gets its own spec, plan and build cycle.
 | 13 | Done 2026-10-01: back to start (`b`), marks (`m`, `g`), counts drift check and fault guidance in `python -m scorbot.lab` | Maintainer | Recovery at the bench |
 | 14 | Done 2026-10-01: every jog logs the packets it exchanged both ways (`motion_trace` event; `usb_trace.py from-log` then `setpoints`). SDK side only, no change to `openScorbot/` | Maintainer | Streaming evidence without a capture |
 | 15 | Rehearse the whole visit with `--simulate` and `--rehearse-motors-dropped` in a Windows console | Operator | Fewer surprises |
-| 16 | Decide the semester goal: a policy moving the arm, or teleop plus recorded datasets | Team | Order of S2-S4 |
+| 16 | Decided 2026-10-01: both, in order (see "Semester goal") | Team | Order of S2-S4 |
 | 17 | Prepare the analysis for capture B: does a SCORBASE go-to send one destination or a stream of targets? | Maintainer | S2 design |
+
+## Semester goal (decided 2026-10-01)
+
+Both, as two milestones on one path. The demonstrations recorded for the
+first milestone are the training data for the second.
+
+| Milestone | Done when | Needs |
+|---|---|---|
+| **M1 (committed): teleop and datasets** | An operator drives the arm by keyboard or gamepad with the webcam recording, and the sessions export as a LeRobot dataset that replays on the arm, with logs | S1 captures, S2 calibration and smooth motion, S3 camera, S4 exporter and teleop |
+| **M2 (stretch): a policy moves the arm** | An ACT policy trained on M1 data on the GPU server reaches a camera-visible target under supervision, through the same SDK gates | M1, plus the server-to-lab-PC action link (DEPLOYMENT_OPTIONS decision 1) |
+
+M1 does not depend on M2. If S1 shows the controller cannot follow
+streamed targets, M1 still works at a low step rate; M2 then becomes a
+research question about slow policies.
 
 ## Success criteria
 
