@@ -22,6 +22,8 @@ whole time. Software disarm and disable are not emergency stops.
 | Jog | Press `a`, name a landmark once, type `ARM`. Then keys below |
 | Finish | `x`: motors off, LED check, summary and `LOG CHECK` line |
 
+Whether the arm holds its pose with motors off is unverified (no brake or holding spec in the manuals, SAFETY_CASE HZ-23). Keep hands and objects clear below the arm on finish, on any stop, and after the physical stop.
+
 ## Jog keys
 
 | Key | Action |

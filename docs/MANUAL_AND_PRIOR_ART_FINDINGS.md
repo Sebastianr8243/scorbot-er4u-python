@@ -32,17 +32,21 @@ manuals themselves are copyrighted and are not in this repository.
 
 - The signs are Intelitek's direction convention (unverified on our arms).
 - One mechanical model fits every axis (inference): 20-slot encoder disk (4pc
-  manual p. 35, INI `CountsPerRound=20`) x 4 quadrature = 80 counts per motor
+  manual p. 35, INI `CountsPerRound=20`) x 4 quadrature (assumed: no manual
+  states the decode mode) = 80 counts per motor
   revolution, x 127.7:1 motor gearbox, x a final stage (base 5:1 from 120:24,
   shoulder and elbow 4:1, wrist 23:12). This replaces the "~402 counts per
-  motor revolution" hypothesis in `nominal.py`. The 4pc manual gives 127.7:1 in
-  the parts list (p. 40) and 127.1:1 in the spec table (p. 11); the INI fits 127.7.
+  motor revolution" hypothesis in `nominal.py`. Both manuals contradict
+  themselves: 127.7:1 in the parts list (ER-4u p. 28; 4pc p. 40) and 127.1:1 in
+  the spec table (ER-4u p. 4; 4pc p. 11). The INI fits 127.7. `nominal.py` keeps
+  both (`GEAR_RATIO_ARM`, `GEAR_RATIO_ARM_PARTS_LIST`).
 - The legacy pitch scale (33.8) disagrees with the INI (27.9). Wrist jogs stay
   disabled; resolve this with a measurement before any wrist motion.
 
 Geometry (vendor `ROB_4u.INI`, matches Kutzer's DH table): base height 349 mm,
 joint-1 offset 16 mm, upper arm 221 mm, forearm 221 mm, gripper 145 mm.
-`nominal.py` has 364 mm and 220 mm; see "Contradictions" below.
+`nominal.py` has 364 mm (base bottom to shoulder axis, `SHOULDER_AXIS_HEIGHT_MM`)
+and 220 mm; see "Contradictions" below.
 
 Controller angle limits (vendor INI): base +174/-132 (306 degree span), shoulder
 +31/-124 (155), elbow +160/-115 (275), pitch +115/-113 (228), roll +/-570.
@@ -104,8 +108,11 @@ pads); the SCORBASE Jaw command is accurate only for 5-65 mm (p. 48).
   (SCORBASE p. 40): check the pendant is on Auto or absent before motion.
 - F9 Stop is for emergencies, F10 Pause finishes the current move; the physical
   EMERGENCY button is the real stop (SCORBASE p. 14, 80).
-- Not covered by any source: behaviour on communication loss, e-stop recovery
-  details, whether re-homing is required after an e-stop.
+- The Controller-USB manual covers communication loss ("On communication
+  failure, motor power shutdown", p. 5, no timeout given) and e-stop release
+  (stays in COFF until a new CON, p. 25). Not covered by any source: whether
+  home survives an e-stop, COFF/CON, reconnect or power cycle, and so whether
+  re-homing is required.
 
 ## Operator UX (guided session design)
 
@@ -144,14 +151,13 @@ From other tools:
 
 | Topic | Our docs | New source |
 |---|---|---|
-| Encoder counts per revolution | "not in either manual" (HARDWARE_REFERENCE) | 20-slot disk, 80 counts/motor rev (4pc manual, INI) |
+| Encoder counts per revolution | "not in either manual" (HARDWARE_REFERENCE) | 20-slot disk (manuals); 80 counts/motor rev is INI plus an assumed x4 decode, not stated in any manual |
 | Encoder zero | not given | zero at hard home (SCORBASE p. 23) |
-| Base height, link length | 364 mm, 220 mm (`nominal.py`) | 349 mm, 221 mm (INI, Kutzer) |
+| Shoulder axis height, link length | 364 mm, 220 mm (`nominal.py`, side view) | 349 mm, 221 mm (INI, Kutzer) |
 | Elbow span | bound 260 degrees (`check_soft_limit_span`) | controller limits span 275 |
 | Shoulder range | 165 degrees | 158 (datasheet), 155 (INI limits) |
 | Path velocity | 600 mm/s | 700 mm/s (datasheet) |
 | Pitch counts per degree | 33.8 (legacy) | 27.9 (INI) |
-| Shoulder/elbow scale difference | timing belts (PHYSICAL_CALIBRATION) | gears; 4:1 final stage vs base 5:1 (4pc p. 16) |
 | POWER LED with no PC link | orange | red (datasheet) |
 | Homing back-off | ER-4u manual: back off until the switch releases | SCORBASE text is vague; captures must settle it |
 

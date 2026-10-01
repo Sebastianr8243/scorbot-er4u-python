@@ -53,7 +53,7 @@ class ManualGeometryTests(unittest.TestCase):
     """Nominal DH values against the ER-4u manual (#100343 Rev. B, pp. 4-6)."""
 
     def test_link_lengths_match_manual_side_view(self):
-        self.assertEqual(kin.NOMINAL.d[0], nominal.BASE_HEIGHT_MM.value)   # 364
+        self.assertEqual(kin.NOMINAL.d[0], nominal.SHOULDER_AXIS_HEIGHT_MM.value)   # 364
         self.assertEqual(kin.NOMINAL.a[1], nominal.UPPER_ARM_MM.value)     # 220
         self.assertEqual(kin.NOMINAL.a[2], nominal.FOREARM_MM.value)       # 220
 
@@ -66,10 +66,11 @@ class ManualGeometryTests(unittest.TestCase):
         reach = math.hypot(x, y)
         # Model: a1 + a2 + a3 + d5 = 16 + 220 + 220 + 145.125 = 601.125 mm,
         # 8.9 mm short of the manual's 610 mm maximum operating radius. The
-        # manual's radius is presumably to the gripper tip (TCP) while d5 is
+        # 610 mm is the top-view envelope radius; the manual does not say what
+        # point it is measured to, so it is not a tool-length constraint. d5 is
         # the legacy conf.py tool length; neither is measured. Tolerance 15 mm.
         self.assertAlmostEqual(reach, 601.125, places=9)
-        self.assertAlmostEqual(z, nominal.BASE_HEIGHT_MM.value, places=9)
+        self.assertAlmostEqual(z, nominal.SHOULDER_AXIS_HEIGHT_MM.value, places=9)
         self.assertLess(abs(reach - nominal.MAX_OPERATING_RADIUS_MM.value), 15.0)
 
 

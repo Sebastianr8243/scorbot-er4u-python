@@ -17,7 +17,8 @@ from scripts.fit_calibration import fit, scale_warnings
 
 class NominalValueTests(unittest.TestCase):
     def test_manual_values(self):
-        self.assertEqual(nominal.BASE_HEIGHT_MM.value, 364.0)
+        self.assertEqual(nominal.SHOULDER_AXIS_HEIGHT_MM.value, 364.0)
+        self.assertEqual(nominal.BASE_PEDESTAL_HEIGHT_MM.value, 190.0)
         self.assertEqual(nominal.UPPER_ARM_MM.value, 220.0)
         self.assertEqual(nominal.FOREARM_MM.value, 220.0)
         self.assertEqual(nominal.VERTICAL_ENVELOPE_MM.value, 1040.0)
@@ -26,6 +27,10 @@ class NominalValueTests(unittest.TestCase):
         self.assertEqual(nominal.MAX_PAYLOAD_KG.value, 1.0)
         self.assertEqual(nominal.MAX_PATH_SPEED_MM_S.value, 600.0)
         self.assertEqual(nominal.GEAR_RATIO_ARM.value, 127.1)
+        self.assertEqual(nominal.GEAR_RATIO_ARM_PARTS_LIST.value, 127.7)
+        self.assertIn("p. 28", nominal.GEAR_RATIO_ARM_PARTS_LIST.source.page)
+        self.assertEqual((nominal.ARM_AMBIENT_MIN_C.value, nominal.ARM_AMBIENT_MAX_C.value),
+                         (2.0, 40.0))
         self.assertEqual(nominal.GEAR_RATIO_WRIST.value, 65.5)
         self.assertEqual(nominal.GEAR_RATIO_GRIPPER.value, 19.5)
         spans = {name: r.span_deg for name, r in nominal.AXIS_RANGES.items()}
@@ -70,7 +75,7 @@ class NominalValueTests(unittest.TestCase):
 
     def test_values_are_frozen(self):
         with self.assertRaises(AttributeError):
-            nominal.BASE_HEIGHT_MM.value = 1
+            nominal.SHOULDER_AXIS_HEIGHT_MM.value = 1
         with self.assertRaises(TypeError):
             nominal.AXIS_RANGES["base"] = None
 
@@ -93,7 +98,12 @@ class NominalValueTests(unittest.TestCase):
 
     def test_counts_per_degree_prior(self):
         self.assertAlmostEqual(nominal.counts_per_degree(360, "base"), 127.1)
-        self.assertAlmostEqual(nominal.counts_per_degree(360, "wrist_roll"), 65.5)
+        for wrist in ("wrist_pitch", "wrist_roll"):
+            self.assertIsNone(nominal.axis_range(wrist).gear_ratio)
+            with self.assertRaisesRegex(ValueError, "no joint gear ratio"):
+                nominal.counts_per_degree(360, wrist)
+            with self.assertRaisesRegex(ValueError, "no joint gear ratio"):
+                nominal.implied_counts_per_motor_rev(27.9, wrist)
         self.assertAlmostEqual(nominal.HYPOTHESIS_COUNTS_PER_MOTOR_REV, 401.8, places=1)
         self.assertAlmostEqual(
             nominal.counts_per_degree(nominal.HYPOTHESIS_COUNTS_PER_MOTOR_REV, "base"),

@@ -34,6 +34,7 @@ ER4U_MANUAL = "SCORBOT-ER 4u User Manual"
 ER4U_CATALOG = "#100343 Rev. B"
 SPECS = Source(ER4U_MANUAL, ER4U_CATALOG, "pp. 4-6 (specifications)")
 SIDE_VIEW = Source(ER4U_MANUAL, ER4U_CATALOG, "pp. 4-6 (side-view working envelope figure)")
+PARTS_LIST = Source(ER4U_MANUAL, ER4U_CATALOG, "p. 28 (parts list, S309/S310 motors)")
 
 STATUS = "nominal, from manual, not measured"
 
@@ -61,17 +62,24 @@ class AxisRange:
     span_deg: float
     signed_min_deg: float | None
     signed_max_deg: float | None
-    gear_ratio: float
+    gear_ratio: float | None
     source: Source
     note: str
     status: str = STATUS
 
 
 # Motor gearbox ratios (manual: motors 1-3 127.1:1, motors 4-5 65.5:1, gripper 19.5:1).
+# The manual contradicts itself for motors 1-3: 127.1:1 in the specification table
+# (p. 4) and 127.7:1 for S309/S310 in the parts list (p. 28). Neither is verified;
+# the vendor parameter files below fit 127.7 exactly. The 127.1 prior stays the
+# default only so existing hypotheses keep their meaning.
 GEAR_RATIO_ARM = NominalValue(127.1, "motor rev per gearbox output rev", SPECS)
+GEAR_RATIO_ARM_PARTS_LIST = NominalValue(127.7, "motor rev per gearbox output rev", PARTS_LIST)
 GEAR_RATIO_WRIST = NominalValue(65.5, "motor rev per gearbox output rev", SPECS)
 GEAR_RATIO_GRIPPER = NominalValue(19.5, "motor rev per gearbox output rev", SPECS)
 
+# The wrist joints have no joint gear ratio: 65.5:1 is the motor gearbox, and the
+# motor 4/5 differential ratio and signs are not in the manual. So gear_ratio is None.
 _SIGN_NOTE = "Signed limits given, but zero and sign convention are unverified; only the span is enforced."
 
 AXIS_RANGES = MappingProxyType({
@@ -83,23 +91,27 @@ AXIS_RANGES = MappingProxyType({
     "elbow": AxisRange(
         "elbow", 3, 260.0, -130.0, 130.0, GEAR_RATIO_ARM.value, SPECS, _SIGN_NOTE),
     "wrist_pitch": AxisRange(
-        "wrist_pitch", 4, 260.0, -130.0, 130.0, GEAR_RATIO_WRIST.value, SPECS,
+        "wrist_pitch", 4, 260.0, -130.0, 130.0, None, SPECS,
         _SIGN_NOTE + " Pitch is driven by motors 4 and 5 together (differential)."),
     "wrist_roll": AxisRange(
-        "wrist_roll", 5, 1140.0, -570.0, 570.0, GEAR_RATIO_WRIST.value, SPECS,
+        "wrist_roll", 5, 1140.0, -570.0, 570.0, None, SPECS,
         "Unlimited mechanically; +/-570 degrees electrically. Driven by motors 4 and 5."),
 })
 
-# Side-view figure dimensions (mm).
-BASE_HEIGHT_MM = NominalValue(364.0, "mm", SIDE_VIEW)
+# Side-view figure dimensions (mm). 364 mm is base bottom to the shoulder axis;
+# the base pedestal itself is 190 mm.
+SHOULDER_AXIS_HEIGHT_MM = NominalValue(364.0, "mm, base bottom to shoulder axis", SIDE_VIEW)
+BASE_PEDESTAL_HEIGHT_MM = NominalValue(190.0, "mm", SIDE_VIEW)
 UPPER_ARM_MM = NominalValue(220.0, "mm", SIDE_VIEW)
 FOREARM_MM = NominalValue(220.0, "mm", SIDE_VIEW)
 VERTICAL_ENVELOPE_MM = NominalValue(1040.0, "mm", SIDE_VIEW)
-MAX_OPERATING_RADIUS_MM = NominalValue(610.0, "mm", SPECS)
+MAX_OPERATING_RADIUS_MM = NominalValue(610.0, "mm, top-view envelope radius", SPECS)
 
 REPEATABILITY_MM = NominalValue(0.18, "mm (+/-, at TCP)", SPECS)
 MAX_PAYLOAD_KG = NominalValue(1.0, "kg (including gripper)", SPECS)
 MAX_PATH_SPEED_MM_S = NominalValue(600.0, "mm/s", SPECS)
+ARM_AMBIENT_MIN_C = NominalValue(2.0, "deg C", SPECS)
+ARM_AMBIENT_MAX_C = NominalValue(40.0, "deg C", SPECS)
 
 # Legacy openScorbot base scale 2837/20 counts/deg (motion_profile.COUNTS_PER_DEGREE).
 # 2837/20 * 360 / 127.1 = 401.8 counts per motor revolution. HYPOTHESIS ONLY:
@@ -117,7 +129,7 @@ HYPOTHESIS_COUNTS_PER_MOTOR_REV = LEGACY_BASE_COUNTS_PER_DEGREE * 360.0 / GEAR_R
 # check a physical calibration, never as one. They supersede the ~402 counts per
 # motor revolution hypothesis above: 20-slot disk x 4 = 80 counts per motor rev,
 # 127.7:1 gearbox, then a final stage (base 5:1, shoulder/elbow 4:1, wrist 23:12)
-# reproduces every axis (inference). Wrist values are per motor; the legacy pitch
+# reproduces every axis (inference: neither manual gives the x4 decode or 80). Wrist values are per motor; the legacy pitch
 # scale (33.8) disagrees and is unresolved. See docs/MANUAL_AND_PRIOR_ART_FINDINGS.md.
 
 VENDOR_STATUS = "vendor default, not measured"
@@ -149,6 +161,8 @@ VENDOR_COUNTS_PER_DEGREE = MappingProxyType({
     "wrist_pitch": _per_degree(2511, "ER4Ax4.ini"),
     "wrist_roll": _per_degree(2511, "ER4Ax5.ini"),
 })
+# The INI's "base height" is probably (inferred) the DH offset to the shoulder axis, comparable with
+# SHOULDER_AXIS_HEIGHT_MM (364), not with the 190 mm pedestal.
 VENDOR_BASE_HEIGHT_MM = VendorPrior(349.0, "mm", f"{VENDOR_INI}, ROB_4u.INI")
 VENDOR_UPPER_ARM_MM = VendorPrior(221.0, "mm", f"{VENDOR_INI}, ROB_4u.INI")
 VENDOR_FOREARM_MM = VendorPrior(221.0, "mm", f"{VENDOR_INI}, ROB_4u.INI")
@@ -176,19 +190,30 @@ def check_soft_limit_span(joint: str, soft_min_deg: float, soft_max_deg: float) 
             f"{limit.span_deg:g} degree travel ({limit.source.cite()})")
 
 
+def _arm_gear_ratio(joint: str) -> float:
+    ratio = axis_range(joint).gear_ratio
+    if ratio is None:
+        raise ValueError(
+            f"{joint}: the manual gives no joint gear ratio (motors 4 and 5 drive the "
+            "wrist through an unspecified differential)")
+    return ratio
+
+
 def counts_per_degree(counts_per_motor_rev: float, joint: str) -> float:
     """Expected joint counts/degree = cpr * gear_ratio / 360 (motor-side encoder).
 
     Encoder counts per revolution are not in the manuals, so ``cpr`` is an
     input. Ignores any belt or lead-screw stage after the gearbox, which the
-    manual says exists for some axes; treat the result as a prior only.
+    manual says exists for some axes, and uses the 127.1:1 spec-table ratio
+    although the parts list says 127.7:1; treat the result as a prior only.
+    Wrist joints raise ValueError: their joint ratio is not in the manual.
     """
     if (isinstance(counts_per_motor_rev, bool) or not isinstance(counts_per_motor_rev, (int, float))
             or not math.isfinite(counts_per_motor_rev) or counts_per_motor_rev <= 0):
         raise ValueError("counts_per_motor_rev must be a positive finite number")
-    return counts_per_motor_rev * axis_range(joint).gear_ratio / 360.0
+    return counts_per_motor_rev * _arm_gear_ratio(joint) / 360.0
 
 
 def implied_counts_per_motor_rev(counts_per_degree_value: float, joint: str) -> float:
     """Inverse of :func:`counts_per_degree`: cpr implied by a joint scale (magnitude)."""
-    return abs(counts_per_degree_value) * 360.0 / axis_range(joint).gear_ratio
+    return abs(counts_per_degree_value) * 360.0 / _arm_gear_ratio(joint)
