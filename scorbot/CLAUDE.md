@@ -16,6 +16,7 @@ Facade and pure helpers over the legacy USB code. Read the root [CLAUDE.md](../C
 | `kinematics.py` | Offline, unvalidated DH model. Wired into no motion command |
 | `lab/` | Guided session. `session.py` LabSession engine (no print/input; Operator protocol), `terminal.py` front end, `profile.py` lab.json, `review.py` shared with `scripts/review_lab_logs.py --session`. Adds no motion capability: 1 degree steps, base/shoulder/elbow, 10 degree net travel cap |
 | `provenance.py` | SHA-256 over `_SOURCE_FILES` (motion path). Add a file there if it can change what is sent |
+| `transport/codec.py` | Pure OUT-packet codec, stdlib only (never `usb`, `openScorbot`, `numpy`). Golden tests prove it byte-identical to the legacy code; not used by `Scorbot` yet (USB upgrade phase A). Unverified against the controller |
 
 ## scorbot/session/
 

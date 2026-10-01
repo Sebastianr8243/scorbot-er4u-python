@@ -46,9 +46,25 @@ Git history has the diffs; this file has the story. Hardware claims stay
   hardware, including whether the lab console reports key presses during a
   move.
 
-### Clean packet codec, USB upgrade phase A (in progress)
+### Clean packet codec, USB upgrade phase A (built)
 
 - Spec: [specs/2026-10-01-packet-codec-design.md](superpowers/specs/2026-10-01-packet-codec-design.md).
+- Built: `scorbot/transport/codec.py` (pure, stdlib only, builds every OUT
+  packet from named fields), `tests/test_transport_codec.py` (golden tests),
+  [PROTOCOL.md](PROTOCOL.md) section 11. Not wired into `Scorbot`, the
+  simulator or scripts.
+- Evidence: byte-identical to the legacy functions for every `libhex` table
+  entry at every sequence byte, every count, `suma`/`resta` at seams and at
+  random, and the legacy procedures (`msg_start` handshake, `openMov`/
+  `closeMov`, motors on/off, `scorbotoff`, `builder` jog steps) captured
+  through fake endpoints. `motion_source_sha256` unchanged.
+- Spec deviations: `build_out` takes a `header` keyword because legacy
+  `get_msg2(84)` sets byte 2 to 0x0C; signs are the IN sign bytes 128/127,
+  as `decode_state` reports them; `step_count` takes a signed step (suma /
+  resta) and rejects `|step| > 65535`; `next_sequence(0)` is allowed because
+  `msg_start` starts from 0; `scorbot.transport` added to the `pyproject.toml`
+  package list.
+- Unverified against the controller until phase B compares with captures.
 - Why: the legacy USB code (about 3,200 lines) blocks on every jog, has no
   software stop, and has known bugs (BACKLOG 5, 6, 9, 12, 15-17, 19). Editing
   it in place risks the only path proven on the arm (G1). Instead: a clean

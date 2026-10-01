@@ -39,6 +39,7 @@ flowchart TD
 |---|---|
 | `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, kinematics (offline), simulator, preflight |
 | `scorbot/session/` | MCAP session recorder, replay, analysis, CLI (`python -m scorbot.session`). Never imports USB |
+| `scorbot/transport/` | Pure packet codec (`codec.py`), proven byte-identical to the legacy code by golden tests (`tests/test_transport_codec.py`). Not wired into `Scorbot`. Phase A of the USB upgrade |
 | `openScorbot/` | Original GPL OpenScorbot protocol code plus `motion_profile.py`; frozen legacy backend, PyQt GUI kept as reference |
 | `examples/` | Supervised bench procedures (`--simulate` capable), synthetic session, offline preview and kinematics check |
 | `scripts/` | Offline analysis (fit, review, live view, USB trace), kit and Windows setup |

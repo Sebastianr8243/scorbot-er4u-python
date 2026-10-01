@@ -289,7 +289,7 @@ Result codes put on the result queue (`cola_result`, or `cola_orden` when none w
 - Wire value: unsigned 16-bit little-endian, plus a sign byte (IN) or sign word (OUT). IN sign byte: 128 -> `00 00`, 127 -> `FF FF`. K (`libdef.get_signo`, `transform`, `detrans`).
 - Signed reading (`state.decode_state`): sign 128 -> `count`; sign 127 -> `count - 65535`. The modulus is 65535, not 65536, so 0 and 65535 both denote zero (ones'-complement-like; I: which form the firmware uses is U). `signed_encoder_counts` jumps by 65536 at the seam; differences must use `scorbot/calibration.py:signed_count_delta`: `(value - origin) % 65535`, mapped to `delta` if below 32767 else `delta - 65535`; it raises for 32767 and 32768.
 - `libdef.suma`: `value += step`; if above 65535, `value -= 65535` and sign word becomes `0000`. `resta`: `value -= step`; if below 0, `value = 65535 + value` and sign word becomes `ffff`. The sign word changes only on wrap; otherwise it stays as read at the start of the move. K.
-- `detrans` uses `format(x, '04x')`; a value above 65535 would produce more than 4 digits and shift the message. `suma` prevents that except when a single step exceeds 65535.
+- `detrans` uses `format(x, '04x')` and then takes characters 2, 3, 0, 1, so it always emits 4 hex digits. A value above 65535 therefore keeps the packet layout intact but writes a silently wrong count: `detrans(65536)` is `'0010'` (count 4096), `detrans(131070)` is `'ff1f'`. `suma` keeps values in range except when a single step exceeds 65535.
 
 ## 9. Homing (`setHome.py:homing`)
 

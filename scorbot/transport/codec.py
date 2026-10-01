@@ -212,8 +212,10 @@ def step_count(count: int, sign: int, step: int) -> tuple[int, int]:
     Zero returns the input. Returns ``(count, sign)``.
 
     ``|step|`` must be at most 65535. Larger steps raise ``ValueError``; the
-    legacy code would wrap only once and emit a count above 65535 (a five-digit
-    ``detrans`` field that shifts the packet).
+    legacy code would wrap only once and keep a count above 65535. ``detrans``
+    still emits four hex digits (it slices characters 2, 3, 0, 1), so the
+    packet stays intact but carries a silently wrong count: 65536 is written
+    as ``00 10`` (count 4096), 131070 as ``FF 1F``.
     """
     _require_int("count", count, 0, MAX_COUNT)
     _require_sign(sign)
