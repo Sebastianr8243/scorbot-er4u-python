@@ -18,6 +18,7 @@ OBS = ["t", "n", ""]                    # toward, no other joint, no note
 ARM = ["a", "door", "y", "g", "ARM"]  # first arming names the landmark; LEDs every time
 REARM = ["a", "y", "g", "ARM"]
 FINISH = ["x", "n", "g"]
+MIXED = ["q", "BASE -1"] + OBS + ["q"] + OBS + ["e", "ELBOW -1"] + OBS  # base -2, elbow -1
 JOG_ORDERS = set(range(4, 14))
 
 
@@ -266,6 +267,102 @@ class LabSessionTests(unittest.TestCase):
         self.assertFalse(self.jog_commands())
 
 
+    def plan_moves_run(self):
+        return [r["move"] for r in self.of("jog_confirmed") if r["how"] in ("back", "goto")]
+
+    def test_back_to_start_after_mixed_jogs(self):
+        code = self.run_session(TO_LOOP + ARM + MIXED + ["b", "BACK", "y"] + FINISH)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(self.of("plan_shown")[0]["moves"], ["ELBOW +1", "BASE +1", "BASE +1"])
+        self.assertEqual(self.plan_moves_run(), ["ELBOW +1", "BASE +1", "BASE +1"])
+        complete = self.of("plan_complete")[0]
+        self.assertEqual((complete["name"], complete["answer"], complete["steps"]),
+                         ("start", "yes", 3))
+        self.assertEqual(set(complete["count_differences"].values()), {0})
+        self.assertEqual(len(self.of("jog_observation")), 3)  # plan steps ask nothing
+
+    def test_declined_back_moves_nothing_and_disarms(self):
+        self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["b", "NO"] + FINISH)
+        self.assertEqual(len(self.of("plan_declined")), 1)
+        self.assertEqual(len(self.jog_commands()), 1)
+        self.assertEqual(self.of("disarmed")[-1]["reason"], "confirmation declined")
+
+    def test_key_during_a_plan_stops_it_after_the_current_step(self):
+        original, seen = self.ctrl._apply, []
+
+        def apply(payload):
+            code = original(payload)
+            if payload[0] in JOG_ORDERS:
+                seen.append(payload[0])
+                if len(seen) == 4:          # 3 keyed jogs, then the first plan step
+                    self.op.pending_keys = 1
+            return code
+        self.ctrl._apply = apply
+        self.run_session(TO_LOOP + ARM + MIXED + ["b", "BACK"] + FINISH)
+        stopped = self.of("plan_stopped")[0]
+        self.assertEqual((stopped["steps_done"], stopped["reason"]),
+                         (1, "stopped by a key press"))
+        self.assertEqual(len(self.jog_commands()), 4)
+        self.assertEqual(self.of("disarmed")[-1]["reason"], "plan stopped")
+        self.assertTrue(any("not an emergency stop" in m for m in self.op.shown))
+
+    def test_mark_then_go_to_it(self):
+        self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["m", "q"] + OBS
+                         + ["g", "1", "GOTO P1", "y"] + FINISH)
+        mark = self.of("position_marked")[0]
+        self.assertEqual((mark["name"], mark["travel"]["base"]), ("P1", -1.0))
+        self.assertEqual(self.plan_moves_run(), ["BASE +1"])
+        self.assertEqual(set(self.of("plan_complete")[0]["count_differences"].values()), {0})
+
+    def test_go_to_with_no_marks_and_a_tenth_mark_are_refused(self):
+        self.run_session(TO_LOOP + ARM + ["g"] + ["m"] * 10 + FINISH)
+        self.assertFalse(self.of("plan_shown"))
+        self.assertEqual(len(self.of("position_marked")), 9)
+        self.assertEqual(len(self.of("mark_refused")), 1)
+
+    def test_invalid_mark_number_moves_nothing(self):
+        self.run_session(TO_LOOP + ARM + ["m", "m", "g", "7", "7", "7"] + FINISH)
+        self.assertFalse(self.of("plan_shown"))
+        self.assertTrue(any("No mark chosen" in m for m in self.op.shown))
+
+    def test_back_while_disarmed_does_nothing(self):
+        self.run_session(TO_LOOP + ["b"] + FINISH)
+        self.assertFalse(self.of("plan_shown"))
+        self.assertTrue(any("press a to arm" in m for m in self.op.shown))
+
+    def test_back_when_already_at_start_asks_nothing(self):
+        self.run_session(TO_LOOP + ARM + ["b"] + FINISH)
+        self.assertEqual(self.of("plan_shown")[0]["moves"], [])
+        self.assertFalse(any("Type BACK" in p for p in self.op.prompts))
+        self.assertFalse(self.jog_commands())
+
+    def test_back_after_half_steps_uses_a_half_step(self):
+        self.run_session(TO_LOOP + ARM + ["s", "q", "BASE -0.5"] + OBS + ["s", "b", "BACK", "y"]
+                         + FINISH)
+        self.assertEqual(self.plan_moves_run(), ["BASE +0.5"])
+
+    def test_end_of_input_at_the_arrival_question_still_completes(self):
+        code = self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["b", "BACK"])
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(self.of("plan_complete")[0]["answer"], "unsure")
+        self.assertEqual(len(self.of("summary")), 1)
+
+    def test_fault_in_a_plan_latches_and_still_finishes(self):
+        def inject_then_type():
+            self.ctrl.inject("controller_error")
+            return "BACK"
+        code = self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS
+                                + ["b", inject_then_type, "n", "g"])
+        self.assertEqual(code, EXIT_FAILED)
+        self.assertEqual(self.of("plan_stopped")[0]["steps_done"], 0)
+        self.assertEqual(len(self.of("jog_failed")), 1)
+        self.assertEqual(len(self.of("summary")), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
 class LabCommandTests(unittest.TestCase):
     def test_dropped_motors_rehearsal_needs_simulate(self):
         import contextlib
@@ -275,7 +372,3 @@ class LabCommandTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as exit_:
             main(["--rehearse-motors-dropped"])
         self.assertEqual(exit_.exception.code, 2)
-
-
-if __name__ == "__main__":
-    unittest.main()

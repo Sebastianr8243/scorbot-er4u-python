@@ -19,6 +19,7 @@ from ..provenance import motion_source_sha256
 from ..session import BestEffortRecorder, SessionWriter
 from ..state import JOINTS
 from .operator import ENTER, StatusLine
+from .moves import MAX_MARKS, MarkedPosition, plan_moves
 from .review import format_session_review, review_session_rows
 
 EXIT_OK, EXIT_FAILED, EXIT_DECLINED = 0, 1, 3
@@ -43,8 +44,8 @@ POWER_KEYS = {"g": "green", "o": "orange", "f": "flashing", "u": "unsure"}
 DIRECTION_KEYS = {"t": "toward", "a": "away", "n": "none", "u": "unsure"}
 YES_NO_UNSURE = {"y": "yes", "n": "no", "u": "unsure"}
 HELP = ("Keys: 1/q base +/-   2/w shoulder +/-   3/e elbow +/-   s step size   "
-        "a arm   d disarm   ? help   x finish.  One press = one step. "
-        "The physical stop is the stop.")
+        "a arm   d disarm   b back to start   m mark pose   g go to mark   ? help   "
+        "x finish.  One press = one step. The physical stop is the stop.")
 _MISMATCH_TEXT = {
     ("motors", "off", "lit"): "Software says motors are DISABLED but the MOTORS LED is LIT.",
     ("motors", "lit", "off"): "Software says motors are ENABLED but the MOTORS LED is OFF; "
@@ -85,6 +86,7 @@ class LabSession:
         self.travel = {"base": 0.0, "shoulder": 0.0, "elbow": 0.0}
         self.jogs = 0
         self.home_counts = self.last_counts = None
+        self.marks: list[MarkedPosition] = []
 
     # -- plumbing -------------------------------------------------------------
 
@@ -292,6 +294,12 @@ class LabSession:
                 self._arm()
             elif key == "d":
                 self._disarm("operator")
+            elif key == "m":
+                self._mark()
+            elif key == "g":
+                self._goto()
+            elif key == "b":
+                self._back()
             elif key in JOG_KEYS:
                 if self.armed:
                     self._jog(*JOG_KEYS[key])
@@ -416,6 +424,92 @@ class LabSession:
             self.confirmed.add(move_key)
             how = "typed"
         self._execute(joint, delta, how, n, before, plan)
+
+    # -- multi-step moves -----------------------------------------------------
+
+    def _mark(self):
+        if len(self.marks) >= MAX_MARKS:
+            reason = f"at most {MAX_MARKS} marks per session"
+            self._write("mark_refused", reason=reason)
+            self.op.show(f"Not marked: {reason}.", "warn")
+            return
+        state = self.robot.get_state()
+        mark = MarkedPosition(f"P{len(self.marks) + 1}", dict(self.travel),
+                              dict(state.encoder_counts))
+        self.marks.append(mark)
+        self._write("position_marked", name=mark.name, travel=mark.travel, counts=mark.counts)
+        self.op.show(f"Marked {mark.name}: {mark.travel} (degrees from home, legacy scale).")
+
+    def _goto(self):
+        if not self.armed:
+            self.op.show("DISARMED: press a to arm.")
+            return
+        if not self.marks:
+            self.op.show("No marked positions yet; press m to mark one.")
+            return
+        names = {str(i): mark.name for i, mark in enumerate(self.marks, start=1)}
+        choice = self.op.choose(f"Go to which mark? [1-{len(self.marks)}] ", names)
+        mark = next((m for m in self.marks if m.name == choice), None)
+        if mark is None:
+            self.op.show("No mark chosen.")
+            return
+        self._run_plan(mark.name, plan_moves(self.travel, mark.travel), "goto",
+                       mark.counts, f"GOTO {mark.name}")
+
+    def _back(self):
+        if not self.armed:
+            self.op.show("DISARMED: press a to arm.")
+            return
+        start = {joint: 0.0 for joint in self.travel}
+        self._run_plan("start", plan_moves(self.travel, start), "back",
+                       self.home_counts, "BACK")
+
+    def _stop_plan(self, name, reason, done, total):
+        self._write("plan_stopped", name=name, reason=reason, steps_done=done)
+        self.op.show(f"Move to {name} stopped after {done} of {total} steps ({reason}). "
+                     "This is a software pause, not an emergency stop; the physical "
+                     "stop is the stop.", "warn")
+        self._disarm("plan stopped")
+
+    def _run_plan(self, name, moves, how, target_counts, confirm_text):
+        """Show a multi-step move, confirm once, run it step by step, then check arrival."""
+        try:
+            state = self.robot.get_state()
+        except Exception as error:
+            self._jog_failed(self.jogs + 1, error)
+            return
+        if not self._drift_ok(state):
+            return
+        labels = [move.label for move in moves]
+        self._write("plan_shown", name=name, moves=labels)
+        if not moves:
+            self.op.show(f"Already at {name}.")
+            return
+        self.op.show(f"Move to {name}, one joint at a time: {', '.join(labels)}. Any key "
+                     "during the move stops it after the current step (a software pause, "
+                     "not an emergency stop; the physical stop is the stop).")
+        if not self.op.confirm(f"Type {confirm_text} to run it: ", confirm_text):
+            self._write("plan_declined", name=name)
+            self._disarm("confirmation declined")
+            return
+        for done, move in enumerate(moves):
+            if self.op.discard_pending_keys() > 0:
+                self._stop_plan(name, "stopped by a key press", done, len(moves))
+                return
+            prepared = self._prepare(move.joint, move.delta_deg)
+            if prepared is None or not self._execute(move.joint, move.delta_deg, how,
+                                                     *prepared, observe=False):
+                self._stop_plan(name, "step refused or failed", done, len(moves))
+                return
+        answer = self.op.choose(f"Is the arm at {name}? [y/n/u] ", YES_NO_UNSURE)
+        after = self.robot.get_state()
+        differences = {motor: signed_count_delta(after.encoder_counts[motor],
+                                                 target_counts[motor])
+                       for motor in JOINTS}
+        self._write("plan_complete", name=name, answer=answer, steps=len(moves),
+                    count_differences=differences)
+        self.op.show(f"At {name}: count differences from the target "
+                     f"{ {m: d for m, d in differences.items() if d} or 'none'}.")
 
     def _jog_failed(self, n, error):
         self.fault = str(error)
