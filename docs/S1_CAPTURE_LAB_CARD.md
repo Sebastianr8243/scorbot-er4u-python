@@ -66,6 +66,8 @@ Do E only with the arm at rest, and only if the lab procedure allows pressing th
 - [ ] Start a capture, then run the idle and bench commands from [USB_CAPTURE.md section 3B](USB_CAPTURE.md#3-capture-recipes) with **new** output names. Follow the script prompts as in G1.
 - [ ] Stop the capture after the script disconnects. Save as `python_A_basic.pcapng`.
 
+If Wireshark is not available, still run the jogs: every jog now logs its own packets (`motion_trace` in the `.controller.jsonl`, see [USB_CAPTURE.md](USB_CAPTURE.md)).
+
 ## 4. Take home
 
 - [ ] Every `.pcapng` file (up to eight).

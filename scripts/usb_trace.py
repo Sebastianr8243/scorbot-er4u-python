@@ -8,6 +8,8 @@ commands the arm; it only reads files that were captured earlier.
   export  CAPTURE --device N --out F  one JSONL row per bulk/interrupt transfer
   compare A.jsonl B.jsonl             side-by-side protocol statistics
   setpoints A.jsonl [--csv F]         does the arm follow the OUT per-joint region?
+  from-log CONTROLLER.jsonl --out F   export rows from the SDK's own motion_trace
+                                      events (packets copied during each jog)
 """
 
 import argparse
@@ -205,6 +207,24 @@ def export_rows(transfers):
             row.update(_decoded_state(payload))
         rows.append(row)
     return rows
+
+
+def rows_from_controller_log(path):
+    """Export-format rows from ``motion_trace`` events in a controller event log.
+
+    The SDK copies every packet both ways while a jog runs (scorbot.packet
+    PacketTrace). Jogs are concatenated in log order; t_s is relative to the
+    first packet. Endpoint is unknown here, so it is None.
+    """
+    transfers = []
+    for row in read_rows(path):
+        if row.get("event") != "motion_trace":
+            continue
+        for packet in row.get("packets", []):
+            transfers.append({
+                "t": packet["host_monotonic_ns"] / 1e9, "direction": packet["direction"],
+                "endpoint": None, "transfer": 3, "payload": bytes.fromhex(packet["hex"])})
+    return export_rows(transfers)
 
 
 def read_rows(path):
@@ -507,6 +527,10 @@ def main():
     setpoints.add_argument("--follow-window", type=float, default=2.0,
                            help="seconds after a lead ends to still count the arm arriving")
     setpoints.add_argument("--csv", type=Path, help="write a per-message timeline CSV")
+    from_log = commands.add_parser("from-log",
+                                   help="export rows from motion_trace events in a .controller.jsonl")
+    from_log.add_argument("log", type=Path)
+    from_log.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
     if args.command == "summary":
@@ -529,6 +553,16 @@ def main():
             for row in rows:
                 handle.write(json.dumps(row) + "\n")
         print(f"Wrote {len(rows)} transfers to {args.out}")
+        return 0
+    if args.command == "from-log":
+        rows = rows_from_controller_log(args.log)
+        if not rows:
+            print(f"No motion_trace packets in {args.log}.")
+            return 1
+        with args.out.open("x", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row) + "\n")
+        print(f"Wrote {len(rows)} packets to {args.out}; run setpoints on it next.")
         return 0
     if args.command == "setpoints":
         if args.csv and args.csv.exists():

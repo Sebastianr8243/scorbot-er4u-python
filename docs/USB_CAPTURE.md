@@ -71,6 +71,27 @@ Checks whether the arm follows the per-joint OUT region (bytes 12-35, [PROTOCOL.
 
 Run it on our own capture first. The legacy code leads with one joint during a jog and echoes the others, so `python_A_basic` should show exactly that; if it does not, fix the analysis before reading the Intelitek result. Two known blind spots: the legacy echo is a smoothed position, so during fast motion an echo can exceed the tolerance and read as a lead; and jog steps are at most 20 counts, so a target the arm tracks closely may never exceed it. Compare `max |gap|` between the two captures and rerun with another `--tolerance` if the self-check looks off. The output is heuristic evidence, not proof of setpoint semantics. `--csv` refuses to overwrite an existing file.
 
+### Without Wireshark: the SDK's own packet trace
+
+Since 2026-10-01 the SDK copies every packet in both directions while a jog
+runs (`scorbot/packet.py:PacketTrace`, wrapped around both endpoints in
+`Scorbot.connect`) and logs them as one `motion_trace` event per jog in the
+`.controller.jsonl` event log. Packets are copied, never changed, and the
+legacy sleeps are untouched. Recording is bounded (4000 packets per jog,
+`dropped_packets` counts the rest). Times are host times right after each
+write or read, not USB bus times, and the simulator records none.
+
+```
+python scripts/usb_trace.py from-log logs\<session>.controller.jsonl --out ours_trace.jsonl
+python scripts/usb_trace.py setpoints ours_trace.jsonl
+```
+
+`from-log` writes the same row format as `export` (endpoint is unknown, so
+`null`), so `setpoints` and `compare` work on it. Every real jog from now on
+therefore carries packet-by-packet evidence of whether the arm follows the
+stepped targets, even on a visit without a capture. It covers our code only;
+Intelitek's traffic still needs Wireshark.
+
 ## 5. What each comparison answers
 
 | Question | Where to look |

@@ -14,11 +14,70 @@ class PacketSnapshot:
     host_monotonic_ns: int
 
 
+MAX_TRACE_PACKETS = 4000
+
+
+class PacketTrace:
+    """Copies of USB packets in both directions, kept only while started.
+
+    Recording copies bytes the legacy code already built or read; it never
+    changes a packet or the legacy sleeps. Bounded: packets past ``limit`` are
+    counted as dropped, not stored.
+    """
+
+    def __init__(self, limit: int = MAX_TRACE_PACKETS):
+        self.limit = limit
+        self._lock = threading.Lock()
+        self._packets = None
+        self._dropped = 0
+
+    def start(self) -> None:
+        with self._lock:
+            self._packets = []
+            self._dropped = 0
+
+    def stop(self) -> tuple[list[dict], int]:
+        """Stop recording; return the packets and how many were dropped."""
+        with self._lock:
+            packets, dropped = self._packets or [], self._dropped
+            self._packets = None
+            return packets, dropped
+
+    def add(self, direction: str, data, host_monotonic_ns: int | None = None) -> None:
+        with self._lock:
+            if self._packets is None:
+                return
+            if len(self._packets) >= self.limit:
+                self._dropped += 1
+                return
+            self._packets.append({
+                "direction": direction,
+                "host_monotonic_ns": host_monotonic_ns or time.monotonic_ns(),
+                "hex": bytes(data).hex()})
+
+
+class TrackedOutputEndpoint:
+    """Endpoint proxy that copies each written packet into a ``PacketTrace``."""
+
+    def __init__(self, endpoint, trace: PacketTrace):
+        self._endpoint = endpoint
+        self._trace = trace
+
+    def __getattr__(self, name):
+        return getattr(self._endpoint, name)
+
+    def write(self, data, timeout=None):
+        result = self._endpoint.write(data, timeout)
+        self._trace.add("out", data)
+        return result
+
+
 class TrackedInputEndpoint:
     """Endpoint proxy shared by the legacy sync and command workers."""
 
-    def __init__(self, endpoint):
+    def __init__(self, endpoint, trace: PacketTrace | None = None):
         self._endpoint = endpoint
+        self._trace = trace
         self._condition = threading.Condition()
         self._latest = None
         self._index = 0
@@ -37,6 +96,9 @@ class TrackedInputEndpoint:
             self._latest = PacketSnapshot(
                 bytes(buffer[:size]), self._index, time.monotonic_ns())
             self._condition.notify_all()
+            latest = self._latest
+        if self._trace is not None:
+            self._trace.add("in", latest.data, latest.host_monotonic_ns)
         return result
 
     def snapshot(self, *, after_index=None, timeout=2.0, max_age=2.0):

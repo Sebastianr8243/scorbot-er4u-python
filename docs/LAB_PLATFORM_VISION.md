@@ -59,7 +59,8 @@ reported to work, so the controller probably followed a host-generated
 target stream for one joint and a small move. The 1 s blocking jog is a limit
 of our software API, not necessarily of the controller. Unverified: the G1
 logs hold only the state before and after each jog, so packet-by-packet
-tracking needs a capture or in-jog state logging (action item 14).
+tracking needs a capture or the in-jog packet trace added on 2026-10-01
+(action item 14).
 
 **What the manuals settle and what they do not.** The manuals give travel
 ranges, link lengths, gear ratios (127.1 or 127.7:1 for motors 1-3, a conflict)
@@ -163,7 +164,7 @@ Each sub-project gets its own spec, plan and build cycle.
 |---|---|---|---|
 | 12 | Review and merge `feat/lab-positions-and-recovery` (MOTORS LED check before every arming, reconnect warning, `--rehearse-motors-dropped`) so the lab PC runs it | Team, Maintainer | Safer next visit |
 | 13 | Approve the revised positions spec, then build back to start, marked positions and fault guidance | Team, then Maintainer | Recovery at the bench |
-| 14 | Record states during a jog (sample `get_state` in a side thread while `jog_joint` runs; SDK side only, no change to `openScorbot/`) so the next real jogs log the counts packet by packet | Maintainer | Streaming evidence without a capture |
+| 14 | Done 2026-10-01: every jog logs the packets it exchanged both ways (`motion_trace` event; `usb_trace.py from-log` then `setpoints`). SDK side only, no change to `openScorbot/` | Maintainer | Streaming evidence without a capture |
 | 15 | Rehearse the whole visit with `--simulate` and `--rehearse-motors-dropped` in a Windows console | Operator | Fewer surprises |
 | 16 | Decide the semester goal: a policy moving the arm, or teleop plus recorded datasets | Team | Order of S2-S4 |
 | 17 | Prepare the analysis for capture B: does a SCORBASE go-to send one destination or a stream of targets? | Maintainer | S2 design |

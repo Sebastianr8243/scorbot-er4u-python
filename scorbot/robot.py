@@ -13,7 +13,7 @@ import threading
 import traceback
 
 from .calibration import load_calibration
-from .packet import TrackedInputEndpoint
+from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
 from .state import HOME_SWITCH_BITS, RobotState, decode_state
 
 
@@ -58,6 +58,7 @@ class Scorbot:
         self._calibration = (load_calibration(calibration_path, robot_id=robot_id)
                              if calibration_path is not None else None)
         self._input = None
+        self._trace = None
         self._last_state_index = 0
         self._home_counts = None
         self._motion_lock = threading.RLock()
@@ -146,7 +147,10 @@ class Scorbot:
                 usb.util.endpoint_direction(endpoint.bEndpointAddress) == usb.util.ENDPOINT_OUT)
             if endpoint_in is None or endpoint_out is None:
                 raise ScorbotError("The USB controller endpoints were not found")
-            endpoint_in = TrackedInputEndpoint(endpoint_in)
+            # Copies packets during jogs (motion_trace); packets are unchanged.
+            self._trace = PacketTrace()
+            endpoint_in = TrackedInputEndpoint(endpoint_in, self._trace)
+            endpoint_out = TrackedOutputEndpoint(endpoint_out, self._trace)
             self._input = endpoint_in
             buffer = usb.util.create_buffer(endpoint_in.wMaxPacketSize)
             sequence, encoder_mean = legacy_sync.msg_start(endpoint_out, endpoint_in, buffer)
@@ -445,8 +449,17 @@ class Scorbot:
             self._record("motion_preview", plan=preview, state=asdict(before))
             self._record("motion_start", joint=joint, requested_delta_deg=delta_degrees,
                          speed=speed, state=asdict(before))
-            self._command([positive if delta_degrees > 0 else negative,
-                           speed, abs(delta_degrees)])
+            trace = self._trace
+            if trace is not None:
+                trace.start()
+            try:
+                self._command([positive if delta_degrees > 0 else negative,
+                               speed, abs(delta_degrees)])
+            finally:
+                if trace is not None:
+                    packets, dropped = trace.stop()
+                    self._record("motion_trace", joint=joint, packets=packets,
+                                 dropped_packets=dropped)
             after = self._motion_state(after_index=before.packet_index)
             self._record("motion_complete", joint=joint,
                          requested_delta_deg=delta_degrees, speed=speed,
@@ -532,6 +545,7 @@ class Scorbot:
         self._device = None
         self._buffer = None
         self._input = None
+        self._trace = None
         self._last_state_index = 0
         self._enabled = False
         self._homed = False
