@@ -7,7 +7,14 @@ Keep this open on your phone at the robot PC. Background and analysis commands:
 **Goal:** record the controller's USB traffic while Intelitek's software moves
 the arm, then while our code does the same moves. The captures answer one
 question: does the controller accept target positions? That decides whether
-smooth control and LeRobot policies are possible.
+smooth control and LeRobot policies are possible. They also answer open
+questions the manuals leave blank (see
+[MANUAL_VERIFICATION_IMPACT.md](MANUAL_VERIFICATION_IMPACT.md)): how homing
+works, whether home survives Control Off and e-stop, the communication
+time-out, and how speed levels are sent.
+
+**Before SCORBASE starts:** with the controller just powered on, photograph the
+POWER and MOTORS LEDs (the manuals disagree on the start-up state).
 
 **Before every motion:** someone stands at the physical stop, the path is
 clear, and only one program is connected to the controller. If anything moves
@@ -34,18 +41,21 @@ For each capture: pick the `USBPcapN` interface for the controller's hub (if uns
 
 | Save as | Steps in SCORBASE | Write down |
 |---|---|---|
-| `intelitek_A_basic.pcapng` | Connect, idle 10 s, home, jog base about 1 degree, close | Jog direction (e.g. "toward the door") |
+| `intelitek_A_basic.pcapng` | Connect, **idle 60 s with motors on**, home, write down the position SCORBASE shows, **home a second time**, jog base about 1 degree, close | Jog direction (e.g. "toward the door"); the shown position after each home (same both times?); whether the gripper moved during homing; the order the axes homed in |
 | `intelitek_B_goto.pcapng` | Home, teach position 1, jog two or three joints a few degrees, teach position 2, then **go to** 1, **go to** 2, close | Which joints moved, did they move together |
-| `intelitek_C_speeds.pcapng` | Same go-to between 1 and 2, once at a **slow** speed and once at a **fast** speed | The two speed values used |
-| `intelitek_D_control.pcapng` | Arm at rest after homing: **Control Off**, wait 5 s, **Control On**, wait 5 s, Control Off, close | MOTORS LED state after each click, and how long it took to change |
-| `intelitek_E_estop.pcapng` | Arm at rest: start capture, wait 5 s, **press the physical e-stop**, wait 5 s, release it per the lab procedure, note what SCORBASE shows, close | LEDs and SCORBASE messages after press and release; whether homing is needed again |
+| `intelitek_C_speeds.pcapng` | Same go-to between 1 and 2 at **three or more speeds**: the lowest, a middle and the highest. If SCORBASE offers a travel-time setting instead of speed, do one go-to with it | Every speed value exactly as set, and which scale (1-10 or 1-99 %) |
+| `intelitek_D_control.pcapng` | Arm at rest after homing: write down the shown position, **Control Off**, wait 5 s, **Control On**, wait 5 s, write down the shown position, try a small **go to** 1, Control Off, close | MOTORS LED after each click and how long it took; the shown position before and after; whether SCORBASE asked for homing before the go-to; with motors off, did any joint move or sag (hands clear below the arm) |
+| `intelitek_E_estop.pcapng` | Arm at rest: write down the shown position, start capture, wait 5 s, **press the physical e-stop**, wait 5 s, release it per the lab procedure, note what SCORBASE shows, Control On, write down the shown position, close | LEDs (photograph the POWER LED: colour and whether it blinks) and SCORBASE messages after press and release; the shown position before and after; whether homing is needed again; did any joint sag with motors off |
 | `intelitek_F_stop.pcapng` | Home, then start a small go-to move and press **F9 Stop** while it moves; close | Did the arm stop at once? Did control stay on? (SCORBASE says F9 is sent to the controller, so this may reveal a real stop command) |
+| `intelitek_G_close.pcapng` | Arm at rest after homing, **Control On**: start a stopwatch and close SCORBASE completely; keep capturing 30 s | When the MOTORS LED went off and what the POWER LED did, with times from closing. Shows whether SCORBASE sends a motors-off message or the controller times out (and roughly after how long) |
 
 Keep go-to moves small (a few degrees per joint) and away from the table and cables.
 Home runs inside capture A, so it also shows how SCORBASE homes (BACKLOG 1, 2, 38).
 D looks for the real motors-off message and F for the stop command, which a software stop needs (BACKLOG 6).
 For every capture, note the teach-pendant switch position (Auto, Teach or unplugged) and which speed scale you set (1-10 in Teach Positions, 1-99 % in Go to Position).
-E shows what the controller sends and expects around an e-stop.
+E shows what the controller sends and expects around an e-stop. D and E also
+show whether home survives Control Off and an e-stop; G shows the communication
+time-out. A and C give SCORBASE's idle packet rate and how speed levels are sent.
 Do E only with the arm at rest, and only if the lab procedure allows pressing the stop.
 
 - [ ] Close SCORBASE completely.
@@ -58,10 +68,10 @@ Do E only with the arm at rest, and only if the lab procedure allows pressing th
 
 ## 4. Take home
 
-- [ ] Every `.pcapng` file (up to seven).
+- [ ] Every `.pcapng` file (up to eight).
 - [ ] The new `logs\` files from step 3.
 - [ ] Driver photos, with a note of which driver was active for each capture.
-- [ ] Your notes: directions, joints that moved, speeds, anything odd (sounds, LEDs, errors).
+- [ ] Your notes: directions, joints that moved, speeds, shown positions, LED photos and times, any sag with motors off, anything odd (sounds, errors).
 
 Stop early if needed. Even capture A alone is useful.
 
