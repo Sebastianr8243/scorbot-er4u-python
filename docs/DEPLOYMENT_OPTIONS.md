@@ -8,7 +8,7 @@ Status: plan, 2026-10-01. Nothing here is built unless it says so, and nothing i
 
 | Area | Choice |
 |---|---|
-| Lab PC | Native Windows. Control, camera, recording and UI run here. Python 3.12 managed by `uv` (confirmed available). |
+| Lab PC | Native Windows. Control, camera, recording and UI run here. Python 3.12 managed by `uv` (confirmed available). Built 2026-10-01: `uv.lock`, `.python-version`, [START_HERE_WINDOWS.md](../START_HERE_WINDOWS.md) option A. |
 | GPU server | Training. Policy inference too, unless the lab PC gets a GPU. The team has a server PC with GPUs. |
 | Learning stack | LeRobot, in a separate package that needs Python 3.12 or newer. This repo keeps supporting Python 3.10 and up. |
 | Front end | A local web app served by Python on the lab PC (NiceGUI), flat tile layout. |

@@ -12,6 +12,32 @@ If this checkout already has a working `.venv` and the setup script passed earli
 
 ## 2. Install the Python dependencies
 
+### Option A (recommended): `uv`, exact locked versions
+
+`uv` installs Python 3.12 and the exact package versions in `uv.lock`, without
+admin rights, so the lab PC matches the development PC and the GPU server.
+Install `uv` once (per user, no admin):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Reopen the terminal, then in the project folder:
+
+```powershell
+uv sync --locked --extra windows --extra test
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+```
+
+`uv sync` creates or updates `.venv` with Python 3.12 (`.python-version`) and
+the locked packages; `--locked` refuses to run if `uv.lock` and
+`pyproject.toml` disagree, instead of silently picking new versions. It does
+not access USB, change drivers or move the arm. All later commands in the docs
+(`.\.venv\Scripts\python.exe ...`) work unchanged. The WinUSB driver step
+still needs admin once ([docs/WINDOWS_BENCH_RUN.md](docs/WINDOWS_BENCH_RUN.md)).
+
+### Option B: the setup script (pip)
+
 In the VS Code PowerShell terminal, run:
 
 ```powershell
