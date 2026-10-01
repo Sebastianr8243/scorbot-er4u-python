@@ -1,7 +1,8 @@
 # ScorBot lab platform: goals and roadmap
 
-Status: draft brief, 2026-09-29. This file records the goals before any design
-spec. Nothing below is built yet unless it says so. Hardware claims are
+Status: draft brief, 2026-09-29, updated 2026-09-30 with the manual
+verification and prior-work research (see "What we learned"). This file
+records the goals before any design spec. Nothing below is built yet unless it says so. Hardware claims are
 unverified unless a bench log exists.
 
 ## Goal
@@ -42,15 +43,62 @@ Design choices should not block the later users, but the team comes first.
 | Camera | Session schema only, no capture code |
 | LeRobot integration | None |
 
+## What we learned (2026-09-30)
+
+Sources: the manual verification ([SCORBOT_Manual_Verification.md](SCORBOT_Manual_Verification.md),
+impact in [MANUAL_VERIFICATION_IMPACT.md](MANUAL_VERIFICATION_IMPACT.md)),
+the deployment plan ([DEPLOYMENT_OPTIONS.md](DEPLOYMENT_OPTIONS.md)) and a
+research pass on prior ER-4U work. None of it is a bench measurement.
+
+**Our own code already streams setpoints.** Every legacy jog is a series of
+small target steps, one per USB packet: `motion_profile.increments_for_counts`
+plans the steps and `libdef` writes them, with a write/read exchange of
+0.008 s + 0.012 s (`openScorbot/conf.py`), a ceiling of about 50 exchanges/s
+before USB and Python overhead (inferred, not measured). The G1 base jog was
+reported to work, so the controller probably followed a host-generated
+target stream for one joint and a small move. The 1 s blocking jog is a limit
+of our software API, not necessarily of the controller. Unverified: the G1
+logs hold only the state before and after each jog, so packet-by-packet
+tracking needs a capture or in-jog state logging (action item 14).
+
+**What the manuals settle and what they do not.** The manuals give travel
+ranges, link lengths, gear ratios (127.1 or 127.7:1 for motors 1-3, a conflict)
+and the 20-slot encoder disk. They do not give counts per degree, joint
+zeros or directions, the communication time-out, home retention after
+Control Off or an e-stop, or any brake or holding spec. Those come only from
+measurement. The manuals also add four hazards (SAFETY_CASE HZ-21 to HZ-24):
+the controller can cut motor power without the SDK seeing it, Home can shift
+with electrical noise, holding with motors off is unknown, and a stalled
+sync thread may trigger the time-out.
+
+**Prior work.**
+- USNA (Esposito et al. 2011; the Kutzer ScorBotToolbox) drives the arm
+  through the Intelitek DLL. It offers destination moves (`RMoveJoint`,
+  `RMoveLinear`) with a speed (1-100 %) or a move time, and callers wait for
+  `RIsMotionDone` before the next command. No streaming or retargeting is
+  documented, and whether the DLL or the controller plans the trajectory is
+  unknown.
+- OpenScorbot (this repo's legacy code) is the only known direct-USB Python
+  stack, and it generates every intermediate target on the PC.
+
+**ACT at low rates.** No source shows dependable LeRobot ACT with only 1-5
+target updates per second. Evidence exists for a slow policy (about 1 Hz
+replanning) on top of a fast trajectory follower (about 50 Hz). Inferred plan
+for this arm: the policy on the GPU server predicts action chunks at 1-5 Hz;
+the lab PC turns each chunk into small target steps at the packet rate.
+
 ## The main technical risk
 
 LeRobot and VLA policies send a new joint target many times a second (often
 10 to 50 Hz). Our stack can only do one blocking jog, which takes about 1 s or
-more. Whether the controller accepts streamed setpoints (the per-joint target
-bytes in every USB packet) is **unknown**. The answer decides how far the
-learning tracks can go:
+more. Whether the controller tracks streamed setpoints *in general* (several
+joints, changing targets, longer moves) is **unverified**. Since 2026-09-30 it
+looks likely: the legacy jog already streams per-packet targets for one joint
+and G1 reported that jog working (see "What we learned"). The answer decides
+how far the learning tracks can go:
 
-- **Setpoints work:** smooth control at a few Hz or more, and a normal LeRobot integration.
+- **Setpoints work (now the likely case):** a fast target follower on the lab PC
+  under a slow policy, and a normal LeRobot integration.
 - **Setpoints do not work:** the learning tracks run at a low step rate
   (about 1 Hz). This is still useful for teaching and slow tasks, but it is a
   research question whether policies work well at that rate.
@@ -64,7 +112,7 @@ Each sub-project gets its own spec, plan and build cycle.
 | # | Sub-project | Delivers | Needs the arm |
 |---|---|---|---|
 | S1 | Controller measurement | G1 log review, USB capture of Intelitek software, real cycle time, whether setpoints work | Yes (capture only) |
-| S2 | Motion layer | Calibration (G2), multi-joint waypoint moves from safe steps, cancel and watchdog; streaming if S1 allows | Yes |
+| S2 | Motion layer | Calibration (G2), then a streaming target follower (the legacy per-packet mechanism, without stopping every degree), multi-joint moves, cancel and watchdog | Yes |
 | S3 | Camera | Time-synced video in sessions | Camera only |
 | S4 | LeRobot bridge | Session-to-LeRobot dataset exporter, `lerobot_robot_scorbot` plugin, teleop input | Exporter: no. Plugin: yes |
 | S5 | Lab workflow | One `scorbot-lab` command (record, review, export, replay, eval), checklists | Partly |
@@ -80,6 +128,8 @@ Each sub-project gets its own spec, plan and build cycle.
 ## Suggested order
 
 1. **S1**: review the G1 logs and capture USB traces. This decides the control ceiling.
+   The capture card now also covers the manual's open questions (home
+   retention, time-out, speed levels, holding with motors off).
 2. **S4 exporter** (no arm needed): convert existing sessions to LeRobot format, in parallel with S1.
 3. **S2**: calibration, then multi-joint waypoint motion.
 4. **S3**: camera.
@@ -106,6 +156,17 @@ Each sub-project gets its own spec, plan and build cycle.
 | 9 | Prototype a LeRobot plugin on `SimulatedScorbot` in a separate Python 3.12 venv | Desk | Maintainer | Record and replay |
 | 10 | Pick a camera and mount; pick a teleop device | Desk | Team | S3, S4 |
 | 11 | Find out whether a course or deadline shapes the teaching goal | Desk | Team | S5 priority |
+
+### Before the next lab visit (added 2026-09-30, all desk work)
+
+| # | Item | Owner | Unblocks |
+|---|---|---|---|
+| 12 | Review and merge `feat/lab-positions-and-recovery` (MOTORS LED check before every arming, reconnect warning, `--rehearse-motors-dropped`) so the lab PC runs it | Team, Maintainer | Safer next visit |
+| 13 | Approve the revised positions spec, then build back to start, marked positions and fault guidance | Team, then Maintainer | Recovery at the bench |
+| 14 | Record states during a jog (sample `get_state` in a side thread while `jog_joint` runs; SDK side only, no change to `openScorbot/`) so the next real jogs log the counts packet by packet | Maintainer | Streaming evidence without a capture |
+| 15 | Rehearse the whole visit with `--simulate` and `--rehearse-motors-dropped` in a Windows console | Operator | Fewer surprises |
+| 16 | Decide the semester goal: a policy moving the arm, or teleop plus recorded datasets | Team | Order of S2-S4 |
+| 17 | Prepare the analysis for capture B: does a SCORBASE go-to send one destination or a stream of targets? | Maintainer | S2 design |
 
 ## Success criteria
 
@@ -139,13 +200,20 @@ teaching and research use, and the team as first user.
 
 Assumed, to confirm:
 - LeRobot is the learning framework. Needs Python 3.12 or newer and PyTorch.
-- The lab PC records and runs the arm. Training happens on another machine or in the cloud.
+- The lab PC records and runs the arm. It has no GPU (2026-10-01), so training
+  and policy inference run on the team GPU server ([DEPLOYMENT_OPTIONS.md](DEPLOYMENT_OPTIONS.md)).
 - The first learned task avoids the gripper.
 - One arm and one camera to start.
 
 Open:
-- Do the controller's target bytes accept streamed setpoints? (S1)
-- What control rate can the arm hold? (S1)
+- Does the controller track streamed setpoints for several joints and longer
+  moves? Likely, from the legacy jog; unverified. (S1)
+- What control rate can the arm hold? Code ceiling about 50 exchanges/s,
+  unmeasured. (S1)
+- Does a SCORBASE go-to send one destination or a stream? (S1, capture B)
+- Counts per degree, joint zeros and directions (S2, measurement only)
+- Does home survive Control Off or an e-stop, and does the arm hold with
+  motors off? (S1 captures D and E)
 - Which camera and mount? (S3)
 - Which teleop device: keyboard, gamepad, or a leader arm? (S4)
 - Is there a course or deadline the teaching use must meet?
