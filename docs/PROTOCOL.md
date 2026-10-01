@@ -326,3 +326,17 @@ Trace commands: `python scripts/usb_trace.py summary CAP`, `export CAP --device 
 | 11 | Does the original brake and back off after the homing switch? How many counts does it travel and at what rate? | Home in the Intelitek capture; find OUT rows after the `home_switch_bits` change and the count trajectory (`compare`, section on braking in USB_CAPTURE.md). |
 | 12 | Real cycle period and OUT-to-IN latency compared with the 13 ms nominal | `compare`: `OUT->OUT interval` median and p95, `OUT->IN latency`. |
 | 13 | What happens to the controller when host traffic stops (motor-power cutout per the manual)? | Bench observation of the MOTORS LED; a capture shows where the last OUT message occurs. |
+
+## 11. Executable form: `scorbot/transport/codec.py`
+
+`scorbot/transport/codec.py` is sections 2, 4, 6 and 8 written as code. It is a pure, standard-library module (no `usb`, `openScorbot` or `numpy`) that builds every OUT packet above from named fields:
+
+- every `libhex.py` table under its legacy index: `MOV_COMM`, `GET_MSG1`, `GET_MSG2`, `MOTORS_ON`, `MOTORS_OFF`, `SCORBOT_OFF`, `CLAMP`;
+- the pkt2 message formats: `pkt2_mode_command`, `PKT2_SETUP_1`/`PKT2_SETUP_2`, `pkt2_table_command`, `PKT2_END_HEADER`/`PKT2_END_COMMAND`;
+- `next_sequence` (`countByte1`), `encode_count`/`encode_region` (`detrans` plus sign word, `get_encoder`), `step_count` (`suma`/`resta`), and `build_out` (the 64-byte packet).
+
+Signs are the IN sign byte as `state.decode_state` reports it: 128 is written as `00 00`, 127 as `FF FF`. Where the legacy code is wrong (a step above 65535, a sequence byte outside 1..255) the codec raises `ValueError` instead of reproducing the bug.
+
+Proof: `tests/test_transport_codec.py` compares the codec with the legacy functions byte for byte. It covers every table entry for every sequence byte, every count value, `suma`/`resta` at the seams and at random (Hypothesis), `builder` + `set_msg` jog steps, and the wrist and XYZ `getStruct` regions. It also captures, with fake endpoints and no device, the full `msg_start` handshake and the `openMov`/`closeMov`, `motors_on`, `motors_off` and `scorbotoff` sequences.
+
+This proves equality with the legacy code only. Like the rest of this document, the codec is unverified against the controller until phase B compares it with captures. Nothing in the SDK uses it yet: `Scorbot` still sends through `openScorbot/`.
