@@ -6,7 +6,8 @@ import unittest
 
 from tests.lerobot_fixtures import ARM, COARSE_CLOCK, FINISH, TO_LOOP, paced, record
 
-EPISODE = ARM + ["t", paced("r"), "reach left", paced("q"), paced("q"), paced("r"), "t"]
+EPISODE = ARM + ["t", paced("r"), "reach left", paced("q"), paced("q"), paced("r"), "y",
+                 "t"]
 
 
 class LoadTests(unittest.TestCase):
@@ -373,7 +374,7 @@ class CliTests(unittest.TestCase):
     @unittest.skipIf(COARSE_CLOCK, "coarse monotonic clock: exports are rightly refused")
     def test_dry_run_lists_kept_and_refused_and_writes_nothing(self):
         path = record(self.root, TO_LOOP + ARM + ["t", paced("r"), "reach", paced("q"),
-                                                  paced("r"), paced("r"), paced("z")]
+                                                  paced("r"), "y", paced("r"), paced("z")]
                       + FINISH)
         code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/test",
                                   "--no-video", "--dry-run")

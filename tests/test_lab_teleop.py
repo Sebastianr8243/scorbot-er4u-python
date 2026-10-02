@@ -114,7 +114,8 @@ class TeleopTests(_Harness):
         self.assertIn("idle", self.of("disarmed")[-1]["reason"])
 
     def test_episode_start_and_end(self):
-        self.run_session(TO_LOOP + ARM + ["t", "r", "reach left", "q", "r", "t"] + FINISH)
+        self.run_session(TO_LOOP + ARM + ["t", "r", "reach left", "q", "r", "y", "t"]
+                         + FINISH)
         [start] = self.of("episode_start")
         [end] = self.of("episode_end")
         self.assertEqual((start["episode"], start["task"], start["camera"]),
@@ -124,14 +125,22 @@ class TeleopTests(_Harness):
                          [("start", None), ("end", "completed")])
         self.assertEqual(self.op.releases.count("r"), 2)
 
+    def test_operator_marking_the_task_not_done_aborts_the_episode(self):
+        self.run_session(TO_LOOP + ARM + ["t", "r", "reach", "q", "r", "n", "t"] + FINISH)
+        [end] = self.of("episode_end")
+        self.assertEqual((end["status"], end["reason"]),
+                         ("aborted", "operator: task not done"))
+        self.assertEqual([(p["event"], p["status"]) for p in self.mcap_episodes()],
+                         [("start", None), ("end", "aborted")])
+
     def test_task_asked_once_and_new_task_key(self):
-        self.run_session(TO_LOOP + ARM + ["t", "r", "first", "r", "r", "r", "n", "second",
-                                          "r", "r", "t"] + FINISH)
+        self.run_session(TO_LOOP + ARM + ["t", "r", "first", "r", "y", "r", "r", "y", "n",
+                                          "second", "r", "r", "y", "t"] + FINISH)
         self.assertEqual([r["task"] for r in self.of("episode_start")],
                          ["first", "first", "second"])
 
     def test_new_task_refused_during_episode(self):
-        self.run_session(TO_LOOP + ARM + ["t", "r", "first", "n", "r", "t"] + FINISH)
+        self.run_session(TO_LOOP + ARM + ["t", "r", "first", "n", "r", "y", "t"] + FINISH)
         self.assertEqual([r["task"] for r in self.of("episode_start")], ["first"])
         self.assertTrue(any("close the episode" in m for m in self.op.shown))
 
@@ -167,14 +176,14 @@ class TeleopReviewFixTests(_Harness):
                 seen.append(self.op.pending_keys)   # repeats must be gone by now
                 return text
             return answer
-        self.run_session(TO_LOOP + ARM + ["t", press("r"), task("first"), "r",
+        self.run_session(TO_LOOP + ARM + ["t", press("r"), task("first"), "r", "y",
                                           press("n"), task("second"), "t"] + FINISH)
         self.assertEqual(seen, [0, 0])
         self.assertEqual(self.op.releases[:3], ["t", "r", "r"])
 
     def test_episode_numbers_continue_after_leaving_teleop(self):
-        self.run_session(TO_LOOP + ARM + ["t", "r", "task", "r", "t", "t", "r", "r", "t"]
-                         + FINISH)
+        self.run_session(TO_LOOP + ARM + ["t", "r", "task", "r", "y", "t", "t", "r", "r", "y",
+                                          "t"] + FINISH)
         self.assertEqual([r["episode"] for r in self.of("episode_start")], [1, 2])
         self.assertEqual([r["task"] for r in self.of("episode_start")], ["task", "task"])
 
@@ -191,7 +200,8 @@ class TeleopReviewFixTests(_Harness):
         from scorbot.lab.teleop import Teleop
         rows = []
         session = SimpleNamespace(
-            op=ScriptedOperator(["task"]), rec=Mock(), episode_count=0, episode_task=None,
+            op=ScriptedOperator(["task", "y"]), rec=Mock(), episode_count=0,
+            episode_task=None,
             _write=lambda kind, **fields: rows.append((kind, fields)))
         camera = SimpleNamespace(live=lambda: True, problem=lambda: "camera stalled",
                                  frames_written=lambda: 42, drain=lambda: [])
@@ -254,7 +264,7 @@ class TeleopCameraTests(_Harness):
         from scorbot.camera.source import FakeSource
         from scorbot.camera.stream import scan_stream
         self.run_session(TO_LOOP + ARM + ["t", self.wait_live("r"), "task", "q",
-                                          self.pause(0.3, "r"), "t"] + FINISH,
+                                          self.pause(0.3, "r"), "y", "t"] + FINISH,
                          camera_factory=lambda: FakeSource(pace=True))
         [end] = self.of("episode_end")
         self.assertEqual(end["status"], "completed")
@@ -288,7 +298,7 @@ class TeleopCameraTests(_Harness):
     def test_camera_open_failure_continues_without_video(self):
         def broken():
             raise RuntimeError("no camera at index 0")
-        code = self.run_session(TO_LOOP + ARM + ["t", "r", "task", "r", "t"] + FINISH,
+        code = self.run_session(TO_LOOP + ARM + ["t", "r", "task", "r", "y", "t"] + FINISH,
                                 camera_factory=broken)
         self.assertEqual(code, EXIT_OK)
         self.assertEqual(len(self.of("camera_unavailable")), 1)

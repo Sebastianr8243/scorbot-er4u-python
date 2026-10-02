@@ -120,10 +120,19 @@ class Teleop:
         self._intent("n", "new_task", True)
 
     def _toggle_episode(self):
-        if self.episode is not None:
-            self._end_episode("completed")
-            return
         s = self.s
+        if self.episode is not None:
+            # Only demonstrations the operator calls done may become training data;
+            # a failed attempt is kept in the log but never exported (as LeRobot's
+            # own recorder lets an operator discard and re-record an episode).
+            done = s.op.choose("Task done? [y = yes, keep it / n = no, discard] ",
+                               {"y": "yes", "n": "no"})
+            self._intent("r", "episode_stop", True, outcome=done)
+            if done == "yes":
+                self._end_episode("completed")
+            else:
+                self._end_episode("aborted", "operator: task not done")
+            return
         if self.camera is not None and not self.camera.live():
             reason = self.camera.problem()
             self._intent("r", "episode_start", False, reason)

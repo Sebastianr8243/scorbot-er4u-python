@@ -40,6 +40,10 @@ can be `REFUSE`d. Then write it from the LeRobot environment:
 .\.venv-lerobot\Scripts\python.exe -m scorbot.lerobot_export logs\lab-er4u-1-2026-10-09-01.jsonl --out datasets\reach-01 --repo-id local/scorbot-reach
 ```
 
+LeRobot may print `torchcodec` DLL errors on Windows: it tries its fast video
+decoder (which needs FFmpeg's shared libraries) and falls back to PyAV. The
+export still succeeds.
+
 Options: `--fps 10` (default), `--max-frame-gap 0.2` (seconds), `--no-video`
 (robot-only dataset, required when the session had no camera). Several lab
 logs can go into one dataset. The output folder must not exist; the dataset
@@ -62,11 +66,13 @@ renamed into place, so a failed export never leaves a partial dataset.
 | real and simulated sessions together | a rehearsal must never pass as lab data |
 | episodes with and without camera together, or no camera without `--no-video` | LeRobot needs the same features in every episode |
 | sessions with integrity errors, a failed session, no home, or a clock coarser than 1 ms | the record cannot be trusted or timed |
-| episodes not ended with `r` (aborted, crashed) | not demonstrations |
+| a session or camera file that never closed cleanly (crash, stuck stop), or an MCAP folder whose data source or robot id differs from the lab log | not proof of a complete, matching recording |
+| MCAP jog commands that do not match the SDK's jog records one for one | a lost record would label a real move as "stay still" |
+| episodes not ended with `r` and `y` (discarded, aborted, crashed), or with no jog at all | not demonstrations |
 | episodes missing from the MCAP record, or with a fault or counts drift inside | evidence incomplete or the arm state unverified |
 | a jog whose lab target and SDK target differ by more than 20 counts | the action must be what was actually sent |
 | two jogs inside one frame interval | one frame cannot carry two actions |
-| motion during a frame with no recorded controller packets (video episodes) | the image would show motion the state cannot describe |
+| motion during a frame with no recorded controller packets | the state would sit still while the arm moves |
 | no camera frame for more than `--max-frame-gap` | frozen video |
 | fewer than 2 frames | nothing to learn from |
 

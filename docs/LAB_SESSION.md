@@ -88,7 +88,7 @@ press `t`.
 | Key | In teleop |
 |---|---|
 | `1/q 2/w 3/e` | One step of the current size (1 or 0.5 degree), at once, no questions |
-| `r` | Start an episode / stop it as completed. The first `r` asks for the task (e.g. `reach left block`) |
+| `r` | Start an episode / stop it. Stopping asks `Task done?`: `y` keeps it as completed, `n` discards it (logged as aborted, never exported). The first `r` asks for the task (e.g. `reach left block`) |
 | `n` | New task text (only with no episode open) |
 | `t` | Leave teleop; the arm stays armed |
 | `?` | Help |
@@ -96,8 +96,10 @@ press `t`.
 | anything else | Disarms |
 
 - **One press, one step.** Holding a key gives one step, not a stream: after
-  each step the tool waits until the key is physically released and throws
-  away the repeats Windows typed meanwhile. Release and press again for the
+  each step the tool waits until the key is physically released *and* no key
+  repeat has arrived for longer than this PC's keyboard repeat settings allow
+  (about 0.6 s on default settings), and throws away the repeats Windows typed
+  meanwhile. Release and press again for the
   next step.
 - The same limits as the rest of the session: base, shoulder and elbow only,
   the 10 degree cap from home, the drift check, the fault latch. A refusal

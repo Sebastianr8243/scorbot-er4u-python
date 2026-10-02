@@ -7,6 +7,22 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 ## 2026-10-02
 
+### Final review of steps 3-5 (camera, teleop, exporter)
+
+- Codex review and adversarial review of everything not yet on GitHub,
+  plus web research (OpenCV low-latency capture practice, LeRobot recording
+  conventions, Microsoft's GetAsyncKeyState documentation).
+- Fixed: camera file close could exceed stop()'s deadline; frames queued at
+  stop were not counted; the exporter held whole episodes of decoded images
+  in memory; unclean (crashed) recordings could be exported; robot-only
+  episodes skipped the state-during-motion rule; episodes with no motion or
+  a failed attempt counted as demonstrations (stopping now asks "Task
+  done?"); and GetAsyncKeyState's silent failure (returns 0) could reopen
+  the held-key double step, so the release gate also waits out this PC's
+  key-repeat timing. The webcam now requests a one-frame driver buffer.
+- Left open, by decision: webcam image latency is unmeasured until the lab
+  stopwatch check; real video datasets carry `image_latency: unmeasured`.
+
 ### LeRobot exporter (M1 step 5)
 
 - Spec `docs/superpowers/specs/2026-10-02-lerobot-exporter-design.md`, plan

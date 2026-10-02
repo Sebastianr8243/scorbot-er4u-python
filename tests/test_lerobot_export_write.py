@@ -30,7 +30,8 @@ class RoundTripTests(unittest.TestCase):
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
         from scorbot.lerobot_export.__main__ import main
         path = record(self.root, TO_LOOP + ARM + ["t", "LIVE:r", "reach left", paced("q"),
-                                                  paced("q", 0.3), paced("r", 0.3), "t"]
+                                                  paced("q", 0.3), paced("r", 0.3), "y",
+                                                  "t"]
                       + FINISH, camera=True)
         out = self.root / "dataset"
         self.assertEqual(main([str(path), "--out", str(out), "--repo-id", "local/scorbot"]), 0)
