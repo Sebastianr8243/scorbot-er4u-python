@@ -47,8 +47,8 @@ POWER_KEYS = {"g": "green", "o": "orange", "f": "flashing", "u": "unsure"}
 DIRECTION_KEYS = {"t": "toward", "a": "away", "n": "none", "u": "unsure"}
 YES_NO_UNSURE = {"y": "yes", "n": "no", "u": "unsure"}
 HELP = ("Keys: 1/q base +/-   2/w shoulder +/-   3/e elbow +/-   s step size   "
-        "a arm   d disarm   b back to start   m mark pose   g go to mark   ? help   "
-        "x finish.  One press = one step. The physical stop is the stop.")
+        "a arm   d disarm   t teleop   b back to start   m mark pose   g go to mark   "
+        "? help   x finish.  One press = one step. The physical stop is the stop.")
 _MISMATCH_TEXT = {
     ("motors", "off", "lit"): "Software says motors are DISABLED but the MOTORS LED is LIT.",
     ("motors", "lit", "off"): "Software says motors are ENABLED but the MOTORS LED is OFF; "
@@ -69,7 +69,7 @@ class SessionFailed(RuntimeError):
 class LabSession:
     def __init__(self, *, profile, operator, robot_factory, data_source, log_path,
                  session_root, preflight=None, clock=time.monotonic, sleep=time.sleep,
-                 software_commit="unknown"):
+                 software_commit="unknown", camera_factory=None):
         self.profile, self.op = profile, operator
         self.robot_factory, self.data_source = robot_factory, data_source
         self.log_path, self.session_root = log_path, session_root
@@ -85,6 +85,7 @@ class LabSession:
         self.jogs = 0
         self.home_counts = self.last_counts = None
         self.marks: list[MarkedPosition] = []
+        self.camera_factory, self.camera = camera_factory, None
 
     # -- plumbing -------------------------------------------------------------
 
@@ -308,6 +309,13 @@ class LabSession:
                 self._goto()
             elif key == "b":
                 self._back()
+            elif key == "t":
+                if not self.armed:
+                    self.op.show("Teleop needs the arm armed: press a.")
+                else:
+                    from .teleop import Teleop
+                    if Teleop(self, self.camera).run() == "finish":
+                        break
             elif key in JOG_KEYS:
                 if self.armed:
                     self._jog(*JOG_KEYS[key])
