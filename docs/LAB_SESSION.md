@@ -80,6 +80,14 @@ moved more than 20 counts with nothing commanded (probably noise, a push or sagg
 step is refused and the session disarms: finish and home again in a new
 session. Marks are never kept between sessions.
 
+## Replay an exported episode (key `p`)
+
+Armed, press `p`, type the dataset folder and episode number. The tool checks
+the dataset first (unchanged since export, this robot, real data for a real
+session, inside the cap, no wrist motion), then asks `START <n>` if the arm
+must move to the episode's start pose, then `PLAY <n>`. Any key stops after
+the current step. Details in [LEROBOT_EXPORT.md](LEROBOT_EXPORT.md).
+
 ## Teleop and episodes
 
 For recording demonstrations. Arm first (`a`, LED check, type `ARM`), then

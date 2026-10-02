@@ -39,6 +39,7 @@ flowchart TD
 |---|---|
 | `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, kinematics and trajectory planning (both offline, wired into nothing), simulator, preflight |
 | `scorbot/session/` | MCAP session recorder, replay, analysis, CLI (`python -m scorbot.session`). Never imports USB |
+| `plugins/lerobot_robot_scorbot/` | LeRobot robot plugin, simulator only (refuses the real arm); each action is one bounded jog via `scorbot/follow.py`. Installed into `.venv-lerobot` with `-e`. Real-arm replay is `python -m scorbot.lab` key `p` (`scorbot/lab/replay.py`) |
 | `scorbot/lerobot_export/` | Lab sessions to a local LeRobot dataset: load, refusal checks, resampling (pure), `write.py` (only module importing `lerobot`, run in `.venv-lerobot`). `python -m scorbot.lerobot_export ... --dry-run`. See `docs/LEROBOT_EXPORT.md` |
 | `scorbot/camera/` | Webcam capture: per-camera stream files next to a session, recorder threads with a bounded stop, `python -m scorbot.camera check`. OpenCV optional (`[camera]`). Never imports USB |
 | `scorbot/transport/` | Pure packet codec (`codec.py`), proven byte-identical to the legacy code by golden tests (`tests/test_transport_codec.py`). Not wired into `Scorbot`. Phase A of the USB upgrade |

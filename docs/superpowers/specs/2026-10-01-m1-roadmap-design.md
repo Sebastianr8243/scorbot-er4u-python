@@ -1,6 +1,6 @@
 # M1 roadmap: foundations, simulator, camera, teleop, dataset export
 
-Date: 2026-10-01. Progress: steps 0a-0d and 1-5 done (step 5: see
+Date: 2026-10-01. Progress: steps 0a-0d and 1-5 done, plus replay (lab key p) and preview; M1 complete in software, pending one lab run (step 5: see
 2026-10-02-lerobot-exporter-design.md); steps 3-5 on branches awaiting final review (step 3: see
 2026-10-01-camera-capture-design.md; step 4, keyboard only: see
 2026-10-02-keyboard-teleop-design.md). Status: draft, revised after a Codex review (4 blocking issues fixed: teleop

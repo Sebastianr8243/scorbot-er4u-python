@@ -50,6 +50,51 @@ logs can go into one dataset. The output folder must not exist; the dataset
 is built in a temporary folder, checked by reopening it, and only then
 renamed into place, so a failed export never leaves a partial dataset.
 
+## Preview before exporting
+
+Add `--preview report.html` (works with `--dry-run`, needs no LeRobot): one
+page you open in any browser, with per kept episode its task, length, up to 8
+camera thumbnails and a plot per arm joint of position (solid) against target
+(dashed), and every refused episode with its reason. It loads nothing from the
+internet and stays small (images capped).
+
+## Replay on the arm (lab tool, key `p`)
+
+Every exported dataset also holds `scorbot_episodes.jsonl`, the actions in a
+form the lab PC reads without LeRobot. To replay an episode on the arm, run the
+guided session as usual, arm with `a`, then press `p`, type the dataset folder
+and the dataset episode number (0 is the first). Before anything moves the
+lab tool checks the dataset:
+
+- the sidecar is unchanged since export (its sha256 matches the provenance);
+- it is real data for a real session (simulated data only in `--simulate`
+  rehearsals) and was recorded on this robot id;
+- units, motor order and the step scale match this software;
+- every target stays inside the 10 degree cap and the wrist never moves;
+- consecutive targets change by at most one step on one joint.
+
+Then, if the arm is not at the episode's start pose, it shows the moves and
+asks you to type `START <n>`; then it shows the replay and asks for
+`PLAY <n>`. Both run one step at a time; **any key stops after the current
+step** (a software pause, not an emergency stop: the physical stop is the
+stop), and on the real arm a terminal that cannot read keys is refused. At
+the end it compares the arm with the recorded final position.
+
+## Replay with LeRobot's tools (simulator only)
+
+`plugins/lerobot_robot_scorbot` lets LeRobot drive the **simulated** arm, for
+checking a dataset end to end and as the bridge for training later (M2).
+Install it once into the LeRobot environment and replay:
+
+```powershell
+.\.venv\Scripts\uv.exe pip install --python .venv-lerobot\Scripts\python.exe -e plugins\lerobot_robot_scorbot --no-deps
+.\.venv-lerobot\Scripts\lerobot-replay.exe --robot.type=scorbot --robot.simulate=true --dataset.repo_id=local/scorbot-reach --dataset.root=datasets\reach-01 --dataset.episode=0 --play_sounds=false
+```
+
+The plugin refuses the real arm (`simulate=false`) and points to the lab
+tool: LeRobot's replay connects outside its cleanup and has no stop key.
+Real-arm use through LeRobot gets its own reviewed design in M2.
+
 ## What each frame holds
 
 | Feature | Meaning |
@@ -102,6 +147,7 @@ every refusal.
 ```powershell
 .\.venv\Scripts\python.exe -m unittest tests.test_lerobot_export
 .\.venv-lerobot\Scripts\python.exe -m unittest discover -s tests -p "test_lerobot_export_write.py"
+.\.venv-lerobot\Scripts\python.exe -m unittest discover -s tests -p "test_lerobot_plugin.py"
 ```
 
 The second runs a real round trip through LeRobot. It is run with `discover`

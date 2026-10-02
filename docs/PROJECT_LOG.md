@@ -7,6 +7,26 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 ## 2026-10-02
 
+### Replay and preview (M1 finish)
+
+- Spec `docs/superpowers/specs/2026-10-02-replay-and-preview-design.md`,
+  plan `docs/superpowers/plans/2026-10-02-replay-and-preview.md`. A Codex
+  adversarial review of the first design found LeRobot's replay cannot
+  verify which dataset drives the arm, connects outside its cleanup and has
+  no stop key; real-arm replay therefore became lab-tool key `p`, reusing
+  every gate, with a dataset preflight, a start-pose plan and an arrival
+  check. The LeRobot plugin is simulator-only until M2.
+- Datasets now carry `scorbot_episodes.jsonl` (verified value for value
+  against LeRobot's stored actions; sha256 in the provenance).
+- Verified: LeRobot's own `replay()` drives the simulated arm through the
+  plugin to the recorded final position. That run also showed a tick can
+  land inside a simulated jog; the simulator changes counts at the end of a
+  jog, so the state-during-motion rule now applies to real data only.
+- `--preview report.html`: self-contained episode report, checked in a
+  browser.
+- M1 is complete in software; it needs one real run in the lab (record,
+  export, replay with key `p`) to be done.
+
 ### Final review of steps 3-5 (camera, teleop, exporter)
 
 - Codex review and adversarial review of everything not yet on GitHub,
