@@ -19,10 +19,10 @@ HELP = ("TELEOP: 1/q base +/-  2/w shoulder +/-  3/e elbow +/-  r start/stop epi
 
 class Teleop:
     def __init__(self, session, camera=None):
+        # Episode numbers and the task live on the session, so leaving and
+        # re-entering teleop never reuses an episode number.
         self.s, self.camera = session, camera
-        self.task: str | None = None
         self.episode: dict | None = None
-        self.count = 0
 
     # -- loop -----------------------------------------------------------------
 
@@ -77,9 +77,11 @@ class Teleop:
             self._intent(key, "help", True)
             s.op.show(HELP)
         elif key == "r":
-            self._toggle_episode()
+            # Release first: held-key repeats must never reach the task prompt.
             s.op.wait_for_release(key)
+            self._toggle_episode()
         elif key == "n":
+            s.op.wait_for_release(key)
             self._new_task()
         elif key in JOG_KEYS:
             self._jog(key, *JOG_KEYS[key])
@@ -114,7 +116,7 @@ class Teleop:
         if not task:
             self._intent("n", "new_task", False, "empty task")
             return
-        self.task = task
+        s.episode_task = task
         self._intent("n", "new_task", True)
 
     def _toggle_episode(self):
@@ -127,32 +129,35 @@ class Teleop:
             self._intent("r", "episode_start", False, reason)
             s.op.show(f"Episode not started: {reason}.", "warn")
             return
-        if self.task is None:
+        if s.episode_task is None:
             task = s.op.text("Task for these episodes (e.g. reach left block): ")
             if not task:
                 self._intent("r", "episode_start", False, "empty task")
                 s.op.show("Episode not started: a task is needed.", "warn")
                 return
-            self.task = task
-        self.count += 1
-        self.episode = {"episode": self.count, "task": self.task, "jogs": 0,
+            s.episode_task = task
+        s.episode_count += 1
+        number, task = s.episode_count, s.episode_task
+        self.episode = {"episode": number, "task": task, "jogs": 0,
                         "frames_at_start": (self.camera.frames_written()
                                             if self.camera is not None else 0)}
         self._intent("r", "episode_start", True)
-        s._write("episode_start", episode=self.count, task=self.task,
-                 camera=self.camera is not None)
-        s.rec.log_episode(self.count, "start", task=self.task)
-        s.op.show(f"EPISODE {self.count} RECORDING: {self.task}. Press r to stop.")
+        s._write("episode_start", episode=number, task=task, camera=self.camera is not None)
+        s.rec.log_episode(number, "start", task=task)
+        s.op.show(f"EPISODE {number} RECORDING: {task}. Press r to stop.")
 
     def _end_episode(self, status, reason=None):
         episode = self.episode
         if episode is None:
             return
-        if status == "completed" and self.camera is not None and not self.camera.live():
-            status, reason = "aborted", self.camera.problem()
-        self.episode = None
         frames = (self.camera.frames_written() - episode["frames_at_start"]
                   if self.camera is not None else None)
+        if status == "completed" and self.camera is not None:
+            if not self.camera.live():
+                status, reason = "aborted", self.camera.problem()
+            elif frames == 0:
+                status, reason = "aborted", "no camera frames recorded in this episode"
+        self.episode = None
         s = self.s
         s._write("episode_end", episode=episode["episode"], status=status, reason=reason,
                  jogs=episode["jogs"], frames=frames)

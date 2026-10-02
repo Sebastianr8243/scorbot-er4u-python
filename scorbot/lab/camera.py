@@ -27,14 +27,19 @@ class LabCamera:
     def start(self, writer) -> None:
         source = self.source_factory()
         source.open()
+        stream = None
         try:
             self.settings = source.settings()
             stream = CameraStream.create(writer, CAMERA_ID, self.settings)
+            recorder = CameraRecorder(source, stream, clock=self.clock)
+            recorder.start()
         except Exception:
+            # Nothing else holds these yet, so nothing else would close them.
             source.close()
+            if stream is not None:
+                stream.close()
             raise
-        self.recorder = CameraRecorder(source, stream, clock=self.clock)
-        self.recorder.start()
+        self.recorder = recorder
 
     def live(self) -> bool:
         recorder = self.recorder

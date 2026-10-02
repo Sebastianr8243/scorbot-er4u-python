@@ -86,6 +86,7 @@ class LabSession:
         self.home_counts = self.last_counts = None
         self.marks: list[MarkedPosition] = []
         self.camera_factory, self.camera = camera_factory, None
+        self.episode_count, self.episode_task = 0, None
 
     # -- plumbing -------------------------------------------------------------
 
@@ -158,15 +159,18 @@ class LabSession:
             self._write("preflight", checks=[asdict(c) for c in checks])
             if not all(check.passed for check in checks):
                 raise SessionFailed("preflight failed; no controller connection attempted")
-        with self.robot_factory(log_path=self.events_path, robot_id=self.profile.robot_id) as robot:
-            self.robot = robot
-            self._state("connected")
-            self._led("after_connect", motors="off", power="green", required=True)
-            self._idle()
-            try:
+        # The camera opens before any controller connection: a webcam driver that
+        # hangs while opening must never stall the session with motors enabled.
+        self._start_camera()
+        try:
+            with self.robot_factory(log_path=self.events_path,
+                                    robot_id=self.profile.robot_id) as robot:
+                self.robot = robot
+                self._state("connected")
+                self._led("after_connect", motors="off", power="green", required=True)
+                self._idle()
                 try:
                     self._home()
-                    self._start_camera()
                     self._jog_loop()
                 except KeyboardInterrupt:
                     # Stop asking questions, but still request motors off.
@@ -179,8 +183,8 @@ class LabSession:
                         self._finish()
                     raise
                 self._finish()
-            finally:
-                self._stop_camera()
+        finally:
+            self._stop_camera()
         return EXIT_FAILED if self.fault else EXIT_OK
 
     # -- camera ---------------------------------------------------------------

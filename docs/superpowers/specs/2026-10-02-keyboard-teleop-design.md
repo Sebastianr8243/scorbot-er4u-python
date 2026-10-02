@@ -104,8 +104,9 @@ confirmation and the three questions after each step.
   flag, sessions record robot data only, as today. `--camera fake` uses
   `FakeSource(pace=True)` and is allowed only with `--simulate`; a real
   index is allowed with both (useful for checking a webcam in rehearsal).
-- With a camera, the session is created with `camera_ids=["main"]`; after
-  connect the camera opens (`OpenCVSource`), a `CameraStream` is created
+- With a camera, the session is created with `camera_ids=["main"]`; before
+  the controller connects (so a hanging webcam driver can never stall the
+  session with motors enabled; Codex code review) the camera opens (`OpenCVSource`), a `CameraStream` is created
   with its settings, and one `CameraRecorder` runs for the whole session.
   Episodes are time windows in that stream. The camera stops at finish
   (bounded `stop()`), before the session file closes.

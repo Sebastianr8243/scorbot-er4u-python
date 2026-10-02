@@ -152,6 +152,77 @@ class TeleopTests(_Harness):
         self.assertEqual(len(self.of("summary")), 1)
 
 
+class TeleopReviewFixTests(_Harness):
+    def test_task_keys_are_released_before_the_prompt(self):
+        seen = []
+
+        def press(key):
+            def answer():
+                self.op.pending_keys = 5   # auto-repeats queued while held
+                return key
+            return answer
+
+        def task(text):
+            def answer():
+                seen.append(self.op.pending_keys)   # repeats must be gone by now
+                return text
+            return answer
+        self.run_session(TO_LOOP + ARM + ["t", press("r"), task("first"), "r",
+                                          press("n"), task("second"), "t"] + FINISH)
+        self.assertEqual(seen, [0, 0])
+        self.assertEqual(self.op.releases[:3], ["t", "r", "r"])
+
+    def test_episode_numbers_continue_after_leaving_teleop(self):
+        self.run_session(TO_LOOP + ARM + ["t", "r", "task", "r", "t", "t", "r", "r", "t"]
+                         + FINISH)
+        self.assertEqual([r["episode"] for r in self.of("episode_start")], [1, 2])
+        self.assertEqual([r["task"] for r in self.of("episode_start")], ["task", "task"])
+
+    def test_camera_opens_before_the_controller_connects(self):
+        def broken():
+            raise RuntimeError("no camera")
+        self.run_session(TO_LOOP + FINISH, camera_factory=broken)
+        types = [r["type"] for r in self.rows]
+        self.assertLess(types.index("camera_unavailable"), types.index("connected"))
+
+    def test_episode_without_new_frames_is_not_completed(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from scorbot.lab.teleop import Teleop
+        rows = []
+        session = SimpleNamespace(
+            op=ScriptedOperator(["task"]), rec=Mock(), episode_count=0, episode_task=None,
+            _write=lambda kind, **fields: rows.append((kind, fields)))
+        camera = SimpleNamespace(live=lambda: True, problem=lambda: "camera stalled",
+                                 frames_written=lambda: 42, drain=lambda: [])
+        teleop = Teleop(session, camera)
+        teleop._toggle_episode()
+        teleop._toggle_episode()
+        [end] = [fields for kind, fields in rows if kind == "episode_end"]
+        self.assertEqual((end["status"], end["frames"]), ("aborted", 0))
+        self.assertIn("no camera frames", end["reason"])
+
+
+class LabCameraTests(unittest.TestCase):
+    def test_recorder_start_failure_closes_source_and_stream(self):
+        from unittest.mock import patch
+        from scorbot.camera.source import FakeSource
+        from scorbot.lab.camera import LabCamera
+        from scorbot.session import SessionWriter
+        with tempfile.TemporaryDirectory() as folder:
+            writer = SessionWriter.create(folder, data_source="simulated", robot_id="arm-1",
+                                          camera_ids=["main"])
+            source = FakeSource()
+            camera = LabCamera(lambda: source)
+            with patch("scorbot.lab.camera.CameraRecorder.start",
+                       side_effect=RuntimeError("thread start failed")):
+                with self.assertRaises(RuntimeError):
+                    camera.start(writer)
+            self.assertTrue(source._closed.is_set())
+            self.assertTrue((writer.path / "camera-main.json").is_file())
+            writer.close()
+
+
 def needs_cv2(test):
     try:
         import cv2  # noqa: F401

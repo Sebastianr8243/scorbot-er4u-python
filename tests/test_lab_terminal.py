@@ -114,6 +114,13 @@ class TerminalOperatorTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(op.key_or_tick("k: ", 0.2), "q")
 
+    def test_every_teleop_key_has_a_release_gate(self):
+        from scorbot.lab.session import JOG_KEYS
+        from scorbot.lab.terminal import _virtual_key
+        for key in [*JOG_KEYS, "t", "r", "n"]:
+            with self.subTest(key=key):
+                self.assertIsNotNone(_virtual_key(key))
+
     def test_virtual_key_codes(self):
         from scorbot.lab.terminal import _virtual_key
         self.assertEqual((_virtual_key("q"), _virtual_key("3"), _virtual_key("?")),
