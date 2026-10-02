@@ -27,6 +27,32 @@ def _virtual_key(char):
     return None
 
 
+def quiet_from_settings(delay_setting: int, speed_setting: int) -> float:
+    """Seconds without a typed repeat that prove a held key would have repeated.
+
+    Windows keyboard delay 0-3 means about 250-1000 ms before the first repeat;
+    speed 0-31 means about 2.5-30 repeats per second. The quiet window is the
+    longer of the two plus a 0.1 s margin.
+    """
+    delay_s = (min(max(delay_setting, 0), 3) + 1) * 0.25
+    rate_hz = 2.5 + min(max(speed_setting, 0), 31) * (27.5 / 31)
+    return max(delay_s, 1.0 / rate_hz) + 0.1
+
+
+def _windows_quiet_s() -> float:
+    """The quiet window from this PC's keyboard settings; 1.1 s (the slowest) if unknown."""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        delay, speed = ctypes.c_uint(), ctypes.c_uint()
+        if (user32.SystemParametersInfoW(0x0016, 0, ctypes.byref(delay), 0)       # KEYBOARDDELAY
+                and user32.SystemParametersInfoW(0x000A, 0, ctypes.byref(speed), 0)):  # SPEED
+            return quiet_from_settings(delay.value, speed.value)
+    except (ImportError, AttributeError, OSError):
+        pass
+    return quiet_from_settings(3, 0)
+
+
 def _windows_key_down():
     """Physical key state through user32.GetAsyncKeyState; None off Windows.
 
@@ -55,12 +81,14 @@ def _msvcrt(name):
 
 class TerminalOperator:
     def __init__(self, getwch=None, isatty=None, kbhit=None, key_down=None,
-                 sleep=time.sleep, clock=time.monotonic):
+                 sleep=time.sleep, clock=time.monotonic, quiet_s=None):
         self._getwch = getwch if getwch is not None else _msvcrt("getwch")
         self._kbhit = kbhit if kbhit is not None else _msvcrt("kbhit")
         self._isatty = isatty or (lambda: sys.stdin.isatty())
         self._key_down = key_down if key_down is not None else _windows_key_down()
         self._sleep, self._clock = sleep, clock
+        self._quiet_s = quiet_s if quiet_s is not None else _windows_quiet_s()
+        self._last_key_s = None   # when the last single key was read
 
     def _single_keys(self):
         return self._getwch is not None and self._isatty()
@@ -86,6 +114,7 @@ class TerminalOperator:
             print()
             return ENTER
         print(char)
+        self._last_key_s = self._clock()
         return char.lower()
 
     def can_stop_on_key(self):
@@ -97,15 +126,32 @@ class TerminalOperator:
                     and self._key_down is not None)
 
     def wait_for_release(self, key):
-        """Block until `key` is physically up, then drop every queued character."""
-        if self._key_down is not None:
-            started, warned = self._clock(), False
-            while self._key_down(key):
-                if not warned and self._clock() - started > RELEASE_WARN_S:
-                    print("  Release the key to continue.", flush=True)
-                    warned = True
-                self._sleep(RELEASE_POLL_S)
-        return self.discard_pending_keys()
+        """Block until `key` is up AND no repeat has arrived for the quiet window.
+
+        Two independent checks: the physical key state, and Windows' own repeat
+        timing. GetAsyncKeyState returns 0 ("up") when it fails, for example on
+        another desktop or under UI privilege isolation (Microsoft docs), so the
+        key state alone could let a held key through; a held key always types a
+        repeat within the quiet window, so silence that long proves release.
+        Returns the number of queued characters dropped. Only ever delays motion.
+        """
+        if not self._single_keys() or self._kbhit is None:
+            return self.discard_pending_keys()
+        started = self._clock()
+        last = self._last_key_s if self._last_key_s is not None else started
+        warned, dropped = False, 0
+        while True:
+            while self._kbhit():
+                self._getwch()
+                dropped += 1
+                last = self._clock()
+            down = self._key_down is not None and self._key_down(key)
+            if not down and self._clock() - last >= self._quiet_s:
+                return dropped
+            if not warned and self._clock() - started > RELEASE_WARN_S:
+                print("  Release the key to continue.", flush=True)
+                warned = True
+            self._sleep(RELEASE_POLL_S)
 
     def key_or_tick(self, prompt, tick_s):
         """A key if one arrives within tick_s, else None (lets the caller poll)."""

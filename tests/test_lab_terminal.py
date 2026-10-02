@@ -74,8 +74,35 @@ class TerminalOperatorTests(unittest.TestCase):
             return state["polls"] <= polls_down
         op = TerminalOperator(getwch=lambda: pending.pop(0), isatty=lambda: True,
                               kbhit=lambda: bool(pending), key_down=key_down,
-                              sleep=lambda s: None)
+                              sleep=lambda s: None, quiet_s=0.0)
         return op, pending, state
+
+    def test_silent_key_state_failure_still_waits_out_the_repeats(self):
+        # GetAsyncKeyState returns 0 ("up") when it fails (Microsoft docs), so the
+        # gate must also wait until Windows' own repeat timing has gone quiet.
+        clock = {"t": 0.0}
+        schedule = [0.5, 0.53, 0.56, 0.59]          # repeats of a key still held
+        pending = []
+
+        def sleep(seconds):
+            clock["t"] += seconds
+            while schedule and schedule[0] <= clock["t"]:
+                pending.append("q")
+                schedule.pop(0)
+        op = TerminalOperator(getwch=lambda: pending.pop(0), isatty=lambda: True,
+                              kbhit=lambda: bool(pending), key_down=lambda c: False,
+                              sleep=sleep, clock=lambda: clock["t"], quiet_s=1.1)
+        op._last_key_s = 0.0                       # the press that started the step
+        with contextlib.redirect_stdout(io.StringIO()):
+            discarded = op.wait_for_release("q")
+        self.assertEqual(discarded, 4)
+        self.assertGreaterEqual(clock["t"], 0.59 + 1.1)
+
+    def test_quiet_window_from_windows_settings(self):
+        from scorbot.lab.terminal import quiet_from_settings
+        # Delay setting 3 = 1 s, slowest repeat speed 0 = about 2.5 per second.
+        self.assertAlmostEqual(quiet_from_settings(3, 0), 1.1, places=2)
+        self.assertAlmostEqual(quiet_from_settings(0, 31), 0.35, places=2)
 
     def test_wait_for_release_waits_for_key_up_and_drops_repeats(self):
         op, pending, state = self.held(polls_down=40, repeats_at=range(20, 40))
