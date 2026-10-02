@@ -47,8 +47,9 @@ POWER_KEYS = {"g": "green", "o": "orange", "f": "flashing", "u": "unsure"}
 DIRECTION_KEYS = {"t": "toward", "a": "away", "n": "none", "u": "unsure"}
 YES_NO_UNSURE = {"y": "yes", "n": "no", "u": "unsure"}
 HELP = ("Keys: 1/q base +/-   2/w shoulder +/-   3/e elbow +/-   s step size   "
-        "a arm   d disarm   t teleop   b back to start   m mark pose   g go to mark   "
-        "? help   x finish.  One press = one step. The physical stop is the stop.")
+        "a arm   d disarm   t teleop   p replay an episode   b back to start   "
+        "m mark pose   g go to mark   ? help   x finish.  One press = one step. "
+        "The physical stop is the stop.")
 _MISMATCH_TEXT = {
     ("motors", "off", "lit"): "Software says motors are DISABLED but the MOTORS LED is LIT.",
     ("motors", "lit", "off"): "Software says motors are ENABLED but the MOTORS LED is OFF; "
@@ -345,6 +346,8 @@ class LabSession:
                 self._goto()
             elif key == "b":
                 self._back()
+            elif key == "p":
+                self._replay()
             elif key == "t":
                 if not self.armed:
                     self.op.show("Teleop needs the arm armed: press a.")
@@ -531,6 +534,55 @@ class LabSession:
         start = {joint: 0.0 for joint in self.travel}
         self._run_plan("start", plan_moves(self.travel, start), "back",
                        self.home_counts, "BACK")
+
+    def _replay_refused(self, reason):
+        self._write("replay_refused", reason=reason)
+        self.op.show(f"Replay refused: {reason}. Nothing moved.", "alarm")
+        self._disarm("replay refused")
+
+    def _replay(self):
+        """Replay an exported dataset episode with the plan gates (stop on any key)."""
+        if not self.armed:
+            self.op.show("DISARMED: press a to arm.")
+            return
+        from ..lerobot_export.sidecar import step_counts
+        from .replay import (ReplayRefused, counts_for, final_counts, load_episode,
+                             play_moves, preflight, start_travel)
+        path = self.op.text("Dataset folder to replay from: ")
+        answer = self.op.text("Dataset episode number: ")
+        try:
+            number = int(answer)
+        except ValueError:
+            self._replay_refused(f"episode number {answer!r} is not a whole number")
+            return
+        try:
+            episode = load_episode(path, number)
+            steps = step_counts()
+            problems = preflight(episode, data_source=self.data_source,
+                                 robot_id=self.profile.robot_id, step_counts=steps)
+            self._write("replay_preflight", dataset=str(path), episode=number,
+                        problems=problems)
+            if problems:
+                self._replay_refused("; ".join(problems))
+                return
+            start, moves = start_travel(episode, steps), play_moves(episode, steps)
+        except ReplayRefused as error:
+            self._replay_refused(str(error))
+            return
+        record = episode.record
+        self._write("replay_start", dataset=str(episode.dataset_dir), episode=number,
+                    task=record["task"], steps=len(moves),
+                    sidecar_sha256=episode.sidecar_sha256)
+        self.rec.log_note(f"replay {episode.dataset_dir} episode {number} "
+                          f"({record['task']!r}): {len(moves)} steps")
+        if any(start[joint] != self.travel[joint] for joint in start):
+            self._run_plan(f"episode {number} start", plan_moves(self.travel, start),
+                           "replay", counts_for(record["first_state"], self.home_counts),
+                           f"START {number}")
+            if not self.armed or self.fault:
+                return
+        self._run_plan(f"episode {number}", moves, "replay",
+                       final_counts(episode, self.home_counts), f"PLAY {number}")
 
     def _stop_plan(self, name, reason, done, total):
         self.op.discard_pending_keys()     # a buffered key must not reach the jog loop

@@ -132,9 +132,14 @@ def play_moves(episode, step_counts) -> list[Move]:
     return moves
 
 
-def final_counts(episode, home_raw: dict) -> dict[str, int]:
-    """Raw encoder counts of the episode's final state, for the arrival check."""
+def counts_for(rel, home_raw: dict) -> dict[str, int]:
+    """Raw encoder counts for counts-from-home ``rel`` (wrap-aware), for arrival checks."""
     counts = dict(home_raw)
     for index, motor in enumerate(MOTORS):
-        counts[motor] = (home_raw[motor] + round(episode.record["final_state"][index])) % 65535
+        counts[motor] = (home_raw[motor] + round(rel[index])) % 65535
     return counts
+
+
+def final_counts(episode, home_raw: dict) -> dict[str, int]:
+    """Raw encoder counts of the episode's final state, for the arrival check."""
+    return counts_for(episode.record["final_state"], home_raw)

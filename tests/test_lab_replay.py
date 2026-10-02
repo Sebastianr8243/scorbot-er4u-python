@@ -123,5 +123,97 @@ class ReplayPlanningTests(unittest.TestCase):
         self.assertEqual(counts["gripper"], 0)
 
 
+class LabReplayTests(unittest.TestCase):
+    TO_LOOP = ["y"] * 4 + ["n", "g", "pose matches photo", "HOME", "y", "g",
+                           "all axes homed", "y"]
+    ARM = ["a", "door", "y", "g", "ARM"]
+    FINISH = ["x", "n", "g"]
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_session(self, answers):
+        from scorbot import SimulatedScorbot
+        from scorbot.lab.operator import ScriptedOperator
+        from scorbot.lab.session import LabSession
+        from scorbot.simulated import SimulatedController
+        from tests.lerobot_fixtures import PROFILE
+        self.ctrl = SimulatedController()
+        self.op = ScriptedOperator(answers)
+        self.runs = getattr(self, "runs", 0) + 1
+        log = self.root / f"s{self.runs}.jsonl"   # one log per session (logs are never reused)
+        LabSession(profile=PROFILE, operator=self.op,
+                   robot_factory=lambda **kw: SimulatedScorbot(controller=self.ctrl, **kw),
+                   data_source="simulated", log_path=log,
+                   session_root=self.root / "sessions", sleep=lambda s: None).run()
+        self.rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+    def of(self, kind):
+        return [row for row in self.rows if row["type"] == kind]
+
+    def replay(self, folder, *after, episode="0"):
+        self.run_session(self.TO_LOOP + self.ARM + ["p", str(folder), episode, *after]
+                         + self.FINISH)
+
+    def test_replay_plays_to_the_final_counts(self):
+        folder = write_dataset(self.root / "d", TWO_BASE_STEPS)
+        self.replay(folder, "PLAY 0", "y")
+        [start] = self.of("replay_start")
+        self.assertEqual(start["steps"], 2)
+        [done] = self.of("plan_complete")
+        self.assertEqual(done["name"], "episode 0")
+        self.assertLessEqual(abs(done["count_differences"]["base"]), 3)
+        self.assertEqual(self.ctrl.counts["base"], -2 * B)
+
+    def test_start_plan_skipped_when_already_there(self):
+        folder = write_dataset(self.root / "d", TWO_BASE_STEPS)
+        self.replay(folder, "PLAY 0", "y")
+        self.assertEqual([r["name"] for r in self.of("plan_shown")], ["episode 0"])
+
+    def test_episode_starting_away_from_home_moves_there_first(self):
+        actions = [action(-B), action(-2 * B)]
+        folder = write_dataset(self.root / "d", actions, first=action(-B))
+        self.replay(folder, "START 0", "y", "PLAY 0", "y")
+        self.assertEqual([r["name"] for r in self.of("plan_complete")],
+                         ["episode 0 start", "episode 0"])
+        self.assertEqual(self.ctrl.counts["base"], -2 * B)
+
+    def test_refusals_disarm_without_motion(self):
+        cases = {"missing": self.root / "nope", "robot": write_dataset(
+            self.root / "r", TWO_BASE_STEPS, robot_id="other-arm")}
+        for name, folder in cases.items():
+            with self.subTest(case=name):
+                self.replay(folder)
+                self.assertEqual(len(self.of("replay_refused")), 1)
+                self.assertEqual(self.of("disarmed")[-1]["reason"], "replay refused")
+                self.assertEqual(self.ctrl.counts["base"], 0)
+
+    def test_unknown_episode_is_refused(self):
+        folder = write_dataset(self.root / "d", TWO_BASE_STEPS)
+        self.replay(folder, episode="7")
+        self.assertIn("episode 7", self.of("replay_refused")[0]["reason"])
+
+    def test_a_key_during_play_stops_it(self):
+        folder = write_dataset(self.root / "d", TWO_BASE_STEPS)
+
+        def play_then_press():
+            self.op.pending_keys = 1
+            return "PLAY 0"
+        self.replay(folder, play_then_press)
+        self.assertEqual(len(self.of("plan_stopped")), 1)
+        self.assertEqual(self.ctrl.counts["base"], 0)
+
+    def test_replay_needs_arming(self):
+        folder = write_dataset(self.root / "d", TWO_BASE_STEPS)
+        self.run_session(self.TO_LOOP + ["p"] + self.FINISH)
+        self.assertEqual(self.of("replay_start"), [])
+        self.assertTrue(any("press a" in m for m in self.op.shown))
+        del folder
+
+
 if __name__ == "__main__":
     unittest.main()
