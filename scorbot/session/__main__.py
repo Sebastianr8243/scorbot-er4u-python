@@ -152,6 +152,29 @@ def _report_search(search) -> int:
     return 1 if search.unmatched else 0
 
 
+def _stream_rows(session_path, meta: dict, rows: list, topics: set) -> int:
+    """Append one row per camera stream of a session; return how many have errors."""
+    from ..camera.stream import missing_streams, scan_stream
+    source = str(meta.get("data_source", "?")).upper()
+    started, robot = meta.get("started_utc") or "-", meta.get("robot_id") or "-"
+    broken = 0
+    for camera_id in meta.get("camera_ids", []):
+        if not (Path(session_path) / f"camera-{camera_id}.mcap").is_file():
+            continue
+        index = scan_stream(session_path, camera_id)
+        status = (f"ERROR {len(index.errors)}" if index.errors else
+                  f"WARN {len(index.warnings)}" if index.warnings else "OK")
+        broken += bool(index.errors)
+        rows.append((status, source, f"  camera {camera_id}", started, robot,
+                     len(index.frames), "-", "frames"))
+    for camera_id in missing_streams(session_path):
+        if f"/camera/{camera_id}/image" in topics:
+            continue  # frames recorded inside session.mcap (older layout)
+        rows.append(("WARN 1", source, f"  camera {camera_id}", started, robot, 0, "-",
+                     "declared, no stream file"))
+    return broken
+
+
 def _list(args) -> int:
     search = analysis.find_sessions(args.paths)
     missing = _report_search(search)
@@ -175,11 +198,14 @@ def _list(args) -> int:
         rows.append((status, str(meta.get("data_source", "?")).upper(), name,
                      meta.get("started_utc") or "-", meta.get("robot_id") or "-",
                      len(session.events), notes_status, meta.get("task") or ""))
+        broken += _stream_rows(session.path, meta, rows,
+                               {event["topic"] for event in session.events})
         del session  # keep only one session in memory at a time
     if not rows:
         print("No sessions found.")
         return max(missing, 0)
-    rows.sort(key=lambda row: row[3], reverse=True)
+    # Camera rows share their session's start time; keep them right after it.
+    rows.sort(key=lambda row: (row[3], not row[2].startswith("  ")), reverse=True)
     print(f"{'STATUS':<13} {'SOURCE':<10} {'SESSION':<26} {'STARTED':<26} "
           f"{'ROBOT':<14} {'EVENTS':>6}  {'NOTES':<10}  TASK")
     for status, source, name, started, robot, events, notes_status, task in rows:

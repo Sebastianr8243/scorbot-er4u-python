@@ -363,9 +363,11 @@ class SessionSearch:
 def find_sessions(paths) -> SessionSearch:
     """Resolve arguments to recorded sessions, each once.
 
-    A folder is searched for ``session.mcap`` files only. Any other ``.mcap``
-    inside (a viewer export, a trimmed copy) is reported, never loaded as a
-    session, because it would borrow its folder's metadata and identity.
+    A folder is searched for ``session.mcap`` files only. Camera stream files
+    (``camera-<id>.mcap`` next to a ``session.mcap``) belong to that session.
+    Any other ``.mcap`` inside (a viewer export, a trimmed copy) is reported,
+    never loaded as a session, because it would borrow its folder's metadata
+    and identity.
     """
     search = SessionSearch([], [], [], [])
     seen = set()
@@ -375,7 +377,10 @@ def find_sessions(paths) -> SessionSearch:
             candidates, strays = [path], []
         elif path.is_dir():
             candidates = sorted(path.rglob("session.mcap"))
-            strays = sorted(p for p in path.rglob("*.mcap") if p.name != "session.mcap")
+            strays = sorted(p for p in path.rglob("*.mcap")
+                            if p.name != "session.mcap"
+                            and not (p.name.startswith("camera-")
+                                     and (p.parent / "session.mcap").is_file()))
         else:
             candidates, strays = [], []
         if not candidates:

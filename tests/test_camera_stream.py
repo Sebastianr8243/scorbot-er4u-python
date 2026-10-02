@@ -184,5 +184,49 @@ class CameraStreamReaderTests(unittest.TestCase):
         self.assertEqual(missing_streams(session.path), ["top", "wrist"])
 
 
+class StreamListingTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_camera_streams_are_not_strays(self):
+        from scorbot.session.analysis import find_sessions
+        folder, _ = record(self.root)
+        (folder / "export.mcap").write_bytes(b"")
+        search = find_sessions([self.root])
+        self.assertEqual([p.name for p in search.not_sessions], ["export.mcap"])
+        self.assertEqual(len(search.sessions), 1)
+
+    def test_list_shows_each_camera_under_its_session(self):
+        import contextlib
+        import io
+        from scorbot.session.__main__ import main
+        folder, _ = record(self.root)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = main(["list", str(self.root)])
+        self.assertEqual(code, 0, out.getvalue())
+        lines = out.getvalue().splitlines()
+        session_line = next(i for i, line in enumerate(lines) if folder.name in line)
+        self.assertIn("camera wrist", lines[session_line + 1])
+        self.assertIn(" 3 ", lines[session_line + 1])
+        self.assertNotIn("NOT A SESSION", out.getvalue())
+
+    def test_frames_inside_session_mcap_are_not_a_missing_stream(self):
+        import contextlib
+        import io
+        from scorbot.session.__main__ import main
+        with new_session(self.root, camera_ids=("cam0",)) as session:
+            session.log_frame("cam0", 0, b"x", format="png", width=1, height=1,
+                              observed_monotonic_ns=1)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["list", str(self.root)])
+        self.assertNotIn("no stream file", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
