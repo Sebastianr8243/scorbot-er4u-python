@@ -58,10 +58,11 @@ def _plot(joint: str, state, action) -> str:
             f'aria-label="{joint} position and target">'
             f'<line class="axis" x1="{pad}" y1="{height - pad}" x2="{width - pad}" '
             f'y2="{height - pad}"/>'
-            f'<polyline class="action" fill="none" stroke-width="2" '
-            f'points="{points(action)}"/>'
-            f'<polyline class="state" fill="none" stroke-width="2" '
+            f'<polyline class="state" fill="none" stroke-width="3" '
             f'points="{points(state)}"/>'
+            # Target drawn dashed on top: on the simulator it often equals the position.
+            f'<polyline class="action" fill="none" stroke-width="1.5" stroke-dasharray="5 4" '
+            f'points="{points(action)}"/>'
             f'<text x="{pad}" y="12">{html.escape(joint)}: {high:g} counts</text>'
             f'<text x="{pad}" y="{height - 4}">{low:g}</text></svg>')
 
@@ -114,7 +115,7 @@ def render(plan, *, fps: int, video: bool, max_image_bytes: int = MAX_IMAGE_BYTE
                  + html.escape(", ".join(str(s.jsonl_path) for s in plan.sessions)) + "</p>")
     parts.append('<p class="key muted">Lines: <span style="background: var(--state)"></span>'
                   'position (observation.state) <span style="background: var(--action)">'
-                  "</span>target (action)</p>")
+                  "</span>target (action), dashed</p>")
     budget = {"left": max_image_bytes}
     for data, frames in plan.episodes[:MAX_EPISODES]:
         seconds = (frames.times_ns[-1] - frames.times_ns[0]) / 1e9
