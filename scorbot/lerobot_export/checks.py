@@ -58,6 +58,10 @@ def check_session(data, *, video: bool) -> list[Refusal]:
     if data.mcap is not None and data.mcap.errors:
         out.append(refuse("MCAP session has integrity errors: "
                           + "; ".join(f.message for f in data.mcap.errors)))
+    # A recording that never closed (crash, stuck stop) is not proof of anything.
+    if data.mcap is not None and any("not closed cleanly" in f.message
+                                     for f in data.mcap.warnings):
+        out.append(refuse("MCAP session was not closed cleanly"))
     if any(row.get("type") == "session_failed" for row in data.rows):
         out.append(refuse("lab session_failed row"))
     if data.clock_resolution_s is None or data.clock_resolution_s > MAX_CLOCK_RESOLUTION_S:
@@ -66,6 +70,9 @@ def check_session(data, *, video: bool) -> list[Refusal]:
     if video and data.camera is not None and data.camera.errors:
         out.append(refuse("camera stream has errors: "
                           + "; ".join(f.message for f in data.camera.errors)))
+    if video and data.camera is not None and any("not closed cleanly" in f.message
+                                                 for f in data.camera.warnings):
+        out.append(refuse("camera stream was not closed cleanly"))
     return out
 
 
@@ -91,6 +98,8 @@ def check_episode(data, episode, *, fps, max_frame_gap_s, video) -> list[Refusal
         out.append(refuse(f"too short: {len(ticks)} frame(s) at {fps} fps"))
     step = 1e9 / fps
     jogs = [j for j in data.jogs if _in_window(j.command_ns, episode)]
+    if not jogs:
+        out.append(refuse("no jog in the episode: not a demonstration"))
     for jog in jogs:
         if jog.lab_target_signed is None or jog.result_ns is None:
             out.append(refuse(f"jog {jog.index} could not be matched to its SDK record"))
@@ -103,15 +112,14 @@ def check_episode(data, episode, *, fps, max_frame_gap_s, video) -> list[Refusal
     slots = [math.ceil((j.command_ns - episode.start_ns) / step) for j in jogs]
     if len(slots) != len(set(slots)):
         out.append(refuse("two jogs commanded within one grid interval"))
+    out.extend(refuse(r) for r in _motion_state_problems(ticks, step, jogs))
     if video:
-        out.extend(refuse(r) for r in _video_problems(data, ticks, step, jogs,
-                                                      max_frame_gap_s))
+        out.extend(refuse(r) for r in _video_problems(data, ticks, max_frame_gap_s))
     return out
 
 
-def _video_problems(data, ticks, step, jogs, max_frame_gap_s) -> list[str]:
-    if data.camera is None or not data.camera.frames:
-        return ["no camera frames for a video episode"]
+def _motion_state_problems(ticks, step, jogs) -> list[str]:
+    """Every tick during a jog needs a fresh reading, video or not (Codex review)."""
     problems = []
     for jog in jogs:
         inside = [t for t in ticks if jog.command_ns < t < (jog.result_ns or t)]
@@ -126,6 +134,13 @@ def _video_problems(data, ticks, step, jogs, max_frame_gap_s) -> list[str]:
                 problems.append(f"jog {jog.index}: no state packet within one grid interval "
                                 "of a tick during motion")
                 break
+    return problems
+
+
+def _video_problems(data, ticks, max_frame_gap_s) -> list[str]:
+    if data.camera is None or not data.camera.frames:
+        return ["no camera frames for a video episode"]
+    problems = []
     stamps = sorted(f["observed_monotonic_ns"] for f in data.camera.frames)
     limit = max_frame_gap_s * 1e9
     for t in ticks:

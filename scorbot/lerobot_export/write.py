@@ -41,16 +41,24 @@ def _features(video: bool, size):
     return features
 
 
-def _images_for(data, wanted) -> dict:
-    """Decode only the camera frames an episode uses (JPEG to RGB)."""
+def _episode_images(data, frame_seq):
+    """One RGB image per tick, decoded as the stream is read: memory stays one frame.
+
+    ``frame_seq`` never decreases (latest frame at or before each tick), so one
+    pass over the camera file is enough; a frame reused by several ticks is
+    decoded once.
+    """
     import cv2
-    from ..camera.stream import iter_frames
-    images, wanted = {}, set(wanted)
-    for seq, frame in enumerate(iter_frames(data.mcap_folder, CAMERA_ID)):
-        if seq in wanted:
-            bgr = cv2.imdecode(np.frombuffer(frame.data, np.uint8), cv2.IMREAD_COLOR)
-            images[seq] = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    return images
+    from ..camera import stream as camera_stream
+    frames = enumerate(camera_stream.iter_frames(data.mcap_folder, CAMERA_ID))
+    seq, image = -1, None
+    for wanted in frame_seq:
+        while seq < wanted:
+            seq, frame = next(frames)
+            if seq == wanted:
+                bgr = cv2.imdecode(np.frombuffer(frame.data, np.uint8), cv2.IMREAD_COLOR)
+                image = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        yield image
 
 
 def _sha256(path: Path) -> str:
@@ -72,13 +80,14 @@ def write_dataset(plan: ExportPlan, out: Path, repo_id: str, fps: int, video: bo
                                         robot_type="scorbot_er4u", use_videos=video)
         exported = []
         for index, (data, frames) in enumerate(plan.episodes):
-            images = _images_for(data, frames.frame_seq) if video else {}
-            for k in range(len(frames.times_ns)):
+            images = (_episode_images(data, frames.frame_seq) if video
+                      else iter(lambda: None, object()))
+            for k, image in zip(range(len(frames.times_ns)), images):
                 frame = {"observation.state": np.asarray(frames.state[k], np.float32),
                          "action": np.asarray(frames.action[k], np.float32),
                          "task": frames.task}
                 if video:
-                    frame[f"observation.images.{CAMERA_ID}"] = images[frames.frame_seq[k]]
+                    frame[f"observation.images.{CAMERA_ID}"] = image
                 dataset.add_frame(frame)
             dataset.save_episode()
             exported.append({"dataset_episode": index, "session": data.name,

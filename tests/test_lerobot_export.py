@@ -105,7 +105,7 @@ class CheckTests(unittest.TestCase):
         return episodes, [r.reason for r in refusals]
 
     def test_clean_session_exports_its_episode(self):
-        episodes, reasons = self.reasons(make_data())
+        episodes, reasons = self.reasons(make_data(jogs=[make_jog(500_000_000, 505_000_000)]))
         self.assertEqual(len(episodes), 1)
         self.assertEqual(reasons, [])
 
@@ -244,6 +244,65 @@ class ReviewFixTests(unittest.TestCase):
         started = time.monotonic()
         self.reasons(data, video=True)
         self.assertLess(time.monotonic() - started, 10.0)
+
+
+class FinalReviewFixTests(unittest.TestCase):
+    def reasons(self, data, *, video=False):
+        from scorbot.lerobot_export.checks import exportable
+        return [r.reason for r in exportable(data, fps=10, max_frame_gap_s=0.2,
+                                             video=video)[1]]
+
+    def test_unclean_session_close_is_refused(self):
+        import json
+        from scorbot.lerobot_export.load import load_lab_session
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            path = record(folder, TO_LOOP + EPISODE + FINISH)
+            [meta] = list(Path(folder, "sessions").glob("*/metadata.json"))
+            value = json.loads(meta.read_text(encoding="utf-8"))
+            value["closed_cleanly"] = False
+            meta.write_text(json.dumps(value), encoding="utf-8")
+            reasons = self.reasons(load_lab_session(path))
+        self.assertTrue(any("closed cleanly" in r for r in reasons))
+
+    def test_unclean_camera_close_is_refused(self):
+        from scorbot.camera.stream import StreamIndex
+        from scorbot.session.replay import Finding
+        camera = camera_index(range(0, 1_100_000_000, 33_000_000))
+        camera = StreamIndex("main", {}, camera.frames,
+                             [Finding("warning", "Camera stream was not closed cleanly")])
+        data = make_data(camera=camera, episodes=video_episode(),
+                         jogs=[make_jog(500_000_000, 505_000_000)])
+        self.assertTrue(any("closed cleanly" in r for r in self.reasons(data, video=True)))
+
+    def test_robot_only_episode_needs_state_during_motion(self):
+        data = make_data(jogs=[make_jog(150_000_000, 450_000_000)])
+        self.assertTrue(any("packet" in r for r in self.reasons(data)))
+
+    def test_episode_without_any_jog_is_refused(self):
+        self.assertTrue(any("no jog" in r for r in self.reasons(make_data())))
+
+    def test_images_are_streamed_one_tick_at_a_time(self):
+        import types
+        from unittest import mock
+        try:
+            import cv2
+        except ImportError:
+            self.skipTest("opencv not installed")
+        import numpy as np
+        from scorbot.camera.stream import Frame
+        from scorbot.lerobot_export import write
+
+        def jpeg(value):
+            ok, data = cv2.imencode(".jpg", np.full((4, 4, 3), value, np.uint8))
+            return data.tobytes()
+        frames = [Frame(i, i, jpeg(i * 60), "jpeg") for i in range(4)]
+        with mock.patch("scorbot.camera.stream.iter_frames", return_value=iter(frames)):
+            images = write._episode_images(make_data(mcap_folder=Path(".")), [0, 0, 2, 3])
+            self.assertIsInstance(images, types.GeneratorType)
+            levels = [int(image[0, 0, 0]) for image in images]
+        self.assertEqual(len(levels), 4)
+        self.assertEqual(levels[0], levels[1])
+        self.assertLess(levels[1], levels[2])
 
 
 class FrameTests(unittest.TestCase):
