@@ -85,8 +85,10 @@ shoulder, elbow, wrist_motor_1, wrist_motor_2. Labelled
 and, during a jog, the input packets of that jog's SDK `motion_trace`
 decoded with `scorbot.state.decode_state` (the controller's own encoder
 readings, about one every 13 ms on the real arm, unverified). The simulated
-controller records no packets, but its jogs complete instantly, so no tick
-falls inside a simulated jog. A video episode where a tick falls inside a
+controller records no packets; its jogs take a few milliseconds but change the
+counts all at once at the end, so holding the last reading is exact there and
+the packet-coverage rule applies to real data only (found 2026-10-02 when a
+tick landed inside a simulated jog). A video episode where a tick falls inside a
 jog with no packet coverage is refused (section 2).
 
 **action(t_k)**: contract C2, using the SDK's `motion_preview` (the target

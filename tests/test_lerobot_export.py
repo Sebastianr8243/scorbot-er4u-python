@@ -163,7 +163,8 @@ class CheckTests(unittest.TestCase):
                            trace=[(t, {m: 0 for m in MOTORS})
                                   for t in range(160_000_000, 450_000_000, 13_000_000)])
         camera = camera_index(range(0, 1_300_000_000, 33_000_000))
-        bad = make_data(jogs=[slow], camera=camera, episodes=video_episode())
+        bad = make_data(jogs=[slow], camera=camera, episodes=video_episode(),
+                        data_source="real")
         good = make_data(jogs=[covered], camera=camera, episodes=video_episode())
         self.assertTrue(any("packet" in r for r in self.reasons(bad, video=True)[1]))
         self.assertEqual(self.reasons(good, video=True)[1], [])
@@ -276,8 +277,14 @@ class FinalReviewFixTests(unittest.TestCase):
         self.assertTrue(any("closed cleanly" in r for r in self.reasons(data, video=True)))
 
     def test_robot_only_episode_needs_state_during_motion(self):
-        data = make_data(jogs=[make_jog(150_000_000, 450_000_000)])
+        data = make_data(jogs=[make_jog(150_000_000, 450_000_000)], data_source="real")
         self.assertTrue(any("packet" in r for r in self.reasons(data)))
+
+    def test_simulated_jogs_need_no_packets(self):
+        # The simulated controller changes its counts all at once when a jog ends,
+        # so holding the last reading during a simulated jog is exact.
+        data = make_data(jogs=[make_jog(150_000_000, 450_000_000)])
+        self.assertFalse(any("packet" in r for r in self.reasons(data)))
 
     def test_episode_without_any_jog_is_refused(self):
         self.assertTrue(any("no jog" in r for r in self.reasons(make_data())))

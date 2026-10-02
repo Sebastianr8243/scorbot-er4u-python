@@ -112,7 +112,10 @@ def check_episode(data, episode, *, fps, max_frame_gap_s, video) -> list[Refusal
     slots = [math.ceil((j.command_ns - episode.start_ns) / step) for j in jogs]
     if len(slots) != len(set(slots)):
         out.append(refuse("two jogs commanded within one grid interval"))
-    out.extend(refuse(r) for r in _motion_state_problems(ticks, step, jogs))
+    # The simulated controller changes its counts all at once when a jog ends, so
+    # holding the last reading is exact there; a real arm moves gradually.
+    if data.data_source == "real":
+        out.extend(refuse(r) for r in _motion_state_problems(ticks, step, jogs))
     if video:
         out.extend(refuse(r) for r in _video_problems(data, ticks, max_frame_gap_s))
     return out
