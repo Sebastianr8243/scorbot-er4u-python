@@ -29,7 +29,7 @@ uv sync --locked --extra windows --extra test
 .\.venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-`uv sync` creates or updates `.venv` with Python 3.12 (`.python-version`) and
+`uv sync` creates or updates `.venv` with Python 3.13 (`.python-version`; 3.13 is the first Windows release with a fine-grained monotonic clock) and
 the locked packages; `--locked` refuses to run if `uv.lock` and
 `pyproject.toml` disagree, instead of silently picking new versions. It does
 not access USB, change drivers or move the arm. All later commands in the docs

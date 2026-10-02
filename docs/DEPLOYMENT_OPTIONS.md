@@ -8,7 +8,7 @@ Status: plan, 2026-10-01. Nothing here is built unless it says so, and nothing i
 
 | Area | Choice |
 |---|---|
-| Lab PC | Native Windows. Control, camera, recording and UI run here. Python 3.12 managed by `uv` (confirmed available). Built 2026-10-01: `uv.lock`, `.python-version`, [START_HERE_WINDOWS.md](../START_HERE_WINDOWS.md) option A. |
+| Lab PC | Native Windows. Control, camera, recording and UI run here. Python 3.13 managed by `uv` (3.12 confirmed available; 3.13 chosen 2026-10-01 because its Windows monotonic clock ticks every 100 ns instead of about 15.6 ms). Built 2026-10-01: `uv.lock`, `.python-version`, [START_HERE_WINDOWS.md](../START_HERE_WINDOWS.md) option A. |
 | GPU server | Training. Policy inference too, unless the lab PC gets a GPU. The team has a server PC with GPUs. |
 | Learning stack | LeRobot, in a separate package that needs Python 3.12 or newer. This repo keeps supporting Python 3.10 and up. |
 | Front end | A local web app served by Python on the lab PC (NiceGUI), flat tile layout. |
@@ -32,7 +32,7 @@ Status: plan, 2026-10-01. Nothing here is built unless it says so, and nothing i
 
 ```mermaid
 flowchart LR
-  subgraph LAB["Lab PC (native Windows, Python 3.12 via uv)"]
+  subgraph LAB["Lab PC (native Windows, Python 3.13 via uv)"]
     UI["Web UI (NiceGUI)"] --> SDK["scorbot SDK (gates, fault latch)"]
     CAM["Webcam (OpenCV, DirectShow)"] --> REC["Session recorder (JSONL + MCAP)"]
     SDK --> REC
@@ -52,7 +52,7 @@ Only the lab PC ever touches USB. The server never imports the SDK's USB path, a
 
 | Option | Verdict |
 |---|---|
-| **Native Windows with `uv`-managed Python 3.12** | Recommended. It is the only route with a proven USB path. |
+| **Native Windows with `uv`-managed Python 3.13** | Recommended. It is the only route with a proven USB path. |
 | WSL2 with `usbipd-win` | Rejected: reported USB reliability problems, see above. |
 | Docker Desktop on Windows | Not researched. Assumed to go through WSL2 and inherit its USB problems (unverified). Not pursued. |
 
