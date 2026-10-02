@@ -306,6 +306,34 @@ class FinalReviewFixTests(unittest.TestCase):
         self.assertLess(levels[1], levels[2])
 
 
+class SidecarTests(unittest.TestCase):
+    def test_record_matches_the_frames(self):
+        from scorbot.lerobot_export import sidecar
+        from scorbot.lerobot_export.frames import resample
+        from scorbot.lerobot_export.load import MOTORS
+        data = make_data(jogs=[make_jog(205_000_000, 215_000_000)])
+        frames = resample(data, data.episodes[0], fps=10, video=False)
+        record = sidecar.episode_record(3, data, frames, 10)
+        self.assertEqual(record["dataset_episode"], 3)
+        self.assertEqual(record["actions"], frames.action)
+        self.assertEqual(record["first_state"], frames.state[0])
+        self.assertEqual(record["final_state"], frames.state[-1])
+        self.assertEqual(record["motors"], list(MOTORS))
+        self.assertEqual(record["units"], sidecar.UNITS)
+        self.assertEqual((record["fps"], record["task"], record["source_episode"]),
+                         (10, "task", 1))
+        import json
+        json.dumps(record, allow_nan=False)
+
+    def test_step_counts_come_from_the_sdk(self):
+        from scorbot.lerobot_export import sidecar
+        from scorbot.robot import Scorbot
+        counts = sidecar.step_counts()
+        self.assertEqual(set(counts), {"base", "shoulder", "elbow"})
+        expected = abs(Scorbot().preview_jog("base", 1.0)["motor_count_deltas"]["base"])
+        self.assertEqual(counts["base"], expected)
+
+
 class FrameTests(unittest.TestCase):
     def frames(self, data, video=False, fps=10):
         from scorbot.lerobot_export.frames import resample

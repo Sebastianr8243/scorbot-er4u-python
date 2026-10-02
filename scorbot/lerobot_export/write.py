@@ -18,9 +18,9 @@ import shutil
 import numpy as np
 
 from .load import CAMERA_ID, MOTORS
+from .sidecar import SIDECAR, UNITS, episode_record
 
 EXPORTER_VERSION = 1
-UNITS = "uncalibrated encoder counts from session home"
 
 
 @dataclass
@@ -78,7 +78,7 @@ def write_dataset(plan: ExportPlan, out: Path, repo_id: str, fps: int, video: bo
             size = (data.camera.frames[0]["width"], data.camera.frames[0]["height"])
         dataset = LeRobotDataset.create(repo_id, fps, _features(video, size), root=partial,
                                         robot_type="scorbot_er4u", use_videos=video)
-        exported = []
+        exported, records = [], []
         for index, (data, frames) in enumerate(plan.episodes):
             images = (_episode_images(data, frames.frame_seq) if video
                       else iter(lambda: None, object()))
@@ -90,12 +90,17 @@ def write_dataset(plan: ExportPlan, out: Path, repo_id: str, fps: int, video: bo
                     frame[f"observation.images.{CAMERA_ID}"] = image
                 dataset.add_frame(frame)
             dataset.save_episode()
+            records.append(episode_record(index, data, frames, fps))
             exported.append({"dataset_episode": index, "session": data.name,
                              "source_episode": frames.episode, "task": frames.task,
                              "frames": len(frames.times_ns)})
         dataset.finalize()
-        _write_provenance(partial, plan, exported, fps, video)
+        sidecar_path = partial / SIDECAR
+        sidecar_path.write_text("".join(json.dumps(r, allow_nan=False) + "\n" for r in records),
+                                encoding="utf-8")
+        _write_provenance(partial, plan, exported, fps, video, _sha256(sidecar_path))
         reopened = LeRobotDataset(repo_id, root=partial)
+        _check_sidecar_matches(reopened, records)
         expected = sum(len(f.times_ns) for _, f in plan.episodes)
         if reopened.num_episodes != len(plan.episodes) or reopened.num_frames != expected:
             raise RuntimeError(f"verification failed: {reopened.num_episodes} episodes, "
@@ -109,7 +114,19 @@ def write_dataset(plan: ExportPlan, out: Path, repo_id: str, fps: int, video: bo
         raise
 
 
-def _write_provenance(folder: Path, plan: ExportPlan, exported, fps, video):
+def _check_sidecar_matches(dataset, records) -> None:
+    """The replay sidecar must hold exactly the actions LeRobot stored."""
+    actions = np.asarray(dataset.hf_dataset["action"], np.float32)
+    index = np.asarray(dataset.hf_dataset["episode_index"])
+    for record in records:
+        stored = actions[index == record["dataset_episode"]]
+        expected = np.asarray(record["actions"], np.float32)
+        if stored.shape != expected.shape or not np.array_equal(stored, expected):
+            raise RuntimeError(f"replay sidecar differs from the dataset for episode "
+                               f"{record['dataset_episode']}")
+
+
+def _write_provenance(folder: Path, plan: ExportPlan, exported, fps, video, sidecar_sha256):
     sessions = []
     for data in plan.sessions:
         session_row = next((r for r in data.rows if r.get("type") == "session"), {})
@@ -117,6 +134,7 @@ def _write_provenance(folder: Path, plan: ExportPlan, exported, fps, video):
                          "mcap_session": data.mcap_folder.name if data.mcap_folder else None,
                          "motion_source_sha256": session_row.get("motion_source_sha256"),
                          "software_commit": session_row.get("software_commit"),
+                         "robot_id": session_row.get("robot_id"),
                          "camera_frames": len(data.camera.frames) if data.camera else 0})
     source = plan.sessions[0].data_source if plan.sessions else None
     provenance = {"exporter_version": EXPORTER_VERSION,
@@ -125,6 +143,7 @@ def _write_provenance(folder: Path, plan: ExportPlan, exported, fps, video):
                   "image_latency": "unmeasured" if video else None,
                   "data_source": source, "simulated": source != "real",
                   "video": video, "sessions": sessions, "episodes": exported,
+                  "episodes_sidecar": SIDECAR, "episodes_sidecar_sha256": sidecar_sha256,
                   "refused": [vars(r) for r in plan.refusals]}
     (folder / "scorbot_provenance.json").write_text(
         json.dumps(provenance, indent=2, allow_nan=False) + "\n", encoding="utf-8")

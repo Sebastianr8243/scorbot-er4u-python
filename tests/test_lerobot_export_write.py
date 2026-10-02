@@ -55,6 +55,14 @@ class RoundTripTests(unittest.TestCase):
         self.assertEqual(provenance["data_source"], "simulated")
         self.assertEqual(len(provenance["episodes"]), 1)
         self.assertEqual(provenance["image_latency"], "unmeasured")
+        self.assertEqual(provenance["sessions"][0]["robot_id"], "lab-er4u-1")
+        import hashlib
+        sidecar = out / "scorbot_episodes.jsonl"
+        self.assertEqual(hashlib.sha256(sidecar.read_bytes()).hexdigest(),
+                         provenance["episodes_sidecar_sha256"])
+        [episode] = [json.loads(line) for line in sidecar.read_text("utf-8").splitlines()]
+        self.assertEqual(len(episode["actions"]), dataset.num_frames)
+        self.assertEqual([float(v) for v in dataset[0]["action"]], episode["actions"][0])
 
 
 if __name__ == "__main__":
