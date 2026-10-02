@@ -16,6 +16,8 @@ from scorbot.state import JOINTS
 SCHEMA_VERSION = 1
 DATA_SOURCES = ("real", "simulated", "synthetic")
 COMMAND_STATUSES = ("completed", "faulted", "timeout", "rejected")
+EPISODE_EVENTS = ("start", "end")
+EPISODE_STATUSES = ("completed", "aborted")
 IMAGE_SCHEMA = "foxglove.CompressedImage"
 
 TOPICS = {
@@ -25,6 +27,7 @@ TOPICS = {
     "/operator/decision": "scorbot.Decision",
     "/session/fault": "scorbot.Fault",
     "/session/note": "scorbot.Note",
+    "/session/episode": "scorbot.Episode",
 }
 
 REQUIRED = {
@@ -35,6 +38,7 @@ REQUIRED = {
     "scorbot.Decision": ("choice",),
     "scorbot.Fault": ("message",),
     "scorbot.Note": ("text",),
+    "scorbot.Episode": ("episode", "event"),
     IMAGE_SCHEMA: ("timestamp", "frame_id", "data", "format"),
 }
 
@@ -127,6 +131,13 @@ PROPERTIES = {
         "command_id": _t("string", nullable=True),
     },
     "scorbot.Note": {"text": _t("string")},
+    "scorbot.Episode": {
+        "episode": _t("integer"),
+        "event": _t("string", enum=list(EPISODE_EVENTS)),
+        "task": _t("string", nullable=True),
+        "status": _t("string", nullable=True),
+        "reason": _t("string", nullable=True),
+    },
 }
 
 

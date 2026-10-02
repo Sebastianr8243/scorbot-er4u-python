@@ -180,6 +180,21 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(payload["_rec"]["frame_number"], 7)
         self.assertEqual(payload["frame_id"], "cam0")
 
+    def test_episode_events_round_trip(self):
+        from scorbot.session.replay import load_session
+        with new_writer(self.root) as writer:
+            writer.log_episode(1, "start", task="reach left")
+            writer.log_episode(1, "end", task="reach left", status="completed")
+            with self.assertRaises(ValueError):
+                writer.log_episode(2, "pause")
+            with self.assertRaises(ValueError):
+                writer.log_episode(2, "end", status="maybe")
+        session = load_session(writer.path)
+        self.assertEqual(session.findings, [])
+        episodes = [e["payload"] for e in session.events if e["topic"] == "/session/episode"]
+        self.assertEqual([(p["episode"], p["event"], p["status"]) for p in episodes],
+                         [(1, "start", None), (1, "end", "completed")])
+
     def test_frame_without_capture_time_is_refused(self):
         from scorbot.session import SessionError
         with new_writer(self.root, camera_ids=["cam0"]) as writer:

@@ -50,6 +50,7 @@ class CameraRecorder:
         self._state = "idle"
         self._result: str | None = None
         self.failure: str | None = None
+        self.last_write_ns: int | None = None  # clock() when the last frame was written
         self.counts = {"frames": 0, "written": 0, "dropped_queue": 0, "dropped_late": 0}
         self._window = self._new_window()
         self._window_started = None
@@ -192,6 +193,7 @@ class CameraRecorder:
                                           observed_monotonic_ns=stamp)
                 with self._cond:
                     self.counts["written"] += 1
+                    self.last_write_ns = self.clock()
                     self._window["max_latency_ns"] = max(self._window["max_latency_ns"],
                                                          latency)
                     self._emit_health_locked()

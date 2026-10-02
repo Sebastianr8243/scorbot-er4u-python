@@ -203,6 +203,17 @@ class SessionWriter:
     def log_note(self, text: str) -> int:
         return self._emit("/session/note", {"text": text}, None)
 
+    def log_episode(self, episode: int, event: str, *, task: str | None = None,
+                    status: str | None = None, reason: str | None = None) -> int:
+        """Episode boundaries for datasets; the lab JSONL holds the same rows first."""
+        if event not in schemas.EPISODE_EVENTS:
+            raise ValueError(f"event must be one of {schemas.EPISODE_EVENTS}")
+        if status is not None and status not in schemas.EPISODE_STATUSES:
+            raise ValueError(f"status must be one of {schemas.EPISODE_STATUSES}")
+        return self._emit("/session/episode", {"episode": int(episode), "event": event,
+                                               "task": task, "status": status,
+                                               "reason": reason}, None)
+
     def close(self) -> None:
         with self._lock:
             if self._closed:

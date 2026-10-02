@@ -185,6 +185,13 @@ class RecorderTests(unittest.TestCase):
         errors = scan_stream(self.session.path, "wrist").errors
         self.assertTrue(any("stuck" in f.message for f in errors))
 
+    def test_last_write_time_is_tracked(self):
+        recorder = self.recorder(FakeSource())
+        self.assertIsNone(recorder.last_write_ns)
+        recorder.start()
+        self.assertTrue(wait_for(lambda: recorder.last_write_ns is not None))
+        recorder.stop()
+
     def test_stop_twice_and_before_start(self):
         idle = CameraRecorder(FakeSource(), None, encoder=fake_jpeg)
         self.assertEqual(idle.stop(), "idle")

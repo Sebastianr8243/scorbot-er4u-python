@@ -92,6 +92,7 @@ class CameraStream(SessionWriter):
     log_decision = _robot_only("log_decision")
     log_fault = _robot_only("log_fault")
     log_note = _robot_only("log_note")
+    log_episode = _robot_only("log_episode")
 
     def close(self) -> None:
         with self._lock:
