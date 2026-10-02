@@ -206,6 +206,39 @@ VENDOR_ENCODER_SOFT_LIMITS = MappingProxyType({
     "wrist_pitch": _vendor_range(-15000, 15000, "encoder counts"),
 })
 
+VENDOR_LIMIT_REPORT_STATUS = ("diagnostic only, not a guard: vendor encoder zero and "
+                              "sign convention are unverified on our arms")
+
+
+def _side(value: int, limit: VendorRange) -> str:
+    if value < limit.minimum:
+        return "below_min"
+    if value > limit.maximum:
+        return "above_max"
+    return "inside"
+
+
+def vendor_limit_report(target_signed_counts: dict[str, int]) -> dict:
+    """Where each jog target sits against the vendor encoder limits, logged with a jog.
+
+    Evidence for whether our homing zero and signs match the vendor's, judged
+    under both sign hypotheses. Never used to allow or refuse motion. Wrist
+    motors have no per-motor vendor limit (pitch is a two-motor differential).
+    """
+    motors = {}
+    for motor, target in target_signed_counts.items():
+        limit = VENDOR_ENCODER_SOFT_LIMITS.get(motor)
+        if limit is None:
+            motors[motor] = {"target_signed_counts": target, "same_sign": "no vendor limit",
+                             "flipped_sign": "no vendor limit"}
+            continue
+        motors[motor] = {"target_signed_counts": target,
+                         "vendor_min": limit.minimum, "vendor_max": limit.maximum,
+                         "same_sign": _side(target, limit),
+                         "flipped_sign": _side(-target, limit)}
+    return {"status": VENDOR_LIMIT_REPORT_STATUS, "motors": motors}
+
+
 DATASHEET = "Intelitek ER-4u datasheet 35-1005-8600 Rev K"
 # Effective joint speeds, used as velocity priors for offline planning only.
 DATASHEET_JOINT_SPEED_DEG_S = MappingProxyType({

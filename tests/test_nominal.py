@@ -190,6 +190,28 @@ class VendorLimitsAndContradictionTests(unittest.TestCase):
                         nominal.check_soft_limit_span(name, vendor.minimum, vendor.maximum)
 
 
+class VendorLimitReportTests(unittest.TestCase):
+    def test_report_under_both_sign_hypotheses(self):
+        report = nominal.vendor_limit_report(
+            {"base": 20000, "shoulder": 1501, "elbow": -25001, "wrist_motor_1": 5})
+        self.assertIn("diagnostic only", report["status"])
+        motors = report["motors"]
+        self.assertEqual((motors["base"]["same_sign"], motors["base"]["flipped_sign"]),
+                         ("inside", "inside"))
+        self.assertEqual((motors["shoulder"]["same_sign"], motors["shoulder"]["flipped_sign"]),
+                         ("above_max", "inside"))
+        self.assertEqual((motors["elbow"]["same_sign"], motors["elbow"]["flipped_sign"]),
+                         ("below_min", "above_max"))
+        self.assertEqual(motors["base"]["vendor_min"], -25000)
+        self.assertEqual(motors["wrist_motor_1"], {"target_signed_counts": 5,
+                                                   "same_sign": "no vendor limit",
+                                                   "flipped_sign": "no vendor limit"})
+
+    def test_report_is_strict_json(self):
+        report = nominal.vendor_limit_report({"base": -132, "shoulder": 0})
+        self.assertEqual(json.loads(json.dumps(report, allow_nan=False)), report)
+
+
 class ManualBoundsIntegrationTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()

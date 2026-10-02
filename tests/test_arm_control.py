@@ -164,6 +164,15 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(preview["target_signed_counts"]["base"], 242)
         robot._command.assert_not_called()
 
+    def test_preview_carries_the_vendor_limit_diagnostic(self):
+        preview = Scorbot().preview_jog(
+            "base", 1, speed=10, starting_signed_counts={"base": 100})
+        report = preview["vendor_limit_report"]
+        self.assertIn("diagnostic only", report["status"])
+        self.assertEqual(report["motors"]["base"]["target_signed_counts"], 242)
+        self.assertEqual(report["motors"]["base"]["same_sign"], "inside")
+        self.assertNotIn("vendor_limit_report", Scorbot().preview_jog("base", 1))
+
     def test_jog_ceiling_cannot_be_raised_past_five_degrees(self):
         with self.assertRaises(ValueError):
             Scorbot(max_jog_degrees=6)

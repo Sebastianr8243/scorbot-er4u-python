@@ -22,6 +22,14 @@ Git history has the diffs; this file has the story. Hardware claims stay
   hashing, so Windows, Linux and ZIP copies of the same code match. Logs
   written before this fix hashed raw bytes; their values only match a
   checkout with the same line endings.
+- Manual contradictions: one verdict each in `nominal.CONTRADICTIONS`
+  (adopted, both kept, measure). No bound loosened: the elbow gate stays at
+  the manual's 260 degrees although the vendor files allow 275. Vendor joint
+  and encoder limits and datasheet joint speeds added as priors.
+- Every jog preview with a start state now carries `vendor_limit_report`:
+  where the target sits against the vendor encoder limits under both sign
+  hypotheses. Diagnostic only, never a guard; it collects evidence on
+  whether our homing zero matches the vendor's.
 
 ### Semester goal decided
 

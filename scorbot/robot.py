@@ -13,6 +13,7 @@ import threading
 import traceback
 
 from .calibration import load_calibration
+from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
 from .state import HOME_SWITCH_BITS, RobotState, decode_state
 
@@ -407,6 +408,7 @@ class Scorbot:
                 for motor in targets
             }
             plan["target_signed_counts"] = targets
+            plan["vendor_limit_report"] = vendor_limit_report(targets)
         return plan
 
     def jog_joint(self, joint: str, delta_degrees: float, *, speed: int = 10):
