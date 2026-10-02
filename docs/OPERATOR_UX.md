@@ -13,6 +13,8 @@ Why the bench tools prompt, warn and log the way they do, and what to change nex
 | Situation awareness: perceive, comprehend, project | Endsley 1995; Drury, Scholtz & Yanco (human-robot awareness) | The live view is for the recorder; eyes stay on the arm during motion |
 | Structured answers beat free text for later analysis | FAIR principles (Wilkinson et al. 2016) | Single-key LED answers stored as fields |
 | CLI conventions | clig.dev; no-color.org | Distinct exit codes: 0 completed, 1 failed, 3 declined |
+| A held key must not become a stream of motion | The Windows console reports typed characters, never a key-up; auto-repeat starts after up to 1 s and a quiet gap does not prove release (Codex and Gemini reviews, 2026-10-02) | Teleop waits on the physical key state (`GetAsyncKeyState`) after every step and drops the repeats. The gate only delays motion; motion comes only from a character typed in this console |
+| Unattended armed consoles disarm sooner when confirmations are removed | Same reviews | Teleop idle disarm 15 s instead of 60 s; any unknown key disarms |
 
 ## Backlog (after G1; each changes the operator flow, so rehearse first)
 

@@ -80,6 +80,43 @@ moved more than 20 counts with nothing commanded (probably noise, a push or sagg
 step is refused and the session disarms: finish and home again in a new
 session. Marks are never kept between sessions.
 
+## Teleop and episodes
+
+For recording demonstrations. Arm first (`a`, LED check, type `ARM`), then
+press `t`.
+
+| Key | In teleop |
+|---|---|
+| `1/q 2/w 3/e` | One step of the current size (1 or 0.5 degree), at once, no questions |
+| `r` | Start an episode / stop it as completed. The first `r` asks for the task (e.g. `reach left block`) |
+| `n` | New task text (only with no episode open) |
+| `t` | Leave teleop; the arm stays armed |
+| `?` | Help |
+| `x` | Finish the session (an open episode is aborted) |
+| anything else | Disarms |
+
+- **One press, one step.** Holding a key gives one step, not a stream: after
+  each step the tool waits until the key is physically released and throws
+  away the repeats Windows typed meanwhile. Release and press again for the
+  next step.
+- The same limits as the rest of the session: base, shoulder and elbow only,
+  the 10 degree cap from home, the drift check, the fault latch. A refusal
+  disarms and leaves teleop; re-arm with `a`.
+- Teleop disarms after 15 s without a key (60 s elsewhere).
+- An episode that ends any way other than `r` (disarm, fault, `x`, camera
+  problem) is recorded as `aborted` with the reason. Only `completed`
+  episodes are meant for datasets.
+- Teleop needs a Windows console window (single keys and key-release
+  detection); elsewhere it is refused.
+
+**Camera.** Add `--camera 0` (webcam index) to record video for the whole
+session into `camera-main.mcap`, or `--camera fake` with `--simulate` for a
+rehearsal. An episode starts only while the camera is writing frames, and is
+aborted if the camera stalls or fails; the arm stays armed, because the
+camera records data and is not your view of the arm. If the camera cannot
+open, the session continues without video. Check a webcam first with
+`python -m scorbot.camera check`.
+
 ## Logs and review
 
 Logs go to `logs\<date>-<robot>-session-NN.jsonl` (never overwritten) with a

@@ -5,6 +5,29 @@ decision, the evidence behind it, and where it lives (commits, docs, tests).
 Git history has the diffs; this file has the story. Hardware claims stay
 "unverified" unless a bench log exists.
 
+## 2026-10-02
+
+### Keyboard teleop (M1 step 4)
+
+- Spec `docs/superpowers/specs/2026-10-02-keyboard-teleop-design.md`, plan
+  `docs/superpowers/plans/2026-10-02-keyboard-teleop.md`. Decided with the
+  user: keyboard only for now, arm once then each press moves (no per-step
+  questions), episodes by key with a task text, 10 degree cap kept until
+  calibration (G2).
+- Codex and Gemini adversarial reviews both found that a quiet gap in
+  console input cannot prove a key was released; teleop now waits on the
+  physical key state (`GetAsyncKeyState` via ctypes, no new dependency).
+  Codex found a stalled camera can still report ok health; episodes now need
+  a frame written in the last second, checked on every key and every 0.2 s.
+  Gemini's 15 s teleop idle disarm and log-every-key were adopted; its
+  suggestion to disarm on a camera fault was rejected (the camera records
+  data, the operator watches the arm).
+- `scorbot/lab/teleop.py`, `scorbot/lab/camera.py`, `--camera`, the
+  `/session/episode` topic, and the full commanded target
+  (`target_signed_counts`) on every jog command (the dataset action).
+- Not yet run in a real Windows console; rehearse with
+  `python -m scorbot.lab --simulate --camera fake` before the lab.
+
 ## 2026-10-01
 
 ### M1 roadmap and foundations
