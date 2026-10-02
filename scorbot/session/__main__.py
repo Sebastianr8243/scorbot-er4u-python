@@ -167,6 +167,13 @@ def _stream_rows(session_path, meta: dict, rows: list, topics: set) -> int:
         broken += bool(index.errors)
         rows.append((status, source, f"  camera {camera_id}", started, robot,
                      len(index.frames), "-", "frames"))
+    declared = set(meta.get("camera_ids", []))
+    for stray in sorted(Path(session_path).glob("camera-*.mcap")):
+        camera_id = stray.stem[len("camera-"):]
+        if camera_id not in declared:
+            broken += 1
+            rows.append(("ERROR 1", source, f"  camera {camera_id}", started, robot, 0, "-",
+                         "camera file not declared by this session"))
     for camera_id in missing_streams(session_path):
         if f"/camera/{camera_id}/image" in topics:
             continue  # frames recorded inside session.mcap (older layout)

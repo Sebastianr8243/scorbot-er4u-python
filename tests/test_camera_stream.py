@@ -163,6 +163,15 @@ class CameraStreamReaderTests(unittest.TestCase):
         errors = scan_stream(second, "wrist").errors
         self.assertTrue(any("different session" in f.message for f in errors))
 
+    def test_sidecar_from_another_stream_is_an_error(self):
+        import shutil
+        from scorbot.camera.stream import scan_stream
+        first, _ = record(self.root / "a")
+        second, _ = record(self.root / "b")
+        shutil.copy(first / "camera-wrist.json", second / "camera-wrist.json")
+        errors = scan_stream(second, "wrist").errors
+        self.assertTrue(any("sidecar" in f.message for f in errors))
+
     def test_stream_without_parent_metadata_is_an_error(self):
         from scorbot.camera.stream import scan_stream
         folder, _ = record(self.root)
@@ -214,6 +223,20 @@ class StreamListingTests(unittest.TestCase):
         self.assertIn("camera wrist", lines[session_line + 1])
         self.assertIn(" 3 ", lines[session_line + 1])
         self.assertNotIn("NOT A SESSION", out.getvalue())
+
+    def test_undeclared_camera_file_is_flagged_in_list(self):
+        import contextlib
+        import io
+        import shutil
+        from scorbot.session.__main__ import main
+        folder, _ = record(self.root)
+        shutil.copy(folder / "camera-wrist.mcap", folder / "camera-stray.mcap")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = main(["list", str(self.root)])
+        self.assertIn("camera stray", out.getvalue())
+        self.assertIn("not declared", out.getvalue())
+        self.assertEqual(code, 1)
 
     def test_frames_inside_session_mcap_are_not_a_missing_stream(self):
         import contextlib

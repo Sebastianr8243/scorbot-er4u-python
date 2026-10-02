@@ -4,10 +4,13 @@ The reader thread stamps each frame with the session clock right after
 ``read()`` returns (read-return time, not exposure time) and puts it on a
 queue bounded by bytes; when full, the oldest frame is dropped and counted.
 The writer thread drops frames older than ``max_latency_s``, JPEG-encodes the
-rest and writes them; it is the only user of the stream and closes it when it
-exits. Health rows go to a bounded deque that the owner drains on its own
-thread. ``stop()`` is bounded and never raises; a thread that will not stop
-is left behind (daemon) and reported as stuck.
+rest and writes them; it is the only thread that writes the stream. ``stop()``
+closes the stream once the writer has finished, recording any capture failure
+(including a stuck reader) in the sidecar so the file never reads as clean
+after a failed capture. Health rows go to a bounded deque that the owner
+drains on its own thread. ``stop()`` is bounded and never raises: closing the
+camera runs on a helper thread, and a thread that will not stop is left behind
+(daemon) and reported as stuck.
 """
 
 from __future__ import annotations
@@ -79,25 +82,41 @@ class CameraRecorder:
         if self._state == "idle":
             self._result = "idle"
             return self._result
+        deadline = time.monotonic() + timeout_s
         self._stop.set()
         with self._cond:
             self._cond.notify_all()
-        try:
-            self.source.close()  # unblocks most blocked read() calls
-        except Exception:
-            pass
+        # Closing the camera unblocks most blocked read() calls, but a driver can
+        # also hang in release(), so it runs on its own thread inside the deadline.
+        closer = threading.Thread(target=self._close_source, name="camera-close",
+                                  daemon=True)
+        closer.start()
         reader, writer = self._threads
-        deadline = time.monotonic() + timeout_s
-        reader.join(max(0.0, timeout_s / 2))
-        writer.join(max(0.0, deadline - time.monotonic()))
-        stuck = [t.name for t in self._threads if t.is_alive()]
-        if stuck and not self.failure:
-            self.failure = f"stuck {', '.join(stuck)}"
+        for thread in (reader, writer, closer):
+            thread.join(max(0.0, deadline - time.monotonic()))
+        stuck = [t.name for t in (reader, writer, closer) if t.is_alive()]
+        with self._cond:
+            if stuck and not self.failure:
+                self.failure = f"stuck {', '.join(stuck)}"
         if not self.failure:
             self._state = "stopped"
+        if self.stream is not None and not writer.is_alive():
+            self.stream.health_summary = dict(self.counts)
+            self.stream.capture_failure = self.failure
+            try:
+                self.stream.close()
+            except Exception as error:
+                with self._cond:
+                    self.failure = self.failure or f"closing the stream: {error}"
         self._emit_health(force=True)
         self._result = self.status
         return self._result
+
+    def _close_source(self) -> None:
+        try:
+            self.source.close()
+        except Exception:
+            pass
 
     def drain_health(self) -> list[dict]:
         """Health rows since the last call, oldest first. Call from the owner's thread."""
@@ -178,13 +197,6 @@ class CameraRecorder:
                     self._emit_health_locked()
         except Exception as error:
             self._fail(f"{type(error).__name__}: {error}")
-        finally:
-            if self.stream is not None:
-                self.stream.health_summary = dict(self.counts, failure=self.failure)
-                try:
-                    self.stream.close()
-                except Exception as error:
-                    self._fail(f"closing the stream: {error}")
 
     # -- health ---------------------------------------------------------------
 

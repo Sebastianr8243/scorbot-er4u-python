@@ -340,6 +340,9 @@ created (`camera_ids=[...]`).
 | `.mcap` with footer, sidecar `closed_cleanly: true`, counts match | normal | nothing |
 | `.mcap`, no sidecar | crash or a stop that got stuck | warning: not closed cleanly |
 | sidecar `closed_cleanly: false` | write error | error, with the error text |
+| sidecar `capture_failure` | camera failed or got stuck mid-recording | error: frames may stop early or have gaps |
+| sidecar from another stream | copied file | error |
+| `camera-<id>.mcap` the session never declared | stray or renamed file | error in `list` |
 | sidecar count differs from frames read | damage | error |
 | declared camera, no `.mcap` | camera never started | warning in `list` |
 | `.mcap` from another session (copied file) | wrong folder | error: frames must not be used |

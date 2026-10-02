@@ -48,6 +48,7 @@ class CameraStream(SessionWriter):
     camera_id: str
     sidecar_path: Path
     health_summary: dict | None = None
+    capture_failure: str | None = None  # set by the recorder before close()
 
     @classmethod
     def create(cls, session: SessionWriter, camera_id: str,
@@ -120,6 +121,8 @@ class CameraStream(SessionWriter):
             sidecar["write_error"] = error
         if self.health_summary is not None:
             sidecar["health_summary"] = self.health_summary
+        if self.capture_failure is not None:
+            sidecar["capture_failure"] = self.capture_failure
         _write_json_atomic(self.sidecar_path, sidecar)
 
 
@@ -220,6 +223,15 @@ def scan_stream(session_dir, camera_id: str) -> StreamIndex:
         findings.append(replay.Finding("warning", "Camera stream was not closed cleanly "
                                                   "(crash or stuck stop)"))
     if sidecar is not None:
+        if embedded is not None and (sidecar.get("session_id") != embedded.get("session_id")
+                                     or sidecar.get("camera_id") != camera_id):
+            findings.append(replay.Finding(
+                "error", f"{name}.json sidecar belongs to a different stream "
+                         "(session or camera id differs)"))
+        if sidecar.get("capture_failure"):
+            findings.append(replay.Finding(
+                "error", f"Camera capture failed: {sidecar['capture_failure']}; frames "
+                         "may stop early or have gaps"))
         if sidecar.get("closed_cleanly") is False:
             findings.append(replay.Finding(
                 "error", f"Camera stream write failed: {sidecar.get('write_error')}"))

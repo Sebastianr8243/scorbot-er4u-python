@@ -157,6 +157,34 @@ class RecorderTests(unittest.TestCase):
         self.assertIn("stuck", status)
         self.assertFalse(self.stream.sidecar_path.exists())
 
+    def test_stop_is_bounded_even_if_closing_the_camera_hangs(self):
+        import time
+
+        class HangingClose(FakeSource):
+            def close(self):
+                threading.Event().wait()
+        recorder = self.recorder(HangingClose())
+        recorder.start()
+        started = time.monotonic()
+        status = recorder.stop(timeout_s=0.5)
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertIn("stuck", status)
+
+    def test_failed_capture_never_scans_clean(self):
+        recorder = self.recorder(FakeSource(fail_at=5))
+        recorder.start()
+        self.assertTrue(wait_for(lambda: recorder.failure))
+        recorder.stop()
+        errors = scan_stream(self.session.path, "wrist").errors
+        self.assertTrue(any("capture failed" in f.message for f in errors))
+
+    def test_stuck_reader_is_recorded_in_the_stream(self):
+        recorder = self.recorder(FakeSource(block_at=0, release_on_close=False))
+        recorder.start()
+        recorder.stop(timeout_s=0.5)
+        errors = scan_stream(self.session.path, "wrist").errors
+        self.assertTrue(any("stuck" in f.message for f in errors))
+
     def test_stop_twice_and_before_start(self):
         idle = CameraRecorder(FakeSource(), None, encoder=fake_jpeg)
         self.assertEqual(idle.stop(), "idle")
