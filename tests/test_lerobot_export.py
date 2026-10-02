@@ -62,5 +62,128 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(rel(raw, home)[0], -3)
 
 
+def make_data(**overrides):
+    """A minimal valid session: home 0, one completed episode 0..1 s, no jogs, no camera."""
+    from scorbot.lerobot_export.load import MOTORS, Episode, LabSessionData
+    home = {m: 0 for m in MOTORS}
+    data = LabSessionData(Path("lab.jsonl"), "lab", [], data_source="simulated",
+                          home_raw=home, states=[(0, dict(home))], clock_resolution_s=1e-7,
+                          episodes=[Episode(1, "task", "completed", None, 0, 1_000_000_000,
+                                            False)],
+                          mcap_episodes=[{"episode": 1, "event": "start", "status": None},
+                                         {"episode": 1, "event": "end",
+                                          "status": "completed"}])
+    for key, value in overrides.items():
+        setattr(data, key, value)
+    return data
+
+
+def make_jog(command_ns, result_ns, *, index=0, delta=142, trace=(), lab_offset=0):
+    from scorbot.lerobot_export.load import MOTORS, Jog
+    start = {m: 0 for m in MOTORS}
+    return Jog(index, "base", command_ns, result_ns, start, {"base": delta},
+               {"base": delta}, {"base": delta + lab_offset, "shoulder": 0},
+               list(trace), 0)
+
+
+def video_episode():
+    from scorbot.lerobot_export.load import Episode
+    return [Episode(1, "t", "completed", None, 0, 1_000_000_000, True)]
+
+
+def camera_index(stamps_ns):
+    from scorbot.camera.stream import StreamIndex
+    frames = [{"seq": i, "frame_number": i, "observed_monotonic_ns": t, "width": 64,
+               "height": 48} for i, t in enumerate(stamps_ns)]
+    return StreamIndex("main", {}, frames, [])
+
+
+class CheckTests(unittest.TestCase):
+    def reasons(self, data, *, video=False, fps=10):
+        from scorbot.lerobot_export.checks import exportable
+        episodes, refusals = exportable(data, fps=fps, max_frame_gap_s=0.2, video=video)
+        return episodes, [r.reason for r in refusals]
+
+    def test_clean_session_exports_its_episode(self):
+        episodes, reasons = self.reasons(make_data())
+        self.assertEqual(len(episodes), 1)
+        self.assertEqual(reasons, [])
+
+    def test_session_without_home_is_refused(self):
+        _, reasons = self.reasons(make_data(home_raw=None))
+        self.assertTrue(any("home" in r for r in reasons))
+
+    def test_coarse_clock_is_refused(self):
+        _, reasons = self.reasons(make_data(clock_resolution_s=0.0156))
+        self.assertTrue(any("clock" in r for r in reasons))
+
+    def test_failed_session_is_refused(self):
+        _, reasons = self.reasons(make_data(rows=[{"type": "session_failed",
+                                                   "host_monotonic_ns": 5}]))
+        self.assertTrue(any("session_failed" in r for r in reasons))
+
+    def test_episode_without_end_is_skipped(self):
+        from scorbot.lerobot_export.load import Episode
+        data = make_data(episodes=[Episode(1, "t", "missing end", "no episode_end row", 0,
+                                           None, False)])
+        episodes, reasons = self.reasons(data)
+        self.assertEqual(episodes, [])
+        self.assertTrue(any("not completed" in r for r in reasons))
+
+    def test_mcap_episode_marks_must_match(self):
+        _, reasons = self.reasons(make_data(mcap_episodes=[]))
+        self.assertTrue(any("MCAP" in r for r in reasons))
+
+    def test_fault_inside_window_is_refused(self):
+        _, reasons = self.reasons(make_data(rows=[{"type": "counts_drift",
+                                                   "host_monotonic_ns": 500_000_000}]))
+        self.assertTrue(any("counts_drift" in r for r in reasons))
+
+    def test_lab_and_sdk_targets_must_agree(self):
+        far = make_data(jogs=[make_jog(200_000_000, 250_000_000, lab_offset=25)])
+        near = make_data(jogs=[make_jog(200_000_000, 250_000_000, lab_offset=3)])
+        self.assertTrue(any("target" in r for r in self.reasons(far)[1]))
+        self.assertEqual(self.reasons(near)[1], [])
+
+    def test_unmatched_jog_is_refused(self):
+        jog = make_jog(200_000_000, 250_000_000)
+        jog.lab_target_signed = None
+        self.assertTrue(any("matched" in r for r in self.reasons(make_data(jogs=[jog]))[1]))
+
+    def test_two_jogs_in_one_interval_are_refused(self):
+        data = make_data(jogs=[make_jog(210_000_000, 220_000_000),
+                               make_jog(250_000_000, 260_000_000, index=1)])
+        self.assertTrue(any("one grid interval" in r for r in self.reasons(data)[1]))
+
+    def test_video_jog_without_trace_coverage_is_refused(self):
+        from scorbot.lerobot_export.load import MOTORS
+        slow = make_jog(150_000_000, 450_000_000)
+        covered = make_jog(150_000_000, 450_000_000,
+                           trace=[(t, {m: 0 for m in MOTORS})
+                                  for t in range(160_000_000, 450_000_000, 13_000_000)])
+        camera = camera_index(range(0, 1_300_000_000, 33_000_000))
+        bad = make_data(jogs=[slow], camera=camera, episodes=video_episode())
+        good = make_data(jogs=[covered], camera=camera, episodes=video_episode())
+        self.assertTrue(any("packet" in r for r in self.reasons(bad, video=True)[1]))
+        self.assertEqual(self.reasons(good, video=True)[1], [])
+
+    def test_frame_gap_is_refused(self):
+        data = make_data(camera=camera_index([0, 900_000_000]), episodes=video_episode())
+        self.assertTrue(any("frame gap" in r for r in self.reasons(data, video=True)[1]))
+
+    def test_too_short_episode_is_refused(self):
+        from scorbot.lerobot_export.load import Episode
+        data = make_data(episodes=[Episode(1, "t", "completed", None, 0, 50_000_000, False)])
+        self.assertTrue(any("too short" in r for r in self.reasons(data)[1]))
+
+    def test_export_level_rules(self):
+        from scorbot.lerobot_export.checks import check_export
+        real, sim = make_data(data_source="real"), make_data()
+        self.assertTrue(any("real and simulated" in r.reason
+                            for r in check_export([real, sim], video=False)))
+        self.assertTrue(any("--no-video" in r.reason
+                            for r in check_export([sim], video=True)))
+
+
 if __name__ == "__main__":
     unittest.main()
