@@ -96,5 +96,93 @@ class CameraStreamWriterTests(unittest.TestCase):
             stream.close()
 
 
+def record(root, frames=3, close=True, data_source="simulated"):
+    from scorbot.camera.stream import CameraStream
+    session = new_session(root, data_source=data_source)
+    stream = CameraStream.create(session, "wrist")
+    for n in range(frames):
+        stream.log_frame(n, bytes([n]) * 4, width=2, height=2,
+                         observed_monotonic_ns=1_000 + n)
+    if close:
+        stream.close()
+    session.close()
+    return session.path, stream
+
+
+class CameraStreamReaderTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_clean_stream_scans_without_image_bytes(self):
+        from scorbot.camera.stream import scan_stream
+        folder, _ = record(self.root)
+        index = scan_stream(folder, "wrist")
+        self.assertEqual(index.findings, [])
+        self.assertEqual([f["frame_number"] for f in index.frames], [0, 1, 2])
+        self.assertEqual([f["observed_monotonic_ns"] for f in index.frames],
+                         [1000, 1001, 1002])
+        self.assertTrue(all("data" not in f for f in index.frames))
+
+    def test_iter_frames_yields_bytes_in_order(self):
+        from scorbot.camera.stream import iter_frames
+        folder, _ = record(self.root)
+        frames = list(iter_frames(folder, "wrist"))
+        self.assertEqual([f.data for f in frames], [b"\x00" * 4, b"\x01" * 4, b"\x02" * 4])
+        self.assertEqual(frames[1].observed_monotonic_ns, 1001)
+
+    def test_no_sidecar_is_not_closed_cleanly(self):
+        from scorbot.camera.stream import scan_stream
+        folder, stream = record(self.root, close=False)
+        stream._stream.close()  # crash: no footer, no sidecar
+        index = scan_stream(folder, "wrist")
+        self.assertEqual(index.errors, [])
+        self.assertTrue(any("not closed cleanly" in f.message for f in index.warnings))
+        self.assertEqual(len(index.frames), 3)
+
+    def test_write_error_and_count_mismatch_are_errors(self):
+        from scorbot.camera.stream import scan_stream
+        folder, stream = record(self.root)
+        sidecar = json.loads(stream.sidecar_path.read_text(encoding="utf-8"))
+        sidecar.update(closed_cleanly=False, write_error="disk full", event_count=5)
+        stream.sidecar_path.write_text(json.dumps(sidecar), encoding="utf-8")
+        messages = [f.message for f in scan_stream(folder, "wrist").errors]
+        self.assertTrue(any("disk full" in m for m in messages))
+        self.assertTrue(any("5" in m and "3" in m for m in messages))
+
+    def test_foreign_stream_is_an_error(self):
+        import shutil
+        from scorbot.camera.stream import scan_stream
+        first, _ = record(self.root / "a")
+        second, _ = record(self.root / "b")
+        for suffix in (".mcap", ".json"):
+            shutil.copy(first / f"camera-wrist{suffix}", second / f"camera-wrist{suffix}")
+        errors = scan_stream(second, "wrist").errors
+        self.assertTrue(any("different session" in f.message for f in errors))
+
+    def test_stream_without_parent_metadata_is_an_error(self):
+        from scorbot.camera.stream import scan_stream
+        folder, _ = record(self.root)
+        (folder / "metadata.json").unlink()
+        (folder / "session.mcap").unlink()
+        errors = scan_stream(folder, "wrist").errors
+        self.assertTrue(any("parent session" in f.message for f in errors))
+
+    def test_parent_identity_falls_back_to_session_mcap(self):
+        from scorbot.camera.stream import scan_stream
+        folder, _ = record(self.root)
+        (folder / "metadata.json").unlink()
+        self.assertEqual(scan_stream(folder, "wrist").errors, [])
+
+    def test_declared_camera_without_file_is_listed(self):
+        from scorbot.camera.stream import missing_streams
+        session = new_session(self.root, camera_ids=("wrist", "top"))
+        session.close()
+        self.assertEqual(missing_streams(session.path), ["top", "wrist"])
+
+
 if __name__ == "__main__":
     unittest.main()

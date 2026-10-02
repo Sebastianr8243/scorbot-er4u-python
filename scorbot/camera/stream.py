@@ -10,14 +10,18 @@ docs/superpowers/specs/2026-10-01-camera-capture-design.md.
 
 from __future__ import annotations
 
+import base64
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 
+from mcap.records import Message
+from mcap.stream_reader import StreamReader
 from mcap.writer import Writer
 
-from ..session import schemas
+from ..session import replay, schemas
 from ..session.record import SessionError, SessionWriter, _write_json_atomic
 
 STREAM_VERSION = 1
@@ -117,3 +121,144 @@ class CameraStream(SessionWriter):
         if self.health_summary is not None:
             sidecar["health_summary"] = self.health_summary
         _write_json_atomic(self.sidecar_path, sidecar)
+
+
+# -- reading -----------------------------------------------------------------
+
+_IDENTITY = ("session_id", "data_source", "clock")
+
+
+@dataclass
+class StreamIndex:
+    camera_id: str
+    metadata: dict
+    frames: list[dict]
+    findings: list = field(default_factory=list)
+
+    @property
+    def errors(self):
+        return [f for f in self.findings if f.level == "error"]
+
+    @property
+    def warnings(self):
+        return [f for f in self.findings if f.level == "warning"]
+
+
+@dataclass(frozen=True)
+class Frame:
+    frame_number: int
+    observed_monotonic_ns: int
+    data: bytes
+    format: str
+
+
+def _parent_identity(folder: Path, findings) -> dict | None:
+    sidecar = replay._read_sidecar(folder / "metadata.json", findings)
+    if sidecar is not None:
+        return sidecar
+    mcap = folder / "session.mcap"
+    if mcap.is_file():
+        with open(mcap, "rb") as stream:
+            _events, embedded, _finished, _failure = replay._read_mcap(stream, [],
+                                                                      drop_data=True)
+        return embedded
+    return None
+
+
+def _read_stream_sidecar(path: Path, findings) -> dict | None:
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as error:
+        findings.append(replay.Finding("error", f"{path.name} is not valid JSON: {error}"))
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def scan_stream(session_dir, camera_id: str) -> StreamIndex:
+    """Check one camera stream and index its frames without keeping image bytes."""
+    folder = Path(session_dir)
+    name = stream_name(camera_id)
+    path = folder / f"{name}.mcap"
+    if not path.is_file():
+        raise FileNotFoundError(f"No {name}.mcap in {folder}")
+    findings: list = []
+    sidecar = _read_stream_sidecar(folder / f"{name}.json", findings)
+    with open(path, "rb") as stream:
+        events, embedded, finished, failure = replay._read_mcap(
+            stream, findings, metadata_name=STREAM_METADATA, drop_data=True)
+        if failure is not None:
+            claims_closed = (replay._ends_with_magic(stream)
+                             or (sidecar or {}).get("closed_cleanly") is True)
+            replay._classify_tail(stream, *failure, claims_closed, findings)
+    metadata = embedded or {}
+    if embedded is None:
+        findings.append(replay.Finding("error", "No embedded stream metadata"))
+    elif embedded.get("stream_version") != STREAM_VERSION:
+        findings.append(replay.Finding(
+            "error", f"Unsupported stream_version {embedded.get('stream_version')!r}"))
+    elif embedded.get("camera_id") != camera_id:
+        findings.append(replay.Finding("error", "Stream metadata names camera "
+                                                f"{embedded.get('camera_id')!r}"))
+    parent = _parent_identity(folder, findings)
+    if parent is None:
+        findings.append(replay.Finding("error", "No parent session metadata to check "
+                                                "this stream against"))
+    elif embedded is not None:
+        differing = [k for k in _IDENTITY if parent.get(k) != embedded.get(k)]
+        if differing:
+            findings.append(replay.Finding(
+                "error", f"Stream belongs to a different session (differs on "
+                         f"{', '.join(differing)}); frames must not be used"))
+    topic = schemas.camera_topic(camera_id, "image")
+    stray = sorted({e["topic"] for e in events if e["topic"] != topic})
+    if stray:
+        findings.append(replay.Finding("error", f"Unexpected topics in stream: {stray}"))
+    replay._check_events(events, findings)
+    if sidecar is None or not finished:
+        findings.append(replay.Finding("warning", "Camera stream was not closed cleanly "
+                                                  "(crash or stuck stop)"))
+    if sidecar is not None:
+        if sidecar.get("closed_cleanly") is False:
+            findings.append(replay.Finding(
+                "error", f"Camera stream write failed: {sidecar.get('write_error')}"))
+        count = sidecar.get("event_count")
+        if isinstance(count, int) and count != len(events):
+            findings.append(replay.Finding(
+                "error", f"{name}.json records {count} frames but {len(events)} "
+                         "could be read"))
+    frames = [{"seq": e["seq"],
+               "frame_number": e["payload"]["_rec"].get("frame_number"),
+               "observed_monotonic_ns": e["payload"]["_rec"].get("observed_monotonic_ns"),
+               "logged_monotonic_ns": e["payload"]["_rec"].get("logged_monotonic_ns"),
+               "width": e["payload"]["_rec"].get("width"),
+               "height": e["payload"]["_rec"].get("height")}
+              for e in events if e["topic"] == topic]
+    return StreamIndex(camera_id, metadata, frames, findings)
+
+
+def iter_frames(session_dir, camera_id: str):
+    """Yield each frame's bytes in file order; stops quietly at a damaged tail.
+
+    Run ``scan_stream`` first: it reports the damage this generator skips.
+    """
+    path = Path(session_dir) / f"{stream_name(camera_id)}.mcap"
+    with open(path, "rb") as stream:
+        try:
+            for record in StreamReader(stream, validate_crcs=True).records:
+                if isinstance(record, Message):
+                    payload = json.loads(record.data)
+                    rec = payload.get("_rec", {})
+                    yield Frame(rec.get("frame_number"), rec.get("observed_monotonic_ns"),
+                                base64.b64decode(payload["data"]), payload.get("format"))
+        except Exception:
+            return
+
+
+def missing_streams(session_dir) -> list[str]:
+    """Camera ids the session declared that have no stream file."""
+    folder = Path(session_dir)
+    parent = _parent_identity(folder, []) or {}
+    return sorted(c for c in parent.get("camera_ids", [])
+                  if not (folder / f"{stream_name(c)}.mcap").is_file())
