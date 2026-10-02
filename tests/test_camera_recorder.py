@@ -192,6 +192,34 @@ class RecorderTests(unittest.TestCase):
         self.assertTrue(wait_for(lambda: recorder.last_write_ns is not None))
         recorder.stop()
 
+    def test_stream_close_hang_does_not_block_stop(self):
+        import time
+        never = threading.Event()
+        self.stream.close = lambda: never.wait()
+        recorder = self.recorder(FakeSource())
+        recorder.start()
+        started = time.monotonic()
+        status = recorder.stop(timeout_s=0.5)
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertIn("closing the stream", status)
+
+    def test_frames_queued_at_stop_are_counted(self):
+        import time
+        original = self.stream.log_frame
+
+        def slow(*args, **kwargs):
+            time.sleep(0.02)
+            return original(*args, **kwargs)
+        self.stream.log_frame = slow
+        recorder = self.recorder(FakeSource())
+        recorder.start()
+        wait_for(lambda: recorder.counts["frames"] > 50)
+        recorder.stop()
+        counts = recorder.counts
+        self.assertGreater(counts["dropped_stop"], 0)
+        self.assertEqual(counts["frames"], counts["written"] + counts["dropped_queue"]
+                         + counts["dropped_late"] + counts["dropped_stop"])
+
     def test_stop_twice_and_before_start(self):
         idle = CameraRecorder(FakeSource(), None, encoder=fake_jpeg)
         self.assertEqual(idle.stop(), "idle")

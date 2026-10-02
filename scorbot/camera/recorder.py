@@ -51,7 +51,8 @@ class CameraRecorder:
         self._result: str | None = None
         self.failure: str | None = None
         self.last_write_ns: int | None = None  # clock() when the last frame was written
-        self.counts = {"frames": 0, "written": 0, "dropped_queue": 0, "dropped_late": 0}
+        self.counts = {"frames": 0, "written": 0, "dropped_queue": 0, "dropped_late": 0,
+                       "dropped_stop": 0}
         self._window = self._new_window()
         self._window_started = None
         self._last_stamp = None
@@ -93,8 +94,10 @@ class CameraRecorder:
                                   daemon=True)
         closer.start()
         reader, writer = self._threads
+        # The last quarter of the deadline is kept for closing the stream file.
+        threads_deadline = deadline - timeout_s / 4
         for thread in (reader, writer, closer):
-            thread.join(max(0.0, deadline - time.monotonic()))
+            thread.join(max(0.0, threads_deadline - time.monotonic()))
         stuck = [t.name for t in (reader, writer, closer) if t.is_alive()]
         with self._cond:
             if stuck and not self.failure:
@@ -104,14 +107,26 @@ class CameraRecorder:
         if self.stream is not None and not writer.is_alive():
             self.stream.health_summary = dict(self.counts)
             self.stream.capture_failure = self.failure
-            try:
-                self.stream.close()
-            except Exception as error:
-                with self._cond:
-                    self.failure = self.failure or f"closing the stream: {error}"
+            # A failing disk can hang flush/fsync; close inside the same deadline.
+            errors = []
+            closer = threading.Thread(target=self._close_stream, args=(errors,),
+                                      name="camera-stream-close", daemon=True)
+            closer.start()
+            closer.join(max(0.0, deadline - time.monotonic()))
+            with self._cond:
+                if closer.is_alive():
+                    self.failure = self.failure or "stuck closing the stream"
+                elif errors:
+                    self.failure = self.failure or f"closing the stream: {errors[0]}"
         self._emit_health(force=True)
         self._result = self.status
         return self._result
+
+    def _close_stream(self, errors: list) -> None:
+        try:
+            self.stream.close()
+        except Exception as error:
+            errors.append(error)
 
     def _close_source(self) -> None:
         try:
@@ -177,6 +192,10 @@ class CameraRecorder:
                         self._cond.wait(0.1)
                         self._emit_health_locked()
                     if self._stop.is_set():
+                        # Frames still queued are lost; count them, never hide them.
+                        self.counts["dropped_stop"] += len(self._queue)
+                        self._queue.clear()
+                        self._queued_bytes = 0
                         return
                     number, stamp, image = self._queue.popleft()
                     self._queued_bytes -= image.nbytes
