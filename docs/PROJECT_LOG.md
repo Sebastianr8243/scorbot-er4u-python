@@ -7,6 +7,28 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 ## 2026-10-02
 
+### LeRobot exporter (M1 step 5)
+
+- Spec `docs/superpowers/specs/2026-10-02-lerobot-exporter-design.md`, plan
+  `docs/superpowers/plans/2026-10-02-lerobot-exporter.md`, guide
+  `docs/LEROBOT_EXPORT.md`. Decided with the user: LeRobot 0.6.1 in a
+  separate CPU environment `.venv-lerobot`, 10 fps, robot-only datasets only
+  with `--no-video`, local folder only.
+- A Codex adversarial review found the 10 fps grid could erase short jogs,
+  held states could contradict the video during motion, the target check
+  compared two values from the same source, image latency is unknown, and a
+  failed build could publish a partial dataset. Fixed: every jog labels at
+  least one frame, state during a jog comes from the recorded USB packets,
+  the action is the SDK's own target, publication is atomic; image latency
+  is recorded as unmeasured with a stopwatch procedure in the guide.
+- Gemini was not used: its API key's prepaid credits ran out mid-review
+  (the earlier Gemini reviews this session were billed to them).
+- No `lerobot` extra in `pyproject.toml`: its OpenCV pin conflicts with the
+  `camera` extra in one universal lock.
+- Verified: the main suite, and a real round trip in `.venv-lerobot` (a
+  simulated teleop session with camera frames exports, reopens with
+  `LeRobotDataset`, and its actions match the SDK's jog targets).
+
 ### Keyboard teleop (M1 step 4)
 
 - Spec `docs/superpowers/specs/2026-10-02-keyboard-teleop-design.md`, plan

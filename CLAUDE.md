@@ -39,6 +39,7 @@ flowchart TD
 |---|---|
 | `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, kinematics and trajectory planning (both offline, wired into nothing), simulator, preflight |
 | `scorbot/session/` | MCAP session recorder, replay, analysis, CLI (`python -m scorbot.session`). Never imports USB |
+| `scorbot/lerobot_export/` | Lab sessions to a local LeRobot dataset: load, refusal checks, resampling (pure), `write.py` (only module importing `lerobot`, run in `.venv-lerobot`). `python -m scorbot.lerobot_export ... --dry-run`. See `docs/LEROBOT_EXPORT.md` |
 | `scorbot/camera/` | Webcam capture: per-camera stream files next to a session, recorder threads with a bounded stop, `python -m scorbot.camera check`. OpenCV optional (`[camera]`). Never imports USB |
 | `scorbot/transport/` | Pure packet codec (`codec.py`), proven byte-identical to the legacy code by golden tests (`tests/test_transport_codec.py`). Not wired into `Scorbot`. Phase A of the USB upgrade |
 | `openScorbot/` | Original GPL OpenScorbot protocol code plus `motion_profile.py`; frozen legacy backend, PyQt GUI kept as reference |
@@ -57,6 +58,7 @@ uv sync --locked --extra windows --extra test  # lab PC: Python 3.13 + exact ver
 python -m compileall -q scorbot openScorbot scripts examples tests
 python -m unittest discover -s tests -v        # ~90 s, 309 tests, 2 expected failures (documented legacy bugs); pytest -n auto is faster
 python examples/make_synthetic_session.py --root <tmpdir>   # CI smoke test
+.venv-lerobot/Scripts/python.exe -m unittest discover -s tests -p "test_lerobot_export_write.py"  # LeRobot round trip (docs/LEROBOT_EXPORT.md)
 ruff check .                                   # CI rules incl. bugbear (openScorbot/ excluded); `pre-commit install` runs it on every commit
 ```
 
