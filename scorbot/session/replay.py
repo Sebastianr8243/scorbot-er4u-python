@@ -120,7 +120,8 @@ def _merge_metadata(sidecar, embedded, findings: list[Finding]) -> dict:
     return {**sidecar, **{key: embedded.get(key) for key in _IDENTITY_KEYS}}
 
 
-def _read_mcap(stream, findings: list[Finding]):
+def _read_mcap(stream, findings: list[Finding], *, metadata_name: str = "scorbot.session",
+               drop_data: bool = False):
     channels: dict[int, Channel] = {}
     schema_names: dict[int, str] = {}
     events: list[dict] = []
@@ -137,8 +138,10 @@ def _read_mcap(stream, findings: list[Finding]):
             elif isinstance(record, Message):
                 event = _decode(record, channels, schema_names, last_good, findings)
                 if event is not None:
+                    if drop_data:
+                        event["payload"].pop("data", None)
                     events.append(event)
-            elif isinstance(record, Metadata) and record.name == "scorbot.session":
+            elif isinstance(record, Metadata) and record.name == metadata_name:
                 try:
                     embedded_metadata = json.loads(record.metadata["json"])
                 except (KeyError, ValueError):

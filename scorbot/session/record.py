@@ -154,13 +154,15 @@ class SessionWriter:
     def log_frame(self, camera_id: str, frame_number: int, data: bytes, *, format: str,
                   width: int, height: int, observed_monotonic_ns: int | None = None,
                   camera_config_id: str | None = None, mount_id: str | None = None) -> int:
+        if observed_monotonic_ns is None:
+            raise SessionError("A camera frame needs its capture time "
+                               "(observed_monotonic_ns, taken right after read())")
         if format not in IMAGE_FORMATS:
             raise ValueError(f"format must be one of {IMAGE_FORMATS}")
         if int(width) <= 0 or int(height) <= 0:
             raise ValueError("width and height must be positive")
         topic = schemas.camera_topic(camera_id, "image")
-        stamp = self._epoch(observed_monotonic_ns if observed_monotonic_ns is not None
-                            else time.monotonic_ns())
+        stamp = self._epoch(observed_monotonic_ns)
         payload = {
             "timestamp": {"sec": stamp // 1_000_000_000, "nsec": stamp % 1_000_000_000},
             "frame_id": camera_id,

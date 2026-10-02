@@ -170,7 +170,8 @@ class WriterTests(unittest.TestCase):
         from scorbot.session import schemas
         data = b"\x89PNG fake image bytes"
         with new_writer(self.root, camera_ids=["cam0"]) as writer:
-            writer.log_frame("cam0", 7, data, format="png", width=4, height=3)
+            writer.log_frame("cam0", 7, data, format="png", width=4, height=3,
+                             observed_monotonic_ns=1)
         [(topic, _, payload)] = raw_messages(writer.mcap_path)
         self.assertEqual(topic, "/camera/cam0/image")
         for key in schemas.REQUIRED["foxglove.CompressedImage"]:
@@ -178,6 +179,24 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(base64.b64decode(payload["data"]), data)
         self.assertEqual(payload["_rec"]["frame_number"], 7)
         self.assertEqual(payload["frame_id"], "cam0")
+
+    def test_frame_without_capture_time_is_refused(self):
+        from scorbot.session import SessionError
+        with new_writer(self.root, camera_ids=["cam0"]) as writer:
+            with self.assertRaises(SessionError):
+                writer.log_frame("cam0", 0, b"x", format="png", width=1, height=1)
+
+    def test_reader_can_drop_image_bytes(self):
+        from scorbot.session.replay import _read_mcap
+        with new_writer(self.root, camera_ids=["cam0"]) as writer:
+            writer.log_frame("cam0", 0, b"abc", format="png", width=1, height=1,
+                             observed_monotonic_ns=5)
+        with open(writer.mcap_path, "rb") as stream:
+            events, embedded, finished, failure = _read_mcap(stream, [], drop_data=True)
+        self.assertNotIn("data", events[0]["payload"])
+        self.assertEqual(embedded["session_id"], writer.metadata["session_id"])
+        self.assertTrue(finished)
+        self.assertIsNone(failure)
 
     def test_concurrent_commands_get_unique_ids(self):
         import threading
