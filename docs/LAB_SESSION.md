@@ -10,6 +10,14 @@ uses no USB and no robot.
 Add `--rehearse-motors-dropped` to the rehearsal to practise the controller
 cutting motor power by itself right after homing.
 
+The rehearsal models the arm (`scorbot.simulated.REHEARSAL_PROFILE`): homing
+takes about 3 s and presses each home switch in the legacy order (shoulder,
+elbow, pitch, roll, base), readings wobble by one count at rest, and
+before every LED question a `SIMULATED panel:` line shows what the modeled
+front panel would look like. On the real arm there is no such line: look at
+the controller. All of it is modeled from the manuals and other projects,
+not measured.
+
 **Connecting energises the motors.** Someone stands at the physical stop the
 whole time. Software disarm and disable are not emergency stops.
 

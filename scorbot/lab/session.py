@@ -188,6 +188,11 @@ class LabSession:
 
     def _led(self, step, *, motors, power=None, required=False):
         self.op.show(f"LED check {step.replace('_', ' ')}: look at the controller front panel.")
+        sim = getattr(self.robot, "sim", None)
+        if self.data_source == "simulated" and hasattr(sim, "leds"):
+            # Rehearsals have no panel to look at; show the modeled one instead.
+            panel = sim.leds()
+            self.op.show(f"SIMULATED panel: MOTORS {panel['motors']}, POWER {panel['power']}")
         seen_motors = self.op.choose("  MOTORS LED lit? [y/n/u=unsure] ", MOTORS_KEYS)
         seen_power = self.op.choose("  POWER LED colour? [g/o/f/u=unsure] ", POWER_KEYS)
         self._write("led_observation", step=step, motors_led=seen_motors, power_led=seen_power,

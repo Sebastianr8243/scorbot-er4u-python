@@ -7,6 +7,12 @@ code as the lab. The motion model is deliberately simple: a jog changes the
 motor counts by exactly the legacy plan; there is no timing, dynamics,
 backlash, gravity or collision model. Every state is marked ``simulated``.
 
+``SimulatorProfile`` adds optional realism for rehearsals (BACKLOG #40): a
+homing sequence that presses each home switch in the legacy order, rest
+jitter, and the front-panel LEDs. Every profile value is a modeled
+hypothesis taken from the manuals, vendor files or other projects, never a
+measurement of our arm. The default profile keeps the simple model above.
+
 ``motors_dropped`` models the controller cutting motor power by itself (e-stop,
 over-current, communication time-out). Nothing in the state packet changes, as
 on hardware no decoded byte is known to show motor power, so the facade still
@@ -17,9 +23,12 @@ code. That a real controller answers this way is an assumption (unverified).
 from __future__ import annotations
 
 import dataclasses
+from dataclasses import dataclass, field
 import queue
+import random
 import threading
 import time
+from types import MappingProxyType
 
 from .packet import PacketSnapshot
 from .robot import Scorbot, ScorbotError
@@ -31,6 +40,63 @@ MAX_COUNT = 65535
 _EXIT, _MOTORS_OFF, _MOTORS_ON, _HOME = 528, 16, 17, 18
 _JOG_ORDERS = set(range(4, 14))
 _ERROR_UNKNOWN_ORDER, _ERROR_INJECTED, _ERROR_COUNT_RANGE, _ERROR_MOTORS_OFF = 1, 3, 4, 5
+_ERROR_HOME_SEARCH = 2  # what openScorbot/setHome.py puts in the queue on a search time-out
+ARM_MOTORS = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2")
+
+
+@dataclass(frozen=True)
+class SimulatorProfile:
+    """Optional simulator realism. Every default is a modeled hypothesis, not measured.
+
+    - ``homing_order``: the legacy ``setHome.py`` sequence (shoulder, elbow,
+      pitch, roll, base); the vendor INI order differs and is not imposed.
+      Pitch and roll are modeled on wrist motors 1 and 2 alone, a
+      simplification of the two-motor differential.
+    - ``switch_bits``: ``state.HOME_SWITCH_BITS`` (legacy byte 5 decode; polarity
+      unverified).
+    - ``switch_width_counts``: about 200 counts pressed, from
+      github.com/steveturbek/scorbot_controller (a replacement controller, so a
+      weak prior).
+    - ``home_offsets``: vendor INI counts from the switch to home (shoulder -190,
+      elbow +45, pitch +850, roll -690; none given for the base).
+    - ``rest_jitter_counts``: our choice; +/- counts added to every reading at
+      rest, never to the stored position.
+    - ``fail_home_motor``: that motor's switch is never found and homing fails
+      with the legacy search time-out code.
+    """
+
+    model_homing: bool = False
+    homing_duration_s: float = 0.0
+    homing_steps_per_motor: int = 8
+    homing_order: tuple[str, ...] = ("shoulder", "elbow", "wrist_motor_1", "wrist_motor_2",
+                                     "base")
+    switch_bits: MappingProxyType = field(default_factory=lambda: MappingProxyType({
+        "base": 1, "shoulder": 2, "elbow": 4, "wrist_motor_1": 8, "wrist_motor_2": 16}))
+    switch_width_counts: int = 200
+    home_offsets: MappingProxyType = field(default_factory=lambda: MappingProxyType({
+        "base": 0, "shoulder": -190, "elbow": 45, "wrist_motor_1": 850,
+        "wrist_motor_2": -690}))
+    rest_jitter_counts: int = 0
+    seed: int = 0
+    fail_home_motor: str | None = None
+    status: str = "modeled hypotheses from manuals and other projects, not measured"
+
+    def __post_init__(self):
+        if set(self.homing_order) != set(self.switch_bits) or \
+                set(self.home_offsets) != set(self.switch_bits):
+            raise ValueError("homing_order, switch_bits and home_offsets must name the same motors")
+        if self.fail_home_motor is not None and self.fail_home_motor not in self.switch_bits:
+            raise ValueError(f"Unknown motor {self.fail_home_motor!r}")
+        if self.homing_duration_s < 0 or self.homing_steps_per_motor < 1 \
+                or self.rest_jitter_counts < 0 or self.switch_width_counts < 1:
+            raise ValueError("Durations, steps, jitter and switch width must be non-negative")
+
+
+# Rehearsals (python -m scorbot.lab --simulate): each switch visibly pressed in
+# turn, about 3 s in all, and +/-1 count of rest noise (two readings then differ by
+# at most 2, inside the lab idle check's STABLE_COUNTS). Still modeled, not measured.
+REHEARSAL_PROFILE = SimulatorProfile(model_homing=True, homing_duration_s=3.0,
+                                     rest_jitter_counts=1)
 
 
 def encode_packet(signed_counts: dict[str, int], switch_bits: int = 0,
@@ -55,7 +121,13 @@ class SimulatedController:
 
     def __init__(self, *, home_counts: dict[str, int] | None = None,
                  start_counts: dict[str, int] | None = None, step_delay_s: float = 0.0,
-                 drop_motors_after_home: bool = False):
+                 drop_motors_after_home: bool = False,
+                 profile: SimulatorProfile | None = None):
+        self.profile = profile or SimulatorProfile()
+        self.homing_trace: list[tuple[str, int, dict[str, int]]] = []
+        self.link_up = False
+        self._moving = False
+        self._rng = random.Random(self.profile.seed)
         self.home_counts = {name: 0 for name in JOINTS}
         self.home_counts.update(home_counts or {})
         self.counts = {name: 0 for name in JOINTS}
@@ -99,23 +171,49 @@ class SimulatedController:
         override = {"base": 0} if self._take("corrupt_packet") else None
         with self._lock:
             self._index += 1
-            data = encode_packet(self.counts, self.switch_bits, override)
+            counts = self.counts
+            jitter = self.profile.rest_jitter_counts
+            if jitter and not self._moving:
+                counts = dict(counts)
+                for motor in ARM_MOTORS:
+                    value = counts[motor] + self._rng.randint(-jitter, jitter)
+                    counts[motor] = max(-MAX_COUNT, min(MAX_COUNT, value))
+            data = encode_packet(counts, self.switch_bits, override)
             return PacketSnapshot(data, self._index, time.monotonic_ns())
+
+    def leds(self) -> dict[str, str]:
+        """Front-panel LEDs as the manual describes them (pp. 10-11), modeled.
+
+        POWER is green while the PC link is up and orange otherwise (the
+        datasheet says red; unverified). MOTORS is lit only while motor power
+        is on, so a silent ``motors_dropped`` shows here although no state
+        byte reveals it.
+        """
+        with self._lock:
+            return {"motors": "lit" if self.motors_on and self.link_up else "off",
+                    "power": "green" if self.link_up else "orange"}
 
     # -- command worker seam (Scorbot._commands / Scorbot._results) --------
 
     def worker(self, commands: queue.Queue, results: queue.Queue) -> None:
+        with self._lock:
+            self.link_up = True
         while True:
             payload = commands.get()
             self.commands.append(list(payload))
             order = payload[0]
             if order == _EXIT:
-                self.motors_on = False
+                with self._lock:
+                    self.motors_on = False
+                    self.link_up = False
                 results.put(0)
                 return
             if self._take("worker_crash"):
                 # Like Scorbot._run_command_worker: report the exception, then die.
-                # A real thread is still alive for a moment after reporting.
+                # A real thread is still alive for a moment after reporting. The
+                # PC link is gone, so the modeled POWER LED goes orange.
+                with self._lock:
+                    self.link_up = False
                 results.put(RuntimeError("Simulated command worker crash"))
                 time.sleep(0.3)
                 return
@@ -138,12 +236,18 @@ class SimulatedController:
     def _apply(self, payload) -> int:
         order = payload[0]
         if order == _MOTORS_OFF:
-            self.motors_on = False
+            with self._lock:
+                self.motors_on = False
         elif order == _MOTORS_ON:
-            self.motors_on = True
+            with self._lock:
+                self.motors_on = True
         elif order == _HOME:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
+            if self.profile.model_homing:
+                code = self._model_homing()
+                if code:
+                    return code
             with self._lock:
                 self.counts = dict(self.home_counts)
                 if self.drop_motors_after_home:
@@ -163,8 +267,63 @@ class SimulatedController:
                     time.sleep(self.step_delay_s)
             with self._lock:
                 self.counts.update(targets)
+                if self.profile.model_homing:
+                    self.switch_bits = self._pressed_switches()
         else:
             return _ERROR_UNKNOWN_ORDER
+        return 0
+
+    def _pressed_switches(self) -> int:
+        """Switch byte for the current counts (call with ``_lock`` held)."""
+        profile = self.profile
+        half = profile.switch_width_counts // 2
+        return sum(bit for motor, bit in profile.switch_bits.items()
+                   if motor != profile.fail_home_motor
+                   and abs(self.counts[motor] - (self.home_counts[motor]
+                                                 - profile.home_offsets[motor])) <= half)
+
+    def _model_homing(self) -> int:
+        """Drive each motor onto its switch, then back off to home, in the legacy order.
+
+        Uses the legacy axis order, not the legacy routine itself: the real
+        ``setHome.py`` searches packet by packet and keeps moving for a while
+        after the switch closes. This only rehearses what an operator sees.
+        Stops with the motors-off code if motor power drops part-way.
+        """
+        profile = self.profile
+        steps = profile.homing_steps_per_motor
+        pause = profile.homing_duration_s / (len(profile.homing_order) * steps * 2)
+
+        def step(motor, value) -> bool:
+            with self._lock:
+                if not self.motors_on:
+                    return False
+                if value is not None:
+                    self.counts[motor] = round(value)
+                self.switch_bits = self._pressed_switches()
+                self.homing_trace.append((motor, self.switch_bits, dict(self.counts)))
+            if pause:
+                time.sleep(pause)
+            return True
+
+        self._moving = True
+        try:
+            for motor in profile.homing_order:
+                if motor == profile.fail_home_motor:
+                    for _ in range(steps * 2):
+                        if not step(motor, None):
+                            return _ERROR_MOTORS_OFF
+                    return _ERROR_HOME_SEARCH
+                start = self.counts[motor]
+                target = self.home_counts[motor] - profile.home_offsets[motor]
+                home = self.home_counts[motor]
+                path = [start + (target - start) * i / steps for i in range(1, steps + 1)]
+                path += [target + (home - target) * i / steps for i in range(1, steps + 1)]
+                for value in path:
+                    if not step(motor, value):
+                        return _ERROR_MOTORS_OFF
+        finally:
+            self._moving = False
         return 0
 
 

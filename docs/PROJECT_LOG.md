@@ -37,6 +37,22 @@ Git history has the diffs; this file has the story. Hardware claims stay
   jerk have no defaults because no source gives them. Wired into nothing
   until S1 shows the controller can follow streamed targets.
 
+### Realistic rehearsals (M1 step 2, BACKLOG #40 in part)
+
+- `SimulatorProfile` in `scorbot/simulated.py`: modeled homing that drives
+  each motor onto its switch and back off in the legacy `setHome.py` order,
+  with vendor INI offsets and a 200-count switch width (from a replacement
+  controller project, weak prior); a never-found switch fails with the
+  legacy time-out code 2; rest jitter that crosses the 0/65535 seam; and
+  front-panel LEDs (`leds()`). Default profile unchanged, so existing tests
+  keep the instant model. It uses the legacy axis order but not the legacy
+  search itself, so it rehearses what the operator sees, not the code path.
+- `python -m scorbot.lab --simulate` uses `REHEARSAL_PROFILE` (homing about
+  3 s, jitter 1 count so the idle check stays quiet) and shows a
+  `SIMULATED panel:` line before every LED
+  question. Decided with the user: show the modeled panel rather than make
+  the operator guess, and fast homing rather than a 30-60 s wait.
+
 ### Semester goal decided
 
 - Both, in order: M1 teleop plus LeRobot datasets (committed), then M2 an ACT

@@ -60,15 +60,19 @@ def main(argv=None) -> int:
         if args.simulate:
             from functools import partial
 
-            from ..simulated import SimulatedController, SimulatedScorbot
+            from ..simulated import REHEARSAL_PROFILE, SimulatedController, SimulatedScorbot
             source, preflight = "simulated", None
-            operator.show("SIMULATED rehearsal: no USB and no robot are used.")
-            controller = SimulatedController(drop_motors_after_home=args.rehearse_motors_dropped)
+            operator.show("SIMULATED rehearsal: no USB and no robot are used. Homing, "
+                          "switches, rest noise and the LED panel are modeled, not measured.")
+            # Start away from home so the modeled homing has somewhere to travel.
+            controller = SimulatedController(
+                drop_motors_after_home=args.rehearse_motors_dropped, profile=REHEARSAL_PROFILE,
+                start_counts={"base": 2000, "shoulder": -1500, "elbow": 1200})
             robot_class = partial(SimulatedScorbot, controller=controller)
             if args.rehearse_motors_dropped:
                 operator.show("SIMULATED FAULT: the controller will cut motor power right "
-                              "after homing. From then on, answer the LED questions as an "
-                              "unlit MOTORS LED would look.", "warn")
+                              "after homing. Watch the SIMULATED panel: its MOTORS LED goes "
+                              "off, as the real one would.", "warn")
         else:
             from ..preflight import run_checks as preflight
             from ..robot import Scorbot as robot_class

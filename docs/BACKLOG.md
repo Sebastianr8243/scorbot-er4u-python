@@ -58,7 +58,7 @@ Hazard IDs (HZ-nn) refer to [SAFETY_CASE.md](SAFETY_CASE.md). Protocol details a
 | 37 | Verify against real files: the USBPcap header layout and direction inference in `scripts/usb_trace.py`, the Foxglove layout keys, the PlotJuggler path syntax in `docs/EXPERIMENT_RECORDING.md` |
 | 38 | Capture SCORBASE "Go Home", control on/off and e-stop with USBPcap; if Go Home is a single controller command, use it instead of building one |
 | 39 | `return_to_home()`: count-based, bounded jogs, retract first and base last, typed plan confirmation; simulator only until G2 |
-| 40 | Simulator: homing sequence with switch bits and overshoot; start near the 0/65535 seam with rest jitter; sync-worker crash injection; simulated LED state; replay of recorded lab data |
+| 40 | Simulator: sync-worker crash injection; replay of recorded lab data. (Done 2026-10-01: modeled homing with switch bits and offsets, rest jitter across the 0/65535 seam, simulated LED panel; see `SimulatorProfile`) |
 | 41 | Kinematics: model reach is 601 mm against the manual's 610 mm; measure the tool length and home pose, then fix `cIn` (item 10) |
 | 43 | Operator UX backlog (plan-based `MOVE` confirmation, observe before the plan is shown, structured observations, readable review verdict, alarm banner, `--config lab.toml`, one-page checklist cards): see [OPERATOR_UX.md](OPERATOR_UX.md) |
 | 44 | Hazards with no test yet: HZ-05, HZ-06, HZ-09, HZ-16, HZ-19, HZ-20 (see [SAFETY_CASE.md](SAFETY_CASE.md)) |

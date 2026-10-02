@@ -88,6 +88,24 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual((summary["jogs"], summary["problems"]), (3, 0))
         self.assertTrue(all(row["data_source"] == "simulated" for row in self.of("session")))
         self.assertTrue(any("LOG CHECK: 0 problems" in m for m in self.op.shown))
+        panels = [m for m in self.op.shown if m.startswith("SIMULATED panel:")]
+        self.assertEqual(panels[:2], ["SIMULATED panel: MOTORS off, POWER green",
+                                      "SIMULATED panel: MOTORS lit, POWER green"])
+
+    def test_full_session_on_the_rehearsal_profile(self):
+        import dataclasses
+
+        from scorbot.simulated import REHEARSAL_PROFILE
+        # What `python -m scorbot.lab --simulate` uses, minus the 3 s homing wait.
+        self.ctrl = SimulatedController(
+            profile=dataclasses.replace(REHEARSAL_PROFILE, homing_duration_s=0.0),
+            start_counts={"base": 2000, "shoulder": -1500, "elbow": 1200})
+        code = self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + FINISH)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(len(self.jog_commands()), 1)
+        self.assertGreater(len(self.ctrl.homing_trace), 0)
+        self.assertEqual(self.of("summary")[0]["problems"], 0)
+        self.assertIn("SIMULATED panel: MOTORS lit, POWER green", self.op.shown)
 
     def test_wrong_typed_move_declines_and_queues_nothing(self):
         code = self.run_session(TO_LOOP + ARM + ["q", "BASE +1"] + FINISH)
@@ -387,6 +405,8 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual(len(self.jog_commands()), 1)
         self.assertFalse(any("Type BACK" in p for p in self.op.prompts))
         self.assertEqual(self.of("disarmed")[-1]["reason"], "plan refused")
+        # Real data never shows the modeled panel, even if the robot object has one.
+        self.assertFalse(any(m.startswith("SIMULATED panel") for m in self.op.shown))
 
     def test_mark_then_go_to_it(self):
         self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + ["m", "q"] + OBS
