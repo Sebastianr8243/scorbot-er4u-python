@@ -303,9 +303,49 @@ observed. For analysis, use `_rec`, not `publish_time`.
 
 | File | Contents |
 |---|---|
-| `session.mcap` | Every event and camera frame. It is written one message at a time and handed to the OS immediately. If Python crashes or you press Ctrl-C, you lose at most the message being written. A power cut or OS crash can lose more, because messages are not forced to disk one by one. |
+| `session.mcap` | Every robot event (and camera frames in sessions recorded before camera streams). It is written one message at a time and handed to the OS immediately. If Python crashes or you press Ctrl-C, you lose at most the message being written. A power cut or OS crash can lose more, because messages are not forced to disk one by one. |
 | `metadata.json` | Robot and controller IDs, operator, task, start pose, data source, code commit and source fingerprint, Python and package versions, calibration file hash, and the clock anchor. It is rewritten with `ended_utc` and `closed_cleanly` when the session closes. |
 | `notes.md` | The operator's observation sheet: one `Label: answer` line per question, then free text under `## Free notes`. See "The observation sheet" below. |
+| `camera-<id>.mcap` | One webcam's frames (`/camera/<id>/image` only), written by its own threads. See "Camera streams" below. |
+| `camera-<id>.json` | Written once when that camera stream closes: frame count, `closed_cleanly`, any write error, health summary. |
+
+## Camera streams
+
+Each camera records into its own `camera-<id>.mcap` next to `session.mcap`.
+It shares no lock, file or thread with the robot recording, so a camera
+failure (unplugged webcam, full disk, stuck driver) cannot stop the robot
+evidence or delay a jog. The camera id must be declared when the session is
+created (`camera_ids=[...]`).
+
+- **Timestamps.** Each frame's `observed_monotonic_ns` is the session clock
+  read right after `read()` returned: the read-return time, not the exposure
+  time (the driver may buffer frames). `logged_monotonic_ns` is the write
+  time; the difference is pipeline latency. Use Python 3.13 on Windows so the
+  clock is fine-grained.
+- **Health.** `CameraRecorder.drain_health()` gives one row per second:
+  frames, drops (queue full or too late), largest gap between frames,
+  latency, measured fps and `ok` / `degraded` / `failed`.
+- **Check a camera.** `python -m scorbot.camera check [--index 0] [--seconds 10]
+  [--record DIR]` prints what each setting was requested as, whether OpenCV
+  accepted the request, the raw read-back (a backend flag, not proof), the
+  frame size actually delivered and the timing. `--fake` uses synthetic
+  frames.
+- **Read a stream.** `scorbot.camera.stream.scan_stream(folder, "wrist")`
+  checks the file and lists frame times without loading images;
+  `iter_frames(folder, "wrist")` yields the JPEG bytes.
+  `python -m scorbot.session list` shows each camera under its session.
+
+| Files present | Meaning | Reported as |
+|---|---|---|
+| `.mcap` with footer, sidecar `closed_cleanly: true`, counts match | normal | nothing |
+| `.mcap`, no sidecar | crash or a stop that got stuck | warning: not closed cleanly |
+| sidecar `closed_cleanly: false` | write error | error, with the error text |
+| sidecar count differs from frames read | damage | error |
+| declared camera, no `.mcap` | camera never started | warning in `list` |
+| `.mcap` from another session (copied file) | wrong folder | error: frames must not be used |
+
+An older checkout's `list` shows `camera-*.mcap` as "NOT A SESSION" and does
+not load it; update the checkout to read camera streams.
 
 ## The observation sheet
 

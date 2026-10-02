@@ -37,6 +37,22 @@ Git history has the diffs; this file has the story. Hardware claims stay
   jerk have no defaults because no source gives them. Wired into nothing
   until S1 shows the controller can follow streamed targets.
 
+### Camera capture (M1 step 3)
+
+- Spec `docs/superpowers/specs/2026-10-01-camera-capture-design.md`, plan
+  `docs/superpowers/plans/2026-10-01-camera-capture.md`. Each camera writes
+  `camera-<id>.mcap` plus a close-time sidecar and shares nothing with the
+  robot recording; an independent review removed a shared manifest that had
+  race and crash windows and corrected how DirectShow settings can be
+  verified (raw read-back is a backend flag; verify frame size and fps).
+- `scorbot/camera/`: `CameraStream`, `scan_stream` / `iter_frames`,
+  `FakeSource` / `OpenCVSource`, `CameraRecorder` (reader and writer
+  threads, byte-bounded queue, latency limit, owner-drained health, bounded
+  `stop()`), `python -m scorbot.camera check`. `log_frame` now requires the
+  capture time. OpenCV is the optional `[camera]` extra (also in `[dev]`).
+- Not yet tried on a real webcam; run `python -m scorbot.camera check` on
+  the lab PC with the webcam before recording training data.
+
 ### Realistic rehearsals (M1 step 2, BACKLOG #40 in part)
 
 - `SimulatorProfile` in `scorbot/simulated.py`: modeled homing that drives

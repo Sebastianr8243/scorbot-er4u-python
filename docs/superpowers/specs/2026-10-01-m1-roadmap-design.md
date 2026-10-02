@@ -1,6 +1,7 @@
 # M1 roadmap: foundations, simulator, camera, teleop, dataset export
 
-Date: 2026-10-01. Status: draft, revised after a Codex review (4 blocking issues fixed: teleop
+Date: 2026-10-01. Progress: steps 0a-0d, 1, 2 and 3 done (step 3: see
+2026-10-01-camera-capture-design.md). Status: draft, revised after a Codex review (4 blocking issues fixed: teleop
 gates, action record, camera file contract, elbow span).
 
 M1 (see [LAB_PLATFORM_VISION.md](../../LAB_PLATFORM_VISION.md), "Semester goal"):
