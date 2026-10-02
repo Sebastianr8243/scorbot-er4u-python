@@ -15,5 +15,19 @@ class ScriptedOperatorTests(unittest.TestCase):
         self.assertEqual(op.discards, 3)
 
 
+class ScriptedTeleopTests(unittest.TestCase):
+    def test_tick_and_release(self):
+        from scorbot.lab.operator import TICK
+        op = ScriptedOperator([TICK, "Q"])
+        self.assertIsNone(op.key_or_tick("k: ", 0.2))
+        self.assertEqual(op.key_or_tick("k: ", 0.2), "q")
+        op.pending_keys = 4
+        self.assertEqual(op.wait_for_release("q"), 4)
+        self.assertEqual(op.releases, ["q"])
+        self.assertTrue(op.can_wait_for_release())
+        op.release_gate = False
+        self.assertFalse(op.can_wait_for_release())
+
+
 if __name__ == "__main__":
     unittest.main()

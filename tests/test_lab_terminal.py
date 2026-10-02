@@ -50,6 +50,63 @@ class TerminalOperatorTests(unittest.TestCase):
             self.assertEqual(op.key("k: "), "quit")        # never 'q' (base minus)
             self.assertEqual(op.key("k: "), "exit")        # never 'e' (elbow minus)
 
+    def held(self, polls_down, repeats_at=()):
+        """Key physically down for `polls_down` polls; repeats queue at given polls."""
+        state = {"polls": 0}
+        pending = []
+
+        def key_down(char):
+            state["polls"] += 1
+            if state["polls"] in repeats_at:
+                pending.append(char)
+            return state["polls"] <= polls_down
+        op = TerminalOperator(getwch=lambda: pending.pop(0), isatty=lambda: True,
+                              kbhit=lambda: bool(pending), key_down=key_down,
+                              sleep=lambda s: None)
+        return op, pending, state
+
+    def test_wait_for_release_waits_for_key_up_and_drops_repeats(self):
+        op, pending, state = self.held(polls_down=40, repeats_at=range(20, 40))
+        with contextlib.redirect_stdout(io.StringIO()):
+            discarded = op.wait_for_release("q")
+        self.assertEqual(discarded, 20)
+        self.assertEqual(pending, [])
+        self.assertEqual(state["polls"], 41)
+
+    def test_long_repeat_delay_still_one_step(self):
+        # No repeat has arrived yet when the gate starts, but the key is still down.
+        op, pending, _ = self.held(polls_down=60, repeats_at=(55, 58))
+        with contextlib.redirect_stdout(io.StringIO()):
+            op.wait_for_release("q")
+            self.assertIsNone(op.key_or_tick("k: ", 0.0))
+        self.assertEqual(pending, [])
+
+    def test_release_gate_needs_key_state(self):
+        op = TerminalOperator(getwch=lambda: "q", isatty=lambda: True, kbhit=lambda: False,
+                              key_down=None)
+        op._key_down = None
+        self.assertFalse(op.can_wait_for_release())
+
+    def test_key_or_tick_returns_none_without_a_key(self):
+        now = iter([0.0, 0.1, 0.3])
+        op = TerminalOperator(getwch=lambda: "q", isatty=lambda: True, kbhit=lambda: False,
+                              key_down=lambda c: False, sleep=lambda s: None,
+                              clock=lambda: next(now))
+        self.assertIsNone(op.key_or_tick("k: ", 0.2))
+
+    def test_key_or_tick_returns_a_waiting_key(self):
+        pending = ["Q"]
+        op = TerminalOperator(getwch=lambda: pending.pop(0), isatty=lambda: True,
+                              kbhit=lambda: bool(pending), key_down=lambda c: False,
+                              sleep=lambda s: None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(op.key_or_tick("k: ", 0.2), "q")
+
+    def test_virtual_key_codes(self):
+        from scorbot.lab.terminal import _virtual_key
+        self.assertEqual((_virtual_key("q"), _virtual_key("3"), _virtual_key("?")),
+                         (ord("Q"), ord("3"), None))
+
     def test_pending_keys_are_discarded(self):
         pending = ["a", "d"]
         op = TerminalOperator(getwch=lambda: pending.pop(0), isatty=lambda: True,

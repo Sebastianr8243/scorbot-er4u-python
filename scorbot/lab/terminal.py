@@ -10,10 +10,39 @@ from __future__ import annotations
 import contextlib
 import signal
 import sys
+import time
 
 from .operator import CHOICE_ATTEMPTS, ENTER, matches
 
 SPECIAL = "<special>"
+RELEASE_POLL_S = 0.02
+RELEASE_WARN_S = 3.0
+
+
+def _virtual_key(char):
+    """Windows virtual-key code for a letter or digit key; None for anything else."""
+    upper = char.upper()
+    if len(upper) == 1 and ("A" <= upper <= "Z" or "0" <= upper <= "9"):
+        return ord(upper)
+    return None
+
+
+def _windows_key_down():
+    """Physical key state through user32.GetAsyncKeyState; None off Windows.
+
+    Only ever used to wait for a release (it delays motion, never causes it):
+    motion still comes only from a character read from this console.
+    """
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+    except (ImportError, AttributeError, OSError):
+        return None
+
+    def key_down(char):
+        code = _virtual_key(char)
+        return code is not None and bool(user32.GetAsyncKeyState(code) & 0x8000)
+    return key_down
 
 
 def _msvcrt(name):
@@ -25,10 +54,13 @@ def _msvcrt(name):
 
 
 class TerminalOperator:
-    def __init__(self, getwch=None, isatty=None, kbhit=None):
+    def __init__(self, getwch=None, isatty=None, kbhit=None, key_down=None,
+                 sleep=time.sleep, clock=time.monotonic):
         self._getwch = getwch if getwch is not None else _msvcrt("getwch")
         self._kbhit = kbhit if kbhit is not None else _msvcrt("kbhit")
         self._isatty = isatty or (lambda: sys.stdin.isatty())
+        self._key_down = key_down if key_down is not None else _windows_key_down()
+        self._sleep, self._clock = sleep, clock
 
     def _single_keys(self):
         return self._getwch is not None and self._isatty()
@@ -59,6 +91,33 @@ class TerminalOperator:
     def can_stop_on_key(self):
         """True only if a key pressed during a move can actually be read."""
         return bool(self._single_keys() and self._kbhit is not None)
+
+    def can_wait_for_release(self):
+        return bool(self._single_keys() and self._kbhit is not None
+                    and self._key_down is not None)
+
+    def wait_for_release(self, key):
+        """Block until `key` is physically up, then drop every queued character."""
+        if self._key_down is not None:
+            started, warned = self._clock(), False
+            while self._key_down(key):
+                if not warned and self._clock() - started > RELEASE_WARN_S:
+                    print("  Release the key to continue.", flush=True)
+                    warned = True
+                self._sleep(RELEASE_POLL_S)
+        return self.discard_pending_keys()
+
+    def key_or_tick(self, prompt, tick_s):
+        """A key if one arrives within tick_s, else None (lets the caller poll)."""
+        if not self._single_keys() or self._kbhit is None:
+            return self.key(prompt)
+        deadline = self._clock() + tick_s
+        while True:
+            if self._kbhit():
+                return self.key(prompt)
+            if self._clock() >= deadline:
+                return None
+            self._sleep(RELEASE_POLL_S)
 
     def discard_pending_keys(self):
         """Drop keys typed while the arm was moving, so they never answer a question."""

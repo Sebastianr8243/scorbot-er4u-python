@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 ENTER = "enter"
+TICK = "<tick>"  # scripted: key_or_tick returns None (no key this tick)
 CHOICE_ATTEMPTS = 3
 
 
@@ -35,6 +36,9 @@ class Operator(Protocol):
     def status(self, line: StatusLine) -> None: ...
     def discard_pending_keys(self) -> int: ...
     def can_stop_on_key(self) -> bool: ...
+    def can_wait_for_release(self) -> bool: ...
+    def wait_for_release(self, key: str) -> int: ...
+    def key_or_tick(self, prompt: str, tick_s: float) -> str | None: ...
 
 
 def matches(typed: str, expected: str) -> bool:
@@ -52,6 +56,8 @@ class ScriptedOperator:
         self.discards = 0
         self.pending_keys = 0
         self.stop_on_key = True
+        self.releases: list[str] = []
+        self.release_gate = True
 
     def can_stop_on_key(self):
         return self.stop_on_key
@@ -102,3 +108,14 @@ class ScriptedOperator:
         self.discards += 1
         count, self.pending_keys = self.pending_keys, 0
         return count
+
+    def can_wait_for_release(self):
+        return self.release_gate
+
+    def wait_for_release(self, key):
+        self.releases.append(key)
+        return self.discard_pending_keys()
+
+    def key_or_tick(self, prompt, tick_s):
+        key = self.key(prompt)
+        return None if key == TICK else key
