@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tests.lerobot_fixtures import ARM, FINISH, TO_LOOP, paced, record
+from tests.lerobot_fixtures import ARM, COARSE_CLOCK, FINISH, TO_LOOP, paced, record
 
 EPISODE = ARM + ["t", paced("r"), "reach left", paced("q"), paced("q"), paced("r"), "t"]
 
@@ -231,6 +231,60 @@ class FrameTests(unittest.TestCase):
                          episodes=video_episode())
         out = self.frames(data, video=True)
         self.assertEqual(out.frame_seq[:4], [0, 2, 5, 7])   # 0, 100, 200, 300 ms
+
+
+class CliTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_cli(self, *args):
+        import contextlib
+        import io
+        from scorbot.lerobot_export.__main__ import main
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = main([str(a) for a in args])
+        return code, out.getvalue()
+
+    @unittest.skipIf(COARSE_CLOCK, "coarse monotonic clock: exports are rightly refused")
+    def test_dry_run_lists_kept_and_refused_and_writes_nothing(self):
+        path = record(self.root, TO_LOOP + ARM + ["t", paced("r"), "reach", paced("q"),
+                                                  paced("r"), paced("r"), paced("z")]
+                      + FINISH)
+        code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/test",
+                                  "--no-video", "--dry-run")
+        self.assertEqual(code, 0, text)
+        self.assertIn("KEEP", text)
+        self.assertIn("SKIP", text)
+        self.assertIn("SIMULATED", text)
+        self.assertFalse((self.root / "ds").exists())
+
+    def test_existing_output_is_refused(self):
+        path = record(self.root, TO_LOOP + EPISODE + FINISH)
+        (self.root / "ds").mkdir()
+        code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/t",
+                                  "--no-video")
+        self.assertEqual(code, 1)
+        self.assertIn("already exists", text)
+
+    def test_no_camera_needs_no_video_flag(self):
+        path = record(self.root, TO_LOOP + EPISODE + FINISH)
+        code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/t",
+                                  "--dry-run")
+        self.assertEqual(code, 1)
+        self.assertIn("--no-video", text)
+
+    def test_importing_the_package_does_not_import_lerobot(self):
+        import subprocess
+        import sys
+        code = ("import sys, scorbot.lerobot_export.__main__, scorbot.lerobot_export.checks;"
+                "assert 'lerobot' not in sys.modules")
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
