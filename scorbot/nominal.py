@@ -169,6 +169,107 @@ VENDOR_FOREARM_MM = VendorPrior(221.0, "mm", f"{VENDOR_INI}, ROB_4u.INI")
 VENDOR_GRIPPER_LENGTH_MM = VendorPrior(145.0, "mm", f"{VENDOR_INI}, ROB_4u.INI")
 
 
+@dataclass(frozen=True)
+class VendorRange:
+    """A vendor min/max pair, in the vendor's zero and sign convention (unverified here)."""
+
+    minimum: float
+    maximum: float
+    unit: str
+    source: str
+    status: str = VENDOR_STATUS
+
+    @property
+    def span(self) -> float:
+        return self.maximum - self.minimum
+
+
+def _vendor_range(minimum: float, maximum: float, unit: str) -> VendorRange:
+    return VendorRange(minimum, maximum, unit, f"{VENDOR_INI}, ER4Ax*.ini")
+
+
+# Controller angle limits. Reference only: no check uses them. The calibration gate
+# stays the manual's span in AXIS_RANGES (the elbow's 275 here is wider than 260).
+VENDOR_JOINT_LIMITS_DEG = MappingProxyType({
+    "base": _vendor_range(-132.0, 174.0, "joint degrees"),
+    "shoulder": _vendor_range(-124.0, 31.0, "joint degrees"),
+    "elbow": _vendor_range(-115.0, 160.0, "joint degrees"),
+    "wrist_pitch": _vendor_range(-113.0, 115.0, "joint degrees"),
+    "wrist_roll": _vendor_range(-570.0, 570.0, "joint degrees"),
+})
+# Encoder soft limits, counts from the vendor's zero (at hard home, SCORBASE p. 23).
+# Whether our homing ends at the same zero, with the same signs, is unverified.
+VENDOR_ENCODER_SOFT_LIMITS = MappingProxyType({
+    "base": _vendor_range(-25000, 20000, "encoder counts"),
+    "shoulder": _vendor_range(-18000, 1500, "encoder counts"),
+    "elbow": _vendor_range(-25000, 20000, "encoder counts"),
+    "wrist_pitch": _vendor_range(-15000, 15000, "encoder counts"),
+})
+
+DATASHEET = "Intelitek ER-4u datasheet 35-1005-8600 Rev K"
+# Effective joint speeds, used as velocity priors for offline planning only.
+DATASHEET_JOINT_SPEED_DEG_S = MappingProxyType({
+    name: VendorPrior(speed, "deg/s", DATASHEET)
+    for name, speed in (("base", 20.0), ("shoulder", 26.3), ("elbow", 26.3),
+                        ("wrist_pitch", 83.0), ("wrist_roll", 106.0))
+})
+DATASHEET_PATH_SPEED_MM_S = VendorPrior(700.0, "mm/s", DATASHEET)
+DATASHEET_SHOULDER_SPAN_DEG = VendorPrior(158.0, "joint degrees", DATASHEET)
+
+
+# -- Where sources disagree ----------------------------------------------------
+#
+# One verdict per numeric contradiction in docs/MANUAL_AND_PRIOR_ART_FINDINGS.md:
+#   adopted    one source is clearly right for our use (reason says why)
+#   both kept  both values stay available; nothing here picks one
+#   measure    only a physical measurement can settle it
+# No verdict loosens a safety bound, and none makes a value "measured".
+
+VERDICTS = ("adopted", "both kept", "measure")
+
+
+@dataclass(frozen=True)
+class Contradiction:
+    topic: str
+    ours: str
+    theirs: str
+    verdict: str
+    reason: str
+
+
+CONTRADICTIONS = (
+    Contradiction(
+        "shoulder axis height", "364 mm, base bottom to shoulder axis (manual side view)",
+        "349 mm base height (ROB_4u.INI, Kutzer DH table)", "measure",
+        "Probably different reference points (the 15 mm may be the base plate); "
+        "the kinematics prior needs a tape measurement on our arm."),
+    Contradiction(
+        "link lengths", "220 mm upper arm and forearm (manual side view)",
+        "221 mm (ROB_4u.INI)", "both kept",
+        "1 mm is within drawing precision; kinematics is offline and either value "
+        "is a prior."),
+    Contradiction(
+        "elbow span", "260 degrees (manual), the calibration gate",
+        "275 degrees (vendor INI angle limits +160/-115)", "adopted",
+        "The manual's 260 stays the gate because it is the tighter bound; a "
+        "calibration may not exceed the manual's travel (CLAUDE.md)."),
+    Contradiction(
+        "shoulder span", "165 degrees (manual), the calibration gate",
+        "158 (datasheet), 155 (vendor INI angle limits)", "both kept",
+        "The gate keeps the manual value; operators should set calibration soft "
+        "limits inside 155, the tightest source. Tightening the gate is a "
+        "separate reviewed change."),
+    Contradiction(
+        "path speed", "600 mm/s (manual)", "700 mm/s (datasheet)", "both kept",
+        "Not used by any check; Cartesian motion is out of scope."),
+    Contradiction(
+        "wrist pitch counts per degree", "33.8 (legacy motion_profile)",
+        "27.9 per motor (vendor INI NoEnc90=2511)", "measure",
+        "Pitch is a two-motor differential; wrist jogs stay disabled until a "
+        "measurement settles the scale."),
+)
+
+
 def axis_range(joint: str) -> AxisRange:
     try:
         return AXIS_RANGES[joint]

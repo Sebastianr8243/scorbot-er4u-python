@@ -147,19 +147,19 @@ From other tools:
   small key-source interface); prompt_toolkit crashes in Git Bash and on
   redirected output; Textual is a candidate for the later student window app.
 
-## Contradictions with our docs (to resolve)
+## Contradictions with our docs (verdicts recorded)
 
-| Topic | Our docs | New source |
-|---|---|---|
-| Encoder counts per revolution | "not in either manual" (HARDWARE_REFERENCE) | 20-slot disk (manuals); 80 counts/motor rev is INI plus an assumed x4 decode, not stated in any manual |
-| Encoder zero | not given | zero at hard home (SCORBASE p. 23) |
-| Shoulder axis height, link length | 364 mm, 220 mm (`nominal.py`, side view) | 349 mm, 221 mm (INI, Kutzer) |
-| Elbow span | bound 260 degrees (`check_soft_limit_span`) | controller limits span 275 |
-| Shoulder range | 165 degrees | 158 (datasheet), 155 (INI limits) |
-| Path velocity | 600 mm/s | 700 mm/s (datasheet) |
-| Pitch counts per degree | 33.8 (legacy) | 27.9 (INI) |
-| POWER LED with no PC link | orange | red (datasheet) |
-| Homing back-off | ER-4u manual: back off until the switch releases | SCORBASE text is vague; captures must settle it |
+| Topic | Our docs | New source | Verdict (2026-10-01, `nominal.CONTRADICTIONS`) |
+|---|---|---|---|
+| Encoder counts per revolution | "not in either manual" (HARDWARE_REFERENCE) | 20-slot disk (manuals); 80 counts/motor rev is INI plus an assumed x4 decode, not stated in any manual | both kept: 80 is an inference, recorded in `nominal.py` comments; a fit decides |
+| Encoder zero | not given | zero at hard home (SCORBASE p. 23) | documented: vendor zero is hard home; whether ours matches is what `vendor_limit_report` logs evidence for |
+| Shoulder axis height, link length | 364 mm, 220 mm (`nominal.py`, side view) | 349 mm, 221 mm (INI, Kutzer) | measure (height); both kept (links) |
+| Elbow span | bound 260 degrees (`check_soft_limit_span`) | controller limits span 275 | adopted 260: the manual's tighter bound stays the calibration gate; 275 stored as a vendor prior |
+| Shoulder range | 165 degrees | 158 (datasheet), 155 (INI limits) | both kept: gate stays 165; set soft limits inside 155 |
+| Path velocity | 600 mm/s | 700 mm/s (datasheet) | both kept: unused by any check |
+| Pitch counts per degree | 33.8 (legacy) | 27.9 (INI) | measure: wrist stays disabled |
+| POWER LED with no PC link | orange | red (datasheet) | capture: note the colour at the next visit (not a constant) |
+| Homing back-off | ER-4u manual: back off until the switch releases | SCORBASE text is vague; captures must settle it | capture: S1 captures settle it (not a constant) |
 
 ## Third-party projects
 

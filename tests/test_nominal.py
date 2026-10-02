@@ -133,6 +133,63 @@ def _write_csv(path, joint, scale):
                              angle if role == "move_verify" else ""])
 
 
+class VendorLimitsAndContradictionTests(unittest.TestCase):
+    def test_vendor_joint_and_encoder_limits(self):
+        joint = nominal.VENDOR_JOINT_LIMITS_DEG
+        self.assertEqual({name: (r.minimum, r.maximum) for name, r in joint.items()},
+                         {"base": (-132.0, 174.0), "shoulder": (-124.0, 31.0),
+                          "elbow": (-115.0, 160.0), "wrist_pitch": (-113.0, 115.0),
+                          "wrist_roll": (-570.0, 570.0)})
+        self.assertEqual(joint["elbow"].span, 275.0)
+        encoder = nominal.VENDOR_ENCODER_SOFT_LIMITS
+        self.assertEqual({name: (r.minimum, r.maximum) for name, r in encoder.items()},
+                         {"base": (-25000, 20000), "shoulder": (-18000, 1500),
+                          "elbow": (-25000, 20000), "wrist_pitch": (-15000, 15000)})
+        for limit in [*joint.values(), *encoder.values()]:
+            with self.subTest(limit=limit):
+                self.assertEqual(limit.status, "vendor default, not measured")
+                self.assertIn("parameter file", limit.source)
+                self.assertLess(limit.minimum, limit.maximum)
+        with self.assertRaises(TypeError):
+            encoder["base"] = None
+
+    def test_datasheet_values_are_priors(self):
+        speeds = nominal.DATASHEET_JOINT_SPEED_DEG_S
+        self.assertEqual({name: s.value for name, s in speeds.items()},
+                         {"base": 20.0, "shoulder": 26.3, "elbow": 26.3,
+                          "wrist_pitch": 83.0, "wrist_roll": 106.0})
+        self.assertEqual(nominal.DATASHEET_PATH_SPEED_MM_S.value, 700.0)
+        self.assertEqual(nominal.DATASHEET_SHOULDER_SPAN_DEG.value, 158.0)
+        for prior in [*speeds.values(), nominal.DATASHEET_PATH_SPEED_MM_S,
+                      nominal.DATASHEET_SHOULDER_SPAN_DEG]:
+            with self.subTest(prior=prior):
+                self.assertIsInstance(prior, nominal.VendorPrior)
+                self.assertIn("datasheet", prior.source)
+
+    def test_every_contradiction_has_a_verdict_and_reason(self):
+        topics = {c.topic for c in nominal.CONTRADICTIONS}
+        self.assertEqual(topics, {"shoulder axis height", "link lengths", "elbow span",
+                                  "shoulder span", "path speed",
+                                  "wrist pitch counts per degree"})
+        for item in nominal.CONTRADICTIONS:
+            with self.subTest(topic=item.topic):
+                self.assertIn(item.verdict, nominal.VERDICTS)
+                self.assertTrue(item.ours and item.theirs and item.reason)
+                self.assertNotIn("measured", item.verdict)
+
+    def test_vendor_values_never_loosen_the_calibration_gate(self):
+        # The vendor elbow span (275) is wider than the manual's 260; the gate stays 260.
+        self.assertEqual(nominal.axis_range("elbow").span_deg, 260.0)
+        with self.assertRaises(ValueError):
+            nominal.check_soft_limit_span("elbow", -135.0, 135.0)
+        for name, vendor in nominal.VENDOR_JOINT_LIMITS_DEG.items():
+            with self.subTest(joint=name):
+                gate = nominal.axis_range(name).span_deg
+                if vendor.span > gate:
+                    with self.assertRaises(ValueError):
+                        nominal.check_soft_limit_span(name, vendor.minimum, vendor.maximum)
+
+
 class ManualBoundsIntegrationTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
