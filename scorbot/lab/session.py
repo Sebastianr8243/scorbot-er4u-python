@@ -26,6 +26,8 @@ from .review import format_session_review, review_session_rows
 EXIT_OK, EXIT_FAILED, EXIT_DECLINED = 0, 1, 3
 STEPS = (1.0, 0.5)
 TRAVEL_CAP_DEG = 10.0
+# Motors whose commanded target is logged with every jog (the dataset action).
+ARM_MOTORS = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2")
 IDLE_DISARM_S = 60.0
 IDLE_SAMPLES = 5
 STABLE_COUNTS = 2
@@ -372,8 +374,14 @@ class LabSession:
         self._write("jog_confirmed", n=n, how=how, move=move)
         self._write("before_jog", n=n, state=asdict(before))
         self.rec.log_state(before)
+        # Full commanded target (dataset action): moving motors get the previewed
+        # target, the others keep their current count.
+        deltas = plan["motor_count_deltas"]
+        target = {motor: before.signed_encoder_counts[motor] + deltas.get(motor, 0)
+                  for motor in ARM_MOTORS}
         command = self.rec.log_command("jog_joint", {"joint": joint, "delta_degrees": delta,
-                                                     "speed": self.profile.speed})
+                                                     "speed": self.profile.speed,
+                                                     "target_signed_counts": target})
         try:
             after = self.robot.jog_joint(joint, delta, speed=self.profile.speed)
         except Exception as error:

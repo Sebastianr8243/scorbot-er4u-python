@@ -107,6 +107,21 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual(self.of("summary")[0]["problems"], 0)
         self.assertIn("SIMULATED panel: MOTORS lit, POWER green", self.op.shown)
 
+    def test_jog_command_carries_the_full_target_vector(self):
+        from scorbot.session.replay import load_session
+        self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + FINISH)
+        [folder] = [p for p in (self.root / "sessions").iterdir() if p.is_dir()]
+        [params] = [e["payload"]["params"] for e in load_session(folder).events
+                    if e["topic"] == "/robot/command"
+                    and e["payload"]["kind"] == "jog_joint"]
+        target = params["target_signed_counts"]
+        self.assertEqual(set(target), {"base", "shoulder", "elbow", "wrist_motor_1",
+                                       "wrist_motor_2"})
+        [preview] = self.of("jog_preview")
+        self.assertEqual(target["base"], preview["plan"]["target_signed_counts"]["base"])
+        before = self.of("before_jog")[0]["state"]["signed_encoder_counts"]
+        self.assertEqual(target["elbow"], before["elbow"])
+
     def test_wrong_typed_move_declines_and_queues_nothing(self):
         code = self.run_session(TO_LOOP + ARM + ["q", "BASE +1"] + FINISH)
         self.assertEqual(code, EXIT_OK)
