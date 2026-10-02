@@ -20,6 +20,8 @@ plot = ["matplotlib>=3.8,<4"]
 viz = ["rerun-sdk>=0.38,<0.39"]
 # Offline trajectory planner (scorbot.planning); not wired to motion.
 planning = ["ruckig>=0.12,<1"]
+# Webcam capture (scorbot.camera.OpenCVSource and JPEG encoding).
+camera = ["opencv-python-headless>=4.9,<5"]
 dev = [
     "pytest>=9.0,<10",
     "pytest-xdist>=3.8,<4",
@@ -30,6 +32,7 @@ dev = [
     "pre-commit>=4,<5",
     "matplotlib>=3.8,<4",
     "ruckig>=0.12,<1",
+    "opencv-python-headless>=4.9,<5",
 ]
 # Cross-checks the offline kinematics model against an independent implementation.
 kinematics = ["roboticstoolbox-python>=1.1,<2"]
