@@ -185,5 +185,53 @@ class CheckTests(unittest.TestCase):
                             for r in check_export([sim], video=True)))
 
 
+class FrameTests(unittest.TestCase):
+    def frames(self, data, video=False, fps=10):
+        from scorbot.lerobot_export.frames import resample
+        return resample(data, data.episodes[0], fps=fps, video=video)
+
+    def test_grid_and_state_hold_at_rest(self):
+        out = self.frames(make_data())
+        self.assertEqual(len(out.times_ns), 11)
+        self.assertTrue(all(row == [0.0] * 5 for row in out.state))
+        self.assertEqual(out.action, out.state)
+        self.assertEqual(out.task, "task")
+
+    def test_short_jog_labels_exactly_one_tick(self):
+        from scorbot.lerobot_export.load import MOTORS
+        after = dict({m: 0 for m in MOTORS}, base=142)
+        jog = make_jog(205_000_000, 215_000_000)
+        # The post-jog reading arrives late (350 ms) so a target label is visible.
+        data = make_data(jogs=[jog], states=[(0, {m: 0 for m in MOTORS}), (350_000_000, after)])
+        out = self.frames(data)
+        labelled = [k for k, row in enumerate(out.action) if row != out.state[k]]
+        self.assertEqual(labelled, [3])              # 300 ms: first tick after the command
+        self.assertEqual(out.action[3][0], 142.0)
+
+    def test_action_is_target_while_in_flight_and_state_follows_trace(self):
+        from scorbot.lerobot_export.load import MOTORS
+        rest = {m: 0 for m in MOTORS}
+        trace = [(t, dict(rest, base=(t - 150_000_000) // 3_000_000))
+                 for t in range(160_000_000, 450_000_000, 13_000_000)]
+        jog = make_jog(150_000_000, 450_000_000, trace=trace)
+        data = make_data(jogs=[jog], states=[(0, rest), (451_000_000, dict(rest, base=142))])
+        out = self.frames(data)
+        self.assertEqual([row[0] for row in out.action[2:5]], [142.0] * 3)
+        self.assertTrue(0 < out.state[3][0] < 142)
+        self.assertEqual(out.action[6][0], out.state[6][0])
+
+    def test_state_across_the_wrap_is_continuous(self):
+        from scorbot.lerobot_export.load import MOTORS
+        home = dict({m: 0 for m in MOTORS}, base=1)
+        data = make_data(home_raw=home, states=[(0, dict(home, base=65533))])
+        self.assertEqual(self.frames(data).state[0][0], -3.0)
+
+    def test_frame_index_is_latest_at_or_before_tick(self):
+        data = make_data(camera=camera_index(range(0, 1_200_000_000, 40_000_000)),
+                         episodes=video_episode())
+        out = self.frames(data, video=True)
+        self.assertEqual(out.frame_seq[:4], [0, 2, 5, 7])   # 0, 100, 200, 300 ms
+
+
 if __name__ == "__main__":
     unittest.main()
