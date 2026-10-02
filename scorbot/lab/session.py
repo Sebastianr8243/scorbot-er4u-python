@@ -576,10 +576,15 @@ class LabSession:
         self.rec.log_note(f"replay {episode.dataset_dir} episode {number} "
                           f"({record['task']!r}): {len(moves)} steps")
         if any(start[joint] != self.travel[joint] for joint in start):
-            self._run_plan(f"episode {number} start", plan_moves(self.travel, start),
-                           "replay", counts_for(record["first_state"], self.home_counts),
-                           f"START {number}")
+            at_start = self._run_plan(f"episode {number} start",
+                                      plan_moves(self.travel, start), "replay",
+                                      counts_for(record["first_state"], self.home_counts),
+                                      f"START {number}")
             if not self.armed or self.fault:
+                return
+            if not at_start:
+                self._replay_refused("start pose not confirmed; replay would start from "
+                                     "the wrong pose")
                 return
         self._run_plan(f"episode {number}", moves, "replay",
                        final_counts(episode, self.home_counts), f"PLAY {number}")
@@ -592,8 +597,11 @@ class LabSession:
                      "stop is the stop.", "warn")
         self._disarm("plan stopped")
 
-    def _run_plan(self, name, moves, how, target_counts, confirm_text):
-        """Show a multi-step move, confirm once, run it step by step, then check arrival."""
+    def _run_plan(self, name, moves, how, target_counts, confirm_text) -> bool:
+        """Show a multi-step move, confirm once, run it step by step, then check arrival.
+
+        True only when every step ran and the operator confirmed the arm is there.
+        """
         try:
             state = self.robot.get_state()
         except Exception as error:
@@ -605,7 +613,7 @@ class LabSession:
         self._write("plan_shown", name=name, moves=labels)
         if not moves:
             self.op.show(f"Already at {name}.")
-            return
+            return True
         if self.op.can_stop_on_key():
             stop_text = ("Any key during the move stops it after the current step (a "
                          "software pause, not an emergency stop; the physical stop is "
@@ -646,6 +654,7 @@ class LabSession:
                     count_differences=differences, keys_during_last_step=ignored)
         self.op.show(f"At {name}: count differences from the target "
                      f"{ {m: d for m, d in differences.items() if d} or 'none'}.")
+        return answer == "yes"
 
     def _jog_failed(self, n, error):
         self.fault = str(error)

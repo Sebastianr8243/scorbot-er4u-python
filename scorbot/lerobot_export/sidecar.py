@@ -15,10 +15,15 @@ STEP_JOINTS = ("base", "shoulder", "elbow")
 
 
 def step_counts() -> dict[str, int]:
-    """Encoder counts of one legacy 1 degree jog per arm joint, from the SDK (offline)."""
+    """Signed encoder counts of one legacy +1 degree jog per arm joint (SDK, offline).
+
+    The sign is the joint's legacy direction: a +1 degree elbow jog lowers the
+    elbow count. Replay divides by these signed values, so a recorded move
+    replays in its recorded direction.
+    """
     from ..robot import Scorbot
     robot = Scorbot()
-    return {joint: abs(robot.preview_jog(joint, 1.0)["motor_count_deltas"][joint])
+    return {joint: robot.preview_jog(joint, 1.0)["motor_count_deltas"][joint]
             for joint in STEP_JOINTS}
 
 

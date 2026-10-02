@@ -108,6 +108,20 @@ class ReplayPlanningTests(unittest.TestCase):
                                        actions)
                 self.assertTrue(any(name in p for p in self.problems(folder)), name)
 
+    def test_step_counts_are_signed_by_jog_direction(self):
+        # A +1 degree elbow jog lowers the elbow count; replay must keep that sign.
+        from scorbot.robot import Scorbot
+        self.assertEqual(STEPS["elbow"],
+                         Scorbot().preview_jog("elbow", 1.0)["motor_count_deltas"]["elbow"])
+        self.assertLess(STEPS["elbow"], 0)
+
+    def test_elbow_moves_replay_in_the_recorded_direction(self):
+        from scorbot.lab.moves import Move
+        from scorbot.lab.replay import load_episode, play_moves
+        e = STEPS["elbow"]                       # counts of a +1 degree elbow jog
+        folder = write_dataset(self.root / "d", [action(), action(elbow=e)])
+        self.assertEqual(play_moves(load_episode(folder, 0), STEPS), [Move("elbow", 1.0)])
+
     def test_off_grid_counts_are_refused(self):
         from scorbot.lab.replay import ReplayRefused, to_travel
         self.assertEqual(to_travel(action(-B / 2), STEPS)["base"], -0.5)
@@ -191,6 +205,46 @@ class LabReplayTests(unittest.TestCase):
                 self.assertEqual(len(self.of("replay_refused")), 1)
                 self.assertEqual(self.of("disarmed")[-1]["reason"], "replay refused")
                 self.assertEqual(self.ctrl.counts["base"], 0)
+
+    def test_elbow_replay_ends_where_the_recording_ended(self):
+        e = STEPS["elbow"]
+        folder = write_dataset(self.root / "d", [action(), action(elbow=e),
+                                                 action(elbow=2 * e)])
+        self.replay(folder, "PLAY 0", "y")
+        self.assertEqual(self.ctrl.counts["elbow"], 2 * e)
+
+    def test_play_refused_when_start_pose_not_confirmed(self):
+        folder = write_dataset(self.root / "d", [action(-B), action(-2 * B)], first=action(-B))
+        self.replay(folder, "START 0", "n")
+        self.assertEqual([r["name"] for r in self.of("plan_shown")], ["episode 0 start"])
+        self.assertIn("start pose", self.of("replay_refused")[0]["reason"])
+        self.assertEqual(self.ctrl.counts["base"], -B)
+
+    def test_recorded_episode_replays_to_the_same_counts(self):
+        """Record -> export (sidecar) -> replay, all joints: catches any sign error."""
+        from tests.lerobot_fixtures import COARSE_CLOCK, paced, record
+        if COARSE_CLOCK:
+            self.skipTest("coarse monotonic clock")
+        from scorbot.lerobot_export import sidecar
+        from scorbot.lerobot_export.__main__ import plan_export
+        log = record(self.root / "rec", self.TO_LOOP + self.ARM + [
+            "t", paced("r"), "reach", paced("q"), paced("e"), paced("2"), paced("e"),
+            paced("r"), "y", "t"] + self.FINISH)
+        plan = plan_export([log], fps=10, max_frame_gap_s=0.2, video=False)
+        self.assertEqual(len(plan.episodes), 1, plan.refusals)
+        data, frames = plan.episodes[0]
+        recorded = {m: v for m, v in zip(MOTORS, frames.state[-1])}
+        folder = self.root / "dataset"
+        folder.mkdir()
+        (folder / SIDECAR).write_text(json.dumps(sidecar.episode_record(0, data, frames, 10))
+                                      + "\n", encoding="utf-8")
+        sha = hashlib.sha256((folder / SIDECAR).read_bytes()).hexdigest()
+        (folder / "scorbot_provenance.json").write_text(json.dumps({
+            "data_source": "simulated", "units": UNITS, "sessions": [{"robot_id": "lab-er4u-1"}],
+            "episodes_sidecar_sha256": sha}), encoding="utf-8")
+        self.replay(folder, "PLAY 0", "y")
+        for joint in ("base", "shoulder", "elbow"):
+            self.assertEqual(self.ctrl.counts[joint], recorded[joint], joint)
 
     def test_unknown_episode_is_refused(self):
         folder = write_dataset(self.root / "d", TWO_BASE_STEPS)

@@ -484,6 +484,15 @@ class CliTests(unittest.TestCase):
         self.assertIn("Episode preview", report.read_text(encoding="utf-8"))
         self.assertIn(str(report), text)
 
+    def test_preview_never_overwrites_a_file(self):
+        path = record(self.root, TO_LOOP + EPISODE + FINISH)
+        before = path.read_bytes()
+        code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/t",
+                                  "--no-video", "--dry-run", "--preview", path)
+        self.assertEqual(code, 1)
+        self.assertIn("already exists", text)
+        self.assertEqual(path.read_bytes(), before)
+
     def test_existing_output_is_refused(self):
         path = record(self.root, TO_LOOP + EPISODE + FINISH)
         (self.root / "ds").mkdir()

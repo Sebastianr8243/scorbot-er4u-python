@@ -65,7 +65,13 @@ def main(argv=None) -> int:
     _print_plan(plan, args.fps)
     if args.preview is not None:
         from .preview import render
-        args.preview.write_text(render(plan, fps=args.fps, video=video), encoding="utf-8")
+        try:
+            # Exclusive create: a report must never overwrite a file (a lab log is evidence).
+            with open(args.preview, "x", encoding="utf-8") as stream:
+                stream.write(render(plan, fps=args.fps, video=video))
+        except FileExistsError:
+            print(f"REFUSE preview {args.preview} already exists; choose a new file")
+            return 1
         print(f"Preview written to {args.preview}")
     if any(r.scope == "export" for r in plan.refusals):
         print("Export refused; nothing written.")
