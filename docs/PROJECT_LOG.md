@@ -7,6 +7,22 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 ## 2026-10-01
 
+### M1 roadmap and foundations
+
+- Roadmap for the M1 desk work (`docs/superpowers/specs/2026-10-01-m1-roadmap-design.md`):
+  foundations, simulator realism, camera, teleop, LeRobot export, with
+  shared contracts for clock, action, units and evidence order. An
+  independent review found teleop bypassing the lab session gates, no action
+  record in the MCAP, an undefined camera file contract and a loosened elbow
+  span; all fixed in the plan before any code.
+- Lab PC moves to Python 3.13: before 3.13 the Windows monotonic clock ticks
+  about every 15.6 ms. `uv.lock` unchanged (every lab dependency has a cp313
+  Windows wheel).
+- BACKLOG #46 fixed: `motion_source_sha256` normalises CRLF to LF before
+  hashing, so Windows, Linux and ZIP copies of the same code match. Logs
+  written before this fix hashed raw bytes; their values only match a
+  checkout with the same line endings.
+
 ### Semester goal decided
 
 - Both, in order: M1 teleop plus LeRobot datasets (committed), then M2 an ACT

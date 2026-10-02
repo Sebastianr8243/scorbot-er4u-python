@@ -63,4 +63,3 @@ Hazard IDs (HZ-nn) refer to [SAFETY_CASE.md](SAFETY_CASE.md). Protocol details a
 | 43 | Operator UX backlog (plan-based `MOVE` confirmation, observe before the plan is shown, structured observations, readable review verdict, alarm banner, `--config lab.toml`, one-page checklist cards): see [OPERATOR_UX.md](OPERATOR_UX.md) |
 | 44 | Hazards with no test yet: HZ-05, HZ-06, HZ-09, HZ-16, HZ-19, HZ-20 (see [SAFETY_CASE.md](SAFETY_CASE.md)) |
 | 45 | Later roadmap: URDF from measured geometry, then `ikpy`/MuJoCo; optional ROS 2 driver; LeRobot-compatible dataset export |
-| 46 | `scorbot.provenance.motion_source_sha256` hashes file bytes, so a Windows CRLF checkout and a Linux LF checkout or ZIP of identical code give different fingerprints (found 2026-10-01 by the codec work). Normalise line endings before hashing, or pin `eol=lf` for the fingerprinted files in `.gitattributes`; old logs keep their recorded value |
