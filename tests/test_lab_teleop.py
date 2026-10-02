@@ -152,5 +152,77 @@ class TeleopTests(_Harness):
         self.assertEqual(len(self.of("summary")), 1)
 
 
+def needs_cv2(test):
+    try:
+        import cv2  # noqa: F401
+    except ImportError:
+        return unittest.skip("opencv not installed (pip install .[camera])")(test)
+    return test
+
+
+class TeleopCameraTests(_Harness):
+    def wait_live(self, then):
+        def answer():
+            import time
+            for _ in range(300):
+                if self.session.camera is not None and self.session.camera.live():
+                    break
+                time.sleep(0.01)
+            return then
+        return answer
+
+    def pause(self, seconds, then=TICK):
+        def answer():
+            import time
+            time.sleep(seconds)
+            return then
+        return answer
+
+    @needs_cv2
+    def test_episode_with_camera_records_frames(self):
+        from scorbot.camera.source import FakeSource
+        from scorbot.camera.stream import scan_stream
+        self.run_session(TO_LOOP + ARM + ["t", self.wait_live("r"), "task", "q",
+                                          self.pause(0.3, "r"), "t"] + FINISH,
+                         camera_factory=lambda: FakeSource(pace=True))
+        [end] = self.of("episode_end")
+        self.assertEqual(end["status"], "completed")
+        self.assertGreater(end["frames"], 0)
+        self.assertTrue(self.of("episode_start")[0]["camera"])
+        self.assertTrue(self.of("camera_health"))
+        self.assertEqual(len(self.of("camera_stopped")), 1)
+        [folder] = [p for p in (self.root / "sessions").iterdir() if p.is_dir()]
+        self.assertEqual(scan_stream(folder, "main").errors, [])
+
+    @needs_cv2
+    def test_stalled_camera_aborts_episode_without_a_key_and_stays_armed(self):
+        from scorbot.camera.source import FakeSource
+        self.run_session(TO_LOOP + ARM + ["t", self.wait_live("r"), "task"]
+                         + [self.pause(0.3)] * 6 + ["t"] + FINISH,
+                         camera_factory=lambda: FakeSource(pace=True, block_at=15))
+        [end] = self.of("episode_end")
+        self.assertEqual((end["status"], end["reason"]), ("aborted", "camera stalled"))
+        self.assertFalse(any("camera" in (r.get("reason") or "")
+                             for r in self.of("disarmed")))
+
+    @needs_cv2
+    def test_failed_camera_refuses_episode(self):
+        from scorbot.camera.source import FakeSource
+        self.run_session(TO_LOOP + ARM + ["t", self.pause(0.3, "r"), "t"] + FINISH,
+                         camera_factory=lambda: FakeSource(pace=True, fail_at=2))
+        self.assertEqual(self.of("episode_start"), [])
+        refused = [r for r in self.of("teleop_intent") if r["action"] == "episode_start"]
+        self.assertIn("camera failed", refused[0]["reason"])
+
+    def test_camera_open_failure_continues_without_video(self):
+        def broken():
+            raise RuntimeError("no camera at index 0")
+        code = self.run_session(TO_LOOP + ARM + ["t", "r", "task", "r", "t"] + FINISH,
+                                camera_factory=broken)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(len(self.of("camera_unavailable")), 1)
+        self.assertFalse(self.of("episode_start")[0]["camera"])
+
+
 if __name__ == "__main__":
     unittest.main()

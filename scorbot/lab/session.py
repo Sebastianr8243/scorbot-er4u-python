@@ -125,8 +125,10 @@ class LabSession:
                 self.session_root, data_source=self.data_source,
                 robot_id=self.profile.robot_id, controller_id=self.profile.controller_label,
                 operator=self.profile.operator, task=f"guided lab session ({self.log_path.name})",
-                usb_driver=self.profile.driver)
+                usb_driver=self.profile.driver,
+                camera_ids=["main"] if self.camera_factory is not None else ())
             with writer:
+                self._writer = writer
                 self.rec = BestEffortRecorder(writer, warn=lambda m: self.op.show(m, "warn"))
                 self._write("recorder", mcap_session=self.rec.path.name)
                 try:
@@ -162,20 +164,50 @@ class LabSession:
             self._led("after_connect", motors="off", power="green", required=True)
             self._idle()
             try:
-                self._home()
-                self._jog_loop()
-            except KeyboardInterrupt:
-                # Stop asking questions, but still request motors off.
-                if self.enabled:
-                    self._disable()
-                raise
-            except Exception:
-                # Declined or failed after enable: motors off, LED check, summary.
-                if self.enabled:
-                    self._finish()
-                raise
-            self._finish()
+                try:
+                    self._home()
+                    self._start_camera()
+                    self._jog_loop()
+                except KeyboardInterrupt:
+                    # Stop asking questions, but still request motors off.
+                    if self.enabled:
+                        self._disable()
+                    raise
+                except Exception:
+                    # Declined or failed after enable: motors off, LED check, summary.
+                    if self.enabled:
+                        self._finish()
+                    raise
+                self._finish()
+            finally:
+                self._stop_camera()
         return EXIT_FAILED if self.fault else EXIT_OK
+
+    # -- camera ---------------------------------------------------------------
+
+    def _start_camera(self):
+        """Start the optional session camera; a failure only means no video."""
+        if self.camera_factory is None:
+            return
+        from .camera import LabCamera
+        camera = LabCamera(self.camera_factory)
+        try:
+            camera.start(self._writer)
+        except Exception as error:
+            self._write("camera_unavailable", error=f"{type(error).__name__}: {error}")
+            self.op.show(f"Camera unavailable ({error}); continuing without video.", "warn")
+            return
+        self.camera = camera
+        self._write("camera_started", settings=camera.settings)
+
+    def _stop_camera(self):
+        camera, self.camera = self.camera, None
+        if camera is None:
+            return
+        status = camera.stop()
+        for row in camera.drain():
+            self._write("camera_health", **row)
+        self._write("camera_stopped", status=status)
 
     # -- steps ----------------------------------------------------------------
 

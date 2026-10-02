@@ -47,11 +47,28 @@ def main(argv=None) -> int:
                         help="With --simulate: the simulated controller cuts motor power "
                              "right after homing, without telling the software")
     parser.add_argument("--profile", type=Path, default=Path("lab.json"))
+    parser.add_argument("--camera", default=None,
+                        help="Record a webcam during the session: an index (0, 1, ...), "
+                             "or 'fake' with --simulate")
     parser.add_argument("--logs", type=Path, default=None,
                         help="Log folder (default: logs, or rehearsal with --simulate)")
     args = parser.parse_args(argv)
     if args.rehearse_motors_dropped and not args.simulate:
         parser.error("--rehearse-motors-dropped needs --simulate")
+    camera_factory = None
+    if args.camera is not None:
+        if args.camera == "fake":
+            if not args.simulate:
+                parser.error("--camera fake needs --simulate")
+            from ..camera.source import FakeSource
+            camera_factory = lambda: FakeSource(width=640, height=480, pace=True)  # noqa: E731
+        else:
+            try:
+                index = int(args.camera)
+            except ValueError:
+                parser.error("--camera must be a number or 'fake'")
+            from ..camera.source import OpenCVSource
+            camera_factory = lambda: OpenCVSource(index)  # noqa: E731
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="backslashreplace")
@@ -90,7 +107,8 @@ def main(argv=None) -> int:
         return LabSession(profile=profile, operator=operator, robot_factory=robot_class,
                           data_source=source, log_path=log_path,
                           session_root=folder / "sessions", preflight=preflight,
-                          software_commit=_software_commit()).run()
+                          software_commit=_software_commit(),
+                          camera_factory=camera_factory).run()
 
 
 if __name__ == "__main__":

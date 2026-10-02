@@ -17,6 +17,18 @@ from scorbot.lab.operator import ENTER
 from scorbot.lab.terminal import TerminalOperator, termination_as_interrupt
 
 
+class CameraFlagTests(unittest.TestCase):
+    def test_fake_camera_needs_simulate(self):
+        from scorbot.lab.__main__ import main
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main(["--camera", "fake"])
+
+    def test_camera_index_must_be_a_number(self):
+        from scorbot.lab.__main__ import main
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main(["--simulate", "--camera", "front"])
+
+
 class TerminalOperatorTests(unittest.TestCase):
     def keys(self, *sequence):
         chars = iter(sequence)
