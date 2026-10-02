@@ -30,6 +30,12 @@ Git history has the diffs; this file has the story. Hardware claims stay
   where the target sits against the vendor encoder limits under both sign
   hypotheses. Diagnostic only, never a guard; it collects evidence on
   whether our homing zero matches the vendor's.
+- Offline trajectory planner `scorbot/planning.py` (Ruckig, optional
+  `[planning]` extra, also in `[dev]` so CI runs its tests): synchronised,
+  jerk-limited point-to-point plans in signed counts, sampled at the vendor
+  16 ms host period. Velocity priors from datasheet speeds; acceleration and
+  jerk have no defaults because no source gives them. Wired into nothing
+  until S1 shows the controller can follow streamed targets.
 
 ### Semester goal decided
 

@@ -18,6 +18,8 @@ gui = ["PyQt5>=5.15,<6"]
 plot = ["matplotlib>=3.8,<4"]
 # Rerun viewer for recorded sessions (large wheel; never needed on the lab PC).
 viz = ["rerun-sdk>=0.38,<0.39"]
+# Offline trajectory planner (scorbot.planning); not wired to motion.
+planning = ["ruckig>=0.12,<1"]
 dev = [
     "pytest>=9.0,<10",
     "pytest-xdist>=3.8,<4",
@@ -27,6 +29,7 @@ dev = [
     "ruff==0.16.9",  # same version as .pre-commit-config.yaml, so local and CI agree
     "pre-commit>=4,<5",
     "matplotlib>=3.8,<4",
+    "ruckig>=0.12,<1",
 ]
 # Cross-checks the offline kinematics model against an independent implementation.
 kinematics = ["roboticstoolbox-python>=1.1,<2"]
