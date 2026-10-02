@@ -341,6 +341,61 @@ class SidecarTests(unittest.TestCase):
         self.assertEqual(counts["base"], expected)
 
 
+class PreviewTests(unittest.TestCase):
+    def plan(self, task="reach", **data_overrides):
+        from scorbot.lerobot_export.checks import Refusal
+        from scorbot.lerobot_export.frames import resample
+        from scorbot.lerobot_export.write import ExportPlan
+        data = make_data(jogs=[make_jog(205_000_000, 215_000_000)], **data_overrides)
+        data.episodes[0].task = task
+        frames = resample(data, data.episodes[0], fps=10, video=False)
+        return ExportPlan([data], [(data, frames)],
+                          [Refusal("episode", "lab", 2, "counts_drift inside the episode")])
+
+    def render(self, plan, **kwargs):
+        from scorbot.lerobot_export.preview import render
+        return render(plan, fps=10, video=False, **kwargs)
+
+    def test_report_lists_kept_and_refused_episodes(self):
+        html = self.render(self.plan())
+        self.assertIn("reach", html)
+        self.assertEqual(html.count("<svg"), 3)          # base, shoulder, elbow
+        self.assertIn("counts_drift inside the episode", html)
+        self.assertIn("SIMULATED", html)
+        self.assertIn("unmeasured", html)
+
+    def test_task_text_is_escaped(self):
+        html = self.render(self.plan(task="<script>alert(1)</script>"))
+        self.assertNotIn("<script>alert", html)
+        self.assertIn("&lt;script&gt;", html)
+
+    def test_report_is_self_contained(self):
+        html = self.render(self.plan())
+        self.assertNotIn("http://", html)
+        self.assertNotIn("https://", html)
+        self.assertNotIn("<script", html)
+
+    @unittest.skipIf(COARSE_CLOCK, "coarse monotonic clock")
+    def test_thumbnails_from_a_camera_session_respect_the_byte_cap(self):
+        try:
+            import cv2  # noqa: F401
+        except ImportError:
+            self.skipTest("opencv not installed")
+        from scorbot.lerobot_export.__main__ import plan_export
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            path = record(folder, TO_LOOP + ARM + ["t", "LIVE:r", "reach", paced("q"),
+                                                   paced("r", 0.3), "y", "t"] + FINISH,
+                          camera=True)
+            plan = plan_export([path], fps=10, max_frame_gap_s=0.2, video=True)
+            self.assertEqual(len(plan.episodes), 1, plan.refusals)
+            from scorbot.lerobot_export.preview import render
+            html = render(plan, fps=10, video=True)
+            capped = render(plan, fps=10, video=True, max_image_bytes=1)
+        self.assertIn('src="data:image/jpeg;base64,', html)
+        self.assertNotIn('src="data:image/jpeg;base64,', capped)
+        self.assertIn("image limit", capped)
+
+
 class FrameTests(unittest.TestCase):
     def frames(self, data, video=False, fps=10):
         from scorbot.lerobot_export.frames import resample
@@ -418,6 +473,16 @@ class CliTests(unittest.TestCase):
         self.assertIn("SKIP", text)
         self.assertIn("SIMULATED", text)
         self.assertFalse((self.root / "ds").exists())
+
+    @unittest.skipIf(COARSE_CLOCK, "coarse monotonic clock: exports are rightly refused")
+    def test_preview_flag_writes_the_report(self):
+        path = record(self.root, TO_LOOP + EPISODE + FINISH)
+        report = self.root / "report.html"
+        code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/t",
+                                  "--no-video", "--dry-run", "--preview", report)
+        self.assertEqual(code, 0, text)
+        self.assertIn("Episode preview", report.read_text(encoding="utf-8"))
+        self.assertIn(str(report), text)
 
     def test_existing_output_is_refused(self):
         path = record(self.root, TO_LOOP + EPISODE + FINISH)

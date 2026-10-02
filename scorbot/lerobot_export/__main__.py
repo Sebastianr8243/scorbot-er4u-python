@@ -53,6 +53,8 @@ def main(argv=None) -> int:
     parser.add_argument("--no-video", action="store_true",
                         help="export state and action only (robot-only dataset)")
     parser.add_argument("--dry-run", action="store_true", help="check and list, write nothing")
+    parser.add_argument("--preview", type=Path, metavar="HTML",
+                        help="also write an HTML report of every episode (no lerobot needed)")
     args = parser.parse_args(argv)
     video = not args.no_video
     if args.out.exists():
@@ -61,6 +63,10 @@ def main(argv=None) -> int:
     plan = plan_export(args.lab_logs, fps=args.fps, max_frame_gap_s=args.max_frame_gap,
                        video=video)
     _print_plan(plan, args.fps)
+    if args.preview is not None:
+        from .preview import render
+        args.preview.write_text(render(plan, fps=args.fps, video=video), encoding="utf-8")
+        print(f"Preview written to {args.preview}")
     if any(r.scope == "export" for r in plan.refusals):
         print("Export refused; nothing written.")
         return 1
