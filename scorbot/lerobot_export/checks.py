@@ -6,7 +6,9 @@ operator can see what went wrong in the lab.
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
+import math
 
 TARGET_TOLERANCE_COUNTS = 20   # the legacy settle band (lab DRIFT_COUNTS)
 MAX_CLOCK_RESOLUTION_S = 1e-3
@@ -97,11 +99,10 @@ def check_episode(data, episode, *, fps, max_frame_gap_s, video) -> list[Refusal
                > TARGET_TOLERANCE_COUNTS for m in jog.deltas):
             out.append(refuse(f"jog {jog.index}: lab and SDK target differ by more than "
                               f"{TARGET_TOLERANCE_COUNTS} counts"))
-    commands = sorted(j.command_ns for j in jogs)
-    for first, second in zip(commands, commands[1:]):
-        if second - first < step:
-            out.append(refuse("two jogs commanded within one grid interval"))
-            break
+    # A jog commanded in (t_k - step, t_k] labels tick k; two jogs may not share one.
+    slots = [math.ceil((j.command_ns - episode.start_ns) / step) for j in jogs]
+    if len(slots) != len(set(slots)):
+        out.append(refuse("two jogs commanded within one grid interval"))
     if video:
         out.extend(refuse(r) for r in _video_problems(data, ticks, step, jogs,
                                                       max_frame_gap_s))
@@ -125,13 +126,19 @@ def _video_problems(data, ticks, step, jogs, max_frame_gap_s) -> list[str]:
                 problems.append(f"jog {jog.index}: no state packet within one grid interval "
                                 "of a tick during motion")
                 break
-    stamps = [f["observed_monotonic_ns"] for f in data.camera.frames]
+    stamps = sorted(f["observed_monotonic_ns"] for f in data.camera.frames)
     limit = max_frame_gap_s * 1e9
     for t in ticks:
-        before = [s for s in stamps if s <= t]
-        if not before or t - before[-1] > limit:
+        index = bisect_right(stamps, t) - 1
+        if index < 0 or t - stamps[index] > limit:
             problems.append(f"frame gap: no frame within {max_frame_gap_s} s before a tick")
-            break
+            return problems
+    # Gaps between frames can hide between ticks; check consecutive frames too.
+    first = max(bisect_left(stamps, ticks[0]) - 1, 0)
+    last = bisect_right(stamps, ticks[-1])
+    window = stamps[first:last + 1]
+    if any(b - a > limit for a, b in zip(window, window[1:])):
+        problems.append(f"frame gap: more than {max_frame_gap_s} s between two frames")
     return problems
 
 

@@ -185,6 +185,67 @@ class CheckTests(unittest.TestCase):
                             for r in check_export([sim], video=True)))
 
 
+class ReviewFixTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def reasons(self, data, *, video=False):
+        from scorbot.lerobot_export.checks import exportable
+        return [r.reason for r in exportable(data, fps=10, max_frame_gap_s=0.2,
+                                             video=video)[1]]
+
+    def test_mcap_from_another_source_is_refused(self):
+        import json
+        from scorbot.lerobot_export.load import load_lab_session
+        path = record(self.root, TO_LOOP + FINISH)
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        for row in rows:
+            if row["type"] == "session":
+                row["data_source"] = "real"
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        data = load_lab_session(path)
+        self.assertTrue(any("data_source" in e for e in data.load_errors))
+
+    def test_truncated_sdk_log_refuses_the_session(self):
+        from scorbot.lerobot_export.load import load_lab_session
+        path = record(self.root, TO_LOOP + EPISODE + FINISH)
+        events = path.with_name(path.stem + ".controller.jsonl")
+        lines = events.read_text(encoding="utf-8").splitlines()
+        last_preview = max(i for i, line in enumerate(lines) if '"motion_preview"' in line)
+        events.write_text("\n".join(lines[:last_preview]) + "\n", encoding="utf-8")
+        data = load_lab_session(path)
+        self.assertTrue(any("jog" in r for r in self.reasons(data)))
+
+    def test_jogs_in_different_grid_slots_are_allowed(self):
+        data = make_data(jogs=[make_jog(90_000_000, 95_000_000),
+                               make_jog(110_000_000, 115_000_000, index=1)])
+        self.assertEqual(self.reasons(data), [])
+
+    def test_gap_between_frames_is_refused_even_between_ticks(self):
+        data = make_data(camera=camera_index([0, *range(201_000_000, 1_100_000_000,
+                                                       33_000_000)]),
+                         episodes=video_episode())
+        self.assertTrue(any("frame gap" in r for r in self.reasons(data, video=True)))
+
+    def test_long_camera_session_checks_quickly(self):
+        import time
+        stamps = range(0, 3_600_000_000_000, 33_333_333)     # one hour at 30 fps
+        from scorbot.lerobot_export.load import Episode
+        data = make_data(camera=camera_index(stamps),
+                         episodes=[Episode(1, "t", "completed", None, 0, 3_500_000_000_000,
+                                           True)],
+                         mcap_episodes=[{"episode": 1, "event": "start", "status": None},
+                                        {"episode": 1, "event": "end",
+                                         "status": "completed"}])
+        started = time.monotonic()
+        self.reasons(data, video=True)
+        self.assertLess(time.monotonic() - started, 10.0)
+
+
 class FrameTests(unittest.TestCase):
     def frames(self, data, video=False, fps=10):
         from scorbot.lerobot_export.frames import resample

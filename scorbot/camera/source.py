@@ -102,7 +102,7 @@ class OpenCVSource:
     _PROPS = (("width", "CAP_PROP_FRAME_WIDTH"), ("height", "CAP_PROP_FRAME_HEIGHT"),
               ("fps", "CAP_PROP_FPS"), ("autofocus", "CAP_PROP_AUTOFOCUS"),
               ("focus", "CAP_PROP_FOCUS"), ("auto_exposure", "CAP_PROP_AUTO_EXPOSURE"),
-              ("exposure", "CAP_PROP_EXPOSURE"))
+              ("exposure", "CAP_PROP_EXPOSURE"), ("buffer_size", "CAP_PROP_BUFFERSIZE"))
 
     def __init__(self, index_or_path=0, *, width: int = 640, height: int = 480,
                  fps: float = 30.0, focus: float | None = None,
@@ -125,8 +125,11 @@ class OpenCVSource:
         capture = cv2.VideoCapture(self.index_or_path, backend)
         if not capture.isOpened():
             raise RuntimeError(f"Could not open camera {self.index_or_path!r}")
+        # buffer_size 1: read() should return the newest frame, not a queued one
+        # (common low-latency practice; not every driver honours it, so it is
+        # requested and recorded like the other settings).
         requested = {"width": self.width, "height": self.height, "fps": self.fps,
-                     "autofocus": 0}
+                     "autofocus": 0, "buffer_size": 1}
         if self.focus is not None:
             requested["focus"] = self.focus
         if self.exposure is not None:

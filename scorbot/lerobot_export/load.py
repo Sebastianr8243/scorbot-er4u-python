@@ -152,9 +152,16 @@ def load_lab_session(jsonl_path) -> LabSessionData:
         return data
     data.mcap_folder = folder
     data.mcap = load_session(folder)
+    # The recorder row only names a folder; prove the MCAP is this session's.
+    for key in ("data_source", "robot_id"):
+        lab_value = (session_row or {}).get(key)
+        mcap_value = data.mcap.metadata.get(key)
+        if lab_value != mcap_value:
+            data.load_errors.append(f"MCAP {key} {mcap_value!r} differs from the lab log's "
+                                    f"{lab_value!r}: wrong session folder")
     data.clock_resolution_s = (data.mcap.metadata.get("clock") or {}).get(
         "monotonic_resolution_s")
-    lab_targets = []
+    lab_targets, lab_joints = [], []
     for event in data.mcap.events:
         payload = event["payload"]
         if event["topic"] == "/robot/state":
@@ -163,12 +170,20 @@ def load_lab_session(jsonl_path) -> LabSessionData:
                 data.states.append((int(t), dict(payload["encoder_counts"])))
         elif event["topic"] == "/robot/command" and payload.get("kind") == "jog_joint":
             lab_targets.append(payload["params"].get("target_signed_counts"))
+            lab_joints.append(payload["params"].get("joint"))
         elif event["topic"] == "/session/episode":
             data.mcap_episodes.append(payload)
     data.states.sort(key=lambda sample: sample[0])
     data.lab_command_count = len(lab_targets)
-    for jog, target in zip(data.jogs, lab_targets):
+    if len(lab_targets) != len(data.jogs):
+        # A missing SDK record would leave a real move labelled "stay still".
+        data.load_errors.append(f"{len(lab_targets)} jog commands in the MCAP but "
+                                f"{len(data.jogs)} SDK jog records: jogs cannot be matched")
+    for jog, target, joint in zip(data.jogs, lab_targets, lab_joints):
         jog.lab_target_signed = target
+        if joint != jog.joint:
+            data.load_errors.append(f"jog {jog.index}: MCAP command moves {joint!r} but the "
+                                    f"SDK record moves {jog.joint!r}")
     if (folder / f"camera-{CAMERA_ID}.mcap").is_file():
         data.camera = scan_stream(folder, CAMERA_ID)
     return data

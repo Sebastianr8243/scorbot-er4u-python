@@ -37,6 +37,7 @@ class FakeCV2:
     CAP_PROP_FRAME_WIDTH, CAP_PROP_FRAME_HEIGHT, CAP_PROP_FPS = 3, 4, 5
     CAP_PROP_AUTOFOCUS, CAP_PROP_FOCUS = 39, 28
     CAP_PROP_AUTO_EXPOSURE, CAP_PROP_EXPOSURE = 21, 15
+    CAP_PROP_BUFFERSIZE = 38
 
     def __init__(self, frame_w=320, frame_h=240, accepted=(3, 4, 5), read_back=None):
         self.frame_w, self.frame_h = frame_w, frame_h
@@ -87,6 +88,17 @@ class OpenCVSourceTests(unittest.TestCase):
         self.assertNotIn("accepted", json.dumps(settings))
         json.dumps(settings, allow_nan=False)
         source.close()
+
+    def test_requests_a_one_frame_driver_buffer(self):
+        # Industry practice for low-latency capture: a 1-frame buffer so read()
+        # returns the newest frame rather than a queued older one.
+        cv2 = FakeCV2(accepted=(3, 4, 5, 38))
+        source = OpenCVSource(0, warmup_s=0.0, cv2_module=cv2)
+        source.open()
+        settings = source.settings()
+        self.assertEqual(settings["requested"]["buffer_size"], 1)
+        self.assertTrue(settings["set_ok"]["buffer_size"])
+        self.assertIn("buffer_size", settings["read_back"])
 
     def test_actual_size_is_verified_from_frames(self):
         cv2 = FakeCV2(frame_w=160, frame_h=120)
