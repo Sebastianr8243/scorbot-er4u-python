@@ -164,14 +164,17 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(preview["target_signed_counts"]["base"], 242)
         robot._command.assert_not_called()
 
-    def test_preview_carries_the_vendor_limit_diagnostic(self):
-        preview = Scorbot().preview_jog(
-            "base", 1, speed=10, starting_signed_counts={"base": 100})
-        report = preview["vendor_limit_report"]
-        self.assertIn("diagnostic only", report["status"])
-        self.assertEqual(report["motors"]["base"]["target_signed_counts"], 242)
-        self.assertEqual(report["motors"]["base"]["same_sign"], "inside")
-        self.assertNotIn("vendor_limit_report", Scorbot().preview_jog("base", 1))
+    def test_vendor_limit_targets_are_wrap_aware_from_home(self):
+        from scorbot.robot import _home_relative_targets
+        # Home just past the seam, current just before it: 3 counts apart, not 65532.
+        self.assertEqual(_home_relative_targets({"base": 65533}, {"base": 1}, {"base": 142}),
+                         {"base": 139})
+        self.assertEqual(_home_relative_targets({"base": 100}, {"base": 100}, {"base": -142}),
+                         {"base": -142})
+        # Half the counter away is ambiguous: reported as unknown, never raised.
+        self.assertEqual(_home_relative_targets({"base": 32768}, {"base": 0}, {"base": 1}),
+                         {"base": None})
+        self.assertEqual(_home_relative_targets({"base": 5}, None, {"base": 1}), {"base": None})
 
     def test_jog_ceiling_cannot_be_raised_past_five_degrees(self):
         with self.assertRaises(ValueError):

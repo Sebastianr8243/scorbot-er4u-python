@@ -14,7 +14,7 @@ If this checkout already has a working `.venv` and the setup script passed earli
 
 ### Option A (recommended): `uv`, exact locked versions
 
-`uv` installs Python 3.12 and the exact package versions in `uv.lock`, without
+`uv` installs Python 3.13 and the exact package versions in `uv.lock`, without
 admin rights, so the lab PC matches the development PC and the GPU server.
 Install `uv` once (per user, no admin):
 

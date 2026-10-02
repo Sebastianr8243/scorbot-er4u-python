@@ -12,10 +12,25 @@ import sys
 import threading
 import traceback
 
-from .calibration import load_calibration
+from .calibration import load_calibration, signed_count_delta
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
 from .state import HOME_SWITCH_BITS, RobotState, decode_state
+
+
+def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int | None]:
+    """Jog targets as wrap-aware counts from this session's home, for the diagnostic.
+
+    None where the offset is unknown (no home, or ambiguous near half the
+    counter range). Never raises: the diagnostic must not affect motion.
+    """
+    targets = {}
+    for motor, delta in deltas.items():
+        try:
+            targets[motor] = signed_count_delta(encoder_counts[motor], home_counts[motor]) + delta
+        except (KeyError, TypeError, ValueError):
+            targets[motor] = None
+    return targets
 
 
 class ScorbotError(RuntimeError):
@@ -408,7 +423,6 @@ class Scorbot:
                 for motor in targets
             }
             plan["target_signed_counts"] = targets
-            plan["vendor_limit_report"] = vendor_limit_report(targets)
         return plan
 
     def jog_joint(self, joint: str, delta_degrees: float, *, speed: int = 10):
@@ -448,6 +462,8 @@ class Scorbot:
             preview = self.preview_jog(
                 joint, delta_degrees, speed=speed,
                 starting_signed_counts=before.signed_encoder_counts)
+            preview["vendor_limit_report"] = vendor_limit_report(_home_relative_targets(
+                before.encoder_counts, self._home_counts, preview["motor_count_deltas"]))
             self._record("motion_preview", plan=preview, state=asdict(before))
             self._record("motion_start", joint=joint, requested_delta_deg=delta_degrees,
                          speed=speed, state=asdict(before))

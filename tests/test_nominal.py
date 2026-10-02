@@ -203,9 +203,12 @@ class VendorLimitReportTests(unittest.TestCase):
         self.assertEqual((motors["elbow"]["same_sign"], motors["elbow"]["flipped_sign"]),
                          ("below_min", "above_max"))
         self.assertEqual(motors["base"]["vendor_min"], -25000)
-        self.assertEqual(motors["wrist_motor_1"], {"target_signed_counts": 5,
+        self.assertEqual(motors["wrist_motor_1"], {"target_from_home": 5,
                                                    "same_sign": "no vendor limit",
                                                    "flipped_sign": "no vendor limit"})
+        unknown = nominal.vendor_limit_report({"base": None})["motors"]["base"]
+        self.assertEqual((unknown["same_sign"], unknown["flipped_sign"]),
+                         ("indeterminate", "indeterminate"))
 
     def test_report_is_strict_json(self):
         report = nominal.vendor_limit_report({"base": -132, "shoulder": 0})

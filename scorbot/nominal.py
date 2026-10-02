@@ -206,8 +206,9 @@ VENDOR_ENCODER_SOFT_LIMITS = MappingProxyType({
     "wrist_pitch": _vendor_range(-15000, 15000, "encoder counts"),
 })
 
-VENDOR_LIMIT_REPORT_STATUS = ("diagnostic only, not a guard: vendor encoder zero and "
-                              "sign convention are unverified on our arms")
+VENDOR_LIMIT_REPORT_STATUS = ("diagnostic only, not a guard: targets are counts from this "
+                              "session's home; vendor encoder zero (hard home) and sign "
+                              "convention are unverified on our arms")
 
 
 def _side(value: int, limit: VendorRange) -> str:
@@ -218,21 +219,24 @@ def _side(value: int, limit: VendorRange) -> str:
     return "inside"
 
 
-def vendor_limit_report(target_signed_counts: dict[str, int]) -> dict:
+def vendor_limit_report(target_from_home: dict[str, int | None]) -> dict:
     """Where each jog target sits against the vendor encoder limits, logged with a jog.
 
-    Evidence for whether our homing zero and signs match the vendor's, judged
-    under both sign hypotheses. Never used to allow or refuse motion. Wrist
-    motors have no per-motor vendor limit (pitch is a two-motor differential).
+    ``target_from_home`` is wrap-aware counts from the session home (None if
+    unknown). Evidence for whether our homing zero and signs match the
+    vendor's, judged under both sign hypotheses. Never used to allow or refuse
+    motion. Wrist motors have no per-motor vendor limit (pitch is a two-motor
+    differential).
     """
     motors = {}
-    for motor, target in target_signed_counts.items():
+    for motor, target in target_from_home.items():
         limit = VENDOR_ENCODER_SOFT_LIMITS.get(motor)
-        if limit is None:
-            motors[motor] = {"target_signed_counts": target, "same_sign": "no vendor limit",
-                             "flipped_sign": "no vendor limit"}
+        if limit is None or target is None:
+            verdict = "no vendor limit" if limit is None else "indeterminate"
+            motors[motor] = {"target_from_home": target, "same_sign": verdict,
+                             "flipped_sign": verdict}
             continue
-        motors[motor] = {"target_signed_counts": target,
+        motors[motor] = {"target_from_home": target,
                          "vendor_min": limit.minimum, "vendor_max": limit.maximum,
                          "same_sign": _side(target, limit),
                          "flipped_sign": _side(-target, limit)}

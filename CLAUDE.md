@@ -52,7 +52,7 @@ flowchart TD
 
 ```powershell
 python -m pip install -e ".[dev]"              # add ,kinematics for the Robotics Toolbox cross-check; windows extra adds libusb-package; gui adds PyQt5
-uv sync --locked --extra windows --extra test  # lab PC: Python 3.12 + exact versions from uv.lock; after editing deps run `uv lock` (CI checks it)
+uv sync --locked --extra windows --extra test  # lab PC: Python 3.13 + exact versions from uv.lock; after editing deps run `uv lock` (CI checks it)
 python -m compileall -q scorbot openScorbot scripts examples tests
 python -m unittest discover -s tests -v        # ~90 s, 309 tests, 2 expected failures (documented legacy bugs); pytest -n auto is faster
 python examples/make_synthetic_session.py --root <tmpdir>   # CI smoke test

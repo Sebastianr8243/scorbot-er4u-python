@@ -70,6 +70,29 @@ class PlanTests(unittest.TestCase):
         payload = trajectory.as_dict()
         self.assertEqual(json.loads(json.dumps(payload, allow_nan=False)), payload)
 
+    def test_every_sample_has_an_explicit_time(self):
+        trajectory = self.plan(period_s=0.016)
+        self.assertEqual(len(trajectory.times_s), len(trajectory.targets))
+        self.assertEqual(trajectory.times_s[0], 0.0)
+        self.assertEqual(trajectory.times_s[-1], trajectory.duration_s)
+        steps = [b - a for a, b in zip(trajectory.times_s, trajectory.times_s[1:])]
+        self.assertTrue(all(0 < step <= 0.016 + 1e-12 for step in steps))
+
+    def test_move_shorter_than_one_period_has_true_end_time(self):
+        trajectory = self.plan(start={"base": 0, "shoulder": 0}, goal={"base": 1, "shoulder": 0},
+                               period_s=10.0)
+        self.assertEqual(trajectory.targets, ((0, 0), (1, 0)))
+        self.assertEqual(trajectory.times_s, (0.0, trajectory.duration_s))
+        self.assertLess(trajectory.duration_s, 10.0)
+
+    def test_rejects_empty_and_out_of_range_counts(self):
+        with self.assertRaises(ValueError):
+            planning.plan_point_to_point({}, {}, LIMITS)
+        with self.assertRaises(ValueError):
+            self.plan(goal={"base": 65536, "shoulder": 0})
+        with self.assertRaises(ValueError):
+            self.plan(start={"base": -65536, "shoulder": 0})
+
     def test_rejects_mismatched_or_invalid_inputs(self):
         with self.assertRaises(ValueError):
             self.plan(goal={"base": 1})

@@ -26,9 +26,9 @@ Git history has the diffs; this file has the story. Hardware claims stay
   (adopted, both kept, measure). No bound loosened: the elbow gate stays at
   the manual's 260 degrees although the vendor files allow 275. Vendor joint
   and encoder limits and datasheet joint speeds added as priors.
-- Every jog preview with a start state now carries `vendor_limit_report`:
-  where the target sits against the vendor encoder limits under both sign
-  hypotheses. Diagnostic only, never a guard; it collects evidence on
+- Every jog's `motion_preview` row now carries `vendor_limit_report`:
+  where the target, in wrap-aware counts from the session home, sits against
+  the vendor encoder limits under both sign hypotheses. Diagnostic only, never a guard; it collects evidence on
   whether our homing zero matches the vendor's.
 - Offline trajectory planner `scorbot/planning.py` (Ruckig, optional
   `[planning]` extra, also in `[dev]` so CI runs its tests): synchronised,

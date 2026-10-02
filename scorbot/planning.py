@@ -23,7 +23,9 @@ import math
 
 from .nominal import DATASHEET_JOINT_SPEED_DEG_S, VENDOR_COUNTS_PER_DEGREE
 
-PLAN_STATUS = "offline plan, priors only, not sent"
+PLAN_STATUS = ("offline plan, priors only, not sent; targets rounded to whole counts, "
+               "so validate steps against the limits before any streaming use")
+MAX_SIGNED_COUNT = 65535
 DEFAULT_PERIOD_S = 0.016
 ARM_MOTORS = ("base", "shoulder", "elbow")
 
@@ -54,12 +56,14 @@ class PlannedTrajectory:
     period_s: float
     duration_s: float
     targets: tuple[tuple[int, ...], ...]
+    times_s: tuple[float, ...]
     status: str = PLAN_STATUS
 
     def as_dict(self) -> dict:
         return {"motors": list(self.motors), "period_s": self.period_s,
                 "duration_s": self.duration_s,
-                "targets": [list(row) for row in self.targets], "status": self.status}
+                "targets": [list(row) for row in self.targets],
+                "times_s": list(self.times_s), "status": self.status}
 
 
 def datasheet_velocity_counts_per_s(motors) -> dict[str, float]:
@@ -80,11 +84,16 @@ def plan_point_to_point(start: dict[str, int], goal: dict[str, int],
     """Sample a synchronised trajectory from ``start`` to ``goal`` every ``period_s``.
 
     Positions are signed encoder counts (use ``calibration.signed_count_delta``
-    to get them, never raw unsigned counts). The first sample is ``start`` and
-    the last is exactly ``goal``.
+    to get them, never raw unsigned counts). The first sample is ``start`` at
+    0 s and the last is exactly ``goal`` at the trajectory duration, so the
+    last interval can be shorter than ``period_s``; ``times_s`` gives every
+    sample's time. Targets are Ruckig positions rounded to whole counts, so a
+    step can exceed the continuous limits by up to one count each way.
     """
     period_s = _positive("period_s", period_s)
     motors = tuple(start)
+    if not motors:
+        raise ValueError("Plan at least one motor")
     if set(goal) != set(motors):
         raise ValueError("start and goal must name the same motors")
     missing = [motor for motor in motors if motor not in limits]
@@ -92,13 +101,14 @@ def plan_point_to_point(start: dict[str, int], goal: dict[str, int],
         raise ValueError(f"No limits for {missing}")
     for name, counts in (("start", start), ("goal", goal)):
         for motor in motors:
-            if type(counts[motor]) is not int:
-                raise ValueError(f"{name} counts for {motor} must be an int")
+            if type(counts[motor]) is not int or abs(counts[motor]) > MAX_SIGNED_COUNT:
+                raise ValueError(f"{name} counts for {motor} must be an int within "
+                                 f"+/-{MAX_SIGNED_COUNT}")
 
     begin = tuple(start[motor] for motor in motors)
     end = tuple(goal[motor] for motor in motors)
     if begin == end:
-        return PlannedTrajectory(motors, period_s, 0.0, (begin,))
+        return PlannedTrajectory(motors, period_s, 0.0, (begin,), (0.0,))
 
     from ruckig import InputParameter, Result, Ruckig, Trajectory
 
@@ -116,9 +126,11 @@ def plan_point_to_point(start: dict[str, int], goal: dict[str, int],
 
     duration = float(trajectory.duration)
     steps = math.ceil(duration / period_s)
-    samples = [begin]
+    samples, times = [begin], [0.0]
     for step in range(1, steps):
         position = trajectory.at_time(step * period_s)[0]
         samples.append(tuple(round(value) for value in position))
+        times.append(step * period_s)
     samples.append(end)
-    return PlannedTrajectory(motors, period_s, duration, tuple(samples))
+    times.append(duration)
+    return PlannedTrajectory(motors, period_s, duration, tuple(samples), tuple(times))

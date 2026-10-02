@@ -53,6 +53,24 @@ class SimulatedRobotTests(unittest.TestCase):
         finally:
             robot.disconnect()
 
+    def test_jog_logs_vendor_limit_report_relative_to_session_home(self):
+        from scorbot.simulated import SimulatedController, SimulatedScorbot
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "run.jsonl"
+            controller = SimulatedController(home_counts={"base": 500})
+            robot = SimulatedScorbot(controller=controller, log_path=log).connect()
+            try:
+                robot.enable()
+                robot.home(start_position_confirmed=True)
+                robot.jog_joint("base", 1.0)
+            finally:
+                robot.disconnect()
+            rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+        preview = next(row for row in rows if row["event"] == "motion_preview")
+        report = preview["plan"]["vendor_limit_report"]
+        self.assertIn("diagnostic only", report["status"])
+        self.assertEqual(abs(report["motors"]["base"]["target_from_home"]), 142)
+
     def test_home_resets_counts_to_home_counts(self):
         from scorbot.simulated import SimulatedController
         controller = SimulatedController(start_counts={"base": 900, "elbow": -300})
