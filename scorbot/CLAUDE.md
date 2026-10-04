@@ -13,7 +13,6 @@ Facade and pure helpers over the legacy USB code. Read the root [CLAUDE.md](../C
 | `nominal.py` | Manual values, stdlib only. Enforces span, never signed limits |
 | `simulated.py` | `SimulatedScorbot` overrides `connect`, `disconnect`, `get_state`, `_record` only. `SimulatedController.inject(kind)` arms one-shot faults from `FAULT_KINDS` |
 | `preflight.py` | `python -m scorbot.preflight`: enumerate only, never open, reset or configure |
-| `vendor_dll.py` | ctypes bindings for the vendor `USBC.dll` (32-bit Python only), stdlib only, not imported by `import scorbot`. Unverified against the real DLL. Getters only: it bypasses every `Scorbot` gate (fault latch, jog ceiling, log), so bind nothing that energises the motors without deciding how those gates apply |
 | `kinematics.py` | Offline, unvalidated DH model. Wired into no motion command |
 | `lab/` | Guided session. `session.py` LabSession engine (no print/input; Operator protocol), `terminal.py` front end, `profile.py` lab.json, `review.py` shared with `scripts/review_lab_logs.py --session`, `teleop.py` teleop mode and episodes (one press = one step, release gate), `camera.py` session camera with liveness. Adds no motion capability: 1 degree steps, base/shoulder/elbow, 10 degree net travel cap |
 | `provenance.py` | SHA-256 over `_SOURCE_FILES` (motion path). Add a file there if it can change what is sent |

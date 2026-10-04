@@ -13,8 +13,12 @@ Two layers:
 
 ``USBC.dll`` is 32-bit, so it only loads in a 32-bit Python. Loading runs the
 DLL's own start-up code; whether that touches the controller driver is
-unknown. ``import scorbot`` does not import this module, and this module
-never imports ``usb``.
+unknown.
+
+Parked: the project reads the DLL by static analysis and confirms with USB
+captures of SCORBASE (docs/VENDOR_DLL_PROTOCOL.md), so nothing calls this.
+It lives outside ``scorbot/`` on purpose, imports nothing from it, and never
+imports ``usb``.
 
 Standard library only.
 """

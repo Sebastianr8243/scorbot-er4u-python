@@ -4,7 +4,7 @@ Original OpenScorbot code (University of La Laguna, GPL-3.0) that builds and sen
 
 ## Hard rules
 
-- Do not change packet construction, sequence-byte handling, message tables (`libhex.py`), or the `WRITE`/`READ` sleeps without captured traces (`docs/USB_CAPTURE.md`, `scripts/usb_trace.py`). The sleeps are required for the controller to answer (comment in `libdef.py:set_msg`). Timing and byte layout are unverified against the Intelitek software.
+- Do not change packet construction, sequence-byte handling, message tables (`libhex.py`), or the `WRITE`/`READ` sleeps without evidence: captured traces (`docs/USB_CAPTURE.md`, `scripts/usb_trace.py`), or the vendor disassembly (`docs/VENDOR_DLL_PROTOCOL.md`) for sequences built only from command bytes already in `libhex.py`. A disassembly-based change is tried first on a 1 degree jog; bytes the legacy code never sends still need a capture (root `CLAUDE.md`). The sleeps are required for the controller to answer (comment in `libdef.py:set_msg`). Timing and byte layout are unverified against the Intelitek software.
 - Never run, import for side effects, or test anything here against the real device. Tests import these modules only for pure functions (`tests/test_properties.py`, `tests/test_python_api.py`, `tests/test_kinematics.py`).
 - Changes to `libcomm.py`, `libdef.py`, `motion_profile.py` alter `scorbot.provenance.motion_source_sha256`, which every lab log records. That is intended; do not bypass it.
 - Bug fixes need a test that shows the bug first. Known bugs are pinned as `expectedFailure` in `tests/test_properties.py` (`test_known_bug_*`); when you fix one, the test turns into an unexpected success and you must flip it.
@@ -41,5 +41,5 @@ Pure functions: `python -m unittest tests.test_properties tests.test_motion_prof
 ## Do not
 
 - Do not refactor for style, translate comments, or reformat whole files; diffs must stay reviewable against upstream and against the fingerprint.
-- Do not add a new command code to `execute` for the SDK without a captured trace and a gate in `Scorbot`.
+- Do not add a new command code to `execute` for the SDK without evidence (a captured trace, or the vendor disassembly under the rule above) and a gate in `Scorbot`.
 - Do not touch `gui.py` to change SDK behavior; it needs PyQt5 (`gui` extra) and opens USB on start.

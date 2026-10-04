@@ -9,7 +9,7 @@ Each subdirectory has its own CLAUDE.md with module-level rules. Read it before 
 | Rule | Why | Enforced by |
 |---|---|---|
 | Tests, simulators, scripts you run and CI never open USB or move the arm. Never call `Scorbot.connect()` (real class), `examples/python_control.py`, or a lab script without `--simulate`. | The legacy handshake energises the motors. | `SimulatedScorbot` replaces only `connect`/`disconnect`; `tests/test_simulated.py:test_import_loads_no_usb_and_leaves_sys_path_alone`; CI comment in `.github/workflows/tests.yml`. No test-time guard blocks USB access; review does. |
-| Do not change `openScorbot/` packet construction, sequence bytes, or the `WRITE`/`READ` sleeps without captured traces. | Byte layout and timing are unverified against the controller; the sleeps are load-bearing. | `docs/USB_CAPTURE.md`, `scripts/usb_trace.py`; `scorbot/provenance.py:motion_source_sha256` fingerprints the motion path into every lab log. |
+| Do not change `openScorbot/` packet construction, sequence bytes, or the `WRITE`/`READ` sleeps without evidence: a captured trace, or the vendor disassembly in `docs/VENDOR_DLL_PROTOCOL.md` for sequences built only from command bytes the legacy code already sends. A disassembly-based change is tried first on a 1 degree jog. Bytes the legacy code never sends (`54`, `4D`, `48`, ...) still need a capture. | Byte layout and timing are unverified against the controller; the sleeps are load-bearing. The controller is known to accept the legacy bytes (2026-09-29 run), so re-ordering them is a smaller risk than new ones. | `docs/USB_CAPTURE.md`, `scripts/usb_trace.py`, `scripts/vendor_check.py`; `scorbot/provenance.py:motion_source_sha256` fingerprints the motion path into every lab log. |
 | `disable()` is not an emergency stop. Never document or name it as one. | It is queued behind the running command and cannot interrupt it. | `scorbot/robot.py:Scorbot.disable` docstring; `README.md`. The physical stop is authoritative. |
 | Any fault latches the session and rejects further motion. New failure paths must call `Scorbot._latch_fault`. | Motor and home state are unverified after a fault. | `scorbot/robot.py:_command`, `_motion_state`; `tests/test_simulated.py:test_every_fault_kind_latches_the_session`. Known exceptions that set `_fault` directly: `jog_joint`/`get_joint_angles` on invalid calibrated state. |
 | Wrist jogs stay disabled. | Pitch and roll drive two coupled motors; unmeasured. | `Scorbot.jog_joint`; `tests/test_arm_control.py:test_wrist_jog_rejected_without_queuing_motion`. |
@@ -50,6 +50,7 @@ flowchart TD
 | `docs/` | Design, hardware reference, bench and lab checklists, capture and recording guides. `docs/superpowers/specs/` holds design specs (old implementation plans are in git history) |
 | `tools/foxglove/` | Foxglove layouts for recorded sessions |
 | `tools/usbc_analysis/` | Ghidra export script and query tool for static analysis of the vendor `USBC.dll`. Never commit the DLL or its decompiled output |
+| `tools/usbc_probe/` | Parked ctypes bindings for the vendor DLL (one getter, never run on the real DLL). Not part of the SDK; nothing calls it |
 | `src/`, `models/`, `references/` | GPL license text only (no control code) / OpenSCAD, STL, DXF parts (encoder, home jig) / Spanish 4pc manual |
 
 ## Commands
@@ -95,6 +96,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | Why is the design what it is, open risks | `docs/ARCHITECTURE.md` |
 | Packet layout, command codes | `docs/PROTOCOL.md`, `openScorbot/libhex.py`, `scorbot/state.py` |
 | What the vendor DLL sends (from disassembly, unverified) | `docs/VENDOR_DLL_PROTOCOL.md`; method in `tools/usbc_analysis/README.md` |
+| How to confirm it at the lab, claim by claim | `docs/VENDOR_PROTOCOL_LAB_PLAN.md` |
 | Safety argument | `docs/SAFETY_CASE.md` |
 | Known bugs and next work | `docs/BACKLOG.md` |
 | Manual facts, LEDs, controller safety | `docs/HARDWARE_REFERENCE.md` |

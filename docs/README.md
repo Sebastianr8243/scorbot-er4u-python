@@ -58,6 +58,7 @@ Status column: **stable** describes current behaviour; **plan** is forward-looki
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Systems review: legacy code assessment, target SDK structure, roadmap, risks | Changing module boundaries or adding a backend | mixed: proposal and status; some statements predate later fixes |
 | [`PROTOCOL.md`](PROTOCOL.md) | USB packet layout and legacy command semantics | Editing packet code, decoding a capture, changing the handshake | stable |
 | [`VENDOR_DLL_PROTOCOL.md`](VENDOR_DLL_PROTOCOL.md) | The vendor's message format, command letters, connect/control/stop sequences and reply layout, read from `USBC.dll` | Decoding a capture; designing stop, streaming or flow control; checking a legacy packet against the vendor's | from disassembly, unverified |
+| [`VENDOR_PROTOCOL_LAB_PLAN.md`](VENDOR_PROTOCOL_LAB_PLAN.md) | Which capture confirms which vendor-protocol claim, pass criteria, lab order, what each verdict unlocks | Preparing or analysing the S1 capture visit | plan |
 | [`OFFLINE_SAFETY_FIXES.md`](OFFLINE_SAFETY_FIXES.md) | Exact-count jog planner, signed decoder, wrist hold, jog preview | Reading or changing jog planning | stable |
 | [`OPERATOR_UX.md`](OPERATOR_UX.md) | Evidence behind prompts and warnings; UX backlog | Changing a prompt, warning or exit code | stable |
 | [`BACKLOG.md`](BACKLOG.md) | Every known bug and open item, prioritised, with code references | Choosing the next piece of work | plan |

@@ -13,6 +13,13 @@ questions the manuals leave blank (see
 works, whether home survives Control Off and e-stop, the communication
 time-out, and how speed levels are sent.
 
+The same captures confirm or contradict what was read from the vendor DLL.
+Which capture settles which claim, and the order to do them in if time is
+short, is in [VENDOR_PROTOCOL_LAB_PLAN.md](VENDOR_PROTOCOL_LAB_PLAN.md). Two
+extra items for step 0 from that plan: copy `USBC.dll` itself (never commit
+it) and write down the SCORBASE version. Start capture A **before** SCORBASE
+connects.
+
 **Before SCORBASE starts:** with the controller just powered on, photograph the
 POWER and MOTORS LEDs (the manuals disagree on the start-up state).
 

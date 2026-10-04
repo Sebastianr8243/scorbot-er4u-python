@@ -24,8 +24,14 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
   count is a 24-bit number offset by `0x7FFFFF`.
 - Method and tools: `tools/usbc_analysis/`. The DLLs and decompiled output
   stay outside the repository.
-- Plan for any use of the DLL at the lab: spec
-  `docs/superpowers/specs/2026-10-04-vendor-dll-design.md` (not yet approved).
+- Decided with the user: read the DLL, do not run it. Findings get confirmed
+  with SCORBASE captures (`docs/VENDOR_PROTOCOL_LAB_PLAN.md`, one row per
+  claim). The ctypes bindings are parked in `tools/usbc_probe/`, outside the
+  SDK. Spec: `docs/superpowers/specs/2026-10-04-vendor-dll-design.md`.
+- Rule change, decided by the user: packet sequences built only from command
+  bytes the legacy code already sends may now be changed on the strength of
+  the disassembly, tried first on a 1 degree jog. New bytes still need a
+  capture. Root `CLAUDE.md` and `openScorbot/CLAUDE.md` carry the wording.
 - Reviewed by Codex (adversarial, against the decompiled code): two wording
   errors about the stop sequence found and corrected. Gemini unavailable.
 

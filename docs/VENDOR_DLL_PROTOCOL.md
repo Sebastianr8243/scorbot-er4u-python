@@ -2,7 +2,7 @@
 
 What Intelitek's own DLL sends to and reads from the Controller-USB, worked out by static decompilation. Companion to [PROTOCOL.md](PROTOCOL.md), which describes what our legacy code (`openScorbot/`) sends.
 
-**Status: from disassembly, unverified.** The DLL was read, never loaded or run, and nothing here has been checked against a controller or a USB capture. It describes what the vendor software would send, not what the lab's controller accepts. Packet construction in `openScorbot/` still does not change without a captured trace.
+**Status: from disassembly, unverified.** The DLL was read, never loaded or run, and nothing here has been checked against a controller or a USB capture. It describes what the vendor software would send, not what the lab's controller accepts. Project rule (root `CLAUDE.md`, changed 2026-10-04): a sequence built only from command bytes the legacy code already sends may be changed on the strength of this document, and is tried first on a 1 degree jog. Bytes the legacy code never sends still need a capture.
 
 Labels: **V** = read directly from the vendor code. **I** = our inference from it.
 
@@ -155,6 +155,10 @@ With count = raw24 - `0x7FFFFF`, what the legacy code calls a "sign byte" is the
 | `80` | L | L + 1 | L |
 
 So the legacy decoder is exact on the negative side and one count low on the positive side, which amounts to having two zeros. That is where the 65535 modulus in `scorbot.calibration.signed_count_delta` comes from (I). It also means counts beyond +/-65535 are legal for the controller (top byte `81`, `7E`, ...), where `scorbot/state.py:decode_state` raises on any sign byte other than 127/128.
+
+Real data, consistent but not proof: the 2026-09-29 idle capture from the arm (`docs/evidence/`), taken after power-on and before homing, has the six joints at raw `0x7FFFFE`, `0x7FFFFF`, `0x7FFFFF`, `0x7FFFFF`, `0x7FFFFE` and `0x800001` in all 20 samples. A controller that has not moved since power-on reading within 2 counts of `0x7FFFFF` is what a zero at `0x7FFFFF` predicts. The legacy reading fits the same numbers, so this does not separate the two.
+
+How each claim here gets confirmed on the controller: [VENDOR_PROTOCOL_LAB_PLAN.md](VENDOR_PROTOCOL_LAB_PLAN.md).
 
 ## 7. The two builds compared
 

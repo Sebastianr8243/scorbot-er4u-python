@@ -1,15 +1,20 @@
-"""scorbot.vendor_dll against a fake library. The real USBC.dll is never loaded."""
+"""tools/usbc_probe/bindings.py against a fake library. The real USBC.dll is never loaded."""
 
 import ctypes
+import importlib.util
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from scorbot import vendor_dll
-from scorbot.vendor_dll import Export, UsbcDll, VendorDllError
+BINDINGS = Path(__file__).resolve().parent.parent / "tools" / "usbc_probe" / "bindings.py"
+spec = importlib.util.spec_from_file_location("usbc_bindings", BINDINGS)
+vendor_dll = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = vendor_dll  # dataclasses looks the module up by name
+spec.loader.exec_module(vendor_dll)
+Export, UsbcDll, VendorDllError = vendor_dll.Export, vendor_dll.UsbcDll, vendor_dll.VendorDllError
 
 SYMBOL = "?GetParameterFolder@@YAHPAD@Z"
 FOLDER = b"C:\\Intelitek\\PAR\\ER4u"
@@ -153,17 +158,11 @@ class VendorDllTest(unittest.TestCase):
 
 
 class ImportTest(unittest.TestCase):
-    def test_import_scorbot_does_not_load_vendor_dll_or_usb(self):
-        code = (
-            "import sys, scorbot, scorbot.vendor_dll\n"
-            "assert 'usb' not in sys.modules\n"
-            "import importlib\n"
-            "for name in [n for n in sys.modules if n.startswith('scorbot')]:\n"
-            "    del sys.modules[name]\n"
-            "importlib.import_module('scorbot')\n"
-            "assert 'scorbot.vendor_dll' not in sys.modules\n"
-        )
-        subprocess.run([sys.executable, "-c", code], check=True)
+    def test_bindings_do_not_import_the_sdk_or_usb(self):
+        source = BINDINGS.read_text(encoding="utf-8")
+        self.assertNotIn("import scorbot", source)
+        self.assertNotIn("from scorbot", source)
+        self.assertNotIn("import usb", source)
 
 
 if __name__ == "__main__":
