@@ -1,6 +1,6 @@
 # Legacy USB protocol as implemented in `openScorbot/`
 
-Reference for engineers comparing this repository's traffic with USBPcap captures of the Intelitek software (see [USB_CAPTURE.md](USB_CAPTURE.md)). Everything below is derived from the code; nothing here has been checked against a capture or against the controller firmware.
+Reference for engineers comparing this repository's traffic with USBPcap captures of the Intelitek software (see [USB_CAPTURE.md](USB_CAPTURE.md)). Sections 1-11 are derived from the code; section 12 collects what third-party documents and Intelitek's configuration files say about the vendor DLL. Nothing here has been checked against a capture or against the controller firmware.
 
 Conventions:
 
@@ -340,3 +340,66 @@ Signs are the IN sign byte as `state.decode_state` reports it: 128 is written as
 Proof: `tests/test_transport_codec.py` compares the codec with the legacy functions byte for byte. It covers every table entry for every sequence byte, every count value, `suma`/`resta` at the seams and at random (Hypothesis), `builder` + `set_msg` jog steps, and the wrist and XYZ `getStruct` regions. It also captures, with fake endpoints and no device, the full `msg_start` handshake and the `openMov`/`closeMov`, `motors_on`, `motors_off` and `scorbotoff` sequences.
 
 This proves equality with the legacy code only. Like the rest of this document, the codec is unverified against the controller until phase B compares it with captures. Nothing in the SDK uses it yet: `Scorbot` still sends through `openScorbot/`.
+
+## 12. Evidence from Intelitek's own software stack
+
+Sections 1-11 describe what `openScorbot/` sends. This section collects what third parties and Intelitek's configuration files say about the vendor stack (SCORBASE -> `USBC.dll` -> Intelitek kernel driver -> controller). None of it is a byte-level decode: no public source describes the USB packets. It tells us what the vendor DLL *can ask the controller to do*, which narrows what to look for in the S1 captures. Status labels: **D** = documented by the source named (a DLL-level fact, still unverified at the USB level), **I** = our inference from it.
+
+Sources:
+
+- [Mosebo] J. C. Mosebo, *The Scorbot-ER 4U: Function reference and notes for the usbc.dll* (community document, about 2005), `theoldrobots.com/book45/USBC-document.pdf`. Written from Intelitek's `usbc.h`/`usbcdef.h`; many entries are marked "?".
+- [MTIS] C. Wick, J. Esposito, K. Knowles, *The MATLAB Toolbox for the Intelitek Scorbot (MTIS)*, USNA (ASEE paper). They reached `USBC.dll` through a C++ shim because its exports are MSVC name-mangled.
+- [Kutzer] M. Kutzer et al., ScorBot Toolbox for MATLAB, `github.com/kutzer/ScorBotToolbox` (successor of MTIS; ASEE paper). `ScorBotToolboxSupport/` ships Intelitek's `USBC.INI` and `ER4CONF.INI`.
+- [RobotDll.h] The USNA C wrapper header around `USBC.dll` (not in this repository).
+
+### 12.1 Timing and buffering (`ER4CONF.INI`, `USBC.INI`)
+
+| Setting | Value | Status | Reading |
+|---|---|---|---|
+| `PCPeriod` | 16 | D (value), I (meaning) | Host-side period in ms. I: the DLL plans the trajectory on the PC and sends a setpoint every 16 ms. This is the streaming hypothesis behind S2 and the Ruckig planner (step 0c). Compare with our 20 ms motion cycle (section 1) and unknown 12 |
+| `USBCPeriod` | 1.5 | D (value), U (unit, meaning) | Probably the controller's servo or interpolation period in ms |
+| `Buffers` | 45 | D (value), I (meaning) | Queue depth for motion messages. MTIS reports commands are lost when the buffer overflows |
+| `HomingBuffers`, `TPBuffers`, `ManualBuffers` | 20, 6, 4 | D | Separate queue depths for homing, teach pendant and manual (velocity) jogging |
+| `Monitoring` (`USBC.INI`) | 100 | D | Interval in ms between the DLL's monitoring callbacks (`WatchJoint`, `ShowEnco`, ...). A host-side callback rate, not the USB period |
+| `DriverLink` (`USBC.INI`) | `\\.\ERUSBDevice0` | D | SCORBASE talks to Intelitek's own kernel driver, not WinUSB. USBPcap sits below it, so captures still work (S1 card step 2 swaps drivers) |
+| `PositBase Size_A` | 1000 | D | Up to 1000 stored positions for the arm group |
+| `AxisConfig` | 8 axes, 5 DoF, `Gripper = 5`, `First_B = 6` | D | Axes 1-5 arm, 6 gripper, 7-8 peripherals (`NOC.INI` = not connected) |
+| `ParFolder` | `PAR\ER4u\$Default`, one `ER4AxN.ini` per axis | D | Per-axis parameter files (gains, limits). Mosebo: changing them "can potentially damage the robots motors". Copy them at the lab (S1 card step 0); do not commit them |
+
+Measured by MTIS over USB: one encoder read (`ScorGetJt`) took 0.02 s on average over 1000 trials, so state polling through the DLL tops out near 50 Hz (D).
+
+### 12.2 What the DLL can command
+
+| Capability | DLL call | Status | Consequence for us |
+|---|---|---|---|
+| Motors (servo control) on/off per group | `Control(group, on)`; groups `'A'` arm, `'B'` peripherals, `'G'` gripper, `'&'` all, `'0'`-`'7'` one axis | D | Per-axis control exists. Capture D should show the motors-off message |
+| **Stop** | `Stop(group)` with the same group codes | D | A stop request exists at the DLL level. Unknown whether it is a controller message or the DLL simply stops streaming (capture F, unknown 14). Until a capture shows it, `disable()` stays not-an-e-stop |
+| Joint, linear, circular, spline moves to stored points | `MoveJoint`, `MoveLinear`, `MoveCircularVect`, `MoveSplineJoint(Time)`, `MoveSplineLinear` on named vectors of points | D | Points are stored first (`DefineVector`, `Teach`, `Here`, `AddPoints`), then moved to. I: with `PCPeriod` 16 the PC-side planner turns each move into a setpoint stream |
+| Move duration and speed | `Time(group, ms)`, `Speed(group, percent)`; 0 is invalid and out-of-range values are silently clamped | D | Speed is 1-100 % at the DLL; SCORBASE's 1-10 scale is a UI layer. Capture C shows how either reaches the wire |
+| **Manual (velocity) jog** | `EnterManual(ENC or XYZ)`, `MoveManual(axis, velocity)`, `CloseManual()`; axis 0 base, 1 shoulder, 2 elbow, 3 pitch, 4 roll, 5 gripper, 7 conveyor | D | A velocity-mode jog exists, separate from point moves, with its own 4-deep buffer. I: the teach pendant's jog keys use it; it is the natural base for smooth teleop (capture H, unknown 16) |
+| Raw PWM | `MoveTorque(array[8])` or `MoveTorque(axis, pwm)`, only with control **off** | D | The protocol can carry open-loop PWM. Mosebo: "no impact protection ... can potentially burn the motors". We never use it |
+| Homing | `Home(group, callback)`; callback values `0xFF` started, `1`-`8` axis N homing, `0x40` ended (not a success flag) | D | Capture A can show the vendor homing order on the wire. `SetHome` only stores a position; it does not mark the arm homed |
+| Callbacks | `WatchMotion` (start/end per group), `WatchControl` (bitmask per axis), `WatchJoint` (8 longs every `Monitoring` ms), `ShowPositErr`, `ShowHomeSwitches`, `ShowTorque` | D | I: the controller reports position error, home switches and torque/PWM per axis. Position error is the likeliest meaning of the IN "error words" (unknown 7) |
+| Status | `IsEmergency`, `IsTeachMode`, `IsOnlineOk`, `GetMotionStatus(group)`, `GetConStatus(group)`, `GetCurrentPosition` | D | E-stop and pendant mode are visible to the host. I: they are bits in the IN packet (unknown 17) |
+| Digital and analog I/O | 8 DI, 8 DO, 4 AI, 2 AO (`ER4CONF.INI`) | D | Not used by us |
+
+Units (Mosebo, Kutzer): joint angles in 1/1000 degree, XYZ in micrometres, pitch and roll in 1/1000 degree. Home is close to XYZ (169000, 0, 500000, -63000, 0) per Mosebo. Point types: absolute XYZ, relative XYZ, absolute joint, relative joint (D). MTIS: the DLL's positive joint directions do not all match the teach pendant's labels, and joint pitch is relative to the forearm while Cartesian pitch is relative to the horizontal (D). Our jog signs come from `openScorbot/`, not from the DLL.
+
+### 12.3 Behaviour reported by the toolbox authors
+
+- `Initialization` returns before the connection is up; success is only signalled by its callback, which may never come. Kutzer polls `RIsInitDone` 20 times at 0.1 s; Mosebo suggests a 5 s timer. One connection, from one process, at a time (D).
+- `RIsMotionDone` reports that the controller **received** the command, not that the arm finished (MTIS). Kutzer's `ScorWaitForMove` therefore also waits until successive joint readings stop changing, adds a 1.2 s dwell and gives up after 8 s; MTIS waits until the arm is within 5 mm of the target (D). I: the vendor stack has no reliable "move finished" signal, so our own settle check on the encoders (`DRIFT_COUNTS`) is the right design.
+- In Teach mode (pendant switch) motion completion cannot be confirmed; both toolboxes require Auto mode (D). The S1 card already asks to record the switch position.
+- Sending moves faster than the arm executes them overflows the buffer and loses commands. MTIS lost 12 of 100 rapid commands with the old RS-232 interface and none with their blocking USB toolbox (D).
+- A `Time` that is too short makes the move fail (MTIS) (D).
+
+DLL error codes (Kutzer `ScorParseErrorCode.m`, D): 201 position error during motion or impact; 202 thermal overload; 300/301 emergency on/off; 500 position or impact error; 561 homing time elapsed; 562 invalid command; 563 home switch not found; 901 home not done; 903 control disabled; 911 motion in progress; 912 configuration change; 937 robot home not done; 970-971 teach-pendant mode changes; 3 cannot communicate with PIC; 20 controller not responding; 50 PIC not ready. I: 201 and 500 are impact protection, so the controller or DLL watches position error itself. Once a capture identifies the matching IN status, it should latch our session fault like any other.
+
+### 12.4 New unknowns
+
+| # | Question | Test |
+|---|---|---|
+| 14 | Does `Stop` (SCORBASE F9) send a controller message, or does the setpoint stream just end? | Capture F: OUT messages after the key press, compared with the end of a normal go-to |
+| 15 | During a go-to, is the OUT period 16 ms with a new setpoint in each message (streaming), or one target message followed by idle traffic? | Capture B with a long travel time (S1 card); `compare` OUT->OUT interval and region bytes 12-35 over the move |
+| 16 | Does manual jog (`MoveManual`) use a velocity message distinct from point moves? | Capture H (S1 card): hold one jog key about 2 s; look for a message type absent from captures B and C |
+| 17 | Which IN bits carry e-stop and teach/auto mode? | Capture E, plus flipping the pendant switch with the arm at rest; diff the IN bytes |
