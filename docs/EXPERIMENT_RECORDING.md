@@ -123,7 +123,7 @@ emergency stop stays within reach.
 |---|---|
 | `log_state(state, raw_packet=None, observed_monotonic_ns=None)` | `/robot/state` |
 | `log_command(kind, params)` returns `"cmd-0001"`, ... | `/robot/command` |
-| `log_command_result(command_id, status)`, where status is `completed`, `faulted`, `timeout`, or `rejected` | `/robot/command_result` |
+| `log_command_result(command_id, status)`, where status is `completed`, `faulted`, `timeout`, `rejected`, or `stopped` (ended early by `request_stop`; not a fault) | `/robot/command_result` |
 | `log_frame(camera_id, frame_number, image_bytes, format="png"\|"jpeg", width, height, observed_monotonic_ns=...)` | `/camera/<id>/image` |
 | `log_detection(camera_id, frame_number, label, bbox_xyxy, confidence, model_id)` | `/camera/<id>/detections` |
 | `log_decision(choice, refers_to_seq=None, reason=None)` | `/operator/decision` |
@@ -160,7 +160,7 @@ with the robot states recorded just before and just after it:
 
 | Measure | Definition |
 |---|---|
-| `status` | `completed`, `faulted`, `timeout`, `rejected`, or `no_result` if the outcome was never logged |
+| `status` | `completed`, `faulted`, `timeout`, `rejected`, `stopped`, or `no_result` if the outcome was never logged |
 | `planned_counts` | The motor-count change the plan asked for. The lab scripts record it with each jog. |
 | `observed_counts` | The motor-count change between the before and after states. It uses the **same arithmetic as `review_lab_logs.py`**, so the two tools always agree. A difference too close to the counter's wrap point is shown as `ambiguous`, never guessed. |
 | `count_error` | Observed minus planned, for **every** motor that was read, not only the one commanded. A motor the plan didn't move counts as planned 0, so an uncommanded or coupled motion shows up here. The simulator always gives 0. On the arm this is the first real accuracy number. |

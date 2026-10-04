@@ -17,6 +17,7 @@ import threading
 import time
 
 from scorbot import MotionStopped, Scorbot, SimulatedScorbot
+from scorbot.calibration import signed_count_delta
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder, SessionWriter
@@ -332,7 +333,7 @@ def _run() -> int:
                 open_command = rec.log_command("jog_joint", {
                     "joint": args.joint, "delta_degrees": args.delta, "speed": args.speed,
                     "motor_count_deltas": preview["motor_count_deltas"]})
-                stop_timer, stopped = None, False
+                stop_timer, outcome = None, "completed"
                 if args.stop_after_ms is not None:
                     stop_timer = threading.Timer(args.stop_after_ms / 1000, robot.request_stop)
                     stop_timer.daemon = True
@@ -340,21 +341,47 @@ def _run() -> int:
                 try:
                     after = robot.jog_joint(args.joint, args.delta, speed=args.speed)
                 except MotionStopped as exc:
-                    after, stopped = exc.state, True
+                    after = exc.state
+                    outcome = "stopped" if exc.started else "not_started"
                 finally:
                     if stop_timer is not None:
                         stop_timer.cancel()
+                if outcome == "stopped":
+                    # A stop is only an early stop if the counts say so: every planned
+                    # motor must have travelled less than its plan.
+                    try:
+                        short = all(
+                            abs(signed_count_delta(after.encoder_counts[motor],
+                                                   before.encoder_counts[motor])) < abs(planned)
+                            for motor, planned in preview["motor_count_deltas"].items())
+                    except ValueError:
+                        short = False
+                    outcome = "stopped_early" if short else "stopped_at_full_travel"
                 command_id, open_command = open_command, None
                 # The primary JSONL evidence is written before any recorder call.
-                write("after_jog", state=asdict(after), stopped_on_request=stopped)
-                rec.log_command_result(
-                    command_id, "completed",
-                    completion_source=("jog_joint() stopped on request" if stopped
-                                       else "jog_joint() returned"))
+                write("after_jog", state=asdict(after), stop_trial_outcome=outcome,
+                      stopped_on_request=outcome == "stopped_early")
+                status, source = {
+                    "completed": ("completed", "jog_joint() returned"),
+                    "not_started": ("rejected", "stop requested before the jog started"),
+                    "stopped_early": ("stopped", "jog_joint() stopped on request"),
+                    "stopped_at_full_travel": ("stopped", "jog_joint() stopped on request, "
+                                                          "after the full planned travel"),
+                }[outcome]
+                rec.log_command_result(command_id, status, completion_source=source)
                 rec.log_state(after)
                 if args.stop_after_ms is not None:
-                    print("The jog ended early on the stop request." if stopped else
-                          "The jog completed; the stop request came too late or had no effect.")
+                    print({
+                        "completed": "The jog completed; the stop request came too late "
+                                     "or had no effect.",
+                        "not_started": "The stop request arrived before the jog started; "
+                                       "nothing was sent. The trial is inconclusive: use a "
+                                       "longer --stop-after-ms.",
+                        "stopped_early": "The jog ended early on the stop request.",
+                        "stopped_at_full_travel": "A stop was reported, but the counts show "
+                                                  "the full planned travel. The trial does "
+                                                  "not show an early stop.",
+                    }[outcome])
                 observe_leds("after_jog", write, rec,
                              expect_motors="lit", expect_power="green")
                 direction = input("Observed joint direction and approximate displacement: ").strip()

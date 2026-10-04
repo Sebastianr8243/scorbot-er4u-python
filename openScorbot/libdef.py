@@ -308,26 +308,30 @@ def closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
 
 # Ends a joint movement early, on request. Not an emergency stop.
 #
-# Sends the same message that opens every movement (mov_comm(2), which the
-# vendor DLL names "Clear communication buffer") and then the normal end
-# sequence. The vendor's own arm stop is this sequence
+# Sends the message that opens every movement (mov_comm(2), which the vendor
+# DLL names "Clear communication buffer") and then the three end-of-movement
+# commands (mov_comm(3..5)). The vendor's own arm stop is this sequence
 # (docs/VENDOR_DLL_PROTOCOL.md section 5); it is from disassembly and
-# unverified on the controller. Like closeMov, every message keeps the last
-# target already sent for the moving joint (signal_out), so the controller is
-# asked to hold where it was last told to go.
+# unverified on the controller.
 #
-# Arguments as for closeMov.
-def stopMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
-	cadena = libhex.mov_comm(2)
-	b_1 = countByte1(b_1)
-	cadena = cadena.format(f_byte(b_1))
-	cadena = fill_msg(cadena, 24)
-	msg = get_encoder(buffer,media)
-	cadena += getStruct(orden, signal_out, msg)
-	set_msg(cadena, epout, epin, buffer, write, read)
-	media = get_media(buffer,media)
+# Unlike closeMov, no message carries the jog target: every joint's region is
+# the smoothed measured position (get_encoder), as in openMov and the idle
+# messages. The vendor's stop likewise copies the measured positions over its
+# setpoints first, so the controller is asked to hold where the arm is, not
+# to finish the jog.
+#
+# Arguments as for openMov.
+def stopMov(b_1, media, epout, epin, buffer, write, read):
+	[b_1, buffer, media] = openMov(b_1, media, epout, epin, buffer, write, read)
+	for i in range(3, 6):
+		cadena = libhex.mov_comm(i)
+		b_1 = countByte1(b_1)
+		cadena = cadena.format(f_byte(b_1))
+		cadena += get_encoder(buffer, media)
+		set_msg(cadena, epout, epin, buffer, write, read)
+		media = get_media(buffer,media)
 
-	return closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+	return [b_1, buffer, media]
 
 # Selects the standard structure for sending positions to the controller according to
 # the received command.

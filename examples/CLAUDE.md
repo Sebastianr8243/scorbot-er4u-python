@@ -5,7 +5,7 @@ Runnable scripts. Two of them are the supervised lab procedures; the rest are of
 | Script | Talks to the robot? | Notes |
 |---|---|---|
 | `record_raw_state.py` | Real connect unless `--simulate` | Idle capture, 1-30 s, 0.2-10 Hz. Requires `--acknowledge-connect-handshake`. Each `sample` row carries `raw_hex`, the undecoded reply, for `scripts/vendor_check.py` |
-| `bench_joint.py` | Real connect unless `--simulate` | One home and one jog of base/shoulder/elbow, `--delta` nonzero and <= 1 degree, `--speed` 1-20. Requires `--acknowledge-supervised-motion`. `--stop-after-ms N` is the software-stop trial: it calls `request_stop()` N ms into the jog, prints that this is not an emergency stop, and records `stopped_on_request` in the `after_jog` row. Prompts and step names are unchanged |
+| `bench_joint.py` | Real connect unless `--simulate` | One home and one jog of base/shoulder/elbow, `--delta` nonzero and <= 1 degree, `--speed` 1-20. Requires `--acknowledge-supervised-motion`. `--stop-after-ms N` is the software-stop trial: it calls `request_stop()` N ms after the jog call, prints that this is not an emergency stop, and records `stop_trial_outcome` (`completed`, `not_started`, `stopped_early`, `stopped_at_full_travel`) and `stopped_on_request` (true only for `stopped_early`, judged from the counts) in the `after_jog` row. Prompts and step names are unchanged |
 | `python_control.py` | Yes, always. Runs at import (no `main` guard) | Illustrative first session. Never run or import it in tests, CI or as an agent. `compileall` only compiles it |
 | `preview_jog.py` | No | `Scorbot().preview_jog`; prints the plan |
 | `kinematics_check.py` | No | Nominal model vs legacy `cIn`; unvalidated geometry banner |

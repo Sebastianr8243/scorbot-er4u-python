@@ -25,30 +25,40 @@ START = 1000
 
 
 class FollowingController:
-    """Fake endpoints: the reply reports whatever target the last OUT carried.
+    """Fake endpoints with a small arm model behind them.
 
-    That lets the legacy settle loop converge, as it would on an arm that
-    follows its setpoints. ``stop_after`` sets the stop event while the
-    message with that 1-based index is being written.
+    Each OUT message carries a target per joint; the arm moves toward it by at
+    most ``rate`` counts per message (``None``: it arrives at once, so the
+    legacy settle loop converges). The reply reports where the arm is.
+    ``stop_after`` sets the stop event while the message with that 1-based
+    index is being written.
     """
 
-    def __init__(self, stop_event=None, stop_after=None):
+    def __init__(self, stop_event=None, stop_after=None, rate=None):
         self.packets = []
         self.stop_event = stop_event
         self.stop_after = stop_after
+        self.rate = rate
+        self.position = [START] * len(JOINTS)
         self.reply = bytearray(64)
         self.reply[1] = 13
-        for offset in ENCODER_OFFSETS:
-            self.reply[offset:offset + 2] = START.to_bytes(2, "little")
+        self._report()
+
+    def _report(self):
+        for value, offset in zip(self.position, ENCODER_OFFSETS):
+            self.reply[offset:offset + 2] = value.to_bytes(2, "little")
             self.reply[offset + 2] = 128
 
     def write(self, data, timeout):
         data = bytes(data)
         self.packets.append(data)
-        for index, offset in enumerate(ENCODER_OFFSETS):
-            region = data[12 + 4 * index:16 + 4 * index]
-            self.reply[offset:offset + 2] = region[:2]
-            self.reply[offset + 2] = 127 if region[2:] == b"\xff\xff" else 128
+        for index in range(len(JOINTS)):
+            target = int.from_bytes(data[12 + 4 * index:14 + 4 * index], "little")
+            move = target - self.position[index]
+            if self.rate is not None:
+                move = max(-self.rate, min(self.rate, move))
+            self.position[index] += move
+        self._report()
         if self.stop_after is not None and len(self.packets) == self.stop_after:
             self.stop_event.set()
         return len(data)
@@ -60,6 +70,9 @@ class FollowingController:
     def commands(self):
         return [packet[4] for packet in self.packets]
 
+    def targets(self, region):
+        return [int.from_bytes(packet[region:region + 2], "little") for packet in self.packets]
+
 
 @unittest.skipUnless(find_spec("usb"), "PyUSB is needed to import the legacy modules")
 class LegacyStopTests(unittest.TestCase):
@@ -70,9 +83,12 @@ class LegacyStopTests(unittest.TestCase):
         cls.comm = robot._legacy("libcomm")
         cls.profile = robot._legacy("motion_profile")
 
-    def jog(self, mover, order, *, stop_after=None, pass_event=True):
+    def steps(self, order):
+        return len(self.profile.plan_jog(order, 1.0, 10)["increments"])
+
+    def jog(self, mover, order, *, stop_after=None, pass_event=True, rate=None):
         stop_event = threading.Event()
-        controller = FollowingController(stop_event, stop_after)
+        controller = FollowingController(stop_event, stop_after, rate)
         buffer = bytearray(controller.reply)
         reads, results = queue.Queue(), queue.Queue()
         reads.put([START] * len(JOINTS))
@@ -93,24 +109,27 @@ class LegacyStopTests(unittest.TestCase):
                     self.assertEqual(commands[0], OPEN)
                     self.assertEqual(commands[-3:], [MODE, CONTROL_OFF, MOTOR])
                     self.assertEqual(set(commands[1:-3]), {STEP})
-                    steps = len(self.profile.plan_jog(order, 1.0, 10)["increments"])
-                    self.assertGreaterEqual(commands.count(STEP), steps)
+                    self.assertGreaterEqual(commands.count(STEP), self.steps(order))
                     self.assertEqual(results, [])
 
     def test_stop_mid_jog_sends_clear_buffer_then_close_and_reports_it(self):
-        for mover, order, _, region in MOVERS:
+        for mover, order, index, region in MOVERS:
             with self.subTest(mover=mover):
                 # message 1 opens the move; messages 2..6 are five steps
-                controller, results = self.jog(mover, order, stop_after=6)
+                controller, results = self.jog(mover, order, stop_after=6, rate=3)
                 self.assertEqual(controller.commands(),
                                  [OPEN] + [STEP] * 5 + [OPEN, MODE, CONTROL_OFF, MOTOR])
                 self.assertEqual(results, [STOPPED])
-                last_step = controller.packets[5]
-                for packet in controller.packets[6:]:
-                    self.assertEqual(packet[region:region + 4], last_step[region:region + 4],
-                                     "the stop must hold the last target already sent")
-                mode = controller.packets[7]
-                self.assertEqual(mode[4:7], bytes([0x4F, 0x3F, 0x53]))
+                targets = controller.targets(region)
+                last_step_target = targets[5]
+                self.assertGreater(last_step_target, START)
+                for target in targets[6:]:
+                    self.assertGreaterEqual(target, START)
+                    self.assertLess(target, last_step_target,
+                                    "the stop must ask for the measured position, "
+                                    "not the jog target")
+                self.assertLess(controller.position[index], last_step_target)
+                self.assertEqual(controller.packets[7][4:7], bytes([0x4F, 0x3F, 0x53]))
                 self.assertEqual(controller.packets[8][4:6], bytes([0x73, 0x20]))
                 self.assertEqual(controller.packets[9][4:6], bytes([0x42, 0x20]))
 
@@ -118,13 +137,32 @@ class LegacyStopTests(unittest.TestCase):
         mover, order, index, region = MOVERS[0]
         full, _ = self.jog(mover, order)
         stopped, _ = self.jog(mover, order, stop_after=6)
+        self.assertEqual(full.position[index] - START, 142)
+        self.assertGreater(stopped.position[index], START)
+        self.assertLess(stopped.position[index] - START, 142)
 
-        def target(controller):
-            return int.from_bytes(controller.packets[-1][region:region + 2], "little")
+    def test_stop_on_the_last_step_does_not_leave_the_full_target_commanded(self):
+        mover, order, index, region = MOVERS[0]
+        steps = self.steps(order)
+        controller, results = self.jog(mover, order, stop_after=1 + steps, rate=3)
+        self.assertEqual(controller.commands(),
+                         [OPEN] + [STEP] * steps + [OPEN, MODE, CONTROL_OFF, MOTOR])
+        self.assertEqual(results, [STOPPED])
+        targets = controller.targets(region)
+        self.assertEqual(targets[steps] - START, 142, "the last step carried the full target")
+        self.assertTrue(all(target - START < 142 for target in targets[steps + 1:]))
+        self.assertLess(controller.position[index] - START, 142)
 
-        self.assertEqual(target(full) - START, 142)
-        self.assertGreater(target(stopped), START)
-        self.assertLess(target(stopped) - START, 142)
+    def test_stop_during_the_settle_loop_ends_it(self):
+        mover, order, index, region = MOVERS[0]
+        steps = self.steps(order)
+        # A slow arm: the settle loop would otherwise run to its 100 message cap.
+        controller, results = self.jog(mover, order, stop_after=1 + steps + 3, rate=1)
+        self.assertEqual(controller.commands(),
+                         [OPEN] + [STEP] * (steps + 3) + [OPEN, MODE, CONTROL_OFF, MOTOR])
+        self.assertEqual(results, [STOPPED])
+        self.assertTrue(all(target - START < 142 for target in controller.targets(region)[-4:]))
+        self.assertLess(controller.position[index] - START, 142)
 
     def test_stop_already_requested_ends_after_the_first_step(self):
         mover, order, _, _ = MOVERS[0]
@@ -198,6 +236,7 @@ class SdkStopTests(unittest.TestCase):
         self.stop_soon(robot)
         with self.assertRaises(MotionStopped) as caught:
             robot.jog_joint("base", 1.0)
+        self.assertTrue(caught.exception.started)
         reached = caught.exception.state.signed_encoder_counts["base"]
         self.assertGreater(reached, start)
         self.assertLess(reached - start, 142)
@@ -229,6 +268,7 @@ class SdkStopTests(unittest.TestCase):
         with self.assertRaises(MotionStopped) as caught:
             robot.jog_joint("base", 1.0)
         self.assertIn("not started", str(caught.exception))
+        self.assertFalse(caught.exception.started)
         self.assertEqual(robot.sim.commands, queued, "nothing may be queued")
         self.assertTrue(robot._commands.empty())
         self.assertIsNone(robot.get_state().fault)
@@ -242,6 +282,54 @@ class SdkStopTests(unittest.TestCase):
         self.assertFalse(robot._stop_event.is_set())
         robot.jog_joint("base", 1.0)
         self.assertEqual(robot.get_state().signed_encoder_counts["base"], 284)
+
+    def test_one_quiet_pair_is_not_enough_to_call_the_arm_settled(self):
+        robot = self.robot(step_delay_s=0.02)
+        robot.STOP_SETTLE_TIMEOUT_S = 5.0
+        controller = robot.sim
+        plain = controller.snapshot
+        reads = []
+
+        def pausing(**kwargs):
+            # still, still, then a jump: one quiet pair followed by motion
+            reads.append(len(reads))
+            if len(reads) == 3:
+                with controller._lock:
+                    controller.counts["base"] += 50
+            return plain(**kwargs)
+
+        settle = robot._settled_after_stop
+
+        def settle_on_a_pausing_arm(before):
+            controller.snapshot = pausing
+            try:
+                return settle(before)
+            finally:
+                controller.snapshot = plain
+
+        robot._settled_after_stop = settle_on_a_pausing_arm
+        self.stop_soon(robot)
+        with self.assertRaises(MotionStopped):
+            robot.jog_joint("base", 1.0)
+        # reads 1-2 are a quiet pair, read 3 jumps, reads 4-6 complete three quiet
+        # pairs in a row; one quiet pair alone would have returned after read 2
+        self.assertEqual(len(reads), 6)
+
+    def test_stop_request_while_the_move_is_closing_is_logged_as_too_late(self):
+        robot = self.robot()
+        command = robot._command
+
+        def command_then_late_request(payload, **kwargs):
+            command(payload, **kwargs)
+            robot.request_stop()      # after the worker answered: nothing left to cut
+
+        robot._command = command_then_late_request
+        after = robot.jog_joint("base", 1.0)
+        robot._command = command
+        self.assertEqual(after.signed_encoder_counts["base"], 142)
+        self.assertIn("stop_too_late", self.events())
+        self.assertFalse(robot._stop_event.is_set())
+        robot.jog_joint("base", 1.0)
 
     def test_arm_that_keeps_moving_after_a_stop_latches_a_fault(self):
         robot = self.robot(step_delay_s=0.02)
@@ -319,7 +407,9 @@ class SdkStopTests(unittest.TestCase):
         by_type = {row["type"]: row for row in rows}
         self.assertEqual(by_type["session"]["stop_after_ms"], 100)
         self.assertTrue(by_type["after_jog"]["stopped_on_request"])
+        self.assertEqual(by_type["after_jog"]["stop_trial_outcome"], "stopped_early")
         self.assertTrue(review["stopped_on_request"])
+        self.assertEqual(review["stop_trial_outcome"], "stopped_early")
         self.assertEqual(review["problems"], [])
         observed = review["count_deltas"]["base"]["observed"]
         self.assertGreater(observed, 0)
@@ -333,12 +423,68 @@ class SdkStopTests(unittest.TestCase):
         self.assertFalse(review["stopped_on_request"])
         self.assertEqual(review["count_deltas"]["base"]["observed"], 142)
 
+    def test_bench_stop_before_the_jog_starts_is_inconclusive_not_a_success(self):
+        from examples import bench_joint
+
+        class EagerTimer:
+            """Fires at once, so the request lands before the jog starts."""
+
+            daemon = False
+
+            def __init__(self, _delay, function):
+                self.function = function
+
+            def start(self):
+                self.function()
+
+            def cancel(self):
+                pass
+
+        with mock.patch.object(bench_joint.threading, "Timer", EagerTimer):
+            code, rows, printed, review = self.bench("--stop-after-ms", "1")
+        self.assertEqual(code, 0, printed)
+        self.assertIn("inconclusive", printed)
+        self.assertNotIn("ended early", printed)
+        after_jog = {row["type"]: row for row in rows}["after_jog"]
+        self.assertEqual(after_jog["stop_trial_outcome"], "not_started")
+        self.assertFalse(after_jog["stopped_on_request"])
+        self.assertFalse(review["stopped_on_request"])
+        self.assertEqual(review["count_deltas"]["base"]["observed"], 0)
+
+    def test_bench_stop_reported_at_full_travel_is_not_called_early(self):
+        from examples import bench_joint
+        from scorbot.simulated import SimulatedController
+
+        apply = SimulatedController._apply
+
+        def stop_on_the_last_step(controller, payload):
+            if payload[0] in range(4, 14):
+                controller._stop_event.set()      # every step sees it, the last included
+                plan = controller._plan_jog(payload[0], float(payload[2]), int(payload[1]))
+                with controller._lock:
+                    for name, delta in plan["motor_count_deltas"].items():
+                        controller.counts[name] += delta
+                return 14
+            return apply(controller, payload)
+
+        with mock.patch.object(SimulatedController, "_apply", stop_on_the_last_step), \
+                mock.patch.object(bench_joint.threading, "Timer",
+                                  lambda *_args, **_kwargs: mock.Mock()):
+            code, rows, printed, review = self.bench("--stop-after-ms", "100")
+        self.assertEqual(code, 0, printed)
+        self.assertIn("does not show an early stop", printed)
+        after_jog = {row["type"]: row for row in rows}["after_jog"]
+        self.assertEqual(after_jog["stop_trial_outcome"], "stopped_at_full_travel")
+        self.assertFalse(after_jog["stopped_on_request"])
+        self.assertEqual(review["count_deltas"]["base"]["observed"], 142)
+
     def test_bench_without_the_option_is_unchanged(self):
         code, rows, printed, review = self.bench()
         self.assertEqual(code, 0, printed)
         self.assertNotIn("Stop trial", printed)
         self.assertIsNone(review["stop_after_ms"])
         self.assertFalse(review["stopped_on_request"])
+        self.assertEqual(review["stop_trial_outcome"], "completed")
 
     def test_bench_rejects_an_out_of_range_stop_delay(self):
         for value in ("0", "5001"):

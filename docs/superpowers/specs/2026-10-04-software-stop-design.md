@@ -44,11 +44,11 @@ When a stop is requested during a jog, the legacy loop stops stepping and sends 
 | Control Off, gripper | `73 20` | `mov_comm(4)`, `closeMov` step 2 |
 | Motor off, gripper | `42 20` | `mov_comm(5)`, `closeMov` step 3 |
 
-That is `47` followed by the unchanged `closeMov`. No new command byte, no new template, no change to a sleep. This is what the amended packet rule allows on the strength of the disassembly. The one new thing is the `47` arriving mid-move.
+That is `47` followed by the three `closeMov` commands. No new command byte, no new template, no change to a sleep. This is what the amended packet rule allows on the strength of the disassembly. The one new thing is the `47` arriving mid-move.
 
-In all four messages the moving joint's setpoint region carries the **last target already sent**, exactly as `closeMov` does today. The controller is asked to hold where it was last told to go, not to jump back to a measured position.
+In all four messages every joint's setpoint region carries the **smoothed measured position**, as the idle messages and `openMov` already do. `closeMov` differs: it keeps the jog target for the moving joint. The stop must not, or a stop on the last step would leave the full target commanded. The vendor does the same: its stop routine first copies the measured positions over its setpoints (`0x10021441`), then clears the buffer. The measured value is the legacy smoothed mean, which trails the arm by about one step, so the arm may be asked back a few counts.
 
-The settle loop (which waits for the joint to reach the full target) is skipped.
+The stop is checked after every step and in every pass of the settle loop (which otherwise keeps sending the full target until the arm arrives).
 
 ### How the request travels
 
@@ -70,11 +70,13 @@ Decisions:
 - **Lock-free request.** `jog_joint` holds the motion lock for the whole jog, so `request_stop()` takes no lock; it only sets the event and writes a log row.
 - **A stop requested while nothing moves refuses the next jog once.** Otherwise a request arriving a moment before a jog starts would be silently lost. Fail-stopped is the safe side of that race.
 - **A clean stop is not a fault.** Motors stay on and the home reference stays valid: the encoders kept counting. The session continues.
-- **An unconfirmed stop is a fault.** After the stop sequence, `jog_joint` compares successive readings 0.05 s apart until they no longer change, and gives up after 8 s. That is how the USNA ScorBot Toolbox for MATLAB decides the arm has stopped (`ScorWaitForMove`); "no longer change" is within 2 counts, the lab's idle band. If it gives up, the session latches a fault like any other and a best-effort disable is queued.
-- **A request after the last step has no effect.** By then the full target has been sent; the jog completes and the request is dropped.
+- **An unconfirmed stop is a fault.** After the stop sequence, `jog_joint` compares successive readings 0.05 s apart until they no longer change, and gives up after 8 s. That is how the USNA ScorBot Toolbox for MATLAB decides the arm has stopped (`ScorWaitForMove`); "no longer change" is within 2 counts, the lab's idle band, and we ask for three such pairs in a row so one pause in a slow move is not taken for rest. If it gives up, the session latches a fault like any other and a best-effort disable is queued.
+- **A request that comes too late is said to be too late.** If it arrives while the move is already being closed, nothing is cut short; the jog completes and a `stop_too_late` row is logged.
+- **A stop does not promise less travel.** `MotionStopped` carries the measured state and whether the jog was started; the caller compares counts. The bench trial reports one of four outcomes: completed, not started (the request beat the jog; inconclusive), stopped early, or stopped at full travel.
 - **Callers cannot mistake a stop for completion.** `jog_joint` raises `MotionStopped` (a `ScorbotError`) carrying the final state. `move_joint` therefore never reaches its "did it arrive" check.
 - **Wrist jogs** are disabled in the SDK, so `move_wrist` is not touched.
 - **Result code 14** is new on the legacy result queue ("stopped on request"). Codes 1-13 are taken by `libdef.error_msg`.
+- **Session records** gain the command status `stopped`, so an interrupted jog is not stored as completed. It is an added value, not a schema version change.
 
 ### Simulator
 
@@ -103,9 +105,22 @@ Decisions:
 | 7 | Docs: module rules, safety case, protocol, lab plan, project log | Read-through |
 | 8 | Full suite, `ruff`, `compileall`, Codex review and adversarial review | Output recorded in the project log |
 
-## 6. Risks
+## 6. Review
+
+Codex `review` and `adversarial-review` ran on the first version (Gemini had no credits). All findings were checked against the code and accepted:
+
+| Finding | Raised by | Fix |
+|---|---|---|
+| The bench trial could report success when the request beat the jog and nothing was sent | both | `MotionStopped.started`; the trial reports four outcomes and calls this one inconclusive |
+| A stop on the last step reported an early stop with the full target still commanded | adversarial | The stop messages carry the measured position, as the vendor's stop does; the trial checks the counts |
+| A request during the settle loop was lost | adversarial | The settle loop checks the event; a truly late request is logged as `stop_too_late` |
+| One quiet pair of readings could pass a moving arm as settled | adversarial | Three quiet pairs in a row |
+| An interrupted jog was stored as `completed` in the session record | review | New command status `stopped`; a refused jog is `rejected` |
+
+## 7. Risks
 
 - **`47` mid-move is untested on hardware.** It is the first message of every jog, so the controller accepts it; what it does to a move in progress is inferred from the vendor's own stop.
+- **The stop retargets to a smoothed, slightly stale position.** A few counts of pull-back are expected; a large one would show in the trial's counts.
 - **The arm coasts.** The stop removes future setpoints; it does not brake. The settle check measures the result, it does not shorten it.
 - **A stop cannot outrun a dead link.** If USB or the worker has failed, the request does nothing. That is why it is not an emergency stop.
 - **The fingerprint changes.** `libcomm.py`, `libdef.py` and `robot.py` are in `motion_source_sha256`, so logs from before and after this change will not be pooled. That is intended.

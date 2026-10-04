@@ -83,7 +83,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 			break
 
 		media = libdef.get_media(buffer,media)
-		# A stop request ends the jog at the last target sent (not an emergency stop).
+		# A stop request ends the jog where the arm is (not an emergency stop).
 		if stop_event is not None and stop_event.is_set():
 			stopped = True
 			break
@@ -99,6 +99,9 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
+		if stop_event is not None and stop_event.is_set():
+			stopped = True
+			break
 		if cont == 100:
 			print("Motion feedback loop failed")
 			cola_orden.put(2)
@@ -107,7 +110,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 		cont += 1
 
 	if stopped:
-		[b_1, buffer, media] = libdef.stopMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
 		cola_orden.put(STOPPED)
 		logging.warning(libdef.error_msg(STOPPED))
 	else:
@@ -143,7 +146,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 			break
 
 		media = libdef.get_media(buffer,media)
-		# A stop request ends the jog at the last target sent (not an emergency stop).
+		# A stop request ends the jog where the arm is (not an emergency stop).
 		if stop_event is not None and stop_event.is_set():
 			stopped = True
 			break
@@ -158,6 +161,9 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
+		if stop_event is not None and stop_event.is_set():
+			stopped = True
+			break
 		if cont == 100:
 			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
@@ -166,7 +172,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 		cont += 1
 
 	if stopped:
-		[b_1, buffer, media] = libdef.stopMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
 		cola_orden.put(STOPPED)
 		logging.warning(libdef.error_msg(STOPPED))
 	else:
@@ -203,7 +209,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			break
 
 		media = libdef.get_media(buffer,media)
-		# A stop request ends the jog at the last target sent (not an emergency stop).
+		# A stop request ends the jog where the arm is (not an emergency stop).
 		if stop_event is not None and stop_event.is_set():
 			stopped = True
 			break
@@ -218,6 +224,9 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
+		if stop_event is not None and stop_event.is_set():
+			stopped = True
+			break
 		if cont == 100:
 			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
@@ -226,7 +235,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		cont += 1
 
 	if stopped:
-		[b_1, buffer, media] = libdef.stopMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
 		cola_orden.put(STOPPED)
 		logging.warning(libdef.error_msg(STOPPED))
 	else:

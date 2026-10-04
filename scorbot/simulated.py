@@ -9,8 +9,10 @@ backlash, gravity or collision model. Every state is marked ``simulated``.
 
 A stop request (``Scorbot.request_stop``) ends a jog after the step in
 progress, keeps the counts reached so far and answers the legacy "stopped"
-code, like the legacy loop. That the real arm stops there is a hypothesis: it
-will coast, and the controller's reaction to the stop sequence is unverified.
+code, like the legacy loop. A request during the last step still answers
+"stopped" although the full travel was reached, as it can on the arm. That
+the real arm stops there is a hypothesis: it will coast, there is no lag
+model here, and the controller's reaction to the stop sequence is unverified.
 
 ``SimulatorProfile`` adds optional realism for rehearsals (BACKLOG #40): a
 homing sequence that presses each home switch in the legacy order, rest

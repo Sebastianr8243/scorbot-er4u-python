@@ -43,17 +43,25 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
   `Scorbot.get_state_and_packet`), so one e-stop press at rest can confirm the
   emergency bit. `RobotState` is unchanged.
 - `Scorbot.request_stop` ends a jog early (BACKLOG 6). The legacy loops for
-  base, shoulder and elbow check a stop event after each step and send `47`
-  then the unchanged close sequence, the vendor's arm stop. Only bytes the
-  legacy code already sends. `jog_joint` raises `MotionStopped`; a clean stop
-  is not a fault, an arm that does not settle is.
+  base, shoulder and elbow check a stop event after each step and in the
+  settle loop, then send `47` and the three close commands, the vendor's arm
+  stop, all carrying the measured position instead of the jog target (the
+  vendor's stop copies measured positions over its setpoints first). Only
+  bytes the legacy code already sends. `jog_joint` raises `MotionStopped`; a
+  clean stop is not a fault, an arm that does not settle is.
 - "Has it stopped" is taken from the USNA ScorBot Toolbox for MATLAB
   (`ScorWaitForMove`): successive readings 0.05 s apart that no longer change,
-  giving up after 8 s.
+  giving up after 8 s; we ask for three such pairs in a row.
 - Lab trial: `examples/bench_joint.py --stop-after-ms N` on the usual 1 degree
   jog (lab plan step F3).
 - It is not an emergency stop and has never run on the arm. Evidence so far:
   fake endpoints (exact command sequence) and the simulator.
+- Reviewed by Codex (`review` and `adversarial-review`; Gemini had no
+  credits). Five findings, all accepted and fixed: a bench trial that could
+  report success with nothing sent, a last-step stop that kept the full
+  target, a request lost in the settle loop, one quiet reading pair taken for
+  rest, and an interrupted jog stored as completed. The design doc lists
+  each with its fix.
 
 ## 2026-10-02
 

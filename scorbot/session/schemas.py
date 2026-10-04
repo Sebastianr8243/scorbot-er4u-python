@@ -15,7 +15,8 @@ from scorbot.state import JOINTS
 
 SCHEMA_VERSION = 1
 DATA_SOURCES = ("real", "simulated", "synthetic")
-COMMAND_STATUSES = ("completed", "faulted", "timeout", "rejected")
+# "stopped" (added 2026-10-04): ended early by Scorbot.request_stop, not a fault.
+COMMAND_STATUSES = ("completed", "faulted", "timeout", "rejected", "stopped")
 EPISODE_EVENTS = ("start", "end")
 EPISODE_STATUSES = ("completed", "aborted")
 IMAGE_SCHEMA = "foxglove.CompressedImage"

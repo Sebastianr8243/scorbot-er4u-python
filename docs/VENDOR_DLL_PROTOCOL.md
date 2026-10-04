@@ -42,7 +42,7 @@ Zeroed by `0x1003e7fc`, numbered when queued (`0x1003ed99`), setpoints filled in
 | 12-43 | 32 | One signed 32-bit little-endian value per axis, 8 axes. Written into **every** message from the DLL's setpoint table | The encoder/setpoint region at 12-35 (6 axes). The legacy "value + `0000`/`FFFF` sign word" is the same thing as a signed 32-bit integer |
 | 44-63 | 20 | Zero | Zero |
 
-ID wrap is not resolved: the increment is a plain byte +1 (which would wrap 255 -> 0), but the DLL's ID-difference arithmetic uses modulus 255 in two places and 256 in one. The legacy code wraps 255 -> 1 and never sends 0.
+ID wrap is not resolved: the increment is a plain byte +1 (which would wrap 255 -> 0), but the DLL's ID-difference arithmetic uses modulus 255 in two places and 256 in one, and its "wait until this ID is echoed" helpers (`0x1004004b`, `0x100401bb`) also wrap with modulus 255. The legacy code wraps 255 -> 1 and never sends 0.
 
 Axis bitmask from a group code (`0x1003fc7b`, with `ER4CONF.INI`: `Gripper = 5`, `First_B = 6`, `First_C = 8`):
 
@@ -116,7 +116,7 @@ In online mode the DLL's monitor loop (`0x10019f5f`) watches the emergency bit: 
 
 **Stop.** There is no single stop message for the arm.
 
-- `Stop('A')` (`0x10021a47`): `47` Clear communication buffer, `4F 3F 53` Mode S for the robot axes, then the `73 20`, `42 20` pair. The legacy `closeMov` is the last three of these (`4F 3F 53`, `73 20`, `42 20`) **without the leading `47`**. So `closeMov` is the vendor's end-of-move tail, not the vendor's stop: without `47` the setpoints already queued in the controller are still executed. I: the arm stops because the controller's queue of setpoints is thrown away; it then holds the last setpoint it has.
+- `Stop('A')` (`0x10021a47`): first the DLL copies its measured-position array over its setpoint array (`0x10021441`; I: "hold where you are", from which arrays the other code reads as position and as setpoint). Then `47` Clear communication buffer, `4F 3F 53` Mode S for the robot axes, then the `73 20`, `42 20` pair. The legacy `closeMov` is the last three of these (`4F 3F 53`, `73 20`, `42 20`) **without the leading `47`**. So `closeMov` is the vendor's end-of-move tail, not the vendor's stop: without `47` the setpoints already queued in the controller are still executed. I: the arm stops because the controller's queue of setpoints is thrown away; it then holds the last setpoint it has.
 - `Stop('B')` (`0x10021b8b`): for each peripheral axis that is moving, `4D` Move with value 0 and `4F` Mode S for that axis.
 - `Stop('C')` (`0x10021c3d`) is the only caller that sends `54`. With `First_C = 8` the group is empty, so on an ER-4u the `54` command is never sent.
 

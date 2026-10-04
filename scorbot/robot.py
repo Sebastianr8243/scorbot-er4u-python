@@ -45,12 +45,16 @@ class MotionStopped(ScorbotError):
     """A jog ended early because ``request_stop`` was called. Not a fault.
 
     ``state`` is the controller state read after the arm settled, or the state
-    before the jog when it was never started.
+    before the jog when it was never started (``started`` is then False and
+    nothing was sent). A stop does not promise the arm travelled less than the
+    jog: compare ``state`` with the state before.
     """
 
-    def __init__(self, message: str, state: RobotState | None = None):
+    def __init__(self, message: str, state: RobotState | None = None, *,
+                 started: bool = True):
         super().__init__(message)
         self.state = state
+        self.started = started
 
 
 class Scorbot:
@@ -63,11 +67,13 @@ class Scorbot:
     _STOPPED_CODE = 14  # openScorbot/libcomm.py:STOPPED
     # "Has it stopped" follows the USNA ScorBot Toolbox for MATLAB
     # (ScorWaitForMove): successive readings 0.05 s apart that no longer change,
-    # giving up after 8 s. The 2 count band is our lab idle band
-    # (scorbot.lab.session.STABLE_COUNTS). None of it is measured on our arm.
+    # giving up after 8 s. We ask for three such pairs in a row, so one pause
+    # in a slow move is not taken for rest. The 2 count band is our lab idle
+    # band (scorbot.lab.session.STABLE_COUNTS). None of it is measured on our arm.
     STOP_SETTLE_INTERVAL_S = 0.05
     STOP_SETTLE_TIMEOUT_S = 8.0
     STOP_SETTLE_COUNTS = 2
+    STOP_SETTLE_QUIET_PAIRS = 3
 
     _JOG_CODES = {
         "base": (5, 4),
@@ -395,12 +401,14 @@ class Scorbot:
         Safe to call from another thread while ``jog_joint`` is running; it takes
         no lock. The legacy loop checks it after each step, then sends the
         vendor's arm-stop sequence (clear the controller's buffer, then the
-        normal end of a move) and ``jog_joint`` raises ``MotionStopped``. It
-        needs a live USB link and a responsive worker, acts at the next packet,
-        and the arm coasts. A request made after the last step has been sent
-        has no effect. A request made while nothing is moving refuses the next
-        jog once. The sequence is from disassembly and unverified on the arm;
-        the physical stop is authoritative.
+        end-of-move commands, all carrying the measured position instead of
+        the jog target) and ``jog_joint`` raises ``MotionStopped``. It needs a
+        live USB link and a responsive worker, acts at the next packet, and the
+        arm coasts. A request that arrives while the move is already being
+        closed is logged as ``stop_too_late`` and the jog completes. A request
+        made while nothing is moving refuses the next jog once. The sequence is
+        from disassembly and unverified on the arm; the physical stop is
+        authoritative.
         """
         self._stop_event.set()
         self._record("stop_requested")
@@ -409,6 +417,7 @@ class Scorbot:
         """Wait until successive readings stop changing, or latch a fault."""
         deadline = time.monotonic() + self.STOP_SETTLE_TIMEOUT_S
         current = self._motion_state(after_index=before.packet_index)
+        quiet = 0
         while True:
             previous = current
             time.sleep(self.STOP_SETTLE_INTERVAL_S)
@@ -419,7 +428,8 @@ class Scorbot:
                             for name in JOINTS)
             except ValueError:
                 moved = None  # ambiguous near half the counter range: not settled
-            if moved is not None and moved <= self.STOP_SETTLE_COUNTS:
+            quiet = quiet + 1 if moved is not None and moved <= self.STOP_SETTLE_COUNTS else 0
+            if quiet >= self.STOP_SETTLE_QUIET_PAIRS:
                 return current
             if time.monotonic() >= deadline:
                 break
@@ -544,7 +554,7 @@ class Scorbot:
                 self._record("stop_before_motion", joint=joint,
                              requested_delta_deg=delta_degrees)
                 raise MotionStopped("A stop was requested; the jog was not started",
-                                    state=before)
+                                    state=before, started=False)
             positive, negative = self._JOG_CODES[joint]
             preview = self.preview_jog(
                 joint, delta_degrees, speed=speed,
@@ -564,7 +574,12 @@ class Scorbot:
             except MotionStopped:
                 stopped = True
             finally:
+                too_late = self._stop_event.is_set() and not stopped
                 self._stop_event.clear()
+                if too_late:
+                    # Asked for while the move was already being closed: nothing
+                    # was cut short. Say so instead of dropping it silently.
+                    self._record("stop_too_late", joint=joint)
                 if trace is not None:
                     packets, dropped = trace.stop()
                     self._record("motion_trace", joint=joint, packets=packets,
