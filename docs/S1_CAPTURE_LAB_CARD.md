@@ -23,7 +23,7 @@ unexpectedly, **press the physical stop and end the session.**
 ## 0. Save what is already there
 
 - [ ] Copy the whole `logs\` folder (including `sessions\` and every `.controller.jsonl`) to a USB stick or the cloud.
-- [ ] In the SCORBASE install folder, copy `USBC.INI`, `ER4CONF.INI`, any `.h` or `.txt` files next to `USBC.dll`, and the whole `PAR\` folder. Take them home; do not commit them (vendor files). Compare with the public copies in [PROTOCOL.md section 12](PROTOCOL.md#12-evidence-from-inteliteks-own-software-stack): a different `PCPeriod` or `Buffers` changes what to look for.
+- [ ] In the SCORBASE install folder, copy `USBC.INI`, `ER4CONF.INI`, any `.h` or `.txt` files next to `USBC.dll`, and the whole `PAR\` folder. Search the whole SCORBASE folder for `usbc.h`, `usbcdef.h`, `error.h` and `usbc.lib` (the vendor SDK files; finding them is a big win). Write down the size and date of `USBC.dll`. Take them home; do not commit them (vendor files). Compare with the public copies in [PROTOCOL.md section 12](PROTOCOL.md#12-evidence-from-inteliteks-own-software-stack): a different `PCPeriod` or `Buffers` changes what to look for.
 
 ## 1. Set up capture (once per PC)
 
