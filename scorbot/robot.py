@@ -312,6 +312,15 @@ class Scorbot:
 
     def get_state(self, *, after_index: int | None = None) -> RobotState:
         """Return a copied, recent USB response; optionally wait for a newer one."""
+        return self.get_state_and_packet(after_index=after_index)[0]
+
+    def get_state_and_packet(self, *, after_index: int | None = None
+                             ) -> tuple[RobotState, bytes]:
+        """``get_state`` plus a copy of the reply it was decoded from.
+
+        The packet holds bytes this SDK does not decode; it is evidence for
+        offline review, never an input to a motion decision.
+        """
         if self._device is None or self._input is None:
             raise ScorbotError("Not connected")
         if self._sync_dead():
@@ -325,10 +334,11 @@ class Scorbot:
                 self._last_state_index = sample.index
         except TimeoutError as exc:
             raise ScorbotError(str(exc)) from exc
-        return decode_state(sample.data, connected=True,
-                            enabled=self._enabled, homed=self._homed,
-                            fault=self._fault, packet_index=sample.index,
-                            host_monotonic_ns=sample.host_monotonic_ns)
+        state = decode_state(sample.data, connected=True,
+                             enabled=self._enabled, homed=self._homed,
+                             fault=self._fault, packet_index=sample.index,
+                             host_monotonic_ns=sample.host_monotonic_ns)
+        return state, bytes(sample.data)
 
     def _motion_state(self, *, after_index=None):
         try:

@@ -367,8 +367,9 @@ class SimulatedScorbot(Scorbot):
             raise ScorbotError(f"Simulated connection failed: {exc}") from exc
         return self
 
-    def get_state(self, *, after_index: int | None = None):
-        return dataclasses.replace(super().get_state(after_index=after_index), simulated=True)
+    def get_state_and_packet(self, *, after_index: int | None = None):
+        state, packet = super().get_state_and_packet(after_index=after_index)
+        return dataclasses.replace(state, simulated=True), packet
 
     def disconnect(self):
         if self._device is None:

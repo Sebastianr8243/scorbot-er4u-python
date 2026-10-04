@@ -15,6 +15,15 @@ from scorbot.state import RobotState
 from scripts.review_lab_logs import review_idle
 
 
+PACKET = bytes(range(64))
+
+
+def _with_packet(robot_class):
+    """Give a fake robot the accessor the idle recorder uses."""
+    robot_class.get_state_and_packet = lambda self: (self.get_state(), PACKET)
+    return robot_class
+
+
 class RawCaptureTests(unittest.TestCase):
     def test_literal_example_metadata_is_rejected_before_preflight_or_usb(self):
         examples = {
@@ -64,6 +73,7 @@ class RawCaptureTests(unittest.TestCase):
             fault=None,
         )
 
+        @_with_packet
         class FakeRobot:
             def __init__(self, *, log_path, robot_id):
                 self.robot_id = robot_id
@@ -104,6 +114,7 @@ class RawCaptureTests(unittest.TestCase):
             self.assertEqual(len(rows[0]["motion_source_sha256"]), 64)
             samples = [row for row in rows if row["type"] == "sample"]
             self.assertEqual(samples[0]["state"], asdict(state))
+            self.assertEqual(samples[0]["raw_hex"], PACKET.hex())
 
     def test_mcap_write_failure_is_persisted_and_fails_review(self):
         from scorbot.session.record import SessionError, SessionWriter
@@ -114,6 +125,7 @@ class RawCaptureTests(unittest.TestCase):
             home_switch_bits=0, connected=True, enabled=False, homed=False, fault=None,
         )
 
+        @_with_packet
         class FakeRobot:
             def __init__(self, *, log_path, robot_id):
                 Path(log_path).write_text("", encoding="utf-8")
@@ -160,6 +172,7 @@ class RawCaptureTests(unittest.TestCase):
             home_switch_bits=0, connected=True, enabled=False, homed=False, fault=None,
         )
 
+        @_with_packet
         class FakeRobot:
             def __init__(self, *, log_path, robot_id):
                 Path(log_path).write_text("", encoding="utf-8")
@@ -214,6 +227,7 @@ class RawCaptureTests(unittest.TestCase):
             with self.subTest(motors_answer=motors_answer):
                 calls = []
 
+                @_with_packet
                 class FakeRobot:
                     log = calls          # bound per iteration (B023)
 
@@ -265,6 +279,7 @@ class RawCaptureTests(unittest.TestCase):
             home_switch_bits=0, connected=True, enabled=False, homed=False, fault=None,
         )
 
+        @_with_packet
         class FakeRobot:
             def __init__(self, *, log_path, robot_id):
                 Path(log_path).write_text("", encoding="utf-8")

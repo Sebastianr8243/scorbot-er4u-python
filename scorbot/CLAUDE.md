@@ -11,7 +11,7 @@ Facade and pure helpers over the legacy USB code. Read the root [CLAUDE.md](../C
 | `state.py` | `decode_state` (raises on short packet or sign byte not 127/128), `RobotState`, offsets `ENCODER_OFFSETS`, `HOME_SWITCH_BITS` (polarity unverified) |
 | `calibration.py` | `signed_count_delta`, `load_calibration` (base/shoulder/elbow only) |
 | `nominal.py` | Manual values, stdlib only. Enforces span, never signed limits |
-| `simulated.py` | `SimulatedScorbot` overrides `connect`, `disconnect`, `get_state`, `_record` only. `SimulatedController.inject(kind)` arms one-shot faults from `FAULT_KINDS` |
+| `simulated.py` | `SimulatedScorbot` overrides `connect`, `disconnect`, `get_state_and_packet` (which `get_state` goes through), `_record` only. `SimulatedController.inject(kind)` arms one-shot faults from `FAULT_KINDS` |
 | `preflight.py` | `python -m scorbot.preflight`: enumerate only, never open, reset or configure |
 | `kinematics.py` | Offline, unvalidated DH model. Wired into no motion command |
 | `lab/` | Guided session. `session.py` LabSession engine (no print/input; Operator protocol), `terminal.py` front end, `profile.py` lab.json, `review.py` shared with `scripts/review_lab_logs.py --session`, `teleop.py` teleop mode and episodes (one press = one step, release gate), `camera.py` session camera with liveness. Adds no motion capability: 1 degree steps, base/shoulder/elbow, 10 degree net travel cap |

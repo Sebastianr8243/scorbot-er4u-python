@@ -53,6 +53,21 @@ class SimulatedRobotTests(unittest.TestCase):
         finally:
             robot.disconnect()
 
+    def test_state_and_packet_agree_and_stay_marked_simulated(self):
+        from scorbot.state import decode_state
+        robot = ready_robot()
+        try:
+            robot.jog_joint("base", 1.0)
+            state, packet = robot.get_state_and_packet()
+            self.assertTrue(state.simulated)
+            self.assertIsInstance(packet, bytes)
+            self.assertEqual(len(packet), 64)
+            decoded = decode_state(packet, connected=True, enabled=None, homed=False, fault=None)
+            self.assertEqual(decoded.encoder_counts, state.encoder_counts)
+            self.assertEqual(decoded.encoder_sign_bytes, state.encoder_sign_bytes)
+        finally:
+            robot.disconnect()
+
     def test_jog_logs_vendor_limit_report_relative_to_session_home(self):
         from scorbot.simulated import SimulatedController, SimulatedScorbot
         with tempfile.TemporaryDirectory() as folder:

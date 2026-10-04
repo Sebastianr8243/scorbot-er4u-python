@@ -139,8 +139,10 @@ def _run() -> int:
                 next_sample = time.monotonic()
                 for index in range(sample_count):
                     time.sleep(max(0.0, next_sample - time.monotonic()))
-                    state = robot.get_state()
-                    write("sample", index=index, state=asdict(state))
+                    # raw_hex keeps the reply bytes this SDK does not decode
+                    # (docs/VENDOR_DLL_PROTOCOL.md section 6) for offline review.
+                    state, packet = robot.get_state_and_packet()
+                    write("sample", index=index, state=asdict(state), raw_hex=packet.hex())
                     rec.log_state(state)
                     next_sample += 1 / args.hz
             # Verify motor power after release. POWER has no fixed expectation here:

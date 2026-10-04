@@ -1,8 +1,9 @@
 """Check an exported USB trace against the layout read from the vendor DLL.
 
 Reads a JSONL trace written by ``usb_trace.py export`` (a Wireshark capture)
-or ``usb_trace.py from-log`` (the packets our own SDK copies during a jog).
-It never opens USB and never commands the arm.
+or ``usb_trace.py from-log`` (the packets our own SDK copies during a jog), or
+an idle recording from ``examples/record_raw_state.py`` (replies only, in its
+``raw_hex`` field). It never opens USB and never commands the arm.
 
     python scripts/vendor_check.py TRACE.jsonl
 
@@ -47,8 +48,13 @@ def read_rows(path):
 
 
 def _payloads(rows):
-    return [(row["direction"], bytes.fromhex(row["hex"])) for row in rows
-            if row.get("direction") in ("out", "in") and row.get("hex")]
+    packets = []
+    for row in rows:
+        if row.get("direction") in ("out", "in") and row.get("hex"):
+            packets.append((row["direction"], bytes.fromhex(row["hex"])))
+        elif row.get("type") == "sample" and row.get("raw_hex"):
+            packets.append(("in", bytes.fromhex(row["raw_hex"])))  # idle recording
+    return packets
 
 
 def _check(name, status, detail):
@@ -173,7 +179,8 @@ def format_report(results):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("trace", type=Path, help="JSONL from usb_trace.py export or from-log")
+    parser.add_argument("trace", type=Path,
+                        help="JSONL from usb_trace.py export or from-log, or an idle recording")
     args = parser.parse_args(argv)
     results = run_checks(read_rows(args.trace))
     print(format_report(results))

@@ -72,6 +72,15 @@ class VendorCheckTest(unittest.TestCase):
         pressed = [reply(1), reply(2, byte2=1), reply(3)]
         self.assertEqual(status(pressed, vendor_check.check_emergency), MATCHES)
 
+    def test_idle_recording_rows_count_as_replies(self):
+        def sample(byte2):
+            return {"type": "sample", "raw_hex": reply(1, byte2=byte2)["hex"], "state": {}}
+
+        rows = [{"type": "session"}, sample(0), sample(1), sample(0)]
+        self.assertEqual(len(vendor_check._payloads(rows)), 3)
+        self.assertEqual(status(rows, vendor_check.check_emergency), MATCHES)
+        self.assertEqual(status(rows, vendor_check.check_echo), NOT_SEEN)
+
     def test_id_wrap_reports_what_follows_255(self):
         result = vendor_check.check_id_wrap(vendor_check._payloads([out(254), out(255), out(1)]))
         self.assertEqual(result["status"], MATCHES)
