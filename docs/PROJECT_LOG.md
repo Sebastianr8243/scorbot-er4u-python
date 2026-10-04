@@ -35,6 +35,26 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
 - Reviewed by Codex (adversarial, against the decompiled code): two wording
   errors about the stop sequence found and corrected. Gemini unavailable.
 
+### Raw reply bytes and a software stop (built, not yet on the arm)
+
+- Design and plan: `docs/superpowers/specs/2026-10-04-software-stop-design.md`.
+  Built on the owner's instruction to plan and do it while he was away.
+- Idle recordings keep the raw reply (`raw_hex` per sample row, from
+  `Scorbot.get_state_and_packet`), so one e-stop press at rest can confirm the
+  emergency bit. `RobotState` is unchanged.
+- `Scorbot.request_stop` ends a jog early (BACKLOG 6). The legacy loops for
+  base, shoulder and elbow check a stop event after each step and send `47`
+  then the unchanged close sequence, the vendor's arm stop. Only bytes the
+  legacy code already sends. `jog_joint` raises `MotionStopped`; a clean stop
+  is not a fault, an arm that does not settle is.
+- "Has it stopped" is taken from the USNA ScorBot Toolbox for MATLAB
+  (`ScorWaitForMove`): successive readings 0.05 s apart that no longer change,
+  giving up after 8 s.
+- Lab trial: `examples/bench_joint.py --stop-after-ms N` on the usual 1 degree
+  jog (lab plan step F3).
+- It is not an emergency stop and has never run on the arm. Evidence so far:
+  fake endpoints (exact command sequence) and the simulator.
+
 ## 2026-10-02
 
 ### Replay and preview (M1 finish)

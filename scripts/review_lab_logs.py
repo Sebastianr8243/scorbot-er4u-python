@@ -164,6 +164,8 @@ def review_bench(path):
         "data_source": session.get("data_source", "real"),
         "motion_source_sha256": session.get("motion_source_sha256"),
         "joint": session.get("joint"), "requested_delta_deg": session.get("requested_delta_deg"),
+        "stop_after_ms": session.get("stop_after_ms"),
+        "stopped_on_request": bool(events.get("after_jog", {}).get("stopped_on_request")),
         "count_deltas": deltas, "home_observation": events.get("home_observation"),
         "operator_observation": observation, "led_observations": leds,
         "operator_declined": declined,

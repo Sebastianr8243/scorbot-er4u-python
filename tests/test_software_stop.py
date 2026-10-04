@@ -1,14 +1,18 @@
 """The software stop: legacy jog loops against fake endpoints, then the SDK
 through the simulator. No USB, no hardware. Not an emergency stop."""
 
+import contextlib
 from importlib.util import find_spec
+import io
 import json
 from pathlib import Path
 import queue
+import sys
 import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 from scorbot import MotionStopped, Scorbot, ScorbotError
 from scorbot.state import ENCODER_OFFSETS, JOINTS
@@ -276,6 +280,72 @@ class SdkStopTests(unittest.TestCase):
         with self.assertRaises(ScorbotError):
             robot.jog_joint("base", 1.0)
         self.assertEqual(len(controller.commands), queued, "a latched session queues nothing")
+
+    def bench(self, *extra, step_delay_s=0.0):
+        """Run examples/bench_joint.py in process against the simulator."""
+        from examples import bench_joint
+        from scorbot.simulated import SimulatedController, SimulatedScorbot
+        from scripts.review_lab_logs import review_bench
+
+        class SlowArm(SimulatedScorbot):
+            def __init__(self, **kwargs):
+                super().__init__(controller=SimulatedController(step_delay_s=step_delay_s),
+                                 **kwargs)
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        output = Path(folder.name) / "bench.jsonl"
+        argv = ["bench_joint.py", "--output", str(output), "--robot-id", "rehearsal-arm",
+                "--arm-label", "arm-plate", "--controller-label", "controller-plate",
+                "--driver", "none (simulated)", "--operator", "tester",
+                "--start-pose-note", "desk rehearsal", "--joint", "base", "--delta", "1",
+                "--simulate", "--acknowledge-supervised-motion", *extra]
+        answers = ("n\ng\n" "HOME\n" "y\ng\n" "home looked normal\nHOME_OK\nMOVE\n" "y\ng\n"
+                   "toward door\nnone\nno sounds\nnone\n" "n\ng\n").splitlines()
+        printed = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(bench_joint, "SimulatedScorbot", SlowArm), \
+                mock.patch("builtins.input", side_effect=answers), \
+                contextlib.redirect_stdout(printed):
+            code = bench_joint.main()
+        rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+        return code, rows, printed.getvalue(), review_bench(output)
+
+    def test_bench_stop_trial_records_an_early_stop(self):
+        code, rows, printed, review = self.bench("--stop-after-ms", "100", step_delay_s=0.02)
+        self.assertEqual(code, 0, printed)
+        self.assertIn("NOT an emergency stop", printed)
+        self.assertIn("ended early on the stop request", printed)
+        by_type = {row["type"]: row for row in rows}
+        self.assertEqual(by_type["session"]["stop_after_ms"], 100)
+        self.assertTrue(by_type["after_jog"]["stopped_on_request"])
+        self.assertTrue(review["stopped_on_request"])
+        self.assertEqual(review["problems"], [])
+        observed = review["count_deltas"]["base"]["observed"]
+        self.assertGreater(observed, 0)
+        self.assertLess(observed, 142)
+        self.assertIn("disabled", by_type)
+
+    def test_bench_stop_trial_that_comes_too_late_reports_a_completed_jog(self):
+        code, rows, printed, review = self.bench("--stop-after-ms", "5000")
+        self.assertEqual(code, 0, printed)
+        self.assertIn("The jog completed", printed)
+        self.assertFalse(review["stopped_on_request"])
+        self.assertEqual(review["count_deltas"]["base"]["observed"], 142)
+
+    def test_bench_without_the_option_is_unchanged(self):
+        code, rows, printed, review = self.bench()
+        self.assertEqual(code, 0, printed)
+        self.assertNotIn("Stop trial", printed)
+        self.assertIsNone(review["stop_after_ms"])
+        self.assertFalse(review["stopped_on_request"])
+
+    def test_bench_rejects_an_out_of_range_stop_delay(self):
+        for value in ("0", "5001"):
+            with self.subTest(value=value), self.assertRaises(SystemExit) as caught, \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.bench("--stop-after-ms", value)
+            self.assertEqual(caught.exception.code, 2)
 
     def test_motion_stopped_is_a_scorbot_error_with_a_state(self):
         self.assertTrue(issubclass(MotionStopped, ScorbotError))

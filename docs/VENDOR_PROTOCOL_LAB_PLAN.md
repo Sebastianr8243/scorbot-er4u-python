@@ -35,8 +35,8 @@ Two facts make that possible:
 | Step | What you do at the lab | Extra effort | Settles |
 |---|---|---|---|
 | F1 | Bring back the `logs\` folder from any session with jogs | none | V1, V2, V4 and, if a joint crosses its power-on position, V14 |
-| F2 | Record idle with our code, press the e-stop at rest, release it per the lab procedure | one button press; needs the idle recorder to log raw reply bytes (not built yet) | V6 |
-| F3 | Try the vendor stop from our own code: during a 1 degree jog, send `47` then `4F 3F 53` | needs code (below) | V3 |
+| F2 | Record idle with our code, press the e-stop at rest, release it per the lab procedure | one button press. Built: each idle sample row now carries `raw_hex` | V6 |
+| F3 | Try the vendor stop from our own code: `bench_joint.py --stop-after-ms 150` on a 1 degree jog | built, simulator-tested, never run on the arm | V3 |
 
 At a desk, for F1:
 
@@ -47,7 +47,7 @@ python scripts\vendor_check.py trace.jsonl
 
 It prints one line per claim: matches, CONTRADICTED, or not seen.
 
-F3 is the first real "try". The risk is bounded: both bytes are ones the controller already accepts from us (`47` opens every legacy move, `4F 3F 53` closes it), the jog is 1 degree, and someone is at the physical stop. The worst expected outcome is that the arm finishes its 1 degree. It still needs a code change in the motion path, so it goes through the usual gates and a simulator test first; it is not a script to improvise at the bench.
+F3 is the first real "try". The risk is bounded: both bytes are ones the controller already accepts from us (`47` opens every legacy move, `4F 3F 53` closes it), the jog is 1 degree, and someone is at the physical stop. The worst expected outcome is that the arm finishes its 1 degree. The code is in place (`Scorbot.request_stop`, design in `docs/superpowers/specs/2026-10-04-software-stop-design.md`) and goes through the usual gates.
 
 The SCORBASE captures in sections 2-4 become the **slow path**: only needed for what our own code cannot show, which is how SCORBASE itself behaves (its connect mode V5, its streaming period V8, its jog queue V9, what it does on close V15). They are worth doing once, but nothing in the fast path waits for them.
 

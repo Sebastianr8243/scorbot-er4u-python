@@ -6,7 +6,7 @@ Facade and pure helpers over the legacy USB code. Read the root [CLAUDE.md](../C
 
 | File | Contract |
 |---|---|
-| `robot.py:Scorbot` | Only class that sends commands. Two daemon threads (sync, command) run the legacy loops; queues `_commands`, `_results`, `_sync`, `_reads`. Command codes it sends: 16 disable, 17 enable, 18 home, 4-13 jogs, 528 exit. Never 14/15/19 |
+| `robot.py:Scorbot` | Only class that sends commands. Two daemon threads (sync, command) run the legacy loops; queues `_commands`, `_results`, `_sync`, `_reads`. Command codes it sends: 16 disable, 17 enable, 18 home, 4-13 jogs, 528 exit. Never 14/15/19. `request_stop()` sets `_stop_event` (no lock, callable from another thread); the legacy jog loop then ends early with result 14 and `jog_joint` raises `MotionStopped` after `_settled_after_stop`. `get_state_and_packet()` also returns the raw reply bytes |
 | `packet.py:TrackedInputEndpoint` | Wraps the USB IN endpoint; copies each response out of the legacy's reused buffer, numbers it, timestamps it. `snapshot(after_index=, max_age=)` returns only a fresh, full-length packet or raises `TimeoutError` |
 | `state.py` | `decode_state` (raises on short packet or sign byte not 127/128), `RobotState`, offsets `ENCODER_OFFSETS`, `HOME_SWITCH_BITS` (polarity unverified) |
 | `calibration.py` | `signed_count_delta`, `load_calibration` (base/shoulder/elbow only) |
@@ -31,6 +31,7 @@ Facade and pure helpers over the legacy USB code. Read the root [CLAUDE.md](../C
 
 - Gates live only in `Scorbot`. Add a check to the facade, not to a script; the simulator then exercises it for free. If you override a method in `SimulatedScorbot`, mirror the real cleanup and fault behavior (its `connect` sets `_fault` directly instead of calling `_latch_fault`).
 - Lock nesting: `_motion_lock` (RLock, motion methods) outside, then `_lock` (in `_command`) or `_state_lock` (in `get_state`). Never take `_motion_lock` while holding the others. `_command` on error queues a best-effort `[16, 1, 1]` and then raises; it skips the disable when the worker crashed (`_WorkerCrashed`) because nobody would answer.
+- A stop is not a fault: `MotionStopped` (a `ScorbotError`) leaves the session homed and enabled, and `_command` re-raises it without latching. It becomes a fault only if the arm does not settle (`stop_settle_failed`). A caller that catches `ScorbotError` must not treat `MotionStopped` as a dead session. `_stop_event` is not `_cancel_event`: the first ends one jog, the second means the session is dying.
 - After any fault `connect()` refuses; callers build a new instance. `disconnect()` keeps the USB handle open if a worker is still running and raises. Do not "fix" that by force-closing.
 - `enabled` and `homed` are command history, not controller truth (`enabled=None` after a fault). Do not present them as measured. The MOTORS LED is the only independent evidence.
 - `home()` sets `_home_counts`; `jog_joint` and `get_joint_angles` derive angles as `home_angle + signed_count_delta(count, session_home) / counts_per_degree`. A calibration `home_count` is only checked at home (`validate_home`), not used for angles.

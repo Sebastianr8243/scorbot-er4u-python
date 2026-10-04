@@ -13,9 +13,10 @@ import math
 from pathlib import Path
 import signal
 import subprocess
+import threading
 import time
 
-from scorbot import Scorbot, SimulatedScorbot
+from scorbot import MotionStopped, Scorbot, SimulatedScorbot
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder, SessionWriter
@@ -194,6 +195,9 @@ def _run() -> int:
                         help="Folder for the MCAP session (default: <output folder>/sessions)")
     parser.add_argument("--simulate", action="store_true",
                         help="Rehearse with the simulated controller: no USB, no robot")
+    parser.add_argument("--stop-after-ms", type=int, default=None,
+                        help="Software-stop trial: request a stop this many milliseconds "
+                             "after the jog starts. Not an emergency stop")
     args = parser.parse_args()
     if not args.acknowledge_supervised_motion:
         parser.error("An operator and the physical emergency stop are required")
@@ -201,6 +205,8 @@ def _run() -> int:
         parser.error("--delta must be nonzero and at most one degree")
     if not 1 <= args.speed <= 20:
         parser.error("--speed must be 1 through 20")
+    if args.stop_after_ms is not None and not 1 <= args.stop_after_ms <= 5000:
+        parser.error("--stop-after-ms must be 1 through 5000")
     if any(not value.strip() for value in (args.robot_id, args.arm_label,
                                            args.controller_label, args.driver,
                                            args.operator, args.start_pose_note)):
@@ -272,6 +278,7 @@ def _run() -> int:
               software_commit=revision, motion_source_sha256=motion_source_sha256(),
               controller_event_log=events.name,
               joint=args.joint, requested_delta_deg=args.delta, speed=args.speed,
+              stop_after_ms=args.stop_after_ms,
               data_source=data_source, mcap_session=rec.path.name, led_prompts=True)
         open_command = None
         try:
@@ -313,6 +320,10 @@ def _run() -> int:
                              f"in {len(preview['increments'])} increments")
                 print(json.dumps(preview, indent=2))
                 print("Clear the travel path and keep the emergency stop within reach.")
+                if args.stop_after_ms is not None:
+                    print(f"Stop trial: a software stop is requested {args.stop_after_ms} ms "
+                          "after the jog starts. It is NOT an emergency stop and is "
+                          "untested on the arm; the jog may still complete.")
                 if prompt("Type MOVE for one bounded jog: ", "MOVE") != "MOVE":
                     raise OperatorDeclined("declined before the jog")
                 before = robot.get_state()
@@ -321,13 +332,29 @@ def _run() -> int:
                 open_command = rec.log_command("jog_joint", {
                     "joint": args.joint, "delta_degrees": args.delta, "speed": args.speed,
                     "motor_count_deltas": preview["motor_count_deltas"]})
-                after = robot.jog_joint(args.joint, args.delta, speed=args.speed)
+                stop_timer, stopped = None, False
+                if args.stop_after_ms is not None:
+                    stop_timer = threading.Timer(args.stop_after_ms / 1000, robot.request_stop)
+                    stop_timer.daemon = True
+                    stop_timer.start()
+                try:
+                    after = robot.jog_joint(args.joint, args.delta, speed=args.speed)
+                except MotionStopped as exc:
+                    after, stopped = exc.state, True
+                finally:
+                    if stop_timer is not None:
+                        stop_timer.cancel()
                 command_id, open_command = open_command, None
                 # The primary JSONL evidence is written before any recorder call.
-                write("after_jog", state=asdict(after))
-                rec.log_command_result(command_id, "completed",
-                                       completion_source="jog_joint() returned")
+                write("after_jog", state=asdict(after), stopped_on_request=stopped)
+                rec.log_command_result(
+                    command_id, "completed",
+                    completion_source=("jog_joint() stopped on request" if stopped
+                                       else "jog_joint() returned"))
                 rec.log_state(after)
+                if args.stop_after_ms is not None:
+                    print("The jog ended early on the stop request." if stopped else
+                          "The jog completed; the stop request came too late or had no effect.")
                 observe_leds("after_jog", write, rec,
                              expect_motors="lit", expect_power="green")
                 direction = input("Observed joint direction and approximate displacement: ").strip()

@@ -40,7 +40,7 @@ For one-joint supervised trials, follow the [arm-control bench procedure](docs/A
 
 To record an experiment (commands, controller state, camera frames, operator decisions) and replay it without hardware, see [Recording and replaying experiments](docs/EXPERIMENT_RECORDING.md). Try it first with `.\.venv\Scripts\python.exe examples\make_synthetic_session.py`. To develop or rehearse without the arm, use `SimulatedScorbot`, or add `--simulate` to the lab scripts. It runs the same safety code against a fake controller, and everything it produces is labelled simulated. To list, export to CSV, or compare recorded runs, use `python -m scorbot.session list|export|compare`.
 
-`disable()` is a queued controller command. It cannot interrupt a stalled command and is **not** an emergency stop. The physical emergency stop remains authoritative. If a command times out, the SDK faults and rejects more motion; it cannot guarantee motor shutdown after USB loss or a Python crash.
+`disable()` is a queued controller command. It cannot interrupt a stalled command and is **not** an emergency stop. `request_stop()` asks a jog in progress to end early (`jog_joint` then raises `MotionStopped`); it needs a working USB link, the arm coasts, and it has not been tried on the arm, so it is **not** an emergency stop either. The physical emergency stop remains authoritative. If a command times out, the SDK faults and rejects more motion; it cannot guarantee motor shutdown after USB loss or a Python crash.
 
 Legacy homing switch searches now have a provisional 30-second deadline per axis and check a cancellation signal. That deadline has not been tuned on the physical arm. An error or `homed: true` from the SDK is not independent proof of motor state or home calibration.
 
