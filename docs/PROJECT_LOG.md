@@ -5,6 +5,30 @@ decision, the evidence behind it, and where it lives (commits, docs, tests).
 Git history has the diffs; this file has the story. Hardware claims stay
 "unverified" unless a bench log exists.
 
+The implementation plans this log cites under `docs/superpowers/plans/` were removed from the tree on 2026-10-04; they are in git history (last present at commit `e5ef11e`).
+
+## 2026-10-04
+
+### Vendor DLL read by static analysis
+
+- Two builds of Intelitek's `USBC.dll` (2008 and 2018, from the public USNA
+  and ROS repositories) were decompiled with Ghidra and read. Nothing was
+  loaded or run, and the arm was not involved.
+- Result: `docs/VENDOR_DLL_PROTOCOL.md`. The vendor's 64-byte message layout,
+  its command-letter table, the connect, control and stop sequences, and the
+  reply layout. Every command byte the legacy code sends is in the vendor's
+  table. All of it is from disassembly and unverified until a capture agrees.
+- Findings that matter most: the reply echoes the message ID (flow control we
+  do not use), the arm stop is `47` + `4F 3F 53` (the legacy `closeMov` lacks
+  the `47`), motion is a stream of `0D` setpoint messages, and the encoder
+  count is a 24-bit number offset by `0x7FFFFF`.
+- Method and tools: `tools/usbc_analysis/`. The DLLs and decompiled output
+  stay outside the repository.
+- Plan for any use of the DLL at the lab: spec
+  `docs/superpowers/specs/2026-10-04-vendor-dll-design.md` (not yet approved).
+- Reviewed by Codex (adversarial, against the decompiled code): two wording
+  errors about the stop sequence found and corrected. Gemini unavailable.
+
 ## 2026-10-02
 
 ### Replay and preview (M1 finish)
@@ -167,7 +191,7 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 ### Lab positions, drift check and fault guidance (built)
 
-- Plan: [plans/2026-10-01-lab-positions-and-recovery.md](superpowers/plans/2026-10-01-lab-positions-and-recovery.md),
+- Plan: `plans/2026-10-01-lab-positions-and-recovery.md`,
   spec: [specs/2026-09-30-lab-positions-and-recovery-design.md](superpowers/specs/2026-09-30-lab-positions-and-recovery-design.md).
 - What the operator gets in `python -m scorbot.lab`: `b` back to start, `m`
   mark a pose (P1-P9, this session only), `g` go to a mark. Plans move one

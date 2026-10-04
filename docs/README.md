@@ -57,6 +57,7 @@ Status column: **stable** describes current behaviour; **plan** is forward-looki
 | [`SAFETY_CASE.md`](SAFETY_CASE.md) | Hazard register, defence layers, fault response, gates G1-G3, open questions | Changing a gate, a prompt, a fault path or a limit; planning G2 | stable, not a certification |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Systems review: legacy code assessment, target SDK structure, roadmap, risks | Changing module boundaries or adding a backend | mixed: proposal and status; some statements predate later fixes |
 | [`PROTOCOL.md`](PROTOCOL.md) | USB packet layout and legacy command semantics | Editing packet code, decoding a capture, changing the handshake | stable |
+| [`VENDOR_DLL_PROTOCOL.md`](VENDOR_DLL_PROTOCOL.md) | The vendor's message format, command letters, connect/control/stop sequences and reply layout, read from `USBC.dll` | Decoding a capture; designing stop, streaming or flow control; checking a legacy packet against the vendor's | from disassembly, unverified |
 | [`OFFLINE_SAFETY_FIXES.md`](OFFLINE_SAFETY_FIXES.md) | Exact-count jog planner, signed decoder, wrist hold, jog preview | Reading or changing jog planning | stable |
 | [`OPERATOR_UX.md`](OPERATOR_UX.md) | Evidence behind prompts and warnings; UX backlog | Changing a prompt, warning or exit code | stable |
 | [`BACKLOG.md`](BACKLOG.md) | Every known bug and open item, prioritised, with code references | Choosing the next piece of work | plan |
@@ -66,8 +67,8 @@ Status column: **stable** describes current behaviour; **plan** is forward-looki
 | [`USB_CAPTURE.md`](USB_CAPTURE.md) | Wireshark/USBPcap capture and comparison with this code's packets | Capturing the Intelitek software; G2 disable and handshake comparison | stable |
 | [`DEPLOYMENT_OPTIONS.md`](DEPLOYMENT_OPTIONS.md) | Lab PC vs GPU server split, LeRobot plugin constraints, front end choice, demo target | Planning the LeRobot bridge, camera or web UI | plan |
 | [`PROJECT_LOG.md`](PROJECT_LOG.md) | What happened, when and why: decisions, evidence and where each piece lives | Catching up on the project or finding why something was decided | log |
+| [`evidence/`](evidence) | Lab evidence kept in the repo: the pasted 2026-09-29 idle-capture rows and the handoff note that explains them | Checking what was actually logged on the arm | evidence |
 | [`superpowers/specs/`](superpowers/specs) | Design specs: experiment record, session analysis, simulated robot | Asking why a recording or simulation feature works as it does | history |
-| [`superpowers/plans/`](superpowers/plans) | Implementation plans for the same three features | Tracing how a feature was built | history |
 
 ## For AI agents
 

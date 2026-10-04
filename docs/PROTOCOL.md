@@ -412,3 +412,15 @@ DLL error codes (Kutzer `ScorParseErrorCode.m`, D): 201 position error during mo
 | 15 | During a go-to, is the OUT period 16 ms with a new setpoint in each message (streaming), or one target message followed by idle traffic? | Capture B with a long travel time (S1 card); `compare` OUT->OUT interval and region bytes 12-35 over the move |
 | 16 | Does manual jog (`MoveManual`) use a velocity message distinct from point moves? | Capture H (S1 card): hold one jog key about 2 s; look for a message type absent from captures B and C |
 | 17 | Which IN bits carry e-stop and teach/auto mode? | Capture E, plus flipping the pendant switch with the arm at rest; diff the IN bytes |
+
+### 12.5 From disassembly of `USBC.dll`
+
+The vendor message format, command letters, connect/control/stop sequences and reply layout, read from two builds of the DLL, are in [VENDOR_DLL_PROTOCOL.md](VENDOR_DLL_PROTOCOL.md). All of it is from disassembly and unverified. In short:
+
+- Every command byte the legacy code sends is in the vendor's command table with the same axis masks, and the legacy handshake, motors-on and motors-off sequences match the vendor's.
+- Unknown 7 (the IN "error word"): position error.
+- Unknown 14: for the arm there is no stop message. `Stop` sends Clear communication buffer (`47`), then Mode S (`4F 3F 53`) and the gripper pair. The legacy `closeMov` is that sequence without the `47`, so it does not discard setpoints already queued in the controller. A capture is still needed to see what the arm does when this arrives mid-move.
+- Unknown 15: the DLL streams setpoints in `0D` messages and paces them with the ID echoed in IN byte 0. The on-wire period still needs a capture.
+- Unknown 16: no. `MoveManual` has no message of its own; it feeds the same setpoint stream with a smaller queue.
+- Unknown 17: emergency is IN byte 2 bit 0. The teach/auto source was not found.
+- New unknown 18: does the message ID wrap 255 -> 0 (vendor increment) or 255 -> 1 (legacy)? A capture of more than 256 vendor messages settles it.

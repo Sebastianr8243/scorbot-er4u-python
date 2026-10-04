@@ -47,8 +47,9 @@ flowchart TD
 | `examples/` | Supervised bench procedures (`--simulate` capable), synthetic session, offline preview and kinematics check |
 | `scripts/` | Offline analysis (fit, review, live view, USB trace), kit and Windows setup |
 | `tests/` | `unittest` suite, no hardware |
-| `docs/` | Design, hardware reference, bench and lab checklists, capture and recording guides. `docs/superpowers/` holds old plans and specs |
-| `tools/foxglove/` | Foxglove layout for recorded sessions |
+| `docs/` | Design, hardware reference, bench and lab checklists, capture and recording guides. `docs/superpowers/specs/` holds design specs (old implementation plans are in git history) |
+| `tools/foxglove/` | Foxglove layouts for recorded sessions |
+| `tools/usbc_analysis/` | Ghidra export script and query tool for static analysis of the vendor `USBC.dll`. Never commit the DLL or its decompiled output |
 | `src/`, `models/`, `references/` | GPL license text only (no control code) / OpenSCAD, STL, DXF parts (encoder, home jig) / Spanish 4pc manual |
 
 ## Commands
@@ -93,6 +94,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 |---|---|
 | Why is the design what it is, open risks | `docs/ARCHITECTURE.md` |
 | Packet layout, command codes | `docs/PROTOCOL.md`, `openScorbot/libhex.py`, `scorbot/state.py` |
+| What the vendor DLL sends (from disassembly, unverified) | `docs/VENDOR_DLL_PROTOCOL.md`; method in `tools/usbc_analysis/README.md` |
 | Safety argument | `docs/SAFETY_CASE.md` |
 | Known bugs and next work | `docs/BACKLOG.md` |
 | Manual facts, LEDs, controller safety | `docs/HARDWARE_REFERENCE.md` |
