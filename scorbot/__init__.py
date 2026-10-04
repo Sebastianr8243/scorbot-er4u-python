@@ -1,7 +1,7 @@
 """Python interface for the ScorBot ER-4U."""
 
-from .robot import Scorbot, ScorbotError
+from .robot import MotionStopped, Scorbot, ScorbotError
 from .simulated import SimulatedScorbot
 from .state import RobotState
 
-__all__ = ["Scorbot", "ScorbotError", "RobotState", "SimulatedScorbot"]
+__all__ = ["MotionStopped", "Scorbot", "ScorbotError", "RobotState", "SimulatedScorbot"]

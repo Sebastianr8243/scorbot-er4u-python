@@ -197,7 +197,8 @@ def error_msg(cont):
 		10: 'ERROR 106: Values must be numeric',
 		11: 'ERROR 107: Restart the motors',
 		12: 'ERROR 108: Device was not detected. Close the program',
-		13: 'ERROR 109: Entity not found'
+		13: 'ERROR 109: Entity not found',
+		14: 'INFO: Motion stopped on request'
 		}
 	return switcher.get(cont, "Invalid request")
 
@@ -304,6 +305,29 @@ def closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
 	media = get_media(buffer,media)
 
 	return [b_1, buffer, media]
+
+# Ends a joint movement early, on request. Not an emergency stop.
+#
+# Sends the same message that opens every movement (mov_comm(2), which the
+# vendor DLL names "Clear communication buffer") and then the normal end
+# sequence. The vendor's own arm stop is this sequence
+# (docs/VENDOR_DLL_PROTOCOL.md section 5); it is from disassembly and
+# unverified on the controller. Like closeMov, every message keeps the last
+# target already sent for the moving joint (signal_out), so the controller is
+# asked to hold where it was last told to go.
+#
+# Arguments as for closeMov.
+def stopMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
+	cadena = libhex.mov_comm(2)
+	b_1 = countByte1(b_1)
+	cadena = cadena.format(f_byte(b_1))
+	cadena = fill_msg(cadena, 24)
+	msg = get_encoder(buffer,media)
+	cadena += getStruct(orden, signal_out, msg)
+	set_msg(cadena, epout, epin, buffer, write, read)
+	media = get_media(buffer,media)
+
+	return closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
 
 # Selects the standard structure for sending positions to the controller according to
 # the received command.

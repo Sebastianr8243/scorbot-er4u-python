@@ -38,6 +38,8 @@ WRITE	  = conf.readData("general","WRITE")
 READ	  = conf.readData("general","READ")
 # Maximum acceptable error in the error bytes
 MAX_ERROR = conf.readData("general", "MAX_ERROR")
+# Result code for a jog ended early by a stop request (libdef.error_msg)
+STOPPED   = 14
 
 #------------------------------ARGUMENTOS USADOS-------------------------------#
 # b_1		-> Byte de secuencia
@@ -56,7 +58,7 @@ MAX_ERROR = conf.readData("general", "MAX_ERROR")
 # Movimiento de la cadera, separado en tres partes: inicio del movimiento,
 # incremento de los valores de encoders (sentido según orden) y fin del
 # movimiento. El movimiento depende de la velocidad, las iteraciones y la orden.
-def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
+def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, stop_event=None):
 	write = conf.readData("cadera","write")
 	read = conf.readData("cadera","read")
 	media = cola_read.get()
@@ -68,6 +70,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 	signo = libdef.get_signo(21, buffer)
 	dato_in = [step_in, signo]
 	signal_out= ''
+	stopped = False
 
 	for i in range(ite):
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
@@ -80,10 +83,14 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 			break
 
 		media = libdef.get_media(buffer,media)
+		# A stop request ends the jog at the last target sent (not an emergency stop).
+		if stop_event is not None and stop_event.is_set():
+			stopped = True
+			break
 
 	#Control de error
 	cont = 0
-	while abs(dato_in[0] - media[0]) > 20 and value_err < MAX_ERROR:
+	while not stopped and abs(dato_in[0] - media[0]) > 20 and value_err < MAX_ERROR:
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena.format(libdef.f_byte(b_1))
@@ -99,7 +106,12 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 			break
 		cont += 1
 
-	[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+	if stopped:
+		[b_1, buffer, media] = libdef.stopMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+		cola_orden.put(STOPPED)
+		logging.warning(libdef.error_msg(STOPPED))
+	else:
+		[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
 
 	cola_read.put(media)
 	return b_1
@@ -107,7 +119,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 # Movimiento del hombro, separado en tres partes: inicio del movimiento,
 # incremento de los valores de encoders (sentido según orden) y fin del
 # movimiento. El movimiento depende de la velocidad, las iteraciones y la orden.
-def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
+def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, stop_event=None):
 	write = conf.readData("hombro","write")
 	read = conf.readData("hombro","read")
 	media = cola_read.get()
@@ -119,6 +131,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 	signo = libdef.get_signo(26, buffer)
 	dato_in = [step_in, signo]
 	signal_out= ''
+	stopped = False
 	for i in range(ite):
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
@@ -130,9 +143,13 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 			break
 
 		media = libdef.get_media(buffer,media)
+		# A stop request ends the jog at the last target sent (not an emergency stop).
+		if stop_event is not None and stop_event.is_set():
+			stopped = True
+			break
 
 	cont = 0
-	while abs(dato_in[0] - media[1]) > 20 and value_err < MAX_ERROR:
+	while not stopped and abs(dato_in[0] - media[1]) > 20 and value_err < MAX_ERROR:
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena. format(libdef.f_byte(b_1))
@@ -148,7 +165,12 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 			break
 		cont += 1
 
-	[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+	if stopped:
+		[b_1, buffer, media] = libdef.stopMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+		cola_orden.put(STOPPED)
+		logging.warning(libdef.error_msg(STOPPED))
+	else:
+		[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
 	cola_read.put(media)
 
 	return b_1
@@ -157,7 +179,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 # Movimiento del codo, separado en tres partes: inicio del movimiento,
 # incremento de los valores de encoders (sentido según orden) y fin del
 # movimiento. El movimiento depende de la velocidad, las iteraciones y la orden.
-def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
+def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, stop_event=None):
 	write = conf.readData("codo","write")
 	read = conf.readData("codo","read")
 	media = cola_read.get()
@@ -169,6 +191,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 	signo = libdef.get_signo(31, buffer)
 	dato_in = [step_in, signo]
 	signal_out= ''
+	stopped = False
 	for i in range(ite):
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
@@ -180,9 +203,13 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 			break
 
 		media = libdef.get_media(buffer,media)
+		# A stop request ends the jog at the last target sent (not an emergency stop).
+		if stop_event is not None and stop_event.is_set():
+			stopped = True
+			break
 
 	cont = 0
-	while abs(dato_in[0] - media[2]) > 20 and value_err < MAX_ERROR:
+	while not stopped and abs(dato_in[0] - media[2]) > 20 and value_err < MAX_ERROR:
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena. format(libdef.f_byte(b_1))
@@ -198,7 +225,12 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 			break
 		cont += 1
 
-	[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+	if stopped:
+		[b_1, buffer, media] = libdef.stopMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+		cola_orden.put(STOPPED)
+		logging.warning(libdef.error_msg(STOPPED))
+	else:
+		[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
 	cola_read.put(media)
 
 	return b_1
@@ -437,7 +469,7 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 # las redirige a las acciones que debe realizar el robot.
 #################################################################################
 def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
-		cola_result=None, cancel_event=None):
+		cola_result=None, cancel_event=None, stop_event=None):
 	# The GUI historically used one queue in both directions. SDK clients pass a
 	# separate result queue so they cannot consume their own command.
 	if cola_result is None:
@@ -462,11 +494,11 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					home = False
 					posRef = conf.readData("general", "posRef")
 				if orden == 4 or orden == 5:
-					b_1 = move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
+					b_1 = move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite, stop_event)
 				elif orden == 6 or orden == 7:
-					b_1 = move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
+					b_1 = move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite, stop_event)
 				elif orden == 8 or orden == 9:
-					b_1 = move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
+					b_1 = move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite, stop_event)
 				elif orden == 10 or orden == 11 or orden == 12 or orden == 13:
 					b_1 = move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
 				elif orden == 14 or orden == 15:

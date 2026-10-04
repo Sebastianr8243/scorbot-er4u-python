@@ -7,6 +7,11 @@ code as the lab. The motion model is deliberately simple: a jog changes the
 motor counts by exactly the legacy plan; there is no timing, dynamics,
 backlash, gravity or collision model. Every state is marked ``simulated``.
 
+A stop request (``Scorbot.request_stop``) ends a jog after the step in
+progress, keeps the counts reached so far and answers the legacy "stopped"
+code, like the legacy loop. That the real arm stops there is a hypothesis: it
+will coast, and the controller's reaction to the stop sequence is unverified.
+
 ``SimulatorProfile`` adds optional realism for rehearsals (BACKLOG #40): a
 homing sequence that presses each home switch in the legacy order, rest
 jitter, and the front-panel LEDs. Every profile value is a modeled
@@ -41,6 +46,7 @@ _EXIT, _MOTORS_OFF, _MOTORS_ON, _HOME = 528, 16, 17, 18
 _JOG_ORDERS = set(range(4, 14))
 _ERROR_UNKNOWN_ORDER, _ERROR_INJECTED, _ERROR_COUNT_RANGE, _ERROR_MOTORS_OFF = 1, 3, 4, 5
 _ERROR_HOME_SEARCH = 2  # what openScorbot/setHome.py puts in the queue on a search time-out
+_STOPPED = 14  # openScorbot/libcomm.py:STOPPED, a jog ended by a stop request
 ARM_MOTORS = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2")
 
 
@@ -142,6 +148,7 @@ class SimulatedController:
         self._lock = threading.Condition()
         self._index = 0
         self._plan_jog = None
+        self._stop_event = None
 
     def inject(self, kind: str) -> None:
         """Arm a one-shot fault for the next command or feedback read.
@@ -262,13 +269,25 @@ class SimulatedController:
                 targets = {name: self.counts[name] + delta for name, delta in deltas.items()}
                 if any(abs(value) > MAX_COUNT for value in targets.values()):
                     return _ERROR_COUNT_RANGE
-            for _ in plan["increments"]:
+            increments = list(plan["increments"])
+            total, done, stopped = sum(increments), 0, False
+            for step in increments:
                 if self.step_delay_s:
                     time.sleep(self.step_delay_s)
+                done += step
+                # Like libcomm.move_*: checked after each step, the first included.
+                if self._stop_event is not None and self._stop_event.is_set():
+                    stopped = True
+                    break
             with self._lock:
+                if done < total:
+                    targets = {name: self.counts[name] + round(delta * done / total)
+                               for name, delta in deltas.items()}
                 self.counts.update(targets)
                 if self.profile.model_homing:
                     self.switch_bits = self._pressed_switches()
+            if stopped:
+                return _STOPPED
         else:
             return _ERROR_UNKNOWN_ORDER
         return 0
@@ -343,7 +362,9 @@ class SimulatedScorbot(Scorbot):
         if self._fault is not None:
             raise ScorbotError("Create a new Scorbot instance after a fault")
         self._cancel_event.clear()
+        self._stop_event.clear()
         self.sim._plan_jog = self._legacy("motion_profile").plan_jog
+        self.sim._stop_event = self._stop_event
         self._device = "simulated-controller"
         self._input = self.sim
         self._command_thread = threading.Thread(

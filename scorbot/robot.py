@@ -15,7 +15,7 @@ import traceback
 from .calibration import load_calibration, signed_count_delta
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
-from .state import HOME_SWITCH_BITS, RobotState, decode_state
+from .state import HOME_SWITCH_BITS, JOINTS, RobotState, decode_state
 
 
 def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int | None]:
@@ -41,12 +41,33 @@ class _WorkerCrashed(ScorbotError):
     """The command worker reported an exception and is exiting; it answers nothing more."""
 
 
+class MotionStopped(ScorbotError):
+    """A jog ended early because ``request_stop`` was called. Not a fault.
+
+    ``state`` is the controller state read after the arm settled, or the state
+    before the jog when it was never started.
+    """
+
+    def __init__(self, message: str, state: RobotState | None = None):
+        super().__init__(message)
+        self.state = state
+
+
 class Scorbot:
     """ER-4U legacy USB adapter.
 
     Legacy jogs are relative. Calibrated absolute steps require measured data;
-    the queued disable command is not an emergency stop.
+    neither the queued disable command nor ``request_stop`` is an emergency stop.
     """
+
+    _STOPPED_CODE = 14  # openScorbot/libcomm.py:STOPPED
+    # "Has it stopped" follows the USNA ScorBot Toolbox for MATLAB
+    # (ScorWaitForMove): successive readings 0.05 s apart that no longer change,
+    # giving up after 8 s. The 2 count band is our lab idle band
+    # (scorbot.lab.session.STABLE_COUNTS). None of it is measured on our arm.
+    STOP_SETTLE_INTERVAL_S = 0.05
+    STOP_SETTLE_TIMEOUT_S = 8.0
+    STOP_SETTLE_COUNTS = 2
 
     _JOG_CODES = {
         "base": (5, 4),
@@ -89,6 +110,7 @@ class Scorbot:
         self._reads = queue.Queue()
         self._lock = threading.Lock()
         self._cancel_event = threading.Event()
+        self._stop_event = threading.Event()
         self._enabled = False
         self._homed = False
         self._fault = None
@@ -124,6 +146,7 @@ class Scorbot:
         if self._fault is not None:
             raise ScorbotError("Create a new Scorbot instance after a fault")
         self._cancel_event.clear()
+        self._stop_event.clear()
         try:
             import usb.core
             import usb.util
@@ -233,7 +256,7 @@ class Scorbot:
     def _run_command_worker(self, *args):
         *legacy_args, legacy_comm = args
         try:
-            legacy_comm.execute(*legacy_args, self._cancel_event)
+            legacy_comm.execute(*legacy_args, self._cancel_event, self._stop_event)
         except Exception as exc:
             self._worker_died("command", exc)
 
@@ -279,7 +302,12 @@ class Scorbot:
                 if result != 0:
                     while self._next_result(wait_timeout) != 0:
                         pass
+                    if result == self._STOPPED_CODE:
+                        self._record("command_stopped", payload=payload)
+                        raise MotionStopped("The jog ended early on a stop request")
                     raise ScorbotError(f"Legacy controller returned error code {result}")
+            except MotionStopped:
+                raise  # not a fault; jog_joint checks that the arm settled
             except queue.Empty as exc:
                 self._latch_fault("Command timed out; physical stop may be required")
                 self._cancel_event.set()
@@ -360,6 +388,47 @@ class Scorbot:
             self._motion_state()
             self._command([17, 1, 1])
             self._enabled = True
+
+    def request_stop(self) -> None:
+        """Ask the jog in progress to end early. This is NOT an emergency stop.
+
+        Safe to call from another thread while ``jog_joint`` is running; it takes
+        no lock. The legacy loop checks it after each step, then sends the
+        vendor's arm-stop sequence (clear the controller's buffer, then the
+        normal end of a move) and ``jog_joint`` raises ``MotionStopped``. It
+        needs a live USB link and a responsive worker, acts at the next packet,
+        and the arm coasts. A request made after the last step has been sent
+        has no effect. A request made while nothing is moving refuses the next
+        jog once. The sequence is from disassembly and unverified on the arm;
+        the physical stop is authoritative.
+        """
+        self._stop_event.set()
+        self._record("stop_requested")
+
+    def _settled_after_stop(self, before: RobotState) -> RobotState:
+        """Wait until successive readings stop changing, or latch a fault."""
+        deadline = time.monotonic() + self.STOP_SETTLE_TIMEOUT_S
+        current = self._motion_state(after_index=before.packet_index)
+        while True:
+            previous = current
+            time.sleep(self.STOP_SETTLE_INTERVAL_S)
+            current = self._motion_state(after_index=previous.packet_index)
+            try:
+                moved = max(abs(signed_count_delta(current.encoder_counts[name],
+                                                   previous.encoder_counts[name]))
+                            for name in JOINTS)
+            except ValueError:
+                moved = None  # ambiguous near half the counter range: not settled
+            if moved is not None and moved <= self.STOP_SETTLE_COUNTS:
+                return current
+            if time.monotonic() >= deadline:
+                break
+        self._latch_fault("The arm was still moving after a stop request; "
+                          "use the physical stop if needed")
+        if self._link_alive():
+            self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
+        self._record("stop_settle_failed", error=self._fault, state=asdict(current))
+        raise ScorbotError(self._fault)
 
     def disable(self):
         """Queue a motor-disable command while the worker is responsive."""
@@ -468,6 +537,14 @@ class Scorbot:
                 if (not calibration.soft_min_deg <= current_angle <= calibration.soft_max_deg
                         or not calibration.soft_min_deg <= current_angle + delta_degrees <= calibration.soft_max_deg):
                     raise ValueError("Jog would leave measured soft limits")
+            if self._stop_event.is_set():
+                # Asked to stop while nothing was moving: refuse this jog once,
+                # so a request made just before a jog starts is never lost.
+                self._stop_event.clear()
+                self._record("stop_before_motion", joint=joint,
+                             requested_delta_deg=delta_degrees)
+                raise MotionStopped("A stop was requested; the jog was not started",
+                                    state=before)
             positive, negative = self._JOG_CODES[joint]
             preview = self.preview_jog(
                 joint, delta_degrees, speed=speed,
@@ -480,14 +557,24 @@ class Scorbot:
             trace = self._trace
             if trace is not None:
                 trace.start()
+            stopped = False
             try:
                 self._command([positive if delta_degrees > 0 else negative,
                                speed, abs(delta_degrees)])
+            except MotionStopped:
+                stopped = True
             finally:
+                self._stop_event.clear()
                 if trace is not None:
                     packets, dropped = trace.stop()
                     self._record("motion_trace", joint=joint, packets=packets,
                                  dropped_packets=dropped)
+            if stopped:
+                after = self._settled_after_stop(before)
+                self._record("motion_stopped", joint=joint,
+                             requested_delta_deg=delta_degrees, speed=speed,
+                             state=asdict(after))
+                raise MotionStopped("The jog ended early on a stop request", state=after)
             after = self._motion_state(after_index=before.packet_index)
             self._record("motion_complete", joint=joint,
                          requested_delta_deg=delta_degrees, speed=speed,

@@ -70,7 +70,8 @@ Decisions:
 - **Lock-free request.** `jog_joint` holds the motion lock for the whole jog, so `request_stop()` takes no lock; it only sets the event and writes a log row.
 - **A stop requested while nothing moves refuses the next jog once.** Otherwise a request arriving a moment before a jog starts would be silently lost. Fail-stopped is the safe side of that race.
 - **A clean stop is not a fault.** Motors stay on and the home reference stays valid: the encoders kept counting. The session continues.
-- **An unconfirmed stop is a fault.** After the stop sequence, `jog_joint` reads the counts twice, 0.2 s apart, up to ten times. If no pair agrees within 20 counts (the legacy settle band) the session latches a fault like any other.
+- **An unconfirmed stop is a fault.** After the stop sequence, `jog_joint` compares successive readings 0.05 s apart until they no longer change, and gives up after 8 s. That is how the USNA ScorBot Toolbox for MATLAB decides the arm has stopped (`ScorWaitForMove`); "no longer change" is within 2 counts, the lab's idle band. If it gives up, the session latches a fault like any other and a best-effort disable is queued.
+- **A request after the last step has no effect.** By then the full target has been sent; the jog completes and the request is dropped.
 - **Callers cannot mistake a stop for completion.** `jog_joint` raises `MotionStopped` (a `ScorbotError`) carrying the final state. `move_joint` therefore never reaches its "did it arrive" check.
 - **Wrist jogs** are disabled in the SDK, so `move_wrist` is not touched.
 - **Result code 14** is new on the legacy result queue ("stopped on request"). Codes 1-13 are taken by `libdef.error_msg`.
