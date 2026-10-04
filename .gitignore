@@ -8,6 +8,8 @@ dist-test/
 openScorbot/data.json
 openScorbot/*.log
 *.jsonl
+# Evidence deliberately kept in the repo
+!docs/evidence/*.jsonl
 *.mcap
 sessions/
 *.stackdump

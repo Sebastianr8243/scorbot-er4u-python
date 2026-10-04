@@ -192,7 +192,7 @@ leave out damaged runs unless you pass `--include-damaged`. Add
 
 **Interactive plots in the viewer.** Open `session.mcap` in Foxglove or
 Lichtblick, then use *Layouts → Import from file* and pick
-`layouts/session_review.json`. It opens with the camera image, encoder-count
+`tools/foxglove/session_review.json`. It opens with the camera image, encoder-count
 plots for the arm and the wrist, and the command results and faults.
 Checking that it displays correctly is a manual step in the viewer.
 

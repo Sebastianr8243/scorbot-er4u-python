@@ -116,7 +116,7 @@ class MissingMatplotlibTests(unittest.TestCase):
 class LayoutTests(unittest.TestCase):
     def test_shipped_viewer_layout_is_valid_and_uses_real_topics(self):
         from scorbot.session.schemas import TOPICS
-        layout = json.loads((REPO_ROOT / "layouts" / "session_review.json").read_text())
+        layout = json.loads((REPO_ROOT / "tools" / "foxglove" / "session_review.json").read_text())
         panels = layout["configById"]
         self.assertTrue(any(key.startswith("Plot!") for key in panels))
         self.assertTrue(any(key.startswith("Image!") for key in panels))

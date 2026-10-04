@@ -3,7 +3,7 @@
 **Date:** 2026-09-29  
 **Purpose:** Give a follow-on AI enough verified context to diagnose the real idle-capture discrepancy, make a justified software change if one is warranted, and identify what still requires supervised hardware work.
 
-**Repository evidence addendum (2026-09-29):** The repository contains `logs test`, a pasted combination of controller and idle JSONL rows. The original `logs/idle-01.jsonl`, `logs/idle-01.controller.jsonl`, and MCAP session listed below were not included in the push. References to those files describe paths at the test station, not files available for independent replay here. In particular, the MCAP integrity and `KeyboardInterrupt` details below are handoff reports until the original MCAP is supplied. Preserve `logs test` unchanged as received. Later software changes are on `fix/idle-capture-interrupt-evidence`; they do not resolve the observed LED mismatch.
+**Repository evidence addendum (2026-09-29):** The repository contains `2026-09-29-idle-capture-pasted.jsonl` (next to this note; originally committed as `logs test`), a pasted combination of controller and idle JSONL rows. The original `logs/idle-01.jsonl`, `logs/idle-01.controller.jsonl`, and MCAP session listed below were not included in the push. References to those files describe paths at the test station, not files available for independent replay here. In particular, the MCAP integrity and `KeyboardInterrupt` details below are handoff reports until the original MCAP is supplied. Preserve `logs test` unchanged as received. Later software changes are on `fix/idle-capture-interrupt-evidence`; they do not resolve the observed LED mismatch.
 
 ## Executive Summary
 
