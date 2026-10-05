@@ -14,7 +14,7 @@ manuals themselves are copyrighted and are not in this repository.
 | SCORBASE | Intelitek SCORBASE for USB manual #100342 Rev. I, March 2016, <https://downloads.intelitek.com/Manuals/Robotics/ER-4u/Scorbase_USB_I.pdf>. Page numbers are the printed ones (PDF page minus 5) |
 | Vendor INI | Intelitek ER-4u controller parameter files (`ER4Ax1-6.ini`, `ROB_4u.INI`, `ER4CONF.INI`; sets `$Default`, `$CURRENT`, `$2kg`, `$3kg`, `$MaxSpeed`), dated 2001-2003, bundled in <https://github.com/kutzer/ScorBotToolbox> under `ScorBotToolboxSupport/Par/er4u/` |
 | Datasheet | Intelitek ER-4u datasheet 35-1005-8600 Rev K |
-| 4pc manual | `references/manual_scorbot.pdf` (Spanish, ER-4pc, older controller; mechanics likely shared, electronics differ) |
+| 4pc manual | `references/manual_scorbot.pdf` (local only, not in the repository; Spanish, ER-4pc, older controller; mechanics likely shared, electronics differ) |
 | Kutzer | USNA ScorBot Toolbox (MATLAB, via Intelitek's USBC DLL): DH table `ScorDHtable.m`, error codes `ScorParseErrorCode.m` |
 
 ## Calibration priors (S2)

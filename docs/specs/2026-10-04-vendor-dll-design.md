@@ -32,7 +32,7 @@ What running it would add is exact control over which call is on the wire in eac
 | Analysis tools (Ghidra export script, query tool, how-to) | `tools/usbc_analysis/` | Done, tested |
 | Findings | `docs/protocol/VENDOR_DLL_PROTOCOL.md` | From disassembly, unverified |
 | Lab verification plan | `docs/lab/VENDOR_PROTOCOL_LAB_PLAN.md` | Plan |
-| ctypes bindings for the DLL | `tools/usbc_probe/bindings.py` | Parked. One getter bound, never run against the real DLL. Kept outside `scorbot/` so the SDK has one path to the arm |
+| ctypes bindings for the DLL | `tools/usbc_probe/bindings.py` (removed 2026-10-05; in git history) | Was parked. One getter bound, never run against the real DLL. Kept outside `scorbot/` so the SDK has one path to the arm |
 
 ## Rules
 

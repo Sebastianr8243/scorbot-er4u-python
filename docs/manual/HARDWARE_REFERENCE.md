@@ -6,7 +6,7 @@ Facts from the Intelitek manuals for the lab's arms, with what each one means fo
 |---|---|---|---|
 | SCORBOT-ER 4u User Manual | #100343 Rev. B | Sept 2001 | `references/er4u_manual_100343-b.pdf` |
 | Controller-USB User Manual | #100341 Rev. G | Feb 2007 | `references/controller_usb_manual_100341-g.pdf` |
-| SCORBOT-ER 4pc User Manual (Spanish) | #100269 Rev. A | Dec 1999 | `references/manual_scorbot.pdf`: an older model with a PC-card controller; its encoder circuitry differs |
+| SCORBOT-ER 4pc User Manual (Spanish) | #100269 Rev. A | Dec 1999 | `references/manual_scorbot.pdf` (local only, not in the repository since 2026-10-05): an older model with a PC-card controller; its encoder circuitry differs |
 
 The two Intelitek PDFs are copyrighted and this repository is public, so they are kept out of git (`.gitignore`). Get copies from the lab or from Intelitek.
 

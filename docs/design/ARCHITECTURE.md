@@ -82,7 +82,7 @@ Solid arrows are runtime data flow. Dashed arrows are read-only or offline: watc
 | Read-only tools | Live follow of the JSONL, log review, USBPcap parse | `scripts/watch_lab_log.py`, `scripts/review_lab_logs.py`, `scripts/usb_trace.py` |
 | Legacy GUI | Original UI, reference only; the SDK does not import it | `openScorbot/gui.py:main`, `set_conection` |
 
-`src/robot.py` is license text only. Controller-neutral `ControllerBackend` and `backends/` from the earlier proposal do not exist; the seam is `Scorbot._input`/`_commands`/`_results`, which `SimulatedScorbot` swaps.
+Controller-neutral `ControllerBackend` and `backends/` from the earlier proposal do not exist; the seam is `Scorbot._input`/`_commands`/`_results`, which `SimulatedScorbot` swaps.
 
 ## 4. Threading and data flow
 

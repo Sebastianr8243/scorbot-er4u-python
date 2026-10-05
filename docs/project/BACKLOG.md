@@ -49,7 +49,6 @@ Streaming (2026-10-04): `Scorbot.start_stream` follows a stream of base, shoulde
 | 22 | Ctrl-C may not interrupt `queue.get` on Windows until the timeout expires | `scorbot/robot.py:_command` | SDK review H5, unverified. Test in a Windows rehearsal with `step_delay_s` |
 | 23 | `review_bench` counts an operator-declined run's missing steps as problems (exit 1) | `scripts/review_lab_logs.py:review_bench` | Safety case Q11. Decide the intended verdict |
 | 27 | Enter presses typed during homing sit in stdin and answer the next prompt (they can only decline) | `examples/bench_joint.py` | SDK review M8 |
-| 29 | `examples/python_control.py` connects and moves on run, with no guard or confirmation | `examples/python_control.py` | CLAUDE.md review |
 | 30 | `build_bench_kit.py` zips all of `references/`, so local copyrighted Intelitek PDFs go into the kit | `scripts/build_bench_kit.py` | CLAUDE.md review. Fine for the lab PC; never publish the ZIP |
 | 31 | `preview_jog` adds deltas to signed counts, which can cross the ±65535 seam (display only) | `scorbot/robot.py:preview_jog` | Altitude review |
 

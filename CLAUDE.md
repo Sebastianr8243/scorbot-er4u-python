@@ -8,7 +8,7 @@ Each subdirectory has its own CLAUDE.md with module-level rules. Read it before 
 
 | Rule | Why | Enforced by |
 |---|---|---|
-| Tests, simulators, scripts you run and CI never open USB or move the arm. Never call `Scorbot.connect()` (real class), `examples/python_control.py`, or a lab script without `--simulate`. | The legacy handshake energises the motors. | `SimulatedScorbot` replaces only `connect`/`disconnect`; `tests/test_simulated.py:test_import_loads_no_usb_and_leaves_sys_path_alone`; CI comment in `.github/workflows/tests.yml`. No test-time guard blocks USB access; review does. |
+| Tests, simulators, scripts you run and CI never open USB or move the arm. Never call `Scorbot.connect()` (real class) or a lab script without `--simulate`. | The legacy handshake energises the motors. | `SimulatedScorbot` replaces only `connect`/`disconnect`; `tests/test_simulated.py:test_import_loads_no_usb_and_leaves_sys_path_alone`; CI comment in `.github/workflows/tests.yml`. No test-time guard blocks USB access; review does. |
 | Do not change `openScorbot/` packet construction, sequence bytes, or the `WRITE`/`READ` sleeps without evidence: a captured trace, or the vendor disassembly in `docs/protocol/VENDOR_DLL_PROTOCOL.md` for sequences built only from command bytes the legacy code already sends. A disassembly-based change is tried first on a 1 degree jog. Bytes the legacy code never sends (`54`, `4D`, `48`, ...) still need a capture. | Byte layout and timing are unverified against the controller; the sleeps are load-bearing. The controller is known to accept the legacy bytes (2026-09-29 run), so re-ordering them is a smaller risk than new ones. | `docs/lab/USB_CAPTURE.md`, `scripts/usb_trace.py`, `scripts/vendor_check.py`; `scorbot/provenance.py:motion_source_sha256` fingerprints the motion path into every lab log. |
 | Neither `disable()` nor `request_stop()` is an emergency stop. Never document or name either as one. | `disable()` is queued behind the running command and cannot interrupt it. `request_stop()` ends a jog early but needs a live USB link and a responsive worker, acts at the next packet, and the arm coasts; its sequence is from disassembly and unverified on the arm. | `scorbot/robot.py:Scorbot.disable`, `request_stop` docstrings; `tests/test_software_stop.py:test_request_stop_is_documented_as_not_an_emergency_stop`; `README.md`. The physical stop is authoritative. |
 | Any fault latches the session and rejects further motion. New failure paths must call `Scorbot._latch_fault`. | Motor and home state are unverified after a fault. | `scorbot/robot.py:_command`, `_motion_state`; `tests/test_simulated.py:test_every_fault_kind_latches_the_session`. Known exceptions that set `_fault` directly: `jog_joint`/`get_joint_angles` on invalid calibrated state. |
@@ -18,7 +18,7 @@ Each subdirectory has its own CLAUDE.md with module-level rules. Read it before 
 | `home()` needs `start_position_confirmed=True`, enabled motors, and refuses `home_switch_bits` with unknown bits (>= 32). | `libdef.get_switch` misreads byte 5 >= 32; homing assumes a fixed start pose. | `Scorbot.home`; `test_home_refuses_switch_byte_the_legacy_decoder_misreads`. |
 | Real and simulated data never share a session, review or comparison. | A simulated run could pass as evidence. | `SessionWriter.log_state` raises `SessionError`; `analysis.compare` gives no pooled row for mixed sources; `scripts/review_lab_logs.py` flags mixed logs. |
 | Calibration refuses vendor-display (SCORBASE) data and soft-limit spans beyond the manual's travel. | Only independent physical angle measurements validate a scale. | `scripts/fit_calibration.py:fit` (needs `reference_source == "physical"`), `scorbot/calibration.py:load_calibration`, `scorbot/nominal.py:check_soft_limit_span`. Only spans are compared; manual zero/sign are unknown. |
-| Never commit Intelitek manuals (`references/er4u_manual_100343-b.pdf`, `references/controller_usb_manual_100341-g.pdf`). | Copyrighted; the repo is public. | `.gitignore`. Note `scripts/build_bench_kit.py` zips all of `references/` (no PDF exclusion); check before building a kit. |
+| Never commit Intelitek manuals (anything in `references/`: the ER-4u, Controller-USB and ER-4pc manuals). | Copyrighted; the repo is public. | `.gitignore` ignores `references/*.pdf`; `scripts/build_bench_kit.py` leaves PDFs out of the kit. The ER-4pc manual was tracked until 2026-10-05 and is still in git history. |
 
 Nominal manual values are priors, never calibration: `scorbot/nominal.py` values carry `status = "nominal, from manual, not measured"`. Do not present a legacy scale (`openScorbot/motion_profile.py:COUNTS_PER_DEGREE`) as measured.
 
@@ -51,8 +51,8 @@ flowchart TD
 | `models/er4u_meshes/` | Optional community link meshes for the 3D view. Only the README is tracked; never commit the STL files (licence unclear) |
 | `tools/foxglove/` | Foxglove layouts for recorded sessions |
 | `tools/usbc_analysis/` | Ghidra export script and query tool for static analysis of the vendor `USBC.dll`. Never commit the DLL or its decompiled output |
-| `tools/usbc_probe/` | Parked ctypes bindings for the vendor DLL (one getter, never run on the real DLL). Not part of the SDK; nothing calls it |
-| `src/`, `models/`, `references/` | GPL license text only (no control code) / OpenSCAD, STL, DXF parts (encoder, home jig) / Spanish 4pc manual |
+| `models/` | OpenSCAD, STL, DXF parts from the original project (encoder, home jig) |
+| `references/` | Local only: vendor manuals, never committed (`references/*.pdf` is git-ignored) |
 
 ## Commands
 
@@ -87,8 +87,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 - Encoder counts are unsigned 16-bit with a 65535 (one's complement) wrap. Take differences with `scorbot.calibration.signed_count_delta`, never subtract raw or signed counts.
 - Claims about hardware must say "unverified" unless a bench trace exists. Say so in code comments and docs too.
 - Tests use `unittest`. Optional deps skip (`hypothesis`, `roboticstoolbox`, `usb`).
-- Commits: imperative sentence-case subject, no prefix, body explains why. Trailers on Claude-authored commits:
-  `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` then `Claude-Session: <session url>`. Keep the trailers the session prompt gives you.
+- Commits: imperative sentence-case subject, no prefix, body explains why. No AI attribution lines, in commits or pull requests (owner's rule; see `AGENTS.md`).
 - Do not push or open PRs unless asked.
 
 ## Where to look

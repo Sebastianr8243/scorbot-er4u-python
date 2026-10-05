@@ -22,9 +22,8 @@ rehearsal/
 # Claude Code agent worktrees (temporary, per session)
 .claude/worktrees/
 
-# Intelitek manuals: copyrighted; keep local, do not publish (see docs/HARDWARE_REFERENCE.md)
-references/er4u_manual_100343-b.pdf
-references/controller_usb_manual_100341-g.pdf
+# Intelitek manuals: copyrighted; keep local, do not publish (see docs/manual/HARDWARE_REFERENCE.md)
+references/*.pdf
 .venv-lerobot/
 
 # Community ER-4U link meshes for the 3D view: downloaded locally, licence unclear, never commit

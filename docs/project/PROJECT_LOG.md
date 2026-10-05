@@ -26,7 +26,7 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
   stay outside the repository.
 - Decided with the user: read the DLL, do not run it. Findings get confirmed
   with SCORBASE captures (`docs/lab/VENDOR_PROTOCOL_LAB_PLAN.md`, one row per
-  claim). The ctypes bindings are parked in `tools/usbc_probe/`, outside the
+  claim). The ctypes bindings were parked in `tools/usbc_probe/` (removed 2026-10-05; in git history), outside the
   SDK. Spec: `docs/specs/2026-10-04-vendor-dll-design.md`.
 - Rule change, decided by the user: packet sequences built only from command
   bytes the legacy code already sends may now be changed on the strength of

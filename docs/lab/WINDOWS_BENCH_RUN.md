@@ -29,6 +29,6 @@ If the ZIP did not include Zadig, download it from the official site above on th
 
 ## 3. Idle capture, home, and small jogs
 
-Follow the [first lab visit runbook](ARM_CONTROL_BENCH.md) for the current scripts and stop points. It uses `record_raw_state.py` for the idle capture and `bench_joint.py` for one supervised home and jog at a time. The older `python_control.py` example is not the first-visit procedure because it does not prompt for a physical home observation before offering motion.
+Follow the [first lab visit runbook](ARM_CONTROL_BENCH.md) for the current scripts and stop points. It uses `record_raw_state.py` for the idle capture and `bench_joint.py` for one supervised home and jog at a time.
 
 The [offline log reviewer](../../scripts/review_lab_logs.py) reports packet freshness, source fingerprint consistency, and planned versus observed motor-count changes. It does not establish physical angle accuracy or safety. Keep the controller event JSONL files and all operator observations.

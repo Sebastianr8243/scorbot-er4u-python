@@ -107,7 +107,7 @@ Allowed here:
 Not allowed here:
 
 - Run `record_raw_state.py` without `--simulate` or `bench_joint.py` without `--simulate`.
-- Call real `Scorbot.connect()`, run `examples/python_control.py`, or run any command that can enable, home, jog, or otherwise move the arm.
+- Call real `Scorbot.connect()`, or run any command that can enable, home, jog, or otherwise move the arm.
 - Treat simulation or preflight enumeration as hardware validation.
 - Treat `disable()` as an emergency stop or claim the software stopped the motors.
 

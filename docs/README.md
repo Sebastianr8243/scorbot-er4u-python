@@ -32,8 +32,7 @@ Start with [`../README.md`](../README.md) for the project summary and [`../START
 | [`VENDOR_PROTOCOL_LAB_PLAN.md`](lab/VENDOR_PROTOCOL_LAB_PLAN.md) | Confirming the vendor-protocol findings: the fast path (logs, e-stop press, stop trial, streaming trial) and what each result unlocks |
 | [`S1_CAPTURE_LAB_CARD.md`](lab/S1_CAPTURE_LAB_CARD.md) | Capturing the Intelitek software's USB traffic, step by step |
 | [`USB_CAPTURE.md`](lab/USB_CAPTURE.md) | Wireshark/USBPcap capture and comparison with this code's packets |
-| [`CALIBRATION_START.md`](lab/CALIBRATION_START.md) | First measurement steps toward a validated calibration |
-| [`PHYSICAL_CALIBRATION.md`](lab/PHYSICAL_CALIBRATION.md) | Measurement file formats, manual priors and bounds, count wrap, wrist |
+| [`PHYSICAL_CALIBRATION.md`](lab/PHYSICAL_CALIBRATION.md) | Starting calibration: what to do before measuring, measurement file formats, manual priors and bounds, count wrap, wrist |
 
 ## design/ : how it works and why
 
@@ -44,7 +43,6 @@ Start with [`../README.md`](../README.md) for the project summary and [`../START
 | [`OPERATOR_UX.md`](design/OPERATOR_UX.md) | Changing a prompt, warning or exit code |
 | [`EXPERIMENT_RECORDING.md`](design/EXPERIMENT_RECORDING.md) | Recording, replaying or comparing runs; rehearsing without hardware |
 | [`LEROBOT_EXPORT.md`](design/LEROBOT_EXPORT.md) | Turning lab sessions into a LeRobot dataset |
-| [`OFFLINE_SAFETY_FIXES.md`](design/OFFLINE_SAFETY_FIXES.md) | Reading or changing jog planning and the jog preview |
 | [`DEPLOYMENT_OPTIONS.md`](design/DEPLOYMENT_OPTIONS.md) | Planning the lab PC and GPU server split, the LeRobot bridge, a front end |
 | [`LAB_PLATFORM_VISION.md`](design/LAB_PLATFORM_VISION.md) | Asking where the project is heading |
 

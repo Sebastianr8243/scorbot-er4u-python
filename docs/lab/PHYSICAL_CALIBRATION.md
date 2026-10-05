@@ -2,6 +2,14 @@
 
 The [supervised bench procedure](ARM_CONTROL_BENCH.md) establishes USB feedback, homing and small relative jogs first. No published count-to-angle scale or travel range is applied as calibration. Determine the physical angle and safe region from independent measurements on this arm. Homed shoulder and elbow angles are not assumed to be zero.
 
+## Before measuring
+
+- **Home must repeat first.** From the same confirmed start pose, record the raw counts after several supervised homes and compare the spread. Homing assumes that start pose; it is not home-from-anywhere.
+- **One joint at a time**, inside a physically confirmed clear region, with small jogs in both directions so backlash and direction differences show. Never sweep toward a mechanical stop to find a limit.
+- **The requested angle is a command, not a measurement.** Only an independent reference (protractor, digital angle gauge) counts. Do not copy values from the manuals, a vendor display or the inherited software scales into a calibration file.
+- **The two wrist encoders are motor counts.** Neither is pitch or roll by itself; the wrist needs its own two-motor experiment and stays gated until then. The gripper is its own experiment too.
+- Keep the raw bench logs with every measurement CSV, so each calibration value can be traced to an experiment.
+
 ## Measurement files
 
 Collect base, shoulder and elbow one at a time with a protractor or digital angle gauge. Start in a confirmed clear region and measure each joint's **actual physical angle**. Use a separate CSV file for each calibration attempt and keep the original bench JSONL logs.

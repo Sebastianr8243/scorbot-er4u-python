@@ -10,8 +10,9 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "dist" / "scorbot-er4u-windows-bench-kit.zip"
-FILES = ("README.md", "START_HERE_WINDOWS.md", "LICENSE", "pyproject.toml")
-DIRECTORIES = ("scorbot", "openScorbot", "examples", "docs", "tests", "scripts", "references")
+FILES = ("README.md", "START_HERE_WINDOWS.md", "LICENSE", "pyproject.toml", "uv.lock",
+         ".python-version")
+DIRECTORIES = ("scorbot", "openScorbot", "examples", "docs", "tests", "scripts")
 EXCLUDED = {"__pycache__", "data.json"}
 ZADIG = ROOT / "dist" / "usb-tools" / "zadig-2.9.exe"
 
