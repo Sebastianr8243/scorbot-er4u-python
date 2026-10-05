@@ -554,12 +554,13 @@ class Scorbot:
             except ScorbotError as exc:
                 failure = str(exc)
             finally:
-                reported = stream.fault_reported
                 if failure is not None:
                     # A worker that comes back must stop, not carry on slowing
-                    # down after the session has reported a fault. Its late
-                    # answer stays unread: a latched session takes no commands.
-                    stream.fault_reported = True
+                    # down after the session has reported a fault. A setpoint
+                    # it had already computed may still go out first (one
+                    # step, inside every limit), and it is not in the trace.
+                    # Its late answer stays unread: a latched session takes
+                    # no commands.
                     stream.core.fail(failure)
                 self._stream = None
                 self._stop_event.clear()
@@ -571,11 +572,13 @@ class Scorbot:
             if failure is None and result not in (0, self._STOPPED_CODE):
                 failure = f"Legacy controller returned error code {result}"
             if failure is not None:
-                if not reported:   # otherwise the worker latched, disabled and logged it
-                    self._latch_fault(failure)
-                    if self._link_alive():
-                        self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
-                    self._record("stream_fault", error=self._fault)
+                with stream.report_lock:   # the worker may be reporting the same fault
+                    if not stream.fault_reported:
+                        self._latch_fault(failure)
+                        if self._link_alive():
+                            self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
+                        self._record("stream_fault", error=self._fault)
+                        stream.fault_reported = True
                 raise ScorbotError(self._fault)
             if result == self._STOPPED_CODE:
                 after = self._settled_after_stop(stream._before)

@@ -262,7 +262,8 @@ class Stream:
         self._before = before
         self._use_emergency_bit = use_emergency_bit
         self._next_step_time = None
-        self.fault_reported = False
+        self.fault_reported = False     # True once the session has latched this stream's fault
+        self.report_lock = threading.Lock()   # the worker and _end_stream both report
         self.steps: list[dict] = []
         self.dropped_steps = 0
         self.final_state = None
@@ -301,8 +302,13 @@ class Stream:
         """
         answer = self._step(reply)
         if self.core.fault and not self.fault_reported:
-            self.fault_reported = True
-            self.robot._stream_faulted(self)
+            with self.report_lock:
+                if not self.fault_reported:
+                    self.robot._stream_faulted(self)
+                    self.fault_reported = True
+        # Timed from the answer, the last thing before the worker writes, so
+        # a slow step here cannot shorten the gap to the next write.
+        self._next_step_time = time.monotonic() + self.core.period_s
         return answer
 
     def _pace(self) -> None:
@@ -310,11 +316,11 @@ class Stream:
         # than that or the arm would be driven past its limits. The legacy
         # loop's own delays are shorter than the vendor period. A slow loop is
         # not caught up: the arm then moves slower than planned, never faster.
+        # The reply the lead check uses is older by this wait, on top of the
+        # one loop it is always behind.
         now = time.monotonic()
         if self._next_step_time is not None and now < self._next_step_time:
             time.sleep(self._next_step_time - now)
-            now = time.monotonic()
-        self._next_step_time = now + self.core.period_s
 
     def _step(self, reply: bytes):
         try:

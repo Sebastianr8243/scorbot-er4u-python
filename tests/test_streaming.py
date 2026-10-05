@@ -499,6 +499,7 @@ class _QuietRobot:
 
     def _stream_faulted(self, stream):
         self.faults.append(stream.core.fault)
+        self.seen = (stream.fault_reported, stream.report_lock.locked())
 
 
 @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
@@ -543,6 +544,17 @@ class SetpointConversionTests(unittest.TestCase):
                 self.assertLessEqual(max(map(abs, steps)), 5, "no jump at the seam")
                 self.assertEqual(sent, [home_signed + step["commanded"]["base"]
                                         for step in stream.steps[:len(sent)]])
+
+    def test_a_fault_counts_as_reported_only_once_the_session_has_latched_it(self):
+        # The caller's timeout path reads fault_reported to decide whether it
+        # still has to latch. It must never read True before the latch is done.
+        stream, encode = self.stream(0)
+        stream.core.fail("made up")
+        self.assertEqual(stream.source(encode({})), ("stop",))
+        self.assertEqual(self.robot.seen, (False, True))
+        self.assertTrue(stream.fault_reported)
+        stream.source(encode({}))
+        self.assertEqual(self.robot.faults, ["made up"])
 
     def test_the_end_of_the_counter_range_is_a_fault_not_a_wrap(self):
         # The two-byte count with its sign byte runs out at 65535. The legacy
