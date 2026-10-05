@@ -329,19 +329,43 @@ The encoder limits are per motor, in the vendor's counts. They are **diagnostic 
 
 `[Motion]` also gives `MaxJointSpeed = 2.0` and `MaxLinearSpeed = 0.20`. They are copied into the planner's state (`0x10020ef4`); where they are applied was not traced.
 
-### 11.6 Not done
+### 11.6 Duration, sampling, shared curve and retargeting
 
-Stated plainly, as the plan requires:
+A second pass, by following only the code that touches the values in question. Read from the instructions; **none of this pass was checked by emulation**, so it is V at best and marked I where the meaning of a value is inferred.
 
-- **Duration and distance.** How T is chosen from the speed factor, `MaxSpeed`, `MaxAccel` and `MaxJointSpeed`.
-- **Sampling.** The period at which the profile is sampled into setpoints, and how a setpoint is rounded to counts.
-- **Lifecycle.** What the planner does on a new target while moving, a stop, a full queue, a late or missing reply, and an emergency. The per-reply tick (`0x10025c6c`, about 3,200 instructions) was not read. No transition table exists yet.
-- **Linear, circular and spline moves.**
+**How long a move takes** (`0x10010c40`, called from the joint-move set-up `0x1000b910`).
+
+- Speed mode: the duration in milliseconds is the larger of two terms, truncated, plus 1:
+
+  ```text
+  linear  = 1000 * 1.5 / (factor * (1 - A)) * (straight-line distance of the tool) / MaxLinearSpeed
+  angular = 1000 * 1.5 / (factor * (1 - A)) * sqrt(pitch^2 + roll^2 change)       / MaxJointSpeed
+  ```
+
+  `factor` is the stored speed factor (0.307 to 1.0), A the acceleration fraction, and the constant 1.5 is in the DLL. Since the profile's peak velocity is distance / ((1 - A) T), this makes the peak speed `factor * MaxLinearSpeed / 1.5` (V for the arithmetic; I that the distances are metres and radians, from the INI values 0.20 and 2.0).
+- Then a per-axis check: the encoder distance of each axis divided by the duration is compared with that axis's `MaxSpeed`; if any axis is over, the duration becomes the largest (counts x 1000 / `MaxSpeed`) + 1 ms. So **`MaxSpeed` is in counts per second** (I, from that arithmetic): 6500 counts/s is about 46 degrees/s for the base and 57 for the shoulder and elbow. An acceleration check with `MaxAccel` follows; it was not read.
+- Time mode: the fastest allowed duration is computed the same way with factor 1.0, and a requested time shorter than it is refused with error 909. This matches the toolbox authors' report that a `Time` too short makes the move fail (S).
+
+**Sampling** (per-reply tick `0x10025c6c`, V). The planner's clock advances by a fixed period on every tick, not by measured time. The period is `PCPeriod` x `USBCPeriod` milliseconds (`0x10014eff`): 16 x 1.5 = **24 ms** with the shipped INI, not the 16 ms we assumed. The controller is told `PCPeriod` = 16 separately (parameter 8, section 5). The tick does measure real elapsed time and logs when it runs long, but uses the fixed period for the profile. How a setpoint is rounded to counts was not read; the conversion in section 10 truncates.
+
+**One curve for all joints** (V in part). A move has one profile object (a pointer in the planner's state) evaluated once per tick at the move's clock; its single 0..1 value is then applied to the whole move. The lines that scale each axis by it were not read one by one, so "all joints start and finish together" is still I, though the structure leaves little room for anything else.
+
+**A new target while moving is refused, not blended** (V). The joint-move set-up proceeds only when the group's motion state is idle. Otherwise it returns error 911 ("motion in progress" in Kutzer's list), or 903 if control is off. `SetJoint` and `MoveManual` make the same check. There is no blending of point moves in this DLL: one move finishes, then the next may start. The velocity jog is the exception: once in manual mode, `MoveManual` can be called again while the axis is moving and takes a different path in its set-up routine (`0x1000ec9e`), which was not traced.
+
+### 11.7 Still not done
+
+- The acceleration check in the duration routine, and the rounding of setpoints to counts.
+- The velocity jog's behaviour when its speed is changed mid-motion.
+- The rest of the lifecycle (queue limit handling inside the tick, late or missing reply, emergency) beyond what sections 2 and 5 already record. By decision this is not being pursued: our streaming driver is a different design, and the controller's own reactions can only be measured.
+- Linear, circular and spline moves.
 
 Reviewed by Codex against the disassembly and INI files. The INI table and the profile formulas held. Five statements were corrected: the velocity jog multiplies by the magnitude of the percentage and takes its direction from the sign of the INI value; the encoder limits are diagnostic priors, not limits in our coordinates; the Ruckig agreement is about the curve's shape only; the speed factor is a stored number, not a known speed; and `setpoints` could stop short of the target when the period did not divide the duration.
 
-### 11.7 What this means for us
+### 11.8 What this means for us
 
 - The vendor's profile is a curve a jerk-limited planner such as Ruckig can express, so nothing about its shape calls for a different planner. Whether `scorbot/planning.py` reproduces actual vendor setpoints is not shown: that needs the duration and sampling questions answered and a capture to compare with.
 - The vendor plans by time, not by limits: the move takes T seconds and the peaks follow from the distance. A policy that sends a new target many times a second is a different regime, closer to the velocity jog with its short jerk ramp.
 - The lab check is capture B's slow go-to (lab plan V19): the setpoint stream should follow this curve with the 30/40/30 split.
+- **The vendor does not do what a policy needs.** It refuses a new target mid-move. Streaming a new target many times a second is our own design problem, with the vendor's limits and period as priors.
+- **Our planner's period prior is probably wrong.** `scorbot/planning.py` defaults to 16 ms (`PCPeriod`); the vendor's planner steps at 24 ms. Which one the controller expects is for the lab to measure.
+- **We now have speed priors per motor**: 6500 counts/s, where `planning.py` had only datasheet joint speeds and no acceleration or jerk at all.
