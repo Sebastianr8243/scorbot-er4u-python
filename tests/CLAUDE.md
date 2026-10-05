@@ -3,7 +3,7 @@
 `unittest` suite. It must never open USB, enumerate a real device, or move the arm. Root rules in [../CLAUDE.md](../CLAUDE.md) apply.
 
 ```powershell
-python -m unittest discover -s tests -v                      # full suite, ~2 min, about 700 tests, 2 expected failures
+python -m unittest discover -s tests -v                      # full suite, about 800 tests in 2 to 3 min, 2 expected failures
 python -m unittest tests.test_simulated -v                   # one module
 python -m unittest tests.test_python_api.CommandTests -v     # one class
 ```
@@ -19,7 +19,7 @@ Run from the repo root. Tests import `scripts.<name>` and `examples.<name>` as n
 | Fake input endpoint with `snapshot()` returning built packets | `test_arm_control.py` (`class Input`) |
 | Patch `run_checks` and replace the `Scorbot` class in the script module, patch `builtins.input` with scripted answers | `test_bench_joint.py`, `test_calibration_capture.py`. A new script test that skips these patches would reach real USB. Use `--simulate` or the patches |
 | `preflight.import_module` and `platform` patched; `find` is a fake | `test_preflight.py` |
-| Synthetic packets and pcap bytes built in the test | `test_usb_trace.py`, `test_properties.py`, `test_lab_log_review.py`, `test_watch_lab_log.py` |
+| Synthetic packets and pcap bytes built in the test | `test_usb_trace.py`, `test_legacy_properties.py`, `test_lab_log_review.py`, `test_watch_lab_log.py` |
 | Temp directories for every file written | all; never write into the repo or `logs/` |
 
 Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functions only; `libdef` needs PyUSB installed, which is why those classes are `skipUnless(find_spec("usb"))`.
@@ -37,16 +37,28 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_nominal.py`, `test_kinematics.py`, `test_motion_profile.py` | Manual values and span bound, offline kinematics and legacy `cIn` findings, jog planning |
 | `test_arm_view.py` | The 3D view against a fake recording (no Rerun, no meshes): mesh placement, the line fallback, the notice, the simulated demo, and that zero counts reproduce the USNA toolbox's published home position |
 | `test_arm_chain.py` | The viewer's link chain: zero pose, sign conventions, agreement with the manual's lengths and reach, and with the DH model in `kinematics.py` |
-| `test_properties.py` | Hypothesis properties of encoder and packet arithmetic; `test_known_bug_*` are `expectedFailure` |
+| `test_legacy_properties.py` | Hypothesis properties of encoder and packet arithmetic; `test_known_bug_*` are `expectedFailure` |
 | `test_streaming_core.py`, `test_streaming.py` | The streaming driver: the USB-free core against a small arm model (one or more tests per requirement R1-R12), the legacy loop against fake endpoints (exact messages), and `Scorbot.start_stream` through the simulator |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |
 | `test_vendor_check.py`, `test_usbc_query.py`, `test_usbc_peread.py` | The vendor-layout checker and the two tools for reading the decompiled DLL dumps |
+| `test_lab_session.py`, `test_lab_terminal.py`, `test_lab_profile.py`, `test_lab_operator.py`, `test_lab_moves.py`, `test_lab_faults.py` | The guided session (`scorbot/lab`): engine through the simulator, terminal front end, profile file, moves, fault guidance |
+| `test_lab_teleop.py`, `test_lab_replay.py`, `test_follow.py` | Teleop mode and episodes, replay of a recorded episode, the one-jog-per-action follower |
+| `test_camera_source.py`, `test_camera_stream.py`, `test_camera_recorder.py`, `test_camera_cli.py` | Webcam capture: sources with a fake cv2, stream files, recorder threads and their bounded stop, the `check` command |
+| `test_lerobot_export.py`, `test_lerobot_export_write.py`, `test_lerobot_plugin.py` | Lab sessions to a LeRobot dataset; the last two need `lerobot` and skip in the main environment |
+| `test_notes.py`, `test_plot.py`, `test_rerun_view.py` | Session notes sheet, plots, the Rerun mapping of a recorded session |
+| `test_motion_trace.py`, `test_provenance.py` | Packets copied during jogs and streams and their export; the motion fingerprint |
+| `test_transport_codec.py` | The pure packet codec against the legacy code's bytes (golden tests) |
+| `test_vendor_model.py`, `test_vendor_profile.py` | The vendor's count/angle formula and motion profile, read from the DLL |
+
+Shared helpers: `cli_support.py` (run `python -m scorbot.session` in-process or as a child) and `lerobot_fixtures.py` (recorded lab sessions). Import them as `from tests.<name> import ...` with a bare-name fallback, so both `unittest discover -s tests` and `python -m unittest tests.test_x` work.
 
 ## Rules
 
 - Every new gate or rejection test asserts that nothing was queued (`robot._commands.empty()`, `robot.sim.commands` unchanged), not only that an exception was raised.
 - A new fault path gets a kind in `simulated.FAULT_KINDS` or a queue-level test, and must show the session latched (`assert_latched` in `test_simulated.py`).
 - Do not weaken or delete an `expectedFailure` to get green. When product code fixes the bug the test reports an unexpected success; then remove the decorator and keep the assertion.
+- Do not start a child Python process when calling the entry point works. `cli_support.session_cli` and `test_simulated.run_script` call a script's `main` in-process; a child costs a second or more for the imports alone. Keep a child only where the process itself is the subject (exit code, output encoding, what gets imported), and one end-to-end rehearsal.
+- Tests of the legacy message loops check which bytes are sent, not when: patch `time.sleep` as `LegacyStopTests.setUp` does rather than wait out the 20 ms per message.
 - Do not use real sleeps longer than needed; command timeouts in tests are 0.01-0.5 s. Late-answer and worker-crash tests depend on short real timing (`late_answer_s = 0.5`, crash sleep 0.3 s); do not tighten them without checking for flakiness on Windows, where `time.monotonic` steps at about 15.6 ms on Python < 3.13.
 - Tests must not depend on `openScorbot/data.json` contents or on its absence. Importing the legacy modules creates it (git-ignored).
 - Keep test data synthetic. Example CSVs and calibration files in tests are format examples, never real measurements; do not paste lab data or `robot_id`s from real runs.
@@ -54,6 +66,6 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 
 ## Adding tests
 
-Match the neighbors: `unittest.TestCase`, temp dirs via `tempfile`, imports at module top except where a test asserts on import behavior (`test_simulated.py` imports inside tests so that a subprocess check of `sys.modules` stays meaningful). Put pure-arithmetic checks in `test_properties.py` only if they need `hypothesis`; otherwise in the module of the code under test.
+Match the neighbors: `unittest.TestCase`, temp dirs via `tempfile`, imports at module top except where a test asserts on import behavior (`test_simulated.py` imports inside tests so that a subprocess check of `sys.modules` stays meaningful). Put pure-arithmetic checks in `test_legacy_properties.py` only if they need `hypothesis`; otherwise in the module of the code under test.
 
 Ruff: `ruff check --select F scorbot scripts examples tests` is clean; keep it clean. Default rules flag `l` as a variable name in `test_simulated.py`; that is accepted noise.

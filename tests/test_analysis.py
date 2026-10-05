@@ -231,11 +231,11 @@ class CsvSafetyTests(unittest.TestCase):
 
 
 def cli(*args):
-    import subprocess
-    import sys
-    return subprocess.run([sys.executable, "-m", "scorbot.session", *map(str, args)],
-                          cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=120)
+    try:
+        from tests.cli_support import session_cli
+    except ImportError:      # discovered with -s tests: the folder itself is on sys.path
+        from cli_support import session_cli
+    return session_cli(*args)
 
 
 def read_csv(path):

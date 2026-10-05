@@ -20,6 +20,7 @@ from scorbot import Scorbot
 from scorbot import packet as packet_module
 from scorbot.calibration import signed_count_delta
 from scorbot.packet import TrackedInputEndpoint
+from scorbot.session.analysis import csv_safe
 from scorbot.simulated import encode_packet
 from scorbot.state import ENCODER_OFFSETS, JOINTS, decode_state
 
@@ -46,7 +47,10 @@ def _legacy(name):
 if HAVE_HYPOTHESIS:
     from hypothesis import assume, given, settings, strategies as st
 
-    PROFILE = settings(deadline=None, max_examples=300)
+    # 100 examples each. Several of these call legacy functions that re-read
+    # data.json on every call, so the count is most of this file's run time.
+    # The known-bug tests below use fixed inputs and do not depend on it.
+    PROFILE = settings(deadline=None, max_examples=100)
     SLOW = settings(deadline=None, max_examples=100)
 
     raw16 = st.integers(0, 65535)
@@ -444,6 +448,23 @@ class SignedCountDeltaProperties(unittest.TestCase):
         # ...and equal them exactly when the true distance is short.
         if abs(s1 - s2) <= 32766:
             self.assertEqual(d, s1 - s2)
+
+
+@unittest.skipUnless(HAVE_HYPOTHESIS, "hypothesis is not installed")
+class CsvSafetyProperties(unittest.TestCase):
+    """Exported text can never start a spreadsheet formula (session/analysis.py)."""
+
+    @PROFILE
+    @given(st.one_of(st.integers(), st.floats(allow_nan=False), st.none(), st.booleans()))
+    def test_non_text_values_are_never_changed(self, value):
+        self.assertEqual(csv_safe(value), value)
+
+    @PROFILE
+    @given(st.text())
+    def test_text_never_starts_with_a_formula_character(self, text):
+        safe = csv_safe(text)
+        self.assertFalse(safe.startswith(("=", "+", "-", "@")))
+        self.assertTrue(safe.endswith(text))
 
 
 class _FakeEndpoint:

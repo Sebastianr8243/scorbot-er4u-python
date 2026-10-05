@@ -230,10 +230,44 @@ BENCH_ANSWERS = (LED_CONNECT + "HOME\n" + LED_ENABLE + "home looked normal\nHOME
 IDLE_ANSWERS = "n\ng\nn\no\n"
 
 
-def run_script(path, *args, stdin=""):
-    return subprocess.run([sys.executable, str(REPO_ROOT / path), *map(str, args)],
-                          cwd=REPO_ROOT, input=stdin, capture_output=True, text=True,
-                          timeout=120)
+def run_script(path, *args, stdin="", real_process=False):
+    """Run a lab script with piped answers; returncode, stdout, stderr.
+
+    By default the script's ``main`` runs inside this process, which is many
+    times quicker than starting Python again. ``real_process=True`` starts a
+    child instead; one end-to-end rehearsal keeps that.
+    """
+    if real_process:
+        return subprocess.run([sys.executable, str(REPO_ROOT / path), *map(str, args)],
+                              cwd=REPO_ROOT, input=stdin, capture_output=True, text=True,
+                              timeout=120)
+    import contextlib
+    import importlib
+    import io
+    import traceback
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    module = importlib.import_module(path[:-len(".py")].replace("/", "."))
+    answers = iter(stdin.splitlines())
+
+    def piped_input(prompt=""):
+        print(prompt, end="")
+        try:
+            return next(answers)
+        except StopIteration:
+            raise EOFError from None      # what a closed pipe gives input()
+
+    out, err = io.StringIO(), io.StringIO()
+    with patch.object(sys, "argv", [path, *map(str, args)]),             patch("builtins.input", piped_input),             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = module.main()
+        except SystemExit as exc:
+            code = exc.code if exc.code is None or isinstance(exc.code, int) else 1
+        except BaseException:  # noqa: BLE001 - a child process would exit 1 with a traceback
+            traceback.print_exc(file=err)
+            code = 1
+    return SimpleNamespace(returncode=code or 0, stdout=out.getvalue(), stderr=err.getvalue())
 
 
 def sessions_in(folder):
@@ -241,6 +275,8 @@ def sessions_in(folder):
 
 
 class SimulatedG1RehearsalTests(unittest.TestCase):
+    real_process = False
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.logs = Path(self._tmp.name) / "rehearsal"
@@ -252,7 +288,7 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         return run_script("examples/record_raw_state.py", "--output", self.logs / name,
                           *LABELS, "--pose-note", "desk rehearsal", "--seconds", seconds,
                           "--hz", hz, "--simulate", "--acknowledge-connect-handshake",
-                          stdin=stdin)
+                          stdin=stdin, real_process=self.real_process)
 
     def test_idle_sample_counts_match_at_the_rate_limits(self):
         from scorbot.session import load_session
@@ -271,10 +307,12 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         return run_script("examples/bench_joint.py", "--output", self.logs / name, *LABELS,
                           "--start-pose-note", "desk rehearsal", "--joint", "base",
                           "--delta", "1", "--simulate", "--acknowledge-supervised-motion",
-                          *extra, stdin=stdin)
+                          *extra, stdin=stdin, real_process=self.real_process)
 
     def test_full_g1_sequence_rehearses_offline(self):
+        # The one rehearsal that starts the scripts as real child processes.
         from scorbot.session import load_session
+        self.real_process = True
         idle = self.idle()
         self.assertEqual(idle.returncode, 0, idle.stderr)
         bench = self.bench()
@@ -289,7 +327,7 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
         self.assertEqual(bench_rows[0]["data_source"], "simulated")
 
         review = run_script("scripts/review_lab_logs.py", "--idle", self.logs / "idle-01.jsonl",
-                            "--bench", self.logs / "base-first-01.jsonl")
+                            "--bench", self.logs / "base-first-01.jsonl", real_process=True)
         self.assertEqual(review.returncode, 0, review.stdout + review.stderr)
         self.assertIn("SIMULATED", review.stdout)
 

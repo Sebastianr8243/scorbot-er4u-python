@@ -409,10 +409,19 @@ def load_example():
 
 
 def run_cli(*args):
-    import subprocess
-    import sys
-    return subprocess.run([sys.executable, "-m", "scorbot.session", *map(str, args)],
-                          cwd=REPO_ROOT, capture_output=True, text=True)
+    try:
+        from tests.cli_support import session_cli
+    except ImportError:      # discovered with -s tests: the folder itself is on sys.path
+        from cli_support import session_cli
+    return session_cli(*args)
+
+
+def run_cli_subprocess(*args):
+    try:
+        from tests.cli_support import session_cli_subprocess
+    except ImportError:
+        from cli_support import session_cli_subprocess
+    return session_cli_subprocess(*args)
 
 
 class CliAndExampleTests(unittest.TestCase):
@@ -439,8 +448,9 @@ class CliAndExampleTests(unittest.TestCase):
         self.assertTrue(base64.b64decode(image["payload"]["data"]).startswith(b"\x89PNG"))
 
     def test_cli_prints_data_source_banner_timeline_and_viewer_hint(self):
+        # The one command line here that runs as a real child process.
         path = load_example().write_synthetic_session(self.root)
-        result = run_cli(path)
+        result = run_cli_subprocess(path)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SYNTHETIC", result.stdout)
         self.assertIn("/robot/command", result.stdout)

@@ -69,7 +69,7 @@ None of these open USB or command the arm.
 - `scorbot.kinematics` and `examples/kinematics_check.py`: nominal DH model (forward and inverse kinematics, trapezoidal trajectories) for validating the legacy `libdef.cIn`. The geometry is unmeasured, and the model is not wired into any motion command.
 - `tools/foxglove/scorbot_lab_layout.json`: Foxglove layout for recorded sessions; see [Viewing recordings](docs/design/EXPERIMENT_RECORDING.md).
 - [docs/design/OPERATOR_UX.md](docs/design/OPERATOR_UX.md): the evidence behind the prompts and warnings, and the UX backlog.
-- `tests/test_properties.py`: Hypothesis property tests for the encoder and packet arithmetic. Install with `pip install -e ".[dev]"`; add `kinematics` to also run the Robotics Toolbox cross-check.
+- `tests/test_legacy_properties.py`: Hypothesis property tests for the encoder and packet arithmetic. Install with `pip install -e ".[dev]"`; add `kinematics` to also run the Robotics Toolbox cross-check.
 
 ## Development checks
 

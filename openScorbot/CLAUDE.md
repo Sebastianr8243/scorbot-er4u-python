@@ -5,9 +5,9 @@ Original OpenScorbot code (University of La Laguna, GPL-3.0) that builds and sen
 ## Hard rules
 
 - Do not change packet construction, sequence-byte handling, message tables (`libhex.py`), or the `WRITE`/`READ` sleeps without evidence: captured traces (`docs/lab/USB_CAPTURE.md`, `scripts/usb_trace.py`), or the vendor disassembly (`docs/protocol/VENDOR_DLL_PROTOCOL.md`) for sequences built only from command bytes already in `libhex.py`. A disassembly-based change is tried first on a 1 degree jog; bytes the legacy code never sends still need a capture (root `CLAUDE.md`). The sleeps are required for the controller to answer (comment in `libdef.py:set_msg`). Timing and byte layout are unverified against the Intelitek software.
-- Never run, import for side effects, or test anything here against the real device. Tests import these modules only for pure functions (`tests/test_properties.py`, `tests/test_python_api.py`, `tests/test_kinematics.py`).
+- Never run, import for side effects, or test anything here against the real device. Tests import these modules only for pure functions (`tests/test_legacy_properties.py`, `tests/test_python_api.py`, `tests/test_kinematics.py`).
 - Changes to `libcomm.py`, `libdef.py`, `motion_profile.py` alter `scorbot.provenance.motion_source_sha256`, which every lab log records. That is intended; do not bypass it.
-- Bug fixes need a test that shows the bug first. Known bugs are pinned as `expectedFailure` in `tests/test_properties.py` (`test_known_bug_*`); when you fix one, the test turns into an unexpected success and you must flip it.
+- Bug fixes need a test that shows the bug first. Known bugs are pinned as `expectedFailure` in `tests/test_legacy_properties.py` (`test_known_bug_*`); when you fix one, the test turns into an unexpected success and you must flip it.
 
 ## How it is loaded
 
@@ -23,7 +23,7 @@ Original OpenScorbot code (University of La Laguna, GPL-3.0) that builds and sen
 
 ## Arithmetic gotchas (each verified in code)
 
-- Encoders are unsigned 16-bit with modulus 65535 (one's complement), not 65536. `libdef.suma` subtracts 65535 on overflow and sets the sign to `'0000'`; `resta` adds 65535 on underflow and sets `'ffff'`. A step >= 65536 double-overflows (pinned `expectedFailure` in `test_properties.py`).
+- Encoders are unsigned 16-bit with modulus 65535 (one's complement), not 65536. `libdef.suma` subtracts 65535 on overflow and sets the sign to `'0000'`; `resta` adds 65535 on underflow and sets `'ffff'`. A step >= 65536 double-overflows (pinned `expectedFailure` in `test_legacy_properties.py`).
 - The SDK counterpart is `scorbot.calibration.signed_count_delta`. Do not subtract raw counts from `buffer` or `media` in new code.
 - Settle checks are not wrap-aware: `abs(dato_in[0] - media[i]) > 20` in `libcomm.move_*` and `setHome.homing` compares a wrapped target with a raw mean. A joint near the 0/65535 seam can be judged unsettled and spin to the 100-iteration cap, returning error code 2.
 - `libdef.get_media` averages the last reading into `media` and replaces it when the jump is >= 1000 counts. Values must stay `int` for hex formatting (`detrans`).
@@ -38,7 +38,7 @@ Original OpenScorbot code (University of La Laguna, GPL-3.0) that builds and sen
 
 ## Testing changes
 
-Pure functions: `python -m unittest tests.test_properties tests.test_motion_profile tests.test_python_api tests.test_kinematics`. Anything that would send bytes must be exercised through `SimulatedController` or fake endpoints, never a device. `ruff check --select F openScorbot` reports legacy issues (star imports, unused imports); leave them unless you are touching those lines.
+Pure functions: `python -m unittest tests.test_legacy_properties tests.test_motion_profile tests.test_python_api tests.test_kinematics`. Anything that would send bytes must be exercised through `SimulatedController` or fake endpoints, never a device. `ruff check --select F openScorbot` reports legacy issues (star imports, unused imports); leave them unless you are touching those lines.
 
 ## Do not
 

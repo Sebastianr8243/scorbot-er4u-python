@@ -127,7 +127,8 @@ class BenchStreamTests(unittest.TestCase):
         # not an SDK fault. The script still finishes its prompts and disables,
         # but the trial has failed and the exit code says so.
         with mock.patch.object(SimulatedController, "__init__",
-                               _with(SimulatedController.__init__, stream_stuck=True)):
+                               _with(SimulatedController.__init__, stream_stuck=True)), \
+                mock.patch.object(bench_stream, "PHASE_TIMEOUT_S", 0.6):   # not 4 s of waiting
             self.assertEqual(self.run_script(TO_STREAM + "STREAM\n" + AFTER),
                              bench_stream.EXIT_TRIAL_FAILED)
         rows = self.rows()

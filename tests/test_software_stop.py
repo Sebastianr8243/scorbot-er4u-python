@@ -83,6 +83,14 @@ class LegacyStopTests(unittest.TestCase):
         cls.comm = robot._legacy("libcomm")
         cls.profile = robot._legacy("motion_profile")
 
+    def setUp(self):
+        # These tests check which messages are sent, not when. The legacy loop
+        # sleeps about 20 ms per message; against a fake endpoint that is only
+        # waiting. The product code is untouched.
+        sleeping = mock.patch("time.sleep")
+        sleeping.start()
+        self.addCleanup(sleeping.stop)
+
     def steps(self, order):
         return len(self.profile.plan_jog(order, 1.0, 10)["increments"])
 

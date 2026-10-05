@@ -30,7 +30,10 @@ class PlotTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_counts_plot_has_one_panel_per_motor_that_moved_and_names_the_source(self):
-        from test_analysis import record_sim_session
+        try:
+            from tests.test_analysis import record_sim_session
+        except ImportError:
+            from test_analysis import record_sim_session
         from scorbot.session import load_session
         from scorbot.session.plot import plot_counts
         session = load_session(record_sim_session(self.root / "s"))
@@ -41,7 +44,10 @@ class PlotTests(unittest.TestCase):
         self.assertEqual(info["command_spans"], 3)  # home + two jogs
 
     def test_cross_run_plots_pool_one_source(self):
-        from test_analysis import record_sim_session
+        try:
+            from tests.test_analysis import record_sim_session
+        except ImportError:
+            from test_analysis import record_sim_session
         from scorbot.session import load_session
         from scorbot.session.analysis import command_records
         from scorbot.session.plot import plot_count_error, plot_durations
@@ -59,14 +65,20 @@ class PlotTests(unittest.TestCase):
         self.assertIn("script overhead", durations["note"])
 
     def test_dark_theme_renders(self):
-        from test_analysis import record_sim_session
+        try:
+            from tests.test_analysis import record_sim_session
+        except ImportError:
+            from test_analysis import record_sim_session
         from scorbot.session import load_session
         from scorbot.session.plot import plot_counts
         session = load_session(record_sim_session(self.root / "s"))
         self.assertTrue(png(plot_counts(session, self.root / "d.png", theme="dark")["path"]))
 
     def test_cli_writes_per_run_and_cross_run_plots(self):
-        from test_analysis import cli, record_sim_session
+        try:
+            from tests.test_analysis import cli, record_sim_session
+        except ImportError:
+            from test_analysis import cli, record_sim_session
         a = record_sim_session(self.root / "runs")
         b = record_sim_session(self.root / "runs")
         out = self.root / "plots"
@@ -79,7 +91,10 @@ class PlotTests(unittest.TestCase):
         self.assertIn("durations.png", names)
 
     def test_cli_refuses_to_pool_mixed_sources_but_still_plots_each_run(self):
-        from test_analysis import cli, record_sim_session, state, writer
+        try:
+            from tests.test_analysis import cli, record_sim_session, state, writer
+        except ImportError:
+            from test_analysis import cli, record_sim_session, state, writer
         sim = record_sim_session(self.root / "runs")
         with writer(self.root / "runs", data_source="real") as rec:
             rec.log_state(state(0))

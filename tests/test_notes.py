@@ -3,8 +3,6 @@
 import csv
 import json
 from pathlib import Path
-import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -38,9 +36,11 @@ def new_session(root, data_source="simulated"):
 
 
 def cli(*args):
-    return subprocess.run([sys.executable, "-m", "scorbot.session", *map(str, args)],
-                          cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=120)
+    try:
+        from tests.cli_support import session_cli
+    except ImportError:      # discovered with -s tests: the folder itself is on sys.path
+        from cli_support import session_cli
+    return session_cli(*args)
 
 
 class NotesParsingTests(unittest.TestCase):
@@ -171,7 +171,10 @@ class NotesCliTests(unittest.TestCase):
         self.assertEqual(rows["notes_status"]["value"], "complete")
 
     def test_compare_rows_carry_notes_status_and_run_end(self):
-        from test_analysis import record_sim_session
+        try:
+            from tests.test_analysis import record_sim_session
+        except ImportError:
+            from test_analysis import record_sim_session
         path = record_sim_session(self.root)
         (path / "notes.md").write_text(FILLED, encoding="utf-8")
         table = self.root / "table.csv"

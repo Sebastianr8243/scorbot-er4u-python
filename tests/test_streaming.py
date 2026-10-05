@@ -67,6 +67,14 @@ class LegacyStreamTests(unittest.TestCase):
         cls.comm = robot._legacy("libcomm")
         cls.lib = robot._legacy("libdef")
 
+    def setUp(self):
+        # These tests check which messages are sent, not when. The legacy loop
+        # sleeps about 20 ms per message; against a fake endpoint that is only
+        # waiting. The product code is untouched.
+        sleeping = mock.patch("time.sleep")
+        sleeping.start()
+        self.addCleanup(sleeping.stop)
+
     def stream(self, script):
         """Run the legacy loop with a source that plays back ``script``."""
         controller = Controller()
@@ -589,7 +597,9 @@ class SetpointConversionTests(unittest.TestCase):
                           lead_limit={m: 100.0 for m in MOTORS}, period_s=0.001,
                           now=time.monotonic())
         self.robot = _QuietRobot()
-        return Stream(self.robot, core, home, None), encode_packet
+        stream = Stream(self.robot, core, home, None)
+        stream._pace = lambda: None     # the conversion is the subject here, not the timing
+        return stream, encode_packet
 
     def drive(self, stream, encode, home_signed, target, steps=400):
         """A perfect arm: what was sent is what the next reply reports."""
