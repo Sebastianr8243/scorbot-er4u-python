@@ -12,29 +12,30 @@ rehearsal away from the lab; every record is then labelled simulated.
 
 import argparse
 from dataclasses import asdict
-from datetime import datetime, timezone
 from importlib.util import find_spec
 import json
 import math
 from pathlib import Path
 import statistics
-import subprocess
 import time
 
 from scorbot import Scorbot, ScorbotError, SimulatedScorbot, StreamRefused
 from scorbot.calibration import signed_count_delta
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
-from scorbot.session import BestEffortRecorder, SessionWriter
+from scorbot.session import BestEffortRecorder
+from scorbot.streaming import DEFAULT_PERIOD_S
+from scorbot.streaming import MOTORS
 
 try:
-    from examples.bench_joint import (EXIT_DECLINED, OperatorDeclined, observe_leds,
-                                      reject_example_values, termination_as_interrupt)
+    from examples import bench_joint as bench
 except ImportError:  # Run as a script: examples/ itself is on sys.path.
-    from bench_joint import (EXIT_DECLINED, OperatorDeclined, observe_leds,
-                             reject_example_values, termination_as_interrupt)
+    import bench_joint as bench
 
-MOTORS = ("base", "shoulder", "elbow")
+EXIT_DECLINED = bench.EXIT_DECLINED
+OperatorDeclined = bench.OperatorDeclined
+observe_leds = bench.observe_leds
+
 # Tighter than the SDK allows (10 and 5 degrees), as bench_joint's 1 degree is.
 TRAVEL_CAP_DEG = 2.0
 LEAD_LIMIT_DEG = 2.0
@@ -124,21 +125,39 @@ def follow(stream, motor, target, hold_s):
         time.sleep(TARGET_REFRESH_S)
 
 
+def report(result) -> None:
+    """Print the verdict the operator copies onto the lab day card."""
+    gap = result["step_gap_ms"] or {}
+    print(f"Reached the target: {'yes' if result['reached_target'] else 'NO'} "
+          f"(closest {result['closest_to_target_counts']} counts away).")
+    print(f"Returned to home: {'yes' if result['returned_home'] else 'NO'} "
+          f"(ended {result['final_counts_from_home']:+d} counts from home).")
+    print(f"Largest lead of the command over the arm: "
+          f"{result['max_lead_counts']} counts (sampled once per step).")
+    print(f"Other two motors moved at most {result['other_motors_max_counts']} "
+          "counts.")
+    print(f"Time between steps: median {gap.get('median')} ms "
+          f"(min {gap.get('min')}, max {gap.get('max')}); planned "
+          f"{DEFAULT_PERIOD_S * 1000:g} ms.")
+    if result["passed"]:
+        print("Trial result: PASSED.")
+    else:
+        # Not an SDK fault: a degree is inside the lead limit, so a
+        # motor that stalls or lags is caught here, not there.
+        print("!!! Trial result: FAILED (" + "; ".join(result["problems"]) + ").")
+        print("!!! The arm did not follow the stream out and back. Do not "
+              "repeat with a larger move; review the record first.")
+
+
 def main() -> int:
-    with termination_as_interrupt():
+    with bench.termination_as_interrupt():
         return _run()
 
 
 def _run() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--robot-id", required=True)
-    parser.add_argument("--arm-label", required=True)
-    parser.add_argument("--controller-label", required=True)
-    parser.add_argument("--driver", required=True)
-    parser.add_argument("--operator", required=True, help="Name or lab initials")
-    parser.add_argument("--start-pose-note", required=True)
+    bench.add_session_arguments(parser)
     parser.add_argument("--motor", choices=MOTORS, required=True)
     parser.add_argument("--delta", type=float, required=True,
                         help="Signed target in degrees from home, at most 1; the sign "
@@ -157,22 +176,13 @@ def _run() -> int:
         parser.error("--delta must be nonzero and at most one degree")
     if not math.isfinite(args.hold_s) or not 0.2 <= args.hold_s <= 5:
         parser.error("--hold-s must be 0.2 through 5")
-    if any(not value.strip() for value in (args.robot_id, args.arm_label,
-                                           args.controller_label, args.driver,
-                                           args.operator, args.start_pose_note)):
-        parser.error("All labels and the pose note must be nonempty")
-    reject_example_values(parser, arm_label=args.arm_label,
-                          controller_label=args.controller_label, driver=args.driver,
-                          operator=args.operator, start_pose_note=args.start_pose_note)
+    bench.check_session_labels(parser, args)
     # Checked now: found after homing, it would leave the arm enabled for nothing.
     if find_spec("ruckig") is None:
         parser.error("Streaming needs the planning extra, which is not installed. Run: "
                      "uv sync --locked --extra windows --extra test --extra planning "
                      "(or pip install -e .[windows,test,planning])")
-    output = args.output.resolve()
-    events = output.with_name(output.stem + ".controller.jsonl")
-    if output.exists() or events.exists():
-        parser.error("Output already exists; choose a new session filename")
+    output, events = bench.new_output_paths(parser, args)
     # The target is the count change a jog of this joint by --delta would plan,
     # so the direction is the one a bench jog has already shown. Planned
     # offline now, before preflight (preview never opens USB).
@@ -184,49 +194,18 @@ def _run() -> int:
         parser.error(f"--delta plans {target:+d} counts, too small to tell from standing still "
                      f"(arrival is judged within {ARRIVED_COUNTS} counts); use a larger move")
 
-    # The only difference between a lab run and a rehearsal.
-    if args.simulate:
-        robot_class, data_source = SimulatedScorbot, "simulated"
-        print("SIMULATED rehearsal: no USB and no robot are used.")
-    else:
-        robot_class, data_source = Scorbot, "real"
-        checks = run_checks()
-        for check in checks:
-            print(f"{'PASS' if check.passed else 'FAIL'} {check.name}: {check.detail}")
-        if not all(check.passed for check in checks):
-            return 1
-    try:
-        revision = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1],
-            text=True, timeout=3).strip()
-    except (OSError, subprocess.SubprocessError):
-        revision = "unknown"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    # The recorder opens before the controller, as in bench_joint.py.
-    recorder = SessionWriter.create(
-        args.session_root or output.parent / "sessions", data_source=data_source,
-        robot_id=args.robot_id, controller_id=args.controller_label,
-        operator=args.operator, start_pose_note=args.start_pose_note,
-        task=f"stream trial {args.motor} {args.delta:+g} deg ({output.name})",
-        usb_driver=args.driver)
+    backend = bench.choose_backend(args.simulate, Scorbot, SimulatedScorbot, run_checks)
+    if backend is None:
+        return 1
+    robot_class, data_source = backend
+    revision = bench.software_revision()
+    recorder = bench.open_recorder(
+        args, output, data_source,
+        f"stream trial {args.motor} {args.delta:+g} deg ({output.name})")
     with recorder as writer, output.open("x", encoding="utf-8") as record:
         rec = BestEffortRecorder(writer)
-
-        def write(kind, **fields):
-            record.write(json.dumps({
-                "type": kind,
-                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-                "host_monotonic_ns": time.monotonic_ns(),
-                **fields,
-            }, allow_nan=False) + "\n")
-            record.flush()
-
-        def prompt(question, choice):
-            answer = input(question).strip()
-            rec.log_decision(choice if answer == choice else "declined",
-                             reason=f"typed {answer!r} at: {question.strip()}")
-            return answer
-
+        write, prompt = bench.row_writer(record), bench.confirmation_prompt(rec)
+        command = bench.OpenCommand(rec)
         write("session", schema_version=1, procedure="stream_trial", robot_id=args.robot_id,
               arm_label=args.arm_label, controller_label=args.controller_label,
               driver=args.driver, operator=args.operator,
@@ -235,35 +214,11 @@ def _run() -> int:
               controller_event_log=events.name,
               motor=args.motor, requested_delta_deg=args.delta, hold_s=args.hold_s,
               data_source=data_source, mcap_session=rec.path.name, led_prompts=True)
-        open_command = None
         try:
             with robot_class(log_path=events, robot_id=args.robot_id) as robot:
-                state = robot.get_state()
-                write("connected", state=asdict(state))
-                rec.log_state(state)
-                observe_leds("after_connect", write, rec,
-                             expect_motors="off", expect_power="green",
-                             require_expected=True)
-                print("Confirm the arm is in the documented legacy homing start pose.")
-                if prompt("Type HOME to search home: ", "HOME") != "HOME":
-                    raise OperatorDeclined("declined before homing")
-                robot.enable()
-                observe_leds("after_enable", write, rec, expect_motors="lit",
-                             expect_power="green", require_expected=True)
-                open_command = rec.log_command("home", {"start_position_confirmed": True})
-                robot.home(start_position_confirmed=True)
-                command_id, open_command = open_command, None
-                home_state = robot.get_state()
-                write("home_complete", state=asdict(home_state))
-                rec.log_command_result(command_id, "completed",
-                                       completion_source="home() returned")
-                rec.log_state(home_state)
-                home_observation = input("Describe the physical home pose, motion, and controller indicators: ").strip()
-                write("home_observation", text=home_observation or "not recorded")
-                rec.log_note(f"home observation: {home_observation or 'not recorded'}")
-                if prompt("If home looked correct and travel is clear, type HOME_OK: ",
-                          "HOME_OK") != "HOME_OK":
-                    raise OperatorDeclined("stopped after homing; no stream requested")
+                home_state = bench.connect_and_home(
+                    robot, write, rec, prompt, command,
+                    "stopped after homing; no stream requested")
                 plan = dict(motor=args.motor, requested_delta_deg=args.delta,
                             target_counts_from_home=target, travel_cap_deg=TRAVEL_CAP_DEG,
                             lead_limit_deg=LEAD_LIMIT_DEG, hold_s=args.hold_s,
@@ -293,7 +248,7 @@ def _run() -> int:
                 if any(abs(counts) > ARRIVED_COUNTS for counts in from_home.values()):
                     raise ScorbotError(f"The arm is not at home (counts from home {from_home}); "
                                        "no stream was started")
-                open_command = rec.log_command("start_stream", plan)
+                command.start("start_stream", plan)
                 stream = None
                 try:
                     with robot.start_stream(travel_cap_deg=TRAVEL_CAP_DEG,
@@ -308,7 +263,7 @@ def _run() -> int:
                     raise
                 after = stream.final_state
                 result = summarize(stream.steps, args.motor, target)
-                command_id, open_command = open_command, None
+                command_id = command.take()
                 write("after_stream", state=asdict(after), result=result)
                 if result["passed"]:
                     rec.log_command_result(command_id, "completed",
@@ -318,60 +273,21 @@ def _run() -> int:
                                            detail="; ".join(result["problems"]))
                 rec.log_state(after)
                 rec.log_note("stream result: " + json.dumps(result))
-                gap = result["step_gap_ms"] or {}
-                print(f"Reached the target: {'yes' if result['reached_target'] else 'NO'} "
-                      f"(closest {result['closest_to_target_counts']} counts away).")
-                print(f"Returned to home: {'yes' if result['returned_home'] else 'NO'} "
-                      f"(ended {result['final_counts_from_home']:+d} counts from home).")
-                print(f"Largest lead of the command over the arm: "
-                      f"{result['max_lead_counts']} counts (sampled once per step).")
-                print(f"Other two motors moved at most {result['other_motors_max_counts']} "
-                      "counts.")
-                print(f"Time between steps: median {gap.get('median')} ms "
-                      f"(min {gap.get('min')}, max {gap.get('max')}); planned 24 ms.")
-                if result["passed"]:
-                    print("Trial result: PASSED.")
-                else:
-                    # Not an SDK fault: a degree is inside the lead limit, so a
-                    # motor that stalls or lags is caught here, not there.
-                    print("!!! Trial result: FAILED (" + "; ".join(result["problems"]) + ").")
-                    print("!!! The arm did not follow the stream out and back. Do not "
-                          "repeat with a larger move; review the record first.")
+                report(result)
                 observe_leds("after_stream", write, rec,
                              expect_motors="lit", expect_power="green")
-                direction = input("Observed joint direction and approximate displacement: ").strip()
-                other_motion = input("Did any other joint move? Describe what you saw: ").strip()
-                indicators = input("Other controller indicators or sounds during the stream: ").strip()
-                issue = input("Fault, noise, jerky or unexpected motion, or other issue (write 'none' if none): ").strip()
-                observation = dict(
-                    direction_and_displacement=direction or "not recorded",
-                    other_motion=other_motion or "not recorded",
-                    controller_indicators=indicators or "not recorded",
-                    issue=issue or "not recorded")
-                write("operator_observation", **observation)
-                rec.log_note("operator observation: " + json.dumps(observation))
-                robot.disable()
-                disabled = robot.get_state()
-                write("disabled", state=asdict(disabled))
-                rec.log_state(disabled)
-                observe_leds("after_disable", write, rec,
-                             expect_motors="off", expect_power="green")
+                bench.observe_and_disable(
+                    robot, write, rec,
+                    indicators_question="Other controller indicators or sounds during the "
+                                        "stream: ",
+                    issue_question="Fault, noise, jerky or unexpected motion, or other issue "
+                                   "(write 'none' if none): ")
         except OperatorDeclined as exc:
-            write("operator_declined", text=str(exc))
-            rec.log_note(f"operator declined: {exc}")
-            print(f"Run ended by the operator ({exc}). Confirm the MOTORS LED is off.")
-            return EXIT_DECLINED
+            return bench.report_declined(exc, write, rec)
         except (Exception, KeyboardInterrupt) as exc:
-            write("session_failed", error_type=type(exc).__name__, error=str(exc))
-            if open_command is not None:
-                rec.log_command_result(open_command, "faulted", detail=str(exc))
-            rec.log_fault(f"{type(exc).__name__}: {exc}")
-            print("Session failed. If motion or motor state is uncertain, use the physical stop.")
+            bench.report_failure(exc, write, rec, command)
             raise
-        if rec.failure is not None:
-            write("recorder_failed", error_type=type(rec.failure).__name__,
-                  error=str(rec.failure))
-            print("MCAP recording is incomplete; review the JSONL and recorder failure.")
+        bench.report_recorder_failure(write, rec)
     print(f"Saved stream record to {output} and controller events to {events}")
     if rec.failure is None:
         print(f"Saved MCAP session to {rec.path}")
