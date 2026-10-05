@@ -269,3 +269,77 @@ The legacy code and the vendor agree on which way the wrist motors move for pitc
 Reviewed by Codex against the disassembly and INI files: the gearing branches, pitch signs and truncation were confirmed; two statements were narrowed as a result (the orientation property holds for the default parameters only, and zero counts is the nominal pose, not a measured home).
 
 Added to the lab plan as V16-V18: the counts per degree of base, shoulder and elbow against a physical angle; that the forearm keeps its orientation during a shoulder jog; and, when wrist jogs are bench-tested, the 27.9 scale and the difference/sum mixing.
+
+## 11. Motion planner
+
+Desk analysis, 2026-10-04, question A of the plan. **Partly done.** The profile shape and the limits are recovered; how a move's distance and duration are worked out, and the planner's lifecycle, are not. Re-implemented in `scorbot/vendor_profile.py`, tested in `tests/test_vendor_profile.py`. A prior from disassembly, not measured on our arm. Labels as in section 10 (V read, E emulated, S second source, I inference).
+
+### 11.1 The profile
+
+Set-up `0x1001295d`, evaluator `0x10012e48` (V, E). A move is a normalised S-curve: position runs from 0 to 1 over a total time T, with jerk-limited ramps at both ends. Three parameters:
+
+| Parameter | INI key (`ROB_4u.INI` `[Motion]`) | Default | Meaning |
+|---|---|---|---|
+| Total time T | `TotalTimeA` | 3.0 s | Duration of the move |
+| Acceleration fraction A | `AccelA` | 0.3 | Share of T spent speeding up; the same share slowing down |
+| Jerk fraction J | `AccelAccelA` | 0.3 | Share of each speed-up or slow-down phase spent ramping acceleration up, and again down |
+
+The set-up rejects T below 0.001 s and fractions outside 0 to 0.5. Seven segments follow: jerk up, constant acceleration, jerk down, cruise, and the mirror image. With the defaults the boundaries are at 0.27, 0.63, 0.9, 2.1, 2.37 and 2.73 s, so 30% of the time speeding up, 40% cruising, 30% slowing down.
+
+Peak values for a move of distance D: velocity D / ((1 - A) T), acceleration that velocity divided by A T (1 - J), jerk that acceleration divided by J A T. With the defaults: peak speed D / 2.1 s.
+
+This is the standard jerk-limited "double S" profile, described by time fractions instead of by speed, acceleration and jerk limits.
+
+I, not traced: every axis is driven from the one normalised 0..1 curve scaled by its own distance, so all axes start and finish together. It fits a profile normalised to 1, but the code that applies it was not read.
+
+### 11.2 Evidence
+
+| Check | Result |
+|---|---|
+| Emulation | Six profiles (including the defaults, the largest fractions, a 1 ms move and a 10 s move), 1,032 time samples at and around every segment boundary: position, velocity and acceleration equal the Python model to 2e-15 |
+| Second build | Set-up and evaluator are instruction-for-instruction identical in the 2008 build |
+| Ruckig, an independent jerk-limited planner | Given the vendor profile's own peak velocity, acceleration and jerk as limits, Ruckig's time-optimal move has the same duration and the same positions and velocities to 1e-6. This supports the shape claim; it is not a second source for the vendor's parameter values |
+
+One behaviour worth knowing: the evaluator has no guard for negative time. It runs the first cubic backwards and returns a small negative position.
+
+### 11.3 Speed and time
+
+- `Time(group, ms)` (`0x10016eb8`) stores ms / 1000 seconds and marks the group as "time mode". A negative value is error 909 (V).
+- `Speed(group, percent)` (`0x10016f93`) accepts 1 to 100 and stores 0.3 + 0.007 x percent, so a factor from 0.307 to 1.0, in "speed mode". Below 1 is error 586; above 100 is error 913 (V). The lowest setting is therefore about 31% of full speed, not 1%.
+- **Unresolved:** how the speed factor and the per-axis limits below turn into a duration T. The move set-up functions (`0x1000b910` and its siblings, reached from `MoveJoint` through `0x10035eab`) were not read.
+
+### 11.4 Velocity jog
+
+`MoveManual(axis, percent)` (`0x1001ba0c`, V) takes the axis's `Manual_1` (negative direction) or `Manual_2` (positive) value, multiplies by percent / 100, and starts a move with A = 0.3 and J = 0.05: a much shorter jerk ramp than a point move, which is what makes a jog feel immediate. In XYZ manual mode the scale comes from `[ManualSpeedXYZ]` instead. `EnterManual` clears the controller's buffer first and the queue limit drops to `ManualBuffers` (section 2).
+
+### 11.5 Per-axis limits
+
+From `ER4AxN.ini`, loaded by `0x100043b2` into a 0xA8-byte record per axis (V for the loading; the `$Default` values are shown). **Units of the speed and acceleration values are unresolved.**
+
+| Axis | `EncLimit_1` / `_2` (counts) | Same in degrees, by section 10 | `MaxSpeed` | `MaxAccel` | `Manual_1` / `_2` | `ImpactDetect` | `ExactEpsilon` |
+|---|---|---|---|---|---|---|---|
+| 1 base | -25000 / 20000 | +176.2 / -141.0 | 6500 | 11000 | -145 / 145 | 70 | 5 |
+| 2 shoulder | -18000 / 1500 | DLL shoulder angle +38.3 / -133.5 (158.6 / -13.2 from the zero-count pose) | 6500 | 11000 | 145 / -145 | 70 | 5 |
+| 3 elbow | -25000 / 20000 | motor counts; the elbow angle also depends on the shoulder | 6500 | 11000 | 160 / -160 | 70 | 20 |
+| 4 wrist motor 1 | -15000 / 15000 | motor counts | 6500 | 11000 | 300 / -300 | 70 | 20 |
+| 5 wrist motor 2 | -1000000 / 1000000 | effectively none | 6500 | 11000 | -475 / 475 | 70 | 20 |
+| 6 gripper | -200 / 6000 | | 15000 | 50000 | -7500 / 7500 | 300 | 200 |
+
+The encoder limits are per motor, in counts from zero. They are the vendor's own soft limits in the same coordinates our SDK works in, which makes them more directly usable than the joint-angle limits in `[Limits]`. The same record holds the servo gains (`PropGain`, `DifferGain`, `IntegralGain`, `FeedForward`), the thermal model, and the homing settings used in question D (`Type`, `Velocity`, `SwitchState`, `SwitchMask`, `ImpactCondEnc`, `ImpactCondTicks`, `MaxTime`, `MaxDistance`).
+
+`[Motion]` also gives `MaxJointSpeed = 2.0` and `MaxLinearSpeed = 0.20`. They are copied into the planner's state (`0x10020ef4`); where they are applied was not traced.
+
+### 11.6 Not done
+
+Stated plainly, as the plan requires:
+
+- **Duration and distance.** How T is chosen from the speed factor, `MaxSpeed`, `MaxAccel` and `MaxJointSpeed`.
+- **Sampling.** The period at which the profile is sampled into setpoints, and how a setpoint is rounded to counts.
+- **Lifecycle.** What the planner does on a new target while moving, a stop, a full queue, a late or missing reply, and an emergency. The per-reply tick (`0x10025c6c`, about 3,200 instructions) was not read. No transition table exists yet.
+- **Linear, circular and spline moves.**
+
+### 11.7 What this means for us
+
+- Our Ruckig planner (`scorbot/planning.py`) can produce the vendor's motion exactly, given the right limits. Nothing about the vendor's profile needs a different planner.
+- The vendor plans by time, not by limits: the move takes T seconds and the peaks follow from the distance. A policy that sends a new target many times a second is a different regime, closer to the velocity jog with its short jerk ramp.
+- The lab check is capture B's slow go-to (lab plan V19): the setpoint stream should follow this curve with the 30/40/30 split.

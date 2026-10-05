@@ -1,6 +1,6 @@
 # Desk analysis of the vendor DLL: action plan
 
-Date: 2026-10-04. Status: plan, revised after an outside review (section 8), awaiting the owner's go-ahead. No arm, no lab, nothing is sent anywhere. Everything this produces is a **prior from disassembly, unverified** until the arm confirms it.
+Date: 2026-10-04. Status: approved and in progress. Done: C and B (`docs/VENDOR_DLL_PROTOCOL.md` section 10). Partly done: A (section 11: profile shape and limits recovered; duration, sampling and the lifecycle table are not). Not started: D. No arm, no lab, nothing is sent anywhere. Everything this produces is a **prior from disassembly, unverified** until the arm confirms it.
 
 ## 1. Why these four
 
