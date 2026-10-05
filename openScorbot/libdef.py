@@ -311,7 +311,7 @@ def closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
 # Sends the message that opens every movement (mov_comm(2), which the vendor
 # DLL names "Clear communication buffer") and then the three end-of-movement
 # commands (mov_comm(3..5)). The vendor's own arm stop is this sequence
-# (docs/VENDOR_DLL_PROTOCOL.md section 5); it is from disassembly and
+# (docs/protocol/VENDOR_DLL_PROTOCOL.md section 5); it is from disassembly and
 # unverified on the controller.
 #
 # Unlike closeMov, no message carries the jog target: every joint's region is

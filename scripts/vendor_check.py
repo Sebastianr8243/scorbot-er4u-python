@@ -7,7 +7,7 @@ an idle recording from ``examples/record_raw_state.py`` (replies only, in its
 
     python scripts/vendor_check.py TRACE.jsonl
 
-The layout comes from disassembly (docs/VENDOR_DLL_PROTOCOL.md). A "matches"
+The layout comes from disassembly (docs/protocol/VENDOR_DLL_PROTOCOL.md). A "matches"
 line means this trace agrees with that layout. It is evidence about the
 packets in this file, not a statement that anything is safe or calibrated.
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 import statistics
 
 MESSAGE_LENGTH = 64
-# OUT byte 4, with the DLL's own names (docs/VENDOR_DLL_PROTOCOL.md section 4).
+# OUT byte 4, with the DLL's own names (docs/protocol/VENDOR_DLL_PROTOCOL.md section 4).
 COMMANDS = {
     0x0D: "No operation", 0x41: "Set analog output", 0x42: "Turn motors",
     0x44: "Set digital output", 0x47: "Clear communication buffer",

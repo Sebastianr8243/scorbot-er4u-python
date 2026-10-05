@@ -1,6 +1,6 @@
 # USBC.dll static analysis
 
-How the findings in [docs/VENDOR_DLL_PROTOCOL.md](../../docs/VENDOR_DLL_PROTOCOL.md) were produced, so they can be checked or repeated on another build (for example the lab's own `USBC.dll`).
+How the findings in [docs/protocol/VENDOR_DLL_PROTOCOL.md](../../docs/protocol/VENDOR_DLL_PROTOCOL.md) were produced, so they can be checked or repeated on another build (for example the lab's own `USBC.dll`).
 
 This reads the DLL as a file. It never loads or runs it, opens no USB device and cannot move the arm.
 

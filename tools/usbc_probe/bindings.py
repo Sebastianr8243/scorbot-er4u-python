@@ -1,7 +1,7 @@
 """ctypes bindings for Intelitek's vendor ``USBC.dll``. UNVERIFIED.
 
 Nothing here has been run against the real DLL or the arm. The export name
-and signature come from docs/PROTOCOL.md section 12 (third-party sources),
+and signature come from docs/protocol/PROTOCOL.md section 12 (third-party sources),
 not from a copy of the DLL we have inspected.
 
 Two layers:
@@ -16,7 +16,7 @@ DLL's own start-up code; whether that touches the controller driver is
 unknown.
 
 Parked: the project reads the DLL by static analysis and confirms with USB
-captures of SCORBASE (docs/VENDOR_DLL_PROTOCOL.md), so nothing calls this.
+captures of SCORBASE (docs/protocol/VENDOR_DLL_PROTOCOL.md), so nothing calls this.
 It lives outside ``scorbot/`` on purpose, imports nothing from it, and never
 imports ``usb``.
 
@@ -50,7 +50,7 @@ class Export:
     ``energises`` marks a call that can power the motors or move the arm.
     Mark anything not known to be a pure getter: ``Initialization`` is the
     connect handshake, and ``MoveManual`` turns control on by itself
-    (docs/PROTOCOL.md section 12.2).
+    (docs/protocol/PROTOCOL.md section 12.2).
     """
 
     name: str

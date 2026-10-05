@@ -1,0 +1,11 @@
+{
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.egg-info": true,
+    ".hypothesis": true,
+    ".ruff_cache": true,
+    ".superpowers": true,
+    ".venv": true,
+    ".venv-lerobot": true
+  }
+}

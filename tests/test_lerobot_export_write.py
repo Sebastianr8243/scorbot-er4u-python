@@ -16,7 +16,7 @@ except ImportError:   # .venv-lerobot has a third-party top-level 'tests' packag
 HAS_LEROBOT = importlib.util.find_spec("lerobot") is not None
 
 
-@unittest.skipUnless(HAS_LEROBOT, "lerobot not installed (see docs/LEROBOT_EXPORT.md)")
+@unittest.skipUnless(HAS_LEROBOT, "lerobot not installed (see docs/design/LEROBOT_EXPORT.md)")
 @unittest.skipIf(COARSE_CLOCK, "coarse monotonic clock: exports are rightly refused")
 class RoundTripTests(unittest.TestCase):
     def setUp(self):

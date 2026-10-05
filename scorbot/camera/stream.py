@@ -5,7 +5,7 @@
 stream copies the parent session's identity (id, data source, clock) at
 creation and keeps no reference to the parent, so a camera fault can never
 stop or delay the robot recording. See
-docs/superpowers/specs/2026-10-01-camera-capture-design.md.
+docs/specs/2026-10-01-camera-capture-design.md.
 """
 
 from __future__ import annotations

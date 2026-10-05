@@ -1,7 +1,7 @@
 """scorbot.streaming.StreamCore: the streaming logic on its own, no USB, no robot.
 
 Each test names the requirement it covers (R1-R12 in
-docs/superpowers/specs/2026-10-04-streaming-driver-requirements.md).
+docs/specs/2026-10-04-streaming-driver-requirements.md).
 """
 
 import importlib.util

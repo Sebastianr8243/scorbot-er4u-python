@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Python SDK, legacy USB protocol code, lab bench tools and offline research tools for the Intelitek ScorBot ER-4U arm (USB `09F1:0007`, original Controller-USB). Nothing here is hardware-validated. Milestone: supervised connect, raw state, legacy homing, small relative joint jogs. Deeper docs: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/PROTOCOL.md](docs/PROTOCOL.md) and [docs/SAFETY_CASE.md](docs/SAFETY_CASE.md), [docs/HARDWARE_REFERENCE.md](docs/HARDWARE_REFERENCE.md).
+Python SDK, legacy USB protocol code, lab bench tools and offline research tools for the Intelitek ScorBot ER-4U arm (USB `09F1:0007`, original Controller-USB). Nothing here is hardware-validated. Milestone: supervised connect, raw state, legacy homing, small relative joint jogs. Deeper docs: [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md), [docs/protocol/PROTOCOL.md](docs/protocol/PROTOCOL.md) and [docs/design/SAFETY_CASE.md](docs/design/SAFETY_CASE.md), [docs/manual/HARDWARE_REFERENCE.md](docs/manual/HARDWARE_REFERENCE.md).
 
 Each subdirectory has its own CLAUDE.md with module-level rules. Read it before editing there.
 
@@ -9,7 +9,7 @@ Each subdirectory has its own CLAUDE.md with module-level rules. Read it before 
 | Rule | Why | Enforced by |
 |---|---|---|
 | Tests, simulators, scripts you run and CI never open USB or move the arm. Never call `Scorbot.connect()` (real class), `examples/python_control.py`, or a lab script without `--simulate`. | The legacy handshake energises the motors. | `SimulatedScorbot` replaces only `connect`/`disconnect`; `tests/test_simulated.py:test_import_loads_no_usb_and_leaves_sys_path_alone`; CI comment in `.github/workflows/tests.yml`. No test-time guard blocks USB access; review does. |
-| Do not change `openScorbot/` packet construction, sequence bytes, or the `WRITE`/`READ` sleeps without evidence: a captured trace, or the vendor disassembly in `docs/VENDOR_DLL_PROTOCOL.md` for sequences built only from command bytes the legacy code already sends. A disassembly-based change is tried first on a 1 degree jog. Bytes the legacy code never sends (`54`, `4D`, `48`, ...) still need a capture. | Byte layout and timing are unverified against the controller; the sleeps are load-bearing. The controller is known to accept the legacy bytes (2026-09-29 run), so re-ordering them is a smaller risk than new ones. | `docs/USB_CAPTURE.md`, `scripts/usb_trace.py`, `scripts/vendor_check.py`; `scorbot/provenance.py:motion_source_sha256` fingerprints the motion path into every lab log. |
+| Do not change `openScorbot/` packet construction, sequence bytes, or the `WRITE`/`READ` sleeps without evidence: a captured trace, or the vendor disassembly in `docs/protocol/VENDOR_DLL_PROTOCOL.md` for sequences built only from command bytes the legacy code already sends. A disassembly-based change is tried first on a 1 degree jog. Bytes the legacy code never sends (`54`, `4D`, `48`, ...) still need a capture. | Byte layout and timing are unverified against the controller; the sleeps are load-bearing. The controller is known to accept the legacy bytes (2026-09-29 run), so re-ordering them is a smaller risk than new ones. | `docs/lab/USB_CAPTURE.md`, `scripts/usb_trace.py`, `scripts/vendor_check.py`; `scorbot/provenance.py:motion_source_sha256` fingerprints the motion path into every lab log. |
 | Neither `disable()` nor `request_stop()` is an emergency stop. Never document or name either as one. | `disable()` is queued behind the running command and cannot interrupt it. `request_stop()` ends a jog early but needs a live USB link and a responsive worker, acts at the next packet, and the arm coasts; its sequence is from disassembly and unverified on the arm. | `scorbot/robot.py:Scorbot.disable`, `request_stop` docstrings; `tests/test_software_stop.py:test_request_stop_is_documented_as_not_an_emergency_stop`; `README.md`. The physical stop is authoritative. |
 | Any fault latches the session and rejects further motion. New failure paths must call `Scorbot._latch_fault`. | Motor and home state are unverified after a fault. | `scorbot/robot.py:_command`, `_motion_state`; `tests/test_simulated.py:test_every_fault_kind_latches_the_session`. Known exceptions that set `_fault` directly: `jog_joint`/`get_joint_angles` on invalid calibrated state. |
 | Wrist jogs stay disabled. | Pitch and roll drive two coupled motors; unmeasured. | `Scorbot.jog_joint`; `tests/test_arm_control.py:test_wrist_jog_rejected_without_queuing_motion`. |
@@ -40,14 +40,14 @@ flowchart TD
 | `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, kinematics and trajectory planning (both offline, wired into nothing), simulator, preflight |
 | `scorbot/session/` | MCAP session recorder, replay, analysis, CLI (`python -m scorbot.session`). Never imports USB |
 | `plugins/lerobot_robot_scorbot/` | LeRobot robot plugin, simulator only (refuses the real arm); each action is one bounded jog via `scorbot/follow.py`. Installed into `.venv-lerobot` with `-e`. Real-arm replay is `python -m scorbot.lab` key `p` (`scorbot/lab/replay.py`) |
-| `scorbot/lerobot_export/` | Lab sessions to a local LeRobot dataset: load, refusal checks, resampling (pure), `write.py` (only module importing `lerobot`, run in `.venv-lerobot`). `python -m scorbot.lerobot_export ... --dry-run`. See `docs/LEROBOT_EXPORT.md` |
+| `scorbot/lerobot_export/` | Lab sessions to a local LeRobot dataset: load, refusal checks, resampling (pure), `write.py` (only module importing `lerobot`, run in `.venv-lerobot`). `python -m scorbot.lerobot_export ... --dry-run`. See `docs/design/LEROBOT_EXPORT.md` |
 | `scorbot/camera/` | Webcam capture: per-camera stream files next to a session, recorder threads with a bounded stop, `python -m scorbot.camera check`. OpenCV optional (`[camera]`). Never imports USB |
 | `scorbot/transport/` | Pure packet codec (`codec.py`), proven byte-identical to the legacy code by golden tests (`tests/test_transport_codec.py`). Not wired into `Scorbot`. Phase A of the USB upgrade |
 | `openScorbot/` | Original GPL OpenScorbot protocol code plus `motion_profile.py`; frozen legacy backend, PyQt GUI kept as reference |
 | `examples/` | Supervised bench procedures (`--simulate` capable), synthetic session, offline preview and kinematics check |
 | `scripts/` | Offline analysis (fit, review, live view, USB trace), kit and Windows setup |
 | `tests/` | `unittest` suite, no hardware |
-| `docs/` | Design, hardware reference, bench and lab checklists, capture and recording guides. `docs/superpowers/specs/` holds design specs (old implementation plans are in git history) |
+| `docs/` | Design, hardware reference, bench and lab checklists, capture and recording guides. `docs/specs/` holds design specs (old implementation plans are in git history) |
 | `tools/foxglove/` | Foxglove layouts for recorded sessions |
 | `tools/usbc_analysis/` | Ghidra export script and query tool for static analysis of the vendor `USBC.dll`. Never commit the DLL or its decompiled output |
 | `tools/usbc_probe/` | Parked ctypes bindings for the vendor DLL (one getter, never run on the real DLL). Not part of the SDK; nothing calls it |
@@ -61,7 +61,7 @@ uv sync --locked --extra windows --extra test  # lab PC: Python 3.13 + exact ver
 python -m compileall -q scorbot openScorbot scripts examples tests
 python -m unittest discover -s tests -v        # ~2 min, about 700 tests, 2 expected failures (documented legacy bugs); pytest -n auto is faster
 python examples/make_synthetic_session.py --root <tmpdir>   # CI smoke test
-.venv-lerobot/Scripts/python.exe -m unittest discover -s tests -p "test_lerobot_export_write.py"  # LeRobot round trip (docs/LEROBOT_EXPORT.md)
+.venv-lerobot/Scripts/python.exe -m unittest discover -s tests -p "test_lerobot_export_write.py"  # LeRobot round trip (docs/design/LEROBOT_EXPORT.md)
 ruff check .                                   # CI rules incl. bugbear (openScorbot/ excluded); `pre-commit install` runs it on every commit
 ```
 
@@ -93,26 +93,26 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 
 | Question | File |
 |---|---|
-| Why is the design what it is, open risks | `docs/ARCHITECTURE.md` |
-| Packet layout, command codes | `docs/PROTOCOL.md`, `openScorbot/libhex.py`, `scorbot/state.py` |
-| What the vendor DLL sends (from disassembly, unverified) | `docs/VENDOR_DLL_PROTOCOL.md`; method in `tools/usbc_analysis/README.md` |
-| How to confirm it at the lab, claim by claim | `docs/VENDOR_PROTOCOL_LAB_PLAN.md` |
-| Safety argument | `docs/SAFETY_CASE.md` |
-| Known bugs and next work | `docs/BACKLOG.md` |
-| Manual facts, LEDs, controller safety | `docs/HARDWARE_REFERENCE.md` |
-| First lab visit | `docs/G1_LAB_CHECKLIST.md`, `docs/ARM_CONTROL_BENCH.md`, `docs/WINDOWS_BENCH_RUN.md` |
-| Prompt and warning design | `docs/OPERATOR_UX.md` |
-| Recording, session format, viewers | `docs/EXPERIMENT_RECORDING.md` |
-| Wireshark/USBPcap comparison | `docs/USB_CAPTURE.md` |
-| Measuring joint angles, CSV format | `docs/PHYSICAL_CALIBRATION.md` |
+| Why is the design what it is, open risks | `docs/design/ARCHITECTURE.md` |
+| Packet layout, command codes | `docs/protocol/PROTOCOL.md`, `openScorbot/libhex.py`, `scorbot/state.py` |
+| What the vendor DLL sends (from disassembly, unverified) | `docs/protocol/VENDOR_DLL_PROTOCOL.md`; method in `tools/usbc_analysis/README.md` |
+| How to confirm it at the lab, claim by claim | `docs/lab/VENDOR_PROTOCOL_LAB_PLAN.md` |
+| Safety argument | `docs/design/SAFETY_CASE.md` |
+| Known bugs and next work | `docs/project/BACKLOG.md` |
+| Manual facts, LEDs, controller safety | `docs/manual/HARDWARE_REFERENCE.md` |
+| First lab visit | `docs/lab/G1_LAB_CHECKLIST.md`, `docs/lab/ARM_CONTROL_BENCH.md`, `docs/lab/WINDOWS_BENCH_RUN.md` |
+| Prompt and warning design | `docs/design/OPERATOR_UX.md` |
+| Recording, session format, viewers | `docs/design/EXPERIMENT_RECORDING.md` |
+| Wireshark/USBPcap comparison | `docs/lab/USB_CAPTURE.md` |
+| Measuring joint angles, CSV format | `docs/lab/PHYSICAL_CALIBRATION.md` |
 
 ## Before you change X, read Y
 
 | Change | Read first |
 |---|---|
-| `scorbot/robot.py` gates, faults, threading | `tests/test_python_api.py`, `tests/test_simulated.py`, `docs/ARCHITECTURE.md` sections 8, 11 |
-| `openScorbot/*` | `openScorbot/CLAUDE.md`, `docs/USB_CAPTURE.md` |
-| Session schema or topics | `scorbot/session/schemas.py`, `docs/EXPERIMENT_RECORDING.md`; bump `SCHEMA_VERSION` only with a reader migration |
-| Prompts in `examples/bench_joint.py` | `docs/OPERATOR_UX.md`, `docs/G1_LAB_CHECKLIST.md`; rehearse with `--simulate` |
-| Calibration fields | `scorbot/calibration.py`, `scripts/fit_calibration.py`, `docs/PHYSICAL_CALIBRATION.md` (loader and fitter must agree) |
+| `scorbot/robot.py` gates, faults, threading | `tests/test_python_api.py`, `tests/test_simulated.py`, `docs/design/ARCHITECTURE.md` sections 8, 11 |
+| `openScorbot/*` | `openScorbot/CLAUDE.md`, `docs/lab/USB_CAPTURE.md` |
+| Session schema or topics | `scorbot/session/schemas.py`, `docs/design/EXPERIMENT_RECORDING.md`; bump `SCHEMA_VERSION` only with a reader migration |
+| Prompts in `examples/bench_joint.py` | `docs/design/OPERATOR_UX.md`, `docs/lab/G1_LAB_CHECKLIST.md`; rehearse with `--simulate` |
+| Calibration fields | `scorbot/calibration.py`, `scripts/fit_calibration.py`, `docs/lab/PHYSICAL_CALIBRATION.md` (loader and fitter must agree) |
 | Log event names | `scripts/watch_lab_log.py:ALARM_EVENTS`, `scripts/review_lab_logs.py` (both parse them) |

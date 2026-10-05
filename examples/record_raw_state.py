@@ -140,7 +140,7 @@ def _run() -> int:
                 for index in range(sample_count):
                     time.sleep(max(0.0, next_sample - time.monotonic()))
                     # raw_hex keeps the reply bytes this SDK does not decode
-                    # (docs/VENDOR_DLL_PROTOCOL.md section 6) for offline review.
+                    # (docs/protocol/VENDOR_DLL_PROTOCOL.md section 6) for offline review.
                     state, packet = robot.get_state_and_packet()
                     write("sample", index=index, state=asdict(state), raw_hex=packet.hex())
                     rec.log_state(state)

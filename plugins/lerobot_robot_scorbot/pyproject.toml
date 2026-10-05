@@ -9,7 +9,7 @@ description = "LeRobot robot plugin for the ScorBot ER-4U (simulator only; real-
 requires-python = ">=3.12"
 license = {text = "GPL-3.0-or-later"}
 # Install with --no-deps into .venv-lerobot: scorbot-er4u is this repository
-# (editable) and lerobot is already installed there. See docs/LEROBOT_EXPORT.md.
+# (editable) and lerobot is already installed there. See docs/design/LEROBOT_EXPORT.md.
 dependencies = ["scorbot-er4u", "lerobot>=0.6,<0.7"]
 
 [tool.setuptools]

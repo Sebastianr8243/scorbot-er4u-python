@@ -34,7 +34,7 @@ the locked packages; `--locked` refuses to run if `uv.lock` and
 `pyproject.toml` disagree, instead of silently picking new versions. It does
 not access USB, change drivers or move the arm. All later commands in the docs
 (`.\.venv\Scripts\python.exe ...`) work unchanged. The WinUSB driver step
-still needs admin once ([docs/WINDOWS_BENCH_RUN.md](docs/WINDOWS_BENCH_RUN.md)).
+still needs admin once ([docs/lab/WINDOWS_BENCH_RUN.md](docs/lab/WINDOWS_BENCH_RUN.md)).
 
 ### Option B: the setup script (pip)
 
@@ -56,8 +56,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.
 
 The script lists any present Windows device with hardware ID `VID_09F1&PID_0007`, then runs the read-only Python preflight. The desired result is `PASS USB 09F1:0007`. This shows that the PC and Python can enumerate the controller; it does not test robot commands. Neither check sends motion commands. If the Python part cannot run because setup failed, the Windows device listing is still useful evidence.
 
-If Windows does not list the ID, check power, cable, USB port, and the controller's **Hardware Ids** in Device Manager. If Windows lists the correct ID but Python preflight fails, read [the USB driver section of the bench guide](docs/WINDOWS_BENCH_RUN.md#2-usb-driver-and-read-only-preflight). Only consider [official Zadig](https://zadig.akeo.ie/) for that exact device after recording the current driver. Changing the driver can prevent the original Intelitek software from using the controller.
+If Windows does not list the ID, check power, cable, USB port, and the controller's **Hardware Ids** in Device Manager. If Windows lists the correct ID but Python preflight fails, read [the USB driver section of the bench guide](docs/lab/WINDOWS_BENCH_RUN.md#2-usb-driver-and-read-only-preflight). Only consider [official Zadig](https://zadig.akeo.ie/) for that exact device after recording the current driver. Changing the driver can prevent the original Intelitek software from using the controller.
 
-After the preflight passes, run the [guided lab session](docs/LAB_SESSION.md) (recommended), or follow the [per-script lab runbook](docs/ARM_CONTROL_BENCH.md). Connecting starts the legacy USB handshake, so the idle capture also requires an operator at the arm. Do not run a home or jog until the start pose from a prior successful ScorBot-software home has been reproduced and the idle capture succeeds.
+After the preflight passes, run the [guided lab session](docs/lab/LAB_SESSION.md) (recommended), or follow the [per-script lab runbook](docs/lab/ARM_CONTROL_BENCH.md). Connecting starts the legacy USB handshake, so the idle capture also requires an operator at the arm. Do not run a home or jog until the start pose from a prior successful ScorBot-software home has been reproduced and the idle capture succeeds.
 
-Keep the visit's raw logs for review. [Physical calibration](docs/PHYSICAL_CALIBRATION.md) is a later step that requires independent angle measurements.
+Keep the visit's raw logs for review. [Physical calibration](docs/lab/PHYSICAL_CALIBRATION.md) is a later step that requires independent angle measurements.

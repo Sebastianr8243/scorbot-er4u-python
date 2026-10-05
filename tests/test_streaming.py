@@ -2,7 +2,7 @@
 ``Scorbot.start_stream`` through the simulator. No USB, no hardware.
 
 Requirement numbers are from
-docs/superpowers/specs/2026-10-04-streaming-driver-requirements.md.
+docs/specs/2026-10-04-streaming-driver-requirements.md.
 """
 
 from importlib.util import find_spec
@@ -559,7 +559,7 @@ class SetpointConversionTests(unittest.TestCase):
     def test_the_end_of_the_counter_range_is_a_fault_not_a_wrap(self):
         # The two-byte count with its sign byte runs out at 65535. The legacy
         # arithmetic would wrap there; the vendor's counter is wider and does
-        # not (docs/VENDOR_DLL_PROTOCOL.md), so a wrapped setpoint would be
+        # not (docs/protocol/VENDOR_DLL_PROTOCOL.md), so a wrapped setpoint would be
         # about 65535 counts from the arm.
         for home_signed, target in ((65500, 60), (-65500, -60)):
             with self.subTest(home=home_signed):

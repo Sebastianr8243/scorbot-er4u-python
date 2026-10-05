@@ -6,7 +6,7 @@ This module is an offline reference for validating the legacy inverse
 kinematics (``openScorbot/libdef.cIn`` and ``moveXYZ.controlXYZ``). It is
 **not wired into any motion command** and must not be used to command the arm
 until frames, dimensions, joint zeros and joint signs have been verified
-against measured poses (docs/ARCHITECTURE.md sections 14 and 15).
+against measured poses (docs/design/ARCHITECTURE.md sections 14 and 15).
 
 * Geometry is nominal: every DH value below is copied from legacy
   ``openScorbot/conf.py``; none has been measured on our arm.

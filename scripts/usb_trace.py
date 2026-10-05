@@ -38,7 +38,7 @@ PCAP_MAGICS = {
     b"\x4d\x3c\xb2\xa1": ("<", 1e-9), b"\xa1\xb2\x3c\x4d": (">", 1e-9),
 }
 OUT_BYTE_FIELDS = 8    # byte0 is the sequence byte, byte4 the command (openScorbot/libhex.py)
-SETPOINT_REGION = 12   # OUT bytes 12-35: per-joint encoder/setpoint region (docs/PROTOCOL.md 2.3)
+SETPOINT_REGION = 12   # OUT bytes 12-35: per-joint encoder/setpoint region (docs/protocol/PROTOCOL.md 2.3)
 
 
 def parse_usbpcap_header(frame):
@@ -354,7 +354,7 @@ def format_compare(a, b, name_a="A", name_b="B"):
 def decode_setpoint_region(payload):
     """Per-joint (value, sign word hex) from OUT bytes 12-35; None if absent or all zero.
 
-    Layout from docs/PROTOCOL.md section 2.3: each joint is a 2-byte little-endian
+    Layout from docs/protocol/PROTOCOL.md section 2.3: each joint is a 2-byte little-endian
     value plus a 2-byte sign word. What the controller does with it is unverified.
     """
     region = payload[SETPOINT_REGION:SETPOINT_REGION + 4 * len(JOINTS)]

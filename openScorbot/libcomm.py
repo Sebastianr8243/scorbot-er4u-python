@@ -485,7 +485,7 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 #   ("end",)                           finish like a normal movement
 #   ("stop",)                          finish with the stop sequence
 # No new command byte or template; the write/read delays are the base's.
-# From the vendor disassembly (docs/VENDOR_DLL_PROTOCOL.md); never run on the arm.
+# From the vendor disassembly (docs/protocol/VENDOR_DLL_PROTOCOL.md); never run on the arm.
 #
 # source -> callable described above; it must not raise
 def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source):

@@ -37,7 +37,7 @@ class LedCheckFailed(RuntimeError):
 # Operator LED observations. The SDK's ``enabled`` is only command history; the
 # controller's green MOTORS LED is the only independent evidence of motor power,
 # and POWER is green while the controller is communicating with the PC (orange:
-# not communicating, flashing: USB timeout). See docs/HARDWARE_REFERENCE.md.
+# not communicating, flashing: USB timeout). See docs/manual/HARDWARE_REFERENCE.md.
 MOTORS_KEYS = {"y": "lit", "n": "off", "u": "unsure"}
 POWER_KEYS = {"g": "green", "o": "orange", "f": "flashing", "u": "unsure"}
 _WORDS = {"yes": "lit", "no": "off", "lit": "lit", "off": "off", "unsure": "unsure",

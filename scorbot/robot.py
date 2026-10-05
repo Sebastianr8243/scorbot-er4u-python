@@ -77,8 +77,8 @@ class Scorbot:
     STOP_SETTLE_COUNTS = 2
     STOP_SETTLE_QUIET_PAIRS = 3
     # Streaming travel from home. Stage 1 of the staged widening in
-    # docs/superpowers/specs/2026-10-04-streaming-driver-requirements.md; raise it
-    # only with lab evidence, and say why in docs/PROJECT_LOG.md.
+    # docs/specs/2026-10-04-streaming-driver-requirements.md; raise it
+    # only with lab evidence, and say why in docs/project/PROJECT_LOG.md.
     STREAM_TRAVEL_CAP_MAX_DEG = 10.0
 
     _JOG_CODES = {

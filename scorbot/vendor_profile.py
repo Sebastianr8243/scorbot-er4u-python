@@ -4,7 +4,7 @@ A move is a normalised S-curve: position goes from 0 to 1 over a total time,
 with jerk-limited ramps at both ends. The DLL scales that 0..1 by the distance
 of each axis, so all axes start and finish together. Read from the profile
 set-up routine at 0x1001295d and its evaluator at 0x10012e48 (2018 build);
-see docs/VENDOR_DLL_PROTOCOL.md section 11.
+see docs/protocol/VENDOR_DLL_PROTOCOL.md section 11.
 
 This is a **prior from disassembly, not measured on our arm**. It describes
 what the vendor software asks for, not how the arm follows it. Offline and

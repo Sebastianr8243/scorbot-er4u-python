@@ -12,7 +12,7 @@ HAS_PLUGIN = (importlib.util.find_spec("lerobot") is not None
 
 
 @unittest.skipUnless(HAS_PLUGIN, "lerobot and the plugin are not installed "
-                                 "(see docs/LEROBOT_EXPORT.md)")
+                                 "(see docs/design/LEROBOT_EXPORT.md)")
 class PluginTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)

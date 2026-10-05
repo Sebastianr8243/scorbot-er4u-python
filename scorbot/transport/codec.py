@@ -1,6 +1,6 @@
 """Pure builder for the 64-byte OUT packets the legacy ``openScorbot/`` code sends.
 
-Executable form of ``docs/PROTOCOL.md`` sections 2 (OUT layout), 4 (handshake),
+Executable form of ``docs/protocol/PROTOCOL.md`` sections 2 (OUT layout), 4 (handshake),
 6 (motion messages) and 8 (encoder number format). Every packet the legacy
 code writes can be built here from named fields instead of hex strings, and
 ``tests/test_transport_codec.py`` proves the bytes identical to the legacy

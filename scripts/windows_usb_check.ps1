@@ -32,6 +32,6 @@ Write-Host 'Running read-only Python USB preflight...'
 & $venvPython -m scorbot.preflight
 $preflightCode = $LASTEXITCODE
 if ($preflightCode -ne 0) {
-    Write-Host 'Python cannot use the controller yet. See docs\WINDOWS_BENCH_RUN.md before changing any driver.'
+    Write-Host 'Python cannot use the controller yet. See docs\lab\WINDOWS_BENCH_RUN.md before changing any driver.'
 }
 exit $preflightCode

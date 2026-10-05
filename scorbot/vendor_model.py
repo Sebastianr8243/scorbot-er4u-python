@@ -1,10 +1,10 @@
 """How Intelitek's own software converts ER-4u encoder counts and joint angles.
 
-Read from ``USBC.dll`` by static analysis (docs/VENDOR_DLL_PROTOCOL.md,
+Read from ``USBC.dll`` by static analysis (docs/protocol/VENDOR_DLL_PROTOCOL.md,
 section 10) and re-implemented here. Everything in this module is a **prior
 from disassembly, not measured on our arm**: it says what the vendor software
 would compute, with the vendor's default parameter files. Per-arm calibration
-still comes from physical measurement (docs/PHYSICAL_CALIBRATION.md).
+still comes from physical measurement (docs/lab/PHYSICAL_CALIBRATION.md).
 
 Offline and pure: standard library only, wired into no motion command.
 

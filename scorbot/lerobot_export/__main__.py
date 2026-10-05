@@ -1,6 +1,6 @@
 """python -m scorbot.lerobot_export: lab sessions to a local LeRobot dataset.
 
-Run in .venv-lerobot to write (see docs/LEROBOT_EXPORT.md); --dry-run works in
+Run in .venv-lerobot to write (see docs/design/LEROBOT_EXPORT.md); --dry-run works in
 any environment and writes nothing. Never uploads.
 """
 

@@ -3,7 +3,7 @@
 Every value here is **nominal, from the manual, not measured** on any of our
 arms. Each carries its source (manual title, catalog number, page) so a
 reader can check it. Use these only as priors and sanity bounds; per-arm
-calibration still comes from physical measurement (docs/PHYSICAL_CALIBRATION.md).
+calibration still comes from physical measurement (docs/lab/PHYSICAL_CALIBRATION.md).
 
 What the manual does NOT give: encoder counts per revolution, encoder zero,
 where each joint's 0 degrees is, and which direction is positive. Vendor
@@ -130,7 +130,7 @@ HYPOTHESIS_COUNTS_PER_MOTOR_REV = LEGACY_BASE_COUNTS_PER_DEGREE * 360.0 / GEAR_R
 # motor revolution hypothesis above: 20-slot disk x 4 = 80 counts per motor rev,
 # 127.7:1 gearbox, then a final stage (base 5:1, shoulder/elbow 4:1, wrist 23:12)
 # reproduces every axis (inference: neither manual gives the x4 decode or 80). Wrist values are per motor; the legacy pitch
-# scale (33.8) disagrees and is unresolved. See docs/MANUAL_AND_PRIOR_ART_FINDINGS.md.
+# scale (33.8) disagrees and is unresolved. See docs/manual/MANUAL_AND_PRIOR_ART_FINDINGS.md.
 
 VENDOR_STATUS = "vendor default, not measured"
 VENDOR_INI = ("Intelitek ER-4u controller parameter files (ER4Ax*.ini, ROB_4u.INI), "
@@ -256,7 +256,7 @@ DATASHEET_SHOULDER_SPAN_DEG = VendorPrior(158.0, "joint degrees", DATASHEET)
 
 # -- Where sources disagree ----------------------------------------------------
 #
-# One verdict per numeric contradiction in docs/MANUAL_AND_PRIOR_ART_FINDINGS.md:
+# One verdict per numeric contradiction in docs/manual/MANUAL_AND_PRIOR_ART_FINDINGS.md:
 #   adopted    one source is clearly right for our use (reason says why)
 #   both kept  both values stay available; nothing here picks one
 #   measure    only a physical measurement can settle it

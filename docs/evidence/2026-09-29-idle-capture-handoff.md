@@ -30,8 +30,8 @@ The raw log has no `after_exit` LED row. The MCAP session identifies a `Keyboard
 
 Primary files:
 
-- [`logs/idle-01.jsonl`](../logs/idle-01.jsonl)
-- [`logs/idle-01.controller.jsonl`](../logs/idle-01.controller.jsonl)
+- [`logs/idle-01.jsonl`](../../logs/idle-01.jsonl)
+- [`logs/idle-01.controller.jsonl`](../../logs/idle-01.controller.jsonl)
 - MCAP session: `logs/sessions/20260929T192825Z-44e1de/session.mcap`
 
 The primary JSONL identifies `data_source` as `real`, requests 10 seconds at 2 Hz, and contains 19 state samples, indices 0 through 18. Its reported `motion_source_sha256` is `56c396b7a27514348ac26d774c1edef92e837d5288ad177071f6ead04393df5c`.
@@ -68,12 +68,12 @@ The MCAP replay reports 22 events: 19 `/robot/state`, one `/operator/decision`, 
 
 ## Relevant Implementation
 
-- [`scorbot/robot.py`](../scorbot/robot.py): `Scorbot.connect()` calls the inherited handshake, which sends motor-on packets, then issues `[16, 1, 1]` and sets `_enabled=False`. That boolean is command history, not a measured controller state.
-- [`scorbot/robot.py`](../scorbot/robot.py): `_command()` logs `command_complete` after receiving result 0. This return path does not read the MOTORS LED.
-- [`scorbot/robot.py`](../scorbot/robot.py): `disconnect()` sends `[528, 1, 1]` when the workers are responsive, then disposes USB resources. The event sidecar shows the exit command returned successfully in this capture.
-- [`examples/record_raw_state.py`](../examples/record_raw_state.py): `observe_leds("after_connect", ..., expect_motors="off", expect_power="green")` runs before sampling. After normal exit from the `with robot` block, it prompts for `after_exit`. The JSONL observation is written only after the prompt answers return.
-- [`scripts/review_lab_logs.py`](../scripts/review_lab_logs.py): correctly flags the after-connect LED mismatch and missing `after_exit` observation, and marks physical review as required.
-- [`docs/HARDWARE_REFERENCE.md`](HARDWARE_REFERENCE.md): describes green MOTORS as motor power supplied, while POWER green indicates communication. Manual-derived behavior is not a substitute for bench verification.
+- [`scorbot/robot.py`](../../scorbot/robot.py): `Scorbot.connect()` calls the inherited handshake, which sends motor-on packets, then issues `[16, 1, 1]` and sets `_enabled=False`. That boolean is command history, not a measured controller state.
+- [`scorbot/robot.py`](../../scorbot/robot.py): `_command()` logs `command_complete` after receiving result 0. This return path does not read the MOTORS LED.
+- [`scorbot/robot.py`](../../scorbot/robot.py): `disconnect()` sends `[528, 1, 1]` when the workers are responsive, then disposes USB resources. The event sidecar shows the exit command returned successfully in this capture.
+- [`examples/record_raw_state.py`](../../examples/record_raw_state.py): `observe_leds("after_connect", ..., expect_motors="off", expect_power="green")` runs before sampling. After normal exit from the `with robot` block, it prompts for `after_exit`. The JSONL observation is written only after the prompt answers return.
+- [`scripts/review_lab_logs.py`](../../scripts/review_lab_logs.py): correctly flags the after-connect LED mismatch and missing `after_exit` observation, and marks physical review as required.
+- [`docs/manual/HARDWARE_REFERENCE.md`](../manual/HARDWARE_REFERENCE.md): describes green MOTORS as motor power supplied, while POWER green indicates communication. Manual-derived behavior is not a substitute for bench verification.
 
 ## Problem Statement
 
@@ -111,7 +111,7 @@ Not allowed here:
 - Treat simulation or preflight enumeration as hardware validation.
 - Treat `disable()` as an emergency stop or claim the software stopped the motors.
 
-For any human bench work, the [G1 checklist](G1_LAB_CHECKLIST.md) and [bench procedure](ARM_CONTROL_BENCH.md) govern. A trained operator at the arm and the physical emergency stop are required. The existing real LED mismatch must be explained before proceeding to home/jog. The repository's safety case also lists homing travel and overshoot as open hazards; this handoff does not authorize motion.
+For any human bench work, the [G1 checklist](../lab/G1_LAB_CHECKLIST.md) and [bench procedure](../lab/ARM_CONTROL_BENCH.md) govern. A trained operator at the arm and the physical emergency stop are required. The existing real LED mismatch must be explained before proceeding to home/jog. The repository's safety case also lists homing travel and overshoot as open hazards; this handoff does not authorize motion.
 
 ## Acceptance Criteria For A Software-Side Resolution
 
