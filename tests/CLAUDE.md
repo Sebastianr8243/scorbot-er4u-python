@@ -35,6 +35,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_bench_joint.py`, `test_calibration_capture.py`, `test_bench_stream.py` | Prompt gates and exit codes of the lab scripts; the stream trial rehearsed end to end through the simulator |
 | `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | Offline analysis scripts |
 | `test_nominal.py`, `test_kinematics.py`, `test_motion_profile.py` | Manual values and span bound, offline kinematics and legacy `cIn` findings, jog planning |
+| `test_arm_chain.py` | The viewer's link chain: zero pose, sign conventions, agreement with the manual's lengths and reach, and with the DH model in `kinematics.py` |
 | `test_properties.py` | Hypothesis properties of encoder and packet arithmetic; `test_known_bug_*` are `expectedFailure` |
 | `test_streaming_core.py`, `test_streaming.py` | The streaming driver: the USB-free core against a small arm model (one or more tests per requirement R1-R12), the legacy loop against fake endpoints (exact messages), and `Scorbot.start_stream` through the simulator |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |

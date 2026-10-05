@@ -37,7 +37,7 @@ flowchart TD
 
 | Path | Responsibility |
 |---|---|
-| `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, kinematics and trajectory planning (both offline, wired into nothing), simulator, preflight |
+| `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, kinematics, trajectory planning and the viewer's link chain `arm_chain.py` (all offline, wired into nothing), simulator, preflight |
 | `scorbot/session/` | MCAP session recorder, replay, analysis, CLI (`python -m scorbot.session`). Never imports USB |
 | `plugins/lerobot_robot_scorbot/` | LeRobot robot plugin, simulator only (refuses the real arm); each action is one bounded jog via `scorbot/follow.py`. Installed into `.venv-lerobot` with `-e`. Real-arm replay is `python -m scorbot.lab` key `p` (`scorbot/lab/replay.py`) |
 | `scorbot/lerobot_export/` | Lab sessions to a local LeRobot dataset: load, refusal checks, resampling (pure), `write.py` (only module importing `lerobot`, run in `.venv-lerobot`). `python -m scorbot.lerobot_export ... --dry-run`. See `docs/design/LEROBOT_EXPORT.md` |
