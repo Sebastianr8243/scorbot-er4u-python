@@ -7,8 +7,10 @@ set-up routine at 0x1001295d and its evaluator at 0x10012e48 (2018 build);
 see docs/protocol/VENDOR_DLL_PROTOCOL.md section 11.
 
 This is a **prior from disassembly, not measured on our arm**. It describes
-what the vendor software asks for, not how the arm follows it. Offline and
-pure: standard library only, wired into no motion command.
+what the vendor software asks for, not how the arm follows it. Pure, standard
+library only. One thing reads it: ``streaming.prior_limits`` takes a stream's
+starting acceleration and jerk from the velocity-jog time fractions below, so
+this file is in the motion fingerprint.
 
 Parameters, with the vendor's ``ROB_4u.INI`` ``[Motion]`` defaults:
 

@@ -1,5 +1,7 @@
 # Simulated robot and recorded bench runs: design
 
+> **Built.** Kept as the record of a decision; the code may have moved on since. The status line below is as written at the time.
+
 **Status:** Approved direction ("do it"), 2026-09-25
 **Implements:** System design §8 item 3 (simulated backend, R-04, R-09) and the
 lab-run recording follow-up to the experiment recorder. GitHub work item 3.

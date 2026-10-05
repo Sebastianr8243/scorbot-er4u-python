@@ -481,9 +481,9 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 # getStruct(20, ...), the layout moveXYZ already uses. The steps come from
 # `source`, which is called with a copy of the last reply and returns:
 #   ("send", (base, shoulder, elbow))  signed counts to send
-#   ("wait",)                          send nothing this period
 #   ("end",)                           finish like a normal movement
 #   ("stop",)                          finish with the stop sequence
+# Any other answer is treated as a stop.
 # No new command byte or template; the write/read delays are the base's.
 # From the vendor disassembly (docs/protocol/VENDOR_DLL_PROTOCOL.md); never run on the arm.
 #
@@ -499,12 +499,9 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 		step = source(bytes(buffer))
 		if step[0] == "end":
 			break
-		if step[0] == "stop":
+		if step[0] != "send":
 			stopped = True
 			break
-		if step[0] == "wait":
-			time.sleep(write + read)
-			continue
 		signal_out = ''.join(libdef.setpointField(valor) for valor in step[1])
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)

@@ -125,12 +125,13 @@ class LegacyStreamTests(unittest.TestCase):
         self.assertEqual(controller.commands(), [OPEN, OPEN, MODE, CONTROL_OFF, MOTOR])
         self.assertEqual(results, [])
 
-    def test_r8_wait_sends_nothing(self):
-        script = [("send", (1010, 1000, 1000)), ("wait",), ("wait",), ("send", (1020, 1000, 1000)),
-                  ("end",)]
-        controller, _, seen = self.stream(script)
-        self.assertEqual(controller.commands().count(STEP), 2)
-        self.assertEqual(len(seen), 5)
+    def test_an_answer_the_loop_does_not_know_stops_the_stream(self):
+        # There is no wait action; nothing unexpected may be sent as a setpoint.
+        script = [("send", (1010, 1000, 1000)), ("wait",), ("send", (1020, 1000, 1000))]
+        controller, results, seen = self.stream(script)
+        self.assertEqual(controller.commands().count(STEP), 1)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(results, [STOPPED])
 
     def test_sequence_bytes_stay_consecutive(self):
         controller, _, _ = self.stream([("send", (1010, 1000, 1000))] * 5 + [("stop",)])
@@ -492,6 +493,8 @@ class SdkStreamTests(unittest.TestCase):
     def test_streaming_is_in_the_motion_fingerprint(self):
         from scorbot import provenance
         self.assertIn("scorbot/streaming.py", provenance._SOURCE_FILES)
+        # the stream's starting limits are computed from the vendor profile
+        self.assertIn("scorbot/vendor_profile.py", provenance._SOURCE_FILES)
         # signed_count_delta now decides the setpoint bytes of a stream
         self.assertIn("scorbot/calibration.py", provenance._SOURCE_FILES)
 

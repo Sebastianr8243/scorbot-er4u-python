@@ -1,5 +1,7 @@
 # Experiment record and replay: design
 
+> **Built.** Kept as the record of a decision; the code may have moved on since. The status line below is as written at the time.
+
 **Status:** Approved direction; storage format revised to MCAP (see §2)
 **Date:** 2026-09-25
 **Implements:** System design §5.4, requirements R-06, R-07 (schema part), R-09; GitHub work item 2

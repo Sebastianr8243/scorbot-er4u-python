@@ -1,5 +1,7 @@
 # Keyboard teleop and episode recording (M1 step 4)
 
+> **Built** (gamepad deferred). Kept as the record of a decision; the code may have moved on since. The status line below is as written at the time.
+
 Date: 2026-10-02. Status: draft, revised after Codex and Gemini adversarial reviews
 (both found the quiet-gap rule could not prove key release; Codex found camera
 liveness gaps). Draft for review. Parent:

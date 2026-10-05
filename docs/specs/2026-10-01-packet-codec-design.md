@@ -1,5 +1,7 @@
 # Clean packet codec (USB upgrade, phase A)
 
+> **Phase A built** (`scorbot/transport/codec.py`, wired into nothing). Phases B and C are still open.
+
 Date: 2026-10-01. Status: design choices delegated by the user ("do this
 for now"); built in the same session. Context: the upgrade path in
 [MANUAL_VERIFICATION_IMPACT.md](../manual/MANUAL_VERIFICATION_IMPACT.md) and

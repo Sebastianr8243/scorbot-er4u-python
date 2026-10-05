@@ -367,5 +367,5 @@ Reviewed by Codex against the disassembly and INI files. The INI table and the p
 - The vendor plans by time, not by limits: the move takes T seconds and the peaks follow from the distance. A policy that sends a new target many times a second is a different regime, closer to the velocity jog with its short jerk ramp.
 - The lab check is capture B's slow go-to (lab plan V19): the setpoint stream should follow this curve with the 30/40/30 split.
 - **The vendor does not do what a policy needs.** It refuses a new target mid-move. Streaming a new target many times a second is our own design problem, with the vendor's limits and period as priors.
-- **Our planner's period prior is probably wrong.** `scorbot/planning.py` defaults to 16 ms (`PCPeriod`); the vendor's planner steps at 24 ms. Which one the controller expects is for the lab to measure.
+- **Our planner's period prior is probably wrong.** The offline planner `scorbot/planning.py` defaulted to 16 ms (`PCPeriod`); the vendor's planner steps at 24 ms, which is what the streaming driver uses. That planner was removed on 2026-10-05. Which period the controller expects is for the lab to measure.
 - **We now have speed priors per motor**: 6500 counts/s, where `planning.py` had only datasheet joint speeds and no acceleration or jerk at all.

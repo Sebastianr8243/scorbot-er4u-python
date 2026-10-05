@@ -1,5 +1,7 @@
 # Learning from the vendor DLL: design
 
+> **Standing decision:** read the vendor DLL, never run it. The parked bindings it mentions were removed on 2026-10-05.
+
 Date: 2026-10-04. Status: direction agreed (do not run the DLL); awaiting review of this text. Nothing here is hardware-validated.
 
 ## Purpose

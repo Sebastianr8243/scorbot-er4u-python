@@ -1,5 +1,7 @@
 # Session analysis tools: design
 
+> **Built.** Kept as the record of a decision; the code may have moved on since. The status line below is as written at the time.
+
 **Status:** Approved direction ("both: toolset and tests"), 2026-09-25
 **Implements:** System design §2 goal 6: compare repeated runs using defined
 measures (completion, position error, timing). Also ARCHITECTURE §16:

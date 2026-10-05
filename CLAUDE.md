@@ -37,7 +37,7 @@ flowchart TD
 
 | Path | Responsibility |
 |---|---|
-| `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, kinematics, trajectory planning and the viewer's link chain `arm_chain.py` and 3D view `arm_view.py` (all offline, wired into no motion), simulator, preflight |
+| `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, the streaming follower (`streaming.py`), offline kinematics, the vendor's formulas read from the DLL (`vendor_model.py`, `vendor_profile.py`), the viewer's link chain `arm_chain.py` and 3D view `arm_view.py`, simulator, preflight |
 | `scorbot/session/` | MCAP session recorder, replay, analysis, CLI (`python -m scorbot.session`). Never imports USB |
 | `plugins/lerobot_robot_scorbot/` | LeRobot robot plugin, simulator only (refuses the real arm); each action is one bounded jog via `scorbot/follow.py`. Installed into `.venv-lerobot` with `-e`. Real-arm replay is `python -m scorbot.lab` key `p` (`scorbot/lab/replay.py`) |
 | `scorbot/lerobot_export/` | Lab sessions to a local LeRobot dataset: load, refusal checks, resampling (pure), `write.py` (only module importing `lerobot`, run in `.venv-lerobot`). `python -m scorbot.lerobot_export ... --dry-run`. See `docs/design/LEROBOT_EXPORT.md` |
@@ -101,7 +101,8 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | Safety argument | `docs/design/SAFETY_CASE.md` |
 | Known bugs and next work | `docs/project/BACKLOG.md` |
 | Manual facts, LEDs, controller safety | `docs/manual/HARDWARE_REFERENCE.md` |
-| First lab visit | `docs/lab/G1_LAB_CHECKLIST.md`, `docs/lab/ARM_CONTROL_BENCH.md`, `docs/lab/WINDOWS_BENCH_RUN.md` |
+| Next lab visit, step by step | `docs/lab/LAB_DAY_CARD.md` |
+| Guided session, first-visit procedure, PC setup | `docs/lab/LAB_SESSION.md`, `docs/lab/G1_LAB_CHECKLIST.md`, `docs/lab/ARM_CONTROL_BENCH.md`, `docs/lab/WINDOWS_BENCH_RUN.md` |
 | Prompt and warning design | `docs/design/OPERATOR_UX.md` |
 | Recording, session format, viewers | `docs/design/EXPERIMENT_RECORDING.md` |
 | Wireshark/USBPcap comparison | `docs/lab/USB_CAPTURE.md` |

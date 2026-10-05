@@ -180,15 +180,30 @@ class StreamCoreTests(unittest.TestCase):
         self.assertEqual(resumed[-1].commanded["base"], 1200)
         self.assertEqual(core.state, "tracking")
 
-    def test_r8_a_full_controller_queue_makes_the_stream_wait(self):
-        core = make(queue_limit=4)
-        core.set_target({"base": 500}, 0.0)
-        before = core.step(ZERO, 0.0, queued=3)
-        self.assertEqual(before.action, "send")
-        waiting = core.step(ZERO, PERIOD, queued=4)
-        self.assertEqual(waiting.action, "wait")
-        self.assertEqual(waiting.commanded, before.commanded)
-        self.assertEqual(core.step(ZERO, 2 * PERIOD, queued=1).action, "send")
+    def test_starting_limits_come_from_the_vendors_jog_profile(self):
+        # The acceleration and jerk times are the vendor's velocity-jog profile
+        # for a one second move, read from the DLL, not numbers typed in twice.
+        from scorbot.streaming import VENDOR_MAX_SPEED_COUNTS_S, prior_limits
+        from scorbot.vendor_profile import (MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION,
+                                            VendorProfile)
+        jog = VendorProfile(1.0, MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION)
+        limits = prior_limits(0.5)
+        self.assertEqual(limits.max_velocity, VENDOR_MAX_SPEED_COUNTS_S * 0.5)
+        self.assertAlmostEqual(limits.max_velocity / limits.max_acceleration,
+                               jog.times[2] - jog.times[0])
+        self.assertAlmostEqual(limits.max_acceleration / limits.max_jerk, jog.times[0])
+        self.assertAlmostEqual(limits.max_velocity / limits.max_acceleration, 0.285)
+        self.assertAlmostEqual(limits.max_acceleration / limits.max_jerk, 0.015)
+
+    def test_the_core_has_no_wait_action(self):
+        # Pacing on the echoed message number was removed until the lab confirms
+        # that byte: as built it could never be fed and would have stalled.
+        import inspect
+        from scorbot import streaming
+        self.assertFalse(hasattr(streaming, "WAIT"))
+        self.assertNotIn("queued", inspect.signature(streaming.StreamCore.step).parameters)
+        self.assertNotIn("queue_limit",
+                         inspect.signature(streaming.StreamCore.__init__).parameters)
 
     def test_r11_a_lagging_arm_is_tracked_with_a_bounded_error(self):
         core, arm = make(), Arm(follow=0.5)

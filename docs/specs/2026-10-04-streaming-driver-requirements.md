@@ -91,7 +91,7 @@ flowchart TD
 | R5 stop | Built; ends with the stop sequence on the measured position | both, plus the exact messages |
 | R6 faults | Built for lead, error word, bad reply, worker crash. The worker latches the session itself, so a caller that never ends the stream still leaves it faulted; a stream that does not end in time is told to stop. **Emergency bit: built, off by default** until the lab confirms reply byte 2 (lab plan V6) | both |
 | R7 hold when targets stop | Built; 0.5 s default | both |
-| R8 pacing on the echoed ID | **Core only.** `StreamCore` waits when told the queue is full, but nothing feeds it the echo yet, because reply byte 0 is unconfirmed (lab plan V4). The legacy loop sends one message and reads one reply per step, as jogs do | `test_streaming_core`, and the wait action in `test_streaming` |
+| R8 pacing on the echoed ID | **Not built.** A first version let the core wait when told the queue was full, but nothing could feed it the echo and, as written, a wait would never have cleared. It was removed on 2026-10-05. To be designed once the lab confirms reply byte 0 (lab plan V4). The legacy loop sends one message and reads one reply per step, as jogs do | none |
 | R9 wrist and gripper untouched | Built | exact messages in `test_streaming` |
 | R10 log | Built: one `stream_trace` row with every step's target, command, measurement and lead, plus the raw packets | `test_streaming` |
 | R11 simulator with lag | Built: `SimulatedController.stream_follow`, `stream_stuck` | both |

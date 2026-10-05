@@ -1,5 +1,7 @@
 # Supervised replay, LeRobot robot plugin, and episode preview (M1 finish)
 
+> **Built.** Kept as the record of a decision; the code may have moved on since. The status line below is as written at the time.
+
 Date: 2026-10-02. Status: draft, revised after a Codex adversarial review
 (1 critical, 4 high: `lerobot-replay` cannot verify which dataset drives the
 arm, the connect order homed before the MOTORS check, connect failures could

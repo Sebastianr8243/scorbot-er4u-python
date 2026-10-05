@@ -1,5 +1,7 @@
 # Session-to-LeRobot dataset exporter (M1 step 5, S4)
 
+> **Built.** Kept as the record of a decision; the code may have moved on since. The status line below is as written at the time.
+
 Date: 2026-10-02. Status: draft, revised after a Codex adversarial review
 (2 high, 3 medium findings; Gemini unavailable: its prepaid credits ran out). Parent:
 [M1 roadmap](2026-10-01-m1-roadmap-design.md) section "5. LeRobot exporter"

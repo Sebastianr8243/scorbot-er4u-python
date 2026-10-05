@@ -1,5 +1,7 @@
 # Toolset upgrades: test tooling, observation sheets, plots
 
+> **Built.** Kept as the record of a decision; the code may have moved on since. The status line below is as written at the time.
+
 **Status:** Approved direction. The user asked to build all four ideas with
 existing, tested tools. Research was done by three subagents (Sonnet and
 Haiku), summarised below.

@@ -1,5 +1,7 @@
 # Guided lab session: design
 
+> **Built.** Kept as the record of a decision; the code may have moved on since. The status line below is as written at the time.
+
 Date: 2026-09-29. Status: approved in conversation, awaiting written-spec review.
 
 ## Goal

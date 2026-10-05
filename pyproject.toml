@@ -18,7 +18,8 @@ gui = ["PyQt5>=5.15,<6"]
 plot = ["matplotlib>=3.8,<4"]
 # Rerun viewer for recorded sessions (large wheel; never needed on the lab PC).
 viz = ["rerun-sdk>=0.38,<0.39"]
-# Offline trajectory planner (scorbot.planning); not wired to motion.
+# Ruckig, the jerk-limited trajectory generator behind Scorbot.start_stream
+# (scorbot/streaming.py). Jogs and the guided session work without it.
 planning = ["ruckig>=0.12,<1"]
 # Webcam capture (scorbot.camera.OpenCVSource and JPEG encoding).
 camera = ["opencv-python-headless>=4.9,<5"]

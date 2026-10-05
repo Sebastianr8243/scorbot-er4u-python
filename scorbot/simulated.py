@@ -324,8 +324,8 @@ class SimulatedController:
                     return _STOPPED
                 if self.step_delay_s:
                     time.sleep(self.step_delay_s)
-                if step[0] == "wait":
-                    continue
+                if step[0] != "send":
+                    return _STOPPED       # as the legacy loop: anything else stops
                 self.stream_sent.append(tuple(step[1]))
                 with self._lock:
                     if not self.stream_stuck:

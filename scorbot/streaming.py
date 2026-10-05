@@ -9,9 +9,9 @@ Requirements and decisions:
 docs/specs/2026-10-04-streaming-driver-requirements.md (R1-R12).
 **Never run on the arm.** Every limit and period here is a prior.
 
-Smoothing uses Ruckig (jerk-limited online trajectory generation), the same
-library as ``scorbot/planning.py``. It is an optional extra
-(``pip install .[planning]``), imported when a stream is created.
+Smoothing uses Ruckig (jerk-limited online trajectory generation). It is an
+optional extra (``pip install .[planning]``), imported when a stream is
+created.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import time
 
 from .calibration import signed_count_delta
 from .state import decode_state
+from .vendor_profile import MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION, VendorProfile
 
 MOTORS = ("base", "shoulder", "elbow")
 DEFAULT_PERIOD_S = 0.024          # vendor planner period (PCPeriod x USBCPeriod); a prior
@@ -37,7 +38,7 @@ DEFAULT_SPEED_FRACTION = 0.25     # ours: start at a quarter of the vendor limit
 STREAM_ORDER = 21                 # openScorbot/libcomm.py:STREAM
 MAX_STREAM_STEPS = 20000          # step records kept for the log (8 minutes at 24 ms)
 TRACKING, HOLDING, STOPPED, FAULTED, ENDED = "tracking", "holding", "stopped", "faulted", "ended"
-SEND, WAIT, STOP, END = "send", "wait", "stop", "end"
+SEND, STOP, END = "send", "stop", "end"
 
 
 class StreamRefused(ValueError):
@@ -63,23 +64,26 @@ class StreamLimits:
 def prior_limits(speed_fraction: float = DEFAULT_SPEED_FRACTION) -> StreamLimits:
     """Starting limits: a fraction of the vendor's per-motor speed.
 
-    Acceleration and jerk use the ratios of the vendor's velocity-jog profile
-    (acceleration fraction 0.3, jerk fraction 0.05) for a one-second move:
-    acceleration = speed / 0.285 s, jerk = acceleration / 0.015 s. All priors.
+    Acceleration and jerk use the times of the vendor's velocity-jog profile
+    (``vendor_profile.py``: acceleration fraction 0.3, jerk fraction 0.05) for
+    a one-second move: acceleration = speed / 0.285 s, jerk = acceleration /
+    0.015 s. All priors.
     """
     if isinstance(speed_fraction, bool) or not isinstance(speed_fraction, (int, float)) \
             or not 0 < speed_fraction <= 1:
         raise StreamRefused("speed_fraction must be above 0 and at most 1")
     velocity = VENDOR_MAX_SPEED_COUNTS_S * speed_fraction
-    acceleration = velocity / 0.285
-    return StreamLimits(velocity, acceleration, acceleration / 0.015)
+    jerk_up, _, speeding_up, *_ = VendorProfile(1.0, MANUAL_ACCEL_FRACTION,
+                                                MANUAL_JERK_FRACTION).times
+    acceleration = velocity / (speeding_up - jerk_up)
+    return StreamLimits(velocity, acceleration, acceleration / jerk_up)
 
 
 @dataclass(frozen=True)
 class Step:
     """What to do this period, and the numbers behind it (for the log)."""
 
-    action: str                    # send, wait, stop or end
+    action: str                    # send, stop or end
     commanded: dict[str, int]      # counts from home; what to send when action is send
     target: dict[str, float]
     measured: dict[str, int]
@@ -95,8 +99,7 @@ class StreamCore:
                  lead_limit: dict[str, float], limits: StreamLimits | None = None,
                  period_s: float = DEFAULT_PERIOD_S,
                  hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
-                 error_limit: int = DEFAULT_ERROR_LIMIT, queue_limit: int | None = None,
-                 now: float = 0.0):
+                 error_limit: int = DEFAULT_ERROR_LIMIT, now: float = 0.0):
         from ruckig import ControlInterface, InputParameter, OutputParameter, Ruckig
         for name, value in (("period_s", period_s), ("hold_timeout_s", hold_timeout_s)):
             if isinstance(value, bool) or not isinstance(value, (int, float)) \
@@ -117,7 +120,6 @@ class StreamCore:
         self.lead_limit = dict(lead_limit)
         self.hold_timeout_s = hold_timeout_s
         self.error_limit = error_limit
-        self.queue_limit = queue_limit
         self.state = TRACKING
         self.fault: str | None = None
         self._lock = threading.Lock()
@@ -188,7 +190,7 @@ class StreamCore:
         self._input.target_velocity = [0.0] * len(MOTORS)
 
     def step(self, measured: dict[str, int], now: float, *, error_counts: dict | None = None,
-             emergency: bool = False, queued: int | None = None) -> Step:
+             emergency: bool = False) -> Step:
         """One period. Never raises: a problem becomes a fault and a stop."""
         from ruckig import Result
         with self._lock:
@@ -213,8 +215,6 @@ class StreamCore:
             if self._stop_requested:
                 self.state = STOPPED
                 return result(STOP)
-            if self.queue_limit is not None and queued is not None and queued >= self.queue_limit:
-                return result(WAIT)
             if self._finish_requested:
                 self._decelerate()
             elif self.state == TRACKING and now - self._last_target_time > self.hold_timeout_s:
