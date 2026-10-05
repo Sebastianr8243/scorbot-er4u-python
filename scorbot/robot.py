@@ -520,6 +520,20 @@ class Scorbot:
                 self._commands.put([STREAM_ORDER, stream.source, 0])
             return stream
 
+    def _stream_faulted(self, stream: Stream) -> None:
+        """Latch a fault the stream found. Runs on the command worker; never raises.
+
+        The stream has already told the worker to stop. Latching here, not in
+        ``_end_stream``, means a caller that never ends the stream still
+        leaves a faulted session.
+        """
+        try:
+            self._latch_fault(f"Stream fault: {stream.core.fault}", keep_first=True)
+            self._commands.put([16, 1, 1])  # Runs after the stream; never an emergency stop.
+            self._record("stream_fault", error=self._fault)
+        except Exception:
+            pass  # like _worker_died: a log failure must not kill the worker mid-stream
+
     def _end_stream(self, stream: Stream) -> RobotState:
         """Collect the worker's answer for a stream and settle the session."""
         with self._motion_lock:
@@ -540,6 +554,13 @@ class Scorbot:
             except ScorbotError as exc:
                 failure = str(exc)
             finally:
+                reported = stream.fault_reported
+                if failure is not None:
+                    # A worker that comes back must stop, not carry on slowing
+                    # down after the session has reported a fault. Its late
+                    # answer stays unread: a latched session takes no commands.
+                    stream.fault_reported = True
+                    stream.core.fail(failure)
                 self._stream = None
                 self._stop_event.clear()
                 packets, dropped = self._trace.stop() if self._trace is not None else ([], 0)
@@ -550,10 +571,11 @@ class Scorbot:
             if failure is None and result not in (0, self._STOPPED_CODE):
                 failure = f"Legacy controller returned error code {result}"
             if failure is not None:
-                self._latch_fault(failure)
-                if self._link_alive():
-                    self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
-                self._record("stream_fault", error=self._fault)
+                if not reported:   # otherwise the worker latched, disabled and logged it
+                    self._latch_fault(failure)
+                    if self._link_alive():
+                        self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
+                    self._record("stream_fault", error=self._fault)
                 raise ScorbotError(self._fault)
             if result == self._STOPPED_CODE:
                 after = self._settled_after_stop(stream._before)

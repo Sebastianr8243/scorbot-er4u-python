@@ -221,10 +221,18 @@ class StreamCore:
                 self._fault(f"the trajectory generator failed: {outcome}")
                 return result(STOP)
             self._output.pass_to_input(self._input)
-            self._commanded = {m: round(p) for m, p in zip(MOTORS, self._output.new_position)}
-            if any(abs(self._commanded[m]) > self.travel_cap[m] for m in MOTORS):
-                self._fault(f"commanded position left the travel cap: {self._commanded}")
+            proposed = {m: round(p) for m, p in zip(MOTORS, self._output.new_position)}
+            if any(abs(proposed[m]) > self.travel_cap[m] for m in MOTORS):
+                self._fault(f"commanded position left the travel cap: {proposed}")
                 return result(STOP)
+            # Checked before it is sent: the limit bounds every setpoint, so a
+            # stalled arm is never asked for one more step past it.
+            ahead = {m: proposed[m] - int(measured[m]) for m in MOTORS}
+            if any(abs(ahead[m]) > self.lead_limit[m] for m in MOTORS):
+                self._fault(f"the arm is not following: the next command would lead by "
+                            f"{ahead} counts")
+                return result(STOP)
+            self._commanded = proposed
             if self._finish_requested and outcome == Result.Finished:
                 if self._rest_sent:
                     self.state = ENDED
@@ -253,6 +261,8 @@ class Stream:
         self._home = dict(home_counts)
         self._before = before
         self._use_emergency_bit = use_emergency_bit
+        self._next_step_time = None
+        self.fault_reported = False
         self.steps: list[dict] = []
         self.dropped_steps = 0
         self.final_state = None
@@ -284,8 +294,33 @@ class Stream:
                 self.stop()
 
     def source(self, reply: bytes):
-        """Called by the worker once per period with the last reply. Never raises."""
+        """Called by the worker once per period with the last reply. Never raises.
+
+        A fault is reported to the session here, on the worker, so it latches
+        whether or not the caller ever ends the stream.
+        """
+        answer = self._step(reply)
+        if self.core.fault and not self.fault_reported:
+            self.fault_reported = True
+            self.robot._stream_faulted(self)
+        return answer
+
+    def _pace(self) -> None:
+        # The core plans one step per period, so steps must not come faster
+        # than that or the arm would be driven past its limits. The legacy
+        # loop's own delays are shorter than the vendor period. A slow loop is
+        # not caught up: the arm then moves slower than planned, never faster.
+        now = time.monotonic()
+        if self._next_step_time is not None and now < self._next_step_time:
+            time.sleep(self._next_step_time - now)
+            now = time.monotonic()
+        self._next_step_time = now + self.core.period_s
+
+    def _step(self, reply: bytes):
         try:
+            if self.robot._cancel_event.is_set():
+                self.core.fail("the session was cancelled while streaming")
+            self._pace()
             state = decode_state(reply, connected=True, enabled=None, homed=True, fault=None)
             measured = {m: signed_count_delta(state.encoder_counts[m], self._home[m])
                         for m in MOTORS}
@@ -303,7 +338,11 @@ class Stream:
             if step.action != SEND:
                 return (step.action,)
             # Absolute setpoints: where the arm is now, plus how far the
-            # command is from where the arm is, both in counts from home.
+            # command is from where the arm is, both in counts from home. The
+            # signed count is continuous through zero, so this is home plus the
+            # command there. It runs out at 65535, where the legacy arithmetic
+            # would wrap but the controller's wider counter does not (from
+            # disassembly, unverified): that is a fault, never a wrapped value.
             absolute = tuple(state.signed_encoder_counts[m] + step.commanded[m] - measured[m]
                              for m in MOTORS)
             if any(abs(value) > 65535 for value in absolute):

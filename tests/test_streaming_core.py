@@ -102,6 +102,8 @@ class StreamCoreTests(unittest.TestCase):
             self.assertLessEqual(max(map(abs, velocity)), limits.max_velocity + 1 / PERIOD)
             self.assertLessEqual(max(map(abs, acceleration)),
                                  limits.max_acceleration + 2 / PERIOD ** 2)
+            jerk = [(b - a) / PERIOD for a, b in zip(acceleration, acceleration[1:])]
+            self.assertLessEqual(max(map(abs, jerk)), limits.max_jerk + 4 / PERIOD ** 3)
 
     def test_r3_r6_an_arm_that_does_not_follow_stops_the_stream_with_a_fault(self):
         core, arm = make(), Arm(stuck=True)
@@ -111,8 +113,12 @@ class StreamCoreTests(unittest.TestCase):
         self.assertEqual(last.action, "stop")
         self.assertEqual(core.state, "faulted")
         self.assertIn("not following", core.fault)
-        # the command never ran further ahead than the limit plus one step
-        self.assertLessEqual(max(abs(r.lead["base"]) for r in records), LEAD["base"] + 40)
+        # nothing that was sent led the arm by more than the limit, not even by a step
+        sent = [r for r in records if r.action == "send"]
+        self.assertTrue(sent)
+        self.assertLessEqual(max(abs(r.commanded["base"] - r.measured["base"]) for r in sent),
+                             LEAD["base"])
+        self.assertLessEqual(max(abs(r.lead["base"]) for r in records), LEAD["base"])
         self.assertEqual(core.step(arm.counts, 99.0).action, "stop")
 
     def test_r4_target_outside_the_travel_cap_is_refused_and_changes_nothing(self):

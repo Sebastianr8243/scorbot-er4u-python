@@ -286,8 +286,56 @@ class SdkStreamTests(unittest.TestCase):
         self.assertIn("not following", str(caught.exception))
         self.assert_latched(robot)
         self.assertIn("stream_fault", self.events())
-        # the command never ran far ahead of the stuck arm: 2 degrees of lead
-        self.assertLessEqual(max(abs(step[0]) for step in robot.sim.stream_sent), 2 * 142 + 45)
+        self.assertEqual(self.events().count("stream_fault"), 1)
+        # the command never ran ahead of the stuck arm by more than 2 degrees of lead
+        self.assertLessEqual(max(abs(step[0]) for step in robot.sim.stream_sent), 2 * 142)
+
+    def test_r6_a_fault_latches_the_session_even_if_the_caller_never_ends_the_stream(self):
+        robot = self.robot()
+        robot.sim.stream_stuck = True
+        stream = robot.start_stream()
+        deadline = time.monotonic() + 3
+        while robot._fault is None and time.monotonic() < deadline:
+            try:
+                stream.set_target({"base": 1400})
+            except StreamRefused:
+                pass
+            time.sleep(0.002)
+        self.assertIn("not following", robot._fault or "")
+        self.assert_latched(robot)
+        self.assertEqual(self.events().count("stream_fault"), 1)
+        self.assertIsNotNone(robot.get_state().fault)
+        with self.assertRaises(ScorbotError):
+            stream.close()                 # ending it later is safe and adds no second row
+        self.assertEqual(self.events().count("stream_fault"), 1)
+        self.assertEqual(robot.sim.commands.count([16, 1, 1]), 2)   # connect's, and one more
+
+    def test_r6_a_stream_that_does_not_end_in_time_is_stopped_not_left_running(self):
+        robot = self.robot(step_delay_s=0.004)
+        stream = robot.start_stream()
+        stream.set_target({"base": 1400})
+        time.sleep(0.15)
+        robot.command_timeout = 0.02       # slowing to rest takes longer than this
+        with self.assertRaises(ScorbotError) as caught:
+            stream.close()
+        self.assertIn("did not end", str(caught.exception))
+        self.assertEqual(stream.core.state, "faulted")
+        deadline = time.monotonic() + 2
+        while robot.sim._moving and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertFalse(robot.sim._moving, "the worker must leave the stream")
+        self.assertEqual(stream.steps[-1]["action"], "stop")
+        self.assertIsNotNone(robot._fault)
+        self.assertEqual(self.events().count("stream_fault"), 1)
+
+    def test_steps_are_never_closer_together_than_the_planned_period(self):
+        robot = self.robot()               # the simulated loop alone runs at about 1 ms
+        with robot.start_stream(period_s=0.02) as stream:
+            self.assertTrue(self.follow(stream, robot, {"base": 40}))
+        stamps = [step["host_monotonic_ns"] for step in stream.steps]
+        gaps = [(b - a) / 1e9 for a, b in zip(stamps, stamps[1:])]
+        self.assertGreater(len(gaps), 5)
+        self.assertGreaterEqual(min(gaps), 0.019)
 
     def assert_latched(self, robot):
         self.assertIsNotNone(robot._fault)
@@ -440,6 +488,75 @@ class SdkStreamTests(unittest.TestCase):
     def test_streaming_is_in_the_motion_fingerprint(self):
         from scorbot import provenance
         self.assertIn("scorbot/streaming.py", provenance._SOURCE_FILES)
+
+
+class _QuietRobot:
+    """The parts of ``Scorbot`` a ``Stream`` touches from the worker."""
+
+    def __init__(self):
+        self._cancel_event = threading.Event()
+        self.faults = []
+
+    def _stream_faulted(self, stream):
+        self.faults.append(stream.core.fault)
+
+
+@unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
+class SetpointConversionTests(unittest.TestCase):
+    """Counts from home back to the signed count the legacy message carries."""
+
+    def stream(self, home_signed, cap=200.0):
+        from scorbot.simulated import encode_packet
+        from scorbot.state import decode_state
+        from scorbot.streaming import MOTORS, Stream, StreamCore
+        home = decode_state(encode_packet({m: home_signed for m in MOTORS}), connected=True,
+                            enabled=True, homed=True, fault=None).encoder_counts
+        core = StreamCore({m: 0 for m in MOTORS}, travel_cap={m: cap for m in MOTORS},
+                          lead_limit={m: 100.0 for m in MOTORS}, period_s=0.001,
+                          now=time.monotonic())
+        self.robot = _QuietRobot()
+        return Stream(self.robot, core, home, None), encode_packet
+
+    def drive(self, stream, encode, home_signed, target, steps=400):
+        """A perfect arm: what was sent is what the next reply reports."""
+        from scorbot.streaming import MOTORS
+        signed = {m: home_signed for m in MOTORS}
+        sent = []
+        for _ in range(steps):
+            if stream.core.state in ("tracking", "holding"):
+                stream.set_target({"base": target})
+            answer = stream.source(encode(signed))
+            if answer[0] != "send":
+                break
+            sent.append(answer[1][0])
+            signed = dict(zip(MOTORS, answer[1]))
+        return sent
+
+    def test_setpoints_stay_continuous_across_the_zero_of_the_counter(self):
+        for home_signed, target in ((-3, 60), (3, -60), (0, 60), (0, -60), (-1, 1), (1, -1)):
+            with self.subTest(home=home_signed, target=target):
+                stream, encode = self.stream(home_signed)
+                sent = self.drive(stream, encode, home_signed, target)
+                self.assertIsNone(stream.core.fault)
+                self.assertEqual(sent[-1], home_signed + target)
+                steps = [b - a for a, b in zip([home_signed] + sent, sent)]
+                self.assertLessEqual(max(map(abs, steps)), 5, "no jump at the seam")
+                self.assertEqual(sent, [home_signed + step["commanded"]["base"]
+                                        for step in stream.steps[:len(sent)]])
+
+    def test_the_end_of_the_counter_range_is_a_fault_not_a_wrap(self):
+        # The two-byte count with its sign byte runs out at 65535. The legacy
+        # arithmetic would wrap there; the vendor's counter is wider and does
+        # not (docs/VENDOR_DLL_PROTOCOL.md), so a wrapped setpoint would be
+        # about 65535 counts from the arm.
+        for home_signed, target in ((65500, 60), (-65500, -60)):
+            with self.subTest(home=home_signed):
+                stream, encode = self.stream(home_signed)
+                sent = self.drive(stream, encode, home_signed, target)
+                self.assertIn("counter range", stream.core.fault or "")
+                self.assertEqual(self.robot.faults, [stream.core.fault])
+                self.assertTrue(all(abs(value) <= 65535 for value in sent))
+                self.assertTrue(all(abs(value - home_signed) <= 60 for value in sent))
 
 
 if __name__ == "__main__":

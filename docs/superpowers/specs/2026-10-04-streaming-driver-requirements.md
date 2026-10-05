@@ -86,10 +86,10 @@ flowchart TD
 |---|---|---|
 | R1 new target any time, three motors | Built | `test_streaming_core`, `test_streaming` |
 | R2 speed, acceleration, jerk limits | Built (Ruckig online) | `test_streaming_core` |
-| R3 lead limit | Built; default 2 degrees, at most the jog ceiling | both |
+| R3 lead limit | Built; default 2 degrees, at most the jog ceiling. Checked on the setpoint about to be sent, so nothing past the limit goes out | both |
 | R4 travel cap | Built; 10 degrees, and the code refuses more | both |
 | R5 stop | Built; ends with the stop sequence on the measured position | both, plus the exact messages |
-| R6 faults | Built for lead, error word, bad reply, worker crash. **Emergency bit: built, off by default** until the lab confirms reply byte 2 (lab plan V6) | both |
+| R6 faults | Built for lead, error word, bad reply, worker crash. The worker latches the session itself, so a caller that never ends the stream still leaves it faulted; a stream that does not end in time is told to stop. **Emergency bit: built, off by default** until the lab confirms reply byte 2 (lab plan V6) | both |
 | R7 hold when targets stop | Built; 0.5 s default | both |
 | R8 pacing on the echoed ID | **Core only.** `StreamCore` waits when told the queue is full, but nothing feeds it the echo yet, because reply byte 0 is unconfirmed (lab plan V4). The legacy loop sends one message and reads one reply per step, as jogs do | `test_streaming_core`, and the wait action in `test_streaming` |
 | R9 wrist and gripper untouched | Built | exact messages in `test_streaming` |
@@ -99,6 +99,7 @@ flowchart TD
 
 Things to know before the first trial on the arm:
 
-- **The loop's real period is not the planned one.** The core plans in 24 ms steps; the legacy loop's own delays give about 20 ms plus USB time. The arm therefore moves a little faster than planned. The limits start at a quarter of the vendor's, so there is room, and the log records real timestamps so the period can be set from data.
+- **Steps are paced to the planned period.** The core plans in 24 ms steps; the legacy loop's own delays give about 20 ms plus USB time, which alone would drive the arm about a fifth faster than the limits say. `Stream.source` therefore waits out the rest of each period before it answers. That makes the gap between messages a few milliseconds longer than in a jog, which has not been tried on the arm. A loop slower than the period is not caught up, so the arm then moves slower than planned. The log records real timestamps.
+- **The counter range.** Setpoints are home plus the command in the legacy signed count, continuous through zero. If home sits within the travel cap of plus or minus 65535 counts the stream faults there instead of wrapping (the legacy arithmetic would wrap; the vendor's counter is wider and does not). Where home sits on the counter is not known until the homing analysis or a lab log says.
 - **Three setpoints in one message has not been sent to this arm before.** Each field is what a jog sends for that joint; the layout is the one `moveXYZ` uses, which the SDK never ran.
 - **First trial:** one motor, a target one degree away, `travel_cap_deg=1` or 2, someone at the physical stop. Then read the `stream_trace` row: tracking error and real period.
