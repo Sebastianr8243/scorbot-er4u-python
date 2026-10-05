@@ -546,6 +546,27 @@ class SdkStreamTests(unittest.TestCase):
             stream.close()
         self.assertEqual(robot._fault, "feedback was lost")
 
+    def test_a_stream_whose_record_cannot_be_written_faults_the_session(self):
+        # The worker answered, but the row holding every step was lost and the
+        # final state was never read: the session must not carry on as if it had.
+        robot = self.robot()
+        stream = robot.start_stream()
+        self.assertTrue(self.follow(stream, robot, {"base": 40}))
+        record = robot._record
+
+        def failing(event, **fields):
+            if event == "stream_trace":
+                raise OSError("disk full")
+            return record(event, **fields)
+
+        with mock.patch.object(robot, "_record", side_effect=failing):
+            with self.assertRaises(ScorbotError) as caught:
+                stream.close()
+        self.assertIn("could not be written", str(caught.exception))
+        self.assert_latched(robot)
+        self.assertIsNone(stream.final_state)
+        self.assertIn("stream_fault", self.events())
+
     def test_a_failed_log_write_cannot_stop_a_timed_out_stream_from_faulting(self):
         robot = self.robot(step_delay_s=0.004)
         stream = robot.start_stream()

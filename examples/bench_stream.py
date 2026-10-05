@@ -49,9 +49,16 @@ EXIT_TRIAL_FAILED = 1
 TARGET_REFRESH_S = 0.1      # well inside the stream's 0.5 s hold timeout
 
 
-def summarize(steps, motor, target):
-    """What the step records say. Counts are from home; gaps are between steps."""
+def summarize(steps, motor, target, final=None):
+    """What the step records say. Counts are from home; gaps are between steps.
+
+    ``final`` is the state read after the stream closed, as counts from home
+    for the three motors. The steps end when the stream does, so without it a
+    move after the last step would not count.
+    """
     measured = [step["measured"] for step in steps]
+    if measured and final is not None:
+        measured.append({m: int(final[m]) for m in MOTORS})
     if not measured:
         return {"steps": 0, "reached_target": False, "returned_home": False,
                 "passed": False, "problems": ["the stream took no steps"]}
@@ -262,7 +269,13 @@ def _run() -> int:
                     write("stream_failed", result=result)
                     raise
                 after = stream.final_state
-                result = summarize(stream.steps, args.motor, target)
+                try:
+                    final = {m: signed_count_delta(after.encoder_counts[m],
+                                                   home_state.encoder_counts[m])
+                             for m in MOTORS}
+                except ValueError as exc:
+                    raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
+                result = summarize(stream.steps, args.motor, target, final)
                 command_id = command.take()
                 write("after_stream", state=asdict(after), result=result)
                 if result["passed"]:

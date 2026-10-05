@@ -597,9 +597,18 @@ class Scorbot:
                 # error must not be what decides whether the session faults.
                 self._record("stream_trace", packets=packets, dropped_packets=dropped,
                              steps=stream.steps, dropped_steps=stream.dropped_steps)
-            except Exception:
+            except Exception as exc:
                 if failure is None:
-                    raise
+                    # The worker answered, but the record of every step is lost
+                    # and the final state has not been read. Not a clean end.
+                    failure = f"The stream's record could not be written: {exc}"
+                    self._latch_fault(failure)
+                    if self._link_alive():
+                        self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
+                    try:
+                        self._record("stream_fault", error=self._fault)
+                    except Exception:
+                        pass   # the log is what just failed
             if interrupt is not None:
                 raise interrupt
             if failure is not None:

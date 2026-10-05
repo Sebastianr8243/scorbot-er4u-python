@@ -248,6 +248,19 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(max(abs(s["lead"]["base"]) for s in steps), 0)
         self.assertEqual(bench_stream.summarize(steps, "base", 142)["max_lead_counts"], 80)
 
+    def test_the_final_state_read_after_the_stream_counts_toward_the_verdict(self):
+        # The steps stop when the stream closes; the arm can still move after that.
+        home = {"base": 0, "shoulder": 0, "elbow": 0}
+        self.assertTrue(bench_stream.summarize(self.good(), "base", 142, home)["passed"])
+        drifted = bench_stream.summarize(self.good(), "base", 142, {**home, "base": 30})
+        self.assertFalse(drifted["passed"])
+        self.assertFalse(drifted["returned_home"])
+        self.assertEqual(drifted["final_counts_from_home"], 30)
+        self.assertIn("did not return to home", drifted["problems"])
+        sagged = bench_stream.summarize(self.good(), "base", 142, {**home, "elbow": -25})
+        self.assertEqual(sagged["other_motors_max_counts"], 25)
+        self.assertIn("another motor moved 25 counts", sagged["problems"])
+
     def test_no_steps_at_all_is_a_failed_trial(self):
         result = bench_stream.summarize([], "base", 142)
         self.assertFalse(result["passed"])
