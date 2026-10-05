@@ -142,6 +142,26 @@ class JogTraceTests(unittest.TestCase):
         self.assertIn("byte0", rows[0])
         setpoint_stats(rows)  # the existing analysis accepts these rows
 
+    def test_usb_trace_also_reads_the_packets_of_a_stream(self):
+        # Scorbot._end_stream logs a stream's packets as one stream_trace row.
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        log = Path(folder.name) / "run.controller.jsonl"
+        packet = encode_packet({"base": 5}).hex()
+        events = [
+            {"event": "motion_trace", "packets": [
+                {"host_monotonic_ns": 1_000_000_000, "direction": "out", "hex": "01" * 64}]},
+            {"event": "stream_trace", "steps": [], "packets": [
+                {"host_monotonic_ns": 2_000_000_000, "direction": "out", "hex": "02" * 64},
+                {"host_monotonic_ns": 2_024_000_000, "direction": "in", "hex": packet}]},
+            {"event": "stream_complete"},
+        ]
+        log.write_text("".join(json.dumps(row) + chr(10) for row in events), encoding="utf-8")
+        rows = rows_from_controller_log(log)
+        self.assertEqual([r["direction"] for r in rows], ["out", "out", "in"])
+        self.assertEqual([r["byte0"] for r in rows[:2]], [1, 2])
+        self.assertEqual(rows[2]["encoder_counts"]["base"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()

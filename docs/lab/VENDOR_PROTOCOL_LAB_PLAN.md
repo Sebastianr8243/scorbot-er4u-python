@@ -25,6 +25,8 @@ Why it matters: until 2026-10-04 the project rule was that packet code in `openS
 
 ## Fast path (do this first)
 
+The commands for the visit, in order, are on one sheet: [LAB_DAY_CARD.md](LAB_DAY_CARD.md). This section says why.
+
 The vendor's messages are not in doubt: SCORBASE has driven these arms for decades. The only open question is whether **we read them correctly**, and most of that can be answered by our own code, in a normal lab session, with no SCORBASE, no Wireshark and no driver swap.
 
 Two facts make that possible:
