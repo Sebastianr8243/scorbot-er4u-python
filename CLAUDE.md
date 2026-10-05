@@ -101,7 +101,8 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | Safety argument | `docs/design/SAFETY_CASE.md` |
 | Known bugs and next work | `docs/project/BACKLOG.md` |
 | Manual facts, LEDs, controller safety | `docs/manual/HARDWARE_REFERENCE.md` |
-| Next lab visit, step by step | `docs/lab/LAB_DAY_CARD.md` |
+| Next lab visit: start here (setup, rehearsal, prompts, troubleshooting) | `docs/lab/LAB_VISIT_HANDOFF.md` |
+| Next lab visit, the commands in order | `docs/lab/LAB_DAY_CARD.md` |
 | Guided session, first-visit procedure, PC setup | `docs/lab/LAB_SESSION.md`, `docs/lab/G1_LAB_CHECKLIST.md`, `docs/lab/ARM_CONTROL_BENCH.md`, `docs/lab/WINDOWS_BENCH_RUN.md` |
 | Prompt and warning design | `docs/design/OPERATOR_UX.md` |
 | Recording, session format, viewers | `docs/design/EXPERIMENT_RECORDING.md` |

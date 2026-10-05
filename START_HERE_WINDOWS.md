@@ -29,7 +29,7 @@ uv sync --locked --extra windows --extra test --extra planning
 .\.venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-`--extra planning` adds Ruckig, which the streaming trial (`examplesench_stream.py`) needs; jogs and the guided session work without it. `uv sync` creates or updates `.venv` with Python 3.13 (`.python-version`; 3.13 is the first Windows release with a fine-grained monotonic clock) and
+`--extra planning` adds Ruckig, which the streaming trial (`examples\bench_stream.py`) needs; jogs and the guided session work without it. `uv sync` creates or updates `.venv` with Python 3.13 (`.python-version`; 3.13 is the first Windows release with a fine-grained monotonic clock) and
 the locked packages; `--locked` refuses to run if `uv.lock` and
 `pyproject.toml` disagree, instead of silently picking new versions. It does
 not access USB, change drivers or move the arm. All later commands in the docs

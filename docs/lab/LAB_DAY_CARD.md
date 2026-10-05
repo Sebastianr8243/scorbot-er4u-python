@@ -1,6 +1,6 @@
 # Lab day card: the six things to bring back
 
-One sheet for the visit after the vendor-protocol work. Each step is one command and one thing to look at. Reasons are in the [lab plan](VENDOR_PROTOCOL_LAB_PLAN.md); safety rules are those of the [G1 card](G1_LAB_CHECKLIST.md).
+One sheet for the visit after the vendor-protocol work. Each step is one command and one thing to look at. New to this, or helping someone run it? Read [LAB_VISIT_HANDOFF.md](LAB_VISIT_HANDOFF.md) first: setup, a rehearsal you can run with no arm, what every prompt means and what to do when something goes wrong. Reasons are in the [lab plan](VENDOR_PROTOCOL_LAB_PLAN.md); safety rules are those of the [G1 card](G1_LAB_CHECKLIST.md).
 
 **None of the new parts has run on the arm:** the software stop, the streaming driver, the gripper and the layout checker are from disassembly, the legacy code and the simulator. Someone is at the physical stop for every step from B to F. Neither Ctrl-C nor a software stop is an emergency stop. If anything moves unexpectedly, the MOTORS LED disagrees with the software, or a step faults: use the physical stop, end the session, keep the logs. Do not retry a faulted command.
 
@@ -21,7 +21,7 @@ Each step stands alone: if one fails, stop, keep the logs, and the earlier steps
 ## 0. Prepare (no arm motion)
 
 - [ ] Copy the existing `logs\` folder to a USB stick **before anything else**. It holds the 2026-09-29 run, which never left the lab PC.
-- [ ] Update the code, then install. `--extra planning` is new and step E needs it:
+- [ ] Update the code to branch `feat/vendor-dll-analysis` (`git pull`, or a fresh ZIP of that branch), then install. `--extra planning` is new and step E needs it:
 
 ```powershell
 uv sync --locked --extra windows --extra test --extra planning

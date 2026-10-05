@@ -24,7 +24,8 @@ Start with [`../README.md`](../README.md) for the project summary and [`../START
 
 | Doc | Read when |
 |---|---|
-| [`LAB_DAY_CARD.md`](lab/LAB_DAY_CARD.md) | **The next visit.** One sheet: idle, base jog, stop trial, phone-level check, stream trial, e-stop press, each with its command and what to write down |
+| [`LAB_VISIT_HANDOFF.md`](lab/LAB_VISIT_HANDOFF.md) | **Start here for the next visit**, person or AI: the situation, the rules, setup, a no-arm rehearsal, what each prompt and output means, troubleshooting, what to bring home |
+| [`LAB_DAY_CARD.md`](lab/LAB_DAY_CARD.md) | **The next visit.** One sheet: idle, base jog, stop trial, phone-level check, stream trial, gripper trial, e-stop press, each with its command and what to write down |
 | [`WINDOWS_BENCH_RUN.md`](lab/WINDOWS_BENCH_RUN.md) | Preparing a lab visit on Windows: copy, install, driver check, preflight |
 | [`G1_LAB_CHECKLIST.md`](lab/G1_LAB_CHECKLIST.md) | At the bench: printable checklist, roles, pause points, stop conditions |
 | [`ARM_CONTROL_BENCH.md`](lab/ARM_CONTROL_BENCH.md) | Running or rehearsing idle capture, home and one jog, command by command |

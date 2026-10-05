@@ -41,6 +41,7 @@ Two facts make that possible:
 | F3 | Try the vendor stop from our own code: `bench_joint.py --stop-after-ms 150` on a 1 degree jog | built, simulator-tested, never run on the arm | V3 |
 
 | F4 | Try streaming: one motor, a target one degree away and back, with `examples\bench_stream.py --motor base --delta 1` (same labels as `bench_joint.py`; type `HOME`, `HOME_OK`, `STREAM`). Do it after that motor's jog (F3 or an ordinary bench jog), so its direction is known | built, simulator-tested, never run on the arm | whether the arm follows a stream of setpoints, the real loop period, the tracking error |
+| F5 | Try the gripper: `examples\bench_gripper.py --moves open close`, empty jaws first (lab day card step F) | built, simulator-tested, never run on the arm; the legacy sequence, not the vendor's | whether the legacy gripper sequence drives this gripper, which way open and close go, the gripper's travel in counts |
 
 At a desk, for F1:
 
