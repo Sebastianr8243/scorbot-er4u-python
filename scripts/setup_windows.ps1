@@ -51,7 +51,7 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
 }
 
 Write-Host 'Installing the ScorBot package, Windows USB backend, and test dependency...'
-& $venvPython -m pip install -e '.[windows,test]'
+& $venvPython -m pip install -e '.[windows,test,planning]'
 if ($LASTEXITCODE -ne 0) { throw 'Package installation failed. Save the pip error output.' }
 
 & $venvPython -m pip check

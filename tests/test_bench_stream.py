@@ -151,6 +151,19 @@ class BenchStreamTests(unittest.TestCase):
                 self.assertEqual(self.made, [])
                 self.checks.assert_not_called()
 
+    def test_a_missing_planner_is_reported_before_preflight_or_any_connection(self):
+        # Streaming needs Ruckig. Finding that out after homing would leave the
+        # arm enabled and homed for nothing.
+        for simulate in (True, False):
+            with self.subTest(simulate=simulate),                     mock.patch.object(bench_stream, "find_spec", return_value=None):
+                with self.assertRaises(SystemExit) as caught:
+                    self.run_script("", simulate=simulate)
+                self.assertEqual(caught.exception.code, 2)
+                self.assertIn("--extra planning", self.printed.getvalue())
+                self.assertFalse(self.output.exists())
+                self.assertEqual(self.made, [])
+                self.checks.assert_not_called()
+
     def test_wrist_and_gripper_are_not_offered(self):
         with self.assertRaises(SystemExit):
             self.run_script("", motor="wrist_motor_1")

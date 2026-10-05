@@ -13,6 +13,7 @@ rehearsal away from the lab; every record is then labelled simulated.
 import argparse
 from dataclasses import asdict
 from datetime import datetime, timezone
+from importlib.util import find_spec
 import json
 import math
 from pathlib import Path
@@ -132,6 +133,11 @@ def _run() -> int:
     reject_example_values(parser, arm_label=args.arm_label,
                           controller_label=args.controller_label, driver=args.driver,
                           operator=args.operator, start_pose_note=args.start_pose_note)
+    # Checked now: found after homing, it would leave the arm enabled for nothing.
+    if find_spec("ruckig") is None:
+        parser.error("Streaming needs the planning extra, which is not installed. Run: "
+                     "uv sync --locked --extra windows --extra test --extra planning "
+                     "(or pip install -e .[windows,test,planning])")
     output = args.output.resolve()
     events = output.with_name(output.stem + ".controller.jsonl")
     if output.exists() or events.exists():
