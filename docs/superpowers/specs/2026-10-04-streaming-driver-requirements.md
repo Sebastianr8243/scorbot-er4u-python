@@ -1,6 +1,6 @@
 # Streaming driver: requirements
 
-Date: 2026-10-04. Status: **draft for the owner's review. Nothing is built.** This is step 2 of the agreed path: write down what the driver must do, get a yes, then build it against the simulator.
+Date: 2026-10-04. Status: **decisions answered; awaiting the owner's go to build. Nothing is built.** This is step 2 of the agreed path: write down what the driver must do, get a yes, then build it against the simulator.
 
 ## 1. Why
 
@@ -30,10 +30,10 @@ Each has the reason and how it will be tested in the simulator. "Prior" marks a 
 
 | # | The driver must | Why | Test |
 |---|---|---|---|
-| R1 | Accept a new target at any time, including while moving. The newest target wins | This is the whole point; a policy never waits | Send targets mid-move; the motion bends toward the new one without stopping first |
+| R1 | Accept a new target at any time, including while moving, for base, shoulder and elbow together. The newest target wins | This is the whole point; a policy never waits | Send targets mid-move; the motion bends toward the new one without stopping first |
 | R2 | Change the commanded position smoothly: per-motor limits on speed, acceleration and jerk, enforced every period | No jerks, no steps the motors cannot follow | For random target sequences, every commanded step stays inside the limits |
 | R3 | Never command a position more than a set lead ahead of the measured position | If the arm stalls or hits something, the command must not run away from it | Hold the simulated arm still; the command stops at the lead limit and a fault follows (R6) |
-| R4 | Refuse targets outside the allowed travel from home, before sending anything | Same rule as today's follower (10 degrees from home until calibration exists) | Out-of-range target: refused, nothing queued |
+| R4 | Refuse targets outside the allowed travel from home, before sending anything. The cap starts at 10 degrees and is raised in stages as lab sessions pass (section 5) | Same rule as today's follower; the widening is earned, not assumed | Out-of-range target: refused, nothing queued. The cap is a constructor value with a hard upper bound |
 | R5 | Stop on request within one period, using the stop sequence, and hold where the arm is | An operator key and a policy both need it | Request a stop mid-stream; no further target steps are sent, the stop sequence is, and the session stays usable |
 | R6 | Latch a fault and stop streaming on: lead limit reached, stale or missing reply, controller error word over its threshold, emergency bit, worker crash | Same rule as the rest of the SDK: any fault ends motion | One simulator test per cause; each shows the session latched and nothing sent afterwards |
 | R7 | Hold position if no new target arrives within a time limit | A crashed or hung caller must not leave the arm chasing an old target | Stop sending targets; the driver decelerates and holds, and says so in the log |
@@ -54,12 +54,12 @@ Each has the reason and how it will be tested in the simulator. "Prior" marks a 
 | Queue limit | 4 | Vendor `ManualBuffers` | Whether the echo works as read (lab plan V4) |
 | No-target time limit | 0.5 s | Ours | Operator feel in teleop |
 
-## 5. Decisions needed from the owner
+## 5. Decisions (answered by the owner, 2026-10-04)
 
-1. **One joint at a time, or several together?** A standing safety rule says "no coordinated motion". Streaming several joints at once is coordinated motion. Options: (a) first version moves one motor at a time, which stays inside the rule but is slower and less natural for a policy; (b) change the rule to allow base, shoulder and elbow together at small steps, tried first on the bench. **Recommendation: (a) for the first build, (b) once the lab has shown single-joint streaming tracks.**
-2. **The 5 degree jog ceiling.** It was written for one jog. For streaming I propose the same number as the lead limit's outer bound and keeping the 10 degree travel cap from home. **Recommendation: keep both numbers; no rule change.**
-3. **Where the loop lives.** (a) Inside the legacy two-thread code, as a new command, reusing its packet builders: quicker, but it inherits that code's limits. (b) The planned single-thread driver on `scorbot/transport/codec.py` (USB upgrade phase C): cleaner and what the roadmap intends, but the codec has not yet been compared with real traffic. **Recommendation: (a) now, because every byte it sends is one the arm has already accepted; (b) later.**
-4. **Units of the target.** Motor counts from home, as the recorder and exporter already use. Joint angles would need the unverified mapping in `scorbot/vendor_model.py`. **Recommendation: counts.**
+1. **Several motors together: allowed.** "No coordinated motion" was a project rule, not something from the manual; the vendor's own software moves all joints on one curve. The rule in `CLAUDE.md` now permits base, shoulder and elbow together as motor-count targets inside the travel cap. Each motor is still tried alone on the bench first, because a wrong direction is harder to see when three move.
+2. **Limits grow with evidence.** The 5 degree ceiling stays for `jog_joint`. For streaming the limits are the lead limit (R3) and the travel cap from home (R4), starting at 10 degrees. After a lab session with no faults and tracking inside the limit, the cap is raised one stage, and the reason is written in the project log. Suggested stages: 10, 20, 45 degrees, then the vendor's encoder limits once home and signs are measured. This is the usual envelope-expansion practice: widen only what the last test covered.
+3. **Method: a pure core with thin adapters.** The streaming logic (targets in, limited steps out, faults, stop, watchdog) is written as a plain module with no USB in it, fully tested on its own. A small adapter connects it to the arm. The first adapter runs inside the existing legacy worker, so every byte sent is one the arm has already accepted and the load-bearing sleeps are untouched. A second adapter for the planned single-thread driver (`scorbot/transport/codec.py`) can replace it later without touching the core. This gets the long-term structure without betting the first trial on new transport code.
+4. **Targets are motor counts, with angles as a layer on top.** Counts are what the controller reports and what the recorder and exporter already store, and they keep unverified maths out of the safety path. Joint angles are what kinematics, policies and other arms use, so the API gains an angle view once a calibration exists (`scorbot/calibration.py`, and `scorbot/vendor_model.py` as the prior for the wrist and the shoulder coupling). Datasets keep raw counts and add angles when calibrated.
 
 ## 6. Not in this work
 
