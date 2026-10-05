@@ -346,6 +346,13 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 #    position, with result STOPPED.
 # Never run on the arm by this project. The vendor closes its gripper another
 # way (docs/protocol/VENDOR_DLL_PROTOCOL.md section 12).
+# After an outside review of this routine:
+#  - a stop request is checked after every message of the ramp and the hold;
+#  - rest is judged from the raw gripper count over the last five messages,
+#    not from the smoothed value, which hides a slow creep;
+#  - if a message fails part-way, the two gripper-off messages are still
+#    attempted before the error is passed on, so a USB hiccup does not leave
+#    the gripper switched on and pushing.
 #
 # cola_orden -> Result queue, as for the jogs
 # stop_event -> Optional threading.Event; when set the move ends early
@@ -353,81 +360,69 @@ def clamp(b_1, epout, epin, buffer, orden, cola_read, cola_orden=None, stop_even
 	write = conf.readData("pinza","write")
 	read = conf.readData("pinza","read")
 	vel = conf.readData("pinza","vel")
+	pos = conf.readData("general","VEC_POS")[5]
 	media = cola_read.get()
-	for i in range(1,4):
-		cadena = libhex.clamp(i)
-		b_1 = libdef.countByte1(b_1)
-		cadena = cadena.format(libdef.f_byte(b_1))
-		cadena = libdef.fill_msg(cadena, 24)
-		media = libdef.get_media(buffer,media)
-		cadena += libdef.get_encoder(buffer, media)
-		libdef.set_msg(cadena, epout, epin, buffer, write, read)
-
-	media = libdef.get_media(buffer,media)
-	step_in = media[5]
-	signo = libdef.get_signo(46, buffer)
-	dato_in = [step_in, signo]
 	signal_out= ''
-	ite = conf.readData("pinza","ite_clamp")
 	stopped = False
-	for i in range(ite):
-		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer)
-		libdef.set_msg(cadena, epout, epin, buffer, write, read)
-		if stop_event is not None and stop_event.is_set():
-			stopped = True
-			break
-
-	if not stopped:
-		for _ in range(15):
-			cadena = libhex.mov_comm(1)
+	try:
+		for i in range(1,4):
+			cadena = libhex.clamp(i)
 			b_1 = libdef.countByte1(b_1)
 			cadena = cadena.format(libdef.f_byte(b_1))
 			cadena = libdef.fill_msg(cadena, 24)
-			media = libdef.get_media(buffer, media)
-			msg = libdef.get_encoder(buffer, media)
-			cadena += libdef.getStruct(orden, signal_out, msg)
+			media = libdef.get_media(buffer,media)
+			cadena += libdef.get_encoder(buffer, media)
 			libdef.set_msg(cadena, epout, epin, buffer, write, read)
-			media = libdef.get_media(buffer, media)
 
-		# Hold until the gripper has stopped moving: at its target, or against
-		# whatever it closed on.
-		cont = 0
-		quiet = 0
-		while quiet < 2:
-			previous = media[5]
-			cadena = libhex.mov_comm(1)
-			b_1 = libdef.countByte1(b_1)
-			cadena = cadena.format(libdef.f_byte(b_1))
-			cadena = libdef.fill_msg(cadena, 24)
-			media = libdef.get_media(buffer, media)
-			msg = libdef.get_encoder(buffer, media)
-			cadena += libdef.getStruct(orden, signal_out, msg)
+		media = libdef.get_media(buffer,media)
+		step_in = media[5]
+		signo = libdef.get_signo(46, buffer)
+		dato_in = [step_in, signo]
+		ite = conf.readData("pinza","ite_clamp")
+		for i in range(ite):
+			[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer)
 			libdef.set_msg(cadena, epout, epin, buffer, write, read)
-			media = libdef.get_media(buffer, media)
-			quiet = quiet + 1 if abs(media[5] - previous) <= 1 else 0
 			if stop_event is not None and stop_event.is_set():
 				stopped = True
 				break
-			if cont == 100 and quiet < 2:
+
+		# Hold the target: 15 messages as before, then until the gripper has
+		# stopped moving (at its target, or against whatever it closed on).
+		recent = []
+		cont = 0
+		while not stopped:
+			cadena = libhex.mov_comm(1)
+			b_1 = libdef.countByte1(b_1)
+			cadena = cadena.format(libdef.f_byte(b_1))
+			cadena = libdef.fill_msg(cadena, 24)
+			media = libdef.get_media(buffer, media)
+			msg = libdef.get_encoder(buffer, media)
+			cadena += libdef.getStruct(orden, signal_out, msg)
+			libdef.set_msg(cadena, epout, epin, buffer, write, read)
+			media = libdef.get_media(buffer, media)
+			cont += 1
+			if stop_event is not None and stop_event.is_set():
+				stopped = True
+				break
+			if cont <= 15:
+				continue
+			recent = (recent + [libdef.transform([buffer[pos], buffer[pos+1]])])[-5:]
+			if len(recent) == 5 and max(recent) - min(recent) <= 2:
+				break
+			if cont == 15 + 100:
 				print("ERROR: Joint did not respond")
 				if cola_orden is not None:
 					cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 				logging.warning(libdef.error_msg(2))
 				break
-			cont += 1
+	except Exception:
+		try:
+			_clamp_off(b_1, media, epout, epin, buffer, write, read, orden, signal_out, True)
+		except Exception:
+			pass  # the link is gone; the caller reports the first error
+		raise
 
-	# Gripper off. After a stop the two messages carry the measured position,
-	# not the target the ramp was heading for.
-	for i in (4, 5):
-		media = libdef.get_media(buffer, media)
-		cadena = libhex.clamp(i)
-		b_1 = libdef.countByte1(b_1)
-		cadena = cadena.format(libdef.f_byte(b_1))
-		cadena = libdef.fill_msg(cadena, 24)
-		msg = libdef.get_encoder(buffer,media)
-		cadena += msg if stopped else libdef.getStruct(orden, signal_out, msg)
-		libdef.set_msg(cadena, epout, epin, buffer, write, read)
-
+	[b_1, media] = _clamp_off(b_1, media, epout, epin, buffer, write, read, orden, signal_out, stopped)
 	if stopped:
 		if cola_orden is not None:
 			cola_orden.put(STOPPED)
@@ -436,6 +431,20 @@ def clamp(b_1, epout, epin, buffer, orden, cola_read, cola_orden=None, stop_even
 	media = libdef.get_media(buffer,media)
 	cola_read.put(media)
 	return b_1
+
+# Gripper off: clamp(4) and clamp(5) (73 20, 42 20). With `measured` the two
+# messages carry the measured position, not the target the ramp was heading for.
+def _clamp_off(b_1, media, epout, epin, buffer, write, read, orden, signal_out, measured):
+	for i in (4, 5):
+		media = libdef.get_media(buffer, media)
+		cadena = libhex.clamp(i)
+		b_1 = libdef.countByte1(b_1)
+		cadena = cadena.format(libdef.f_byte(b_1))
+		cadena = libdef.fill_msg(cadena, 24)
+		msg = libdef.get_encoder(buffer,media)
+		cadena += msg if measured or signal_out == '' else libdef.getStruct(orden, signal_out, msg)
+		libdef.set_msg(cadena, epout, epin, buffer, write, read)
+	return [b_1, media]
 
 # Desactiva el control sobre los motores
 def motors_off(b_1, epout, epin, buffer,cola_read):

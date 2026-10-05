@@ -454,7 +454,9 @@ class Scorbot:
             stream.request_stop()      # the caller still ends it with stop() or close()
         self._record("stop_requested")
 
-    def _settled_after_stop(self, before: RobotState) -> RobotState:
+    def _settled_after_stop(self, before: RobotState, *,
+                            fault: str = "The arm was still moving after a stop request"
+                            ) -> RobotState:
         """Wait until successive readings stop changing, or latch a fault."""
         deadline = time.monotonic() + self.STOP_SETTLE_TIMEOUT_S
         current = self._motion_state(after_index=before.packet_index)
@@ -474,8 +476,7 @@ class Scorbot:
                 return current
             if time.monotonic() >= deadline:
                 break
-        self._latch_fault("The arm was still moving after a stop request; "
-                          "use the physical stop if needed")
+        self._latch_fault(f"{fault}; use the physical stop if needed")
         if self._link_alive():
             self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
         self._record("stop_settle_failed", error=self._fault, state=asdict(current))
@@ -858,6 +859,10 @@ class Scorbot:
                 self._record("stop_before_motion", joint="gripper", direction=direction)
                 raise MotionStopped("A stop was requested; the gripper was not moved",
                                     state=before, started=False)
+            # A jog can return while the arm is still inside its settle band.
+            # The gripper is never commanded on a moving arm.
+            before = self._settled_after_stop(
+                before, fault="The arm was not at rest before a gripper move")
             conf = self._legacy("conf")
             planned = sum(profile.gripper_increments(conf.readData("pinza", "vel"),
                                                      conf.readData("pinza", "ite_clamp")))
@@ -903,9 +908,20 @@ class Scorbot:
                 self._record("gripper_fault", error=self._fault, state=asdict(after))
                 raise ScorbotError(self._fault)
             travelled = moved["gripper"]
+            # The count rises to open and falls to close in the inherited code.
+            # That mapping is not measured, so the wrong sign is a fault, not
+            # a successful move.
+            along = travelled if direction == "open" else -travelled
+            if along < -self.GRIPPER_ARM_TOLERANCE_COUNTS:
+                self._latch_fault(f"The gripper moved the wrong way: asked to {direction}, "
+                                  f"its count changed by {travelled:+d}")
+                if self._link_alive():
+                    self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
+                self._record("gripper_fault", error=self._fault, state=asdict(after))
+                raise ScorbotError(self._fault)
             result = GripperMove(
                 direction=direction, planned_counts=planned, moved_counts=travelled,
-                full_travel=abs(travelled) >= planned - self.GRIPPER_FULL_TRAVEL_TOLERANCE_COUNTS,
+                full_travel=along >= planned - self.GRIPPER_FULL_TRAVEL_TOLERANCE_COUNTS,
                 state=after)
             self._record("gripper_complete", direction=direction, planned_counts=planned,
                          moved_counts=travelled, full_travel=result.full_travel,

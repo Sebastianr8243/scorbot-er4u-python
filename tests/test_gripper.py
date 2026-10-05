@@ -121,6 +121,62 @@ class LegacyGripperTests(unittest.TestCase):
                          [(CONTROL_OFF, GRIPPER_MASK), (MOTOR, GRIPPER_MASK)])
         self.assertLessEqual(len(controller.packets), 3 + 30 + 15 + 101 + 2)
 
+    def test_a_gripper_creeping_one_count_a_message_is_still_moving(self):
+        # The smoothed reading halves small changes, so it must not be what
+        # decides that the gripper has come to rest.
+        controller, results = self.move(OPEN_ORDER, rate=1)
+        self.assertEqual(results, [2])
+
+    def test_a_stop_during_the_hold_ends_it_at_once(self):
+        ramp_done = 3 + 30
+        controller, results = self.move(CLOSE_ORDER, stop_after=ramp_done + 4)
+        self.assertEqual(results, [STOPPED])
+        self.assertLessEqual(len(controller.packets), ramp_done + 4 + 2,
+                             "no further hold messages after the stop")
+        self.assertEqual([(p[4], p[5]) for p in controller.packets[-2:]],
+                         [(CONTROL_OFF, GRIPPER_MASK), (MOTOR, GRIPPER_MASK)])
+
+    def test_a_usb_failure_mid_move_still_tries_to_switch_the_gripper_off(self):
+        class Failing(FollowingController):
+            fail_at = None
+
+            def write(self, data, timeout):
+                if self.fail_at is not None and len(self.packets) + 1 == self.fail_at:
+                    self.fail_at = None            # the link comes back for the next write
+                    raise OSError("USB write failed")
+                return super().write(data, timeout)
+
+        for fail_at, stage in ((10, "ramp"), (3 + 30 + 5, "hold"), (3 + 30 + 15 + 1, "settle")):
+            with self.subTest(stage=stage):
+                controller = Failing()
+                controller.fail_at = fail_at
+                controller.position[GRIPPER] = GRIP_START
+                controller._report()
+                buffer = bytearray(controller.reply)
+                reads, results = queue.Queue(), queue.Queue()
+                reads.put([START] * GRIPPER + [GRIP_START])
+                with self.assertRaises(RuntimeError):
+                    self.comm.clamp(1, controller, controller, buffer, CLOSE_ORDER, reads,
+                                    results)
+                self.assertEqual([(p[4], p[5], p[6]) for p in controller.packets[-2:]],
+                                 [(CONTROL_OFF, GRIPPER_MASK, 0), (MOTOR, GRIPPER_MASK, 0)],
+                                 "the gripper must not be left switched on")
+
+    def test_a_dead_link_does_not_hide_the_first_error_behind_the_cleanup(self):
+        class Dead(FollowingController):
+            def write(self, data, timeout):
+                if len(self.packets) >= 9:
+                    raise OSError("USB gone")
+                return super().write(data, timeout)
+
+        controller = Dead()
+        buffer = bytearray(controller.reply)
+        reads = queue.Queue()
+        reads.put([START] * len(JOINTS))
+        with self.assertRaises(RuntimeError) as caught:
+            self.comm.clamp(1, controller, controller, buffer, OPEN_ORDER, reads, queue.Queue())
+        self.assertIn("USB write failed", str(caught.exception))
+
     def test_a_stop_request_ends_the_move_on_the_measured_position(self):
         controller, results = self.move(CLOSE_ORDER, stop_after=10)
         self.assertEqual(results, [STOPPED])
@@ -278,6 +334,39 @@ class SdkGripperTests(SimulatedRobotCase):
         self.assertFalse(caught.exception.started)
         self.assertEqual(robot.sim.commands, queued)
         self.assertTrue(robot.open_gripper().full_travel)
+
+    def test_a_gripper_that_goes_the_wrong_way_faults_the_session(self):
+        # Which legacy order opens and which closes is inherited, not measured.
+        from scorbot import ScorbotError
+        robot = self.robot()
+        robot.sim.gripper_reversed = True
+        with self.assertRaises(ScorbotError) as caught:
+            robot.open_gripper()
+        self.assertIn("wrong way", str(caught.exception))
+        self.assert_latched(robot)
+        self.assertIn("gripper_fault", self.events())
+
+    def test_the_arm_must_be_at_rest_before_the_gripper_is_moved(self):
+        from scorbot import ScorbotError
+        robot = self.robot()
+        robot.STOP_SETTLE_TIMEOUT_S = 0.2
+        controller = robot.sim
+        plain = controller.snapshot
+
+        def drifting(**kwargs):
+            with controller._lock:
+                controller.counts["shoulder"] += 30
+            return plain(**kwargs)
+
+        controller.snapshot = drifting
+        queued = [c for c in controller.commands if c[0] in (14, 15)]
+        with self.assertRaises(ScorbotError) as caught:
+            robot.close_gripper()
+        controller.snapshot = plain
+        self.assertIn("not at rest", str(caught.exception))
+        self.assertEqual([c for c in controller.commands if c[0] in (14, 15)], queued,
+                         "no gripper order may be sent to a moving arm")
+        self.assertIsNotNone(robot._fault)
 
     def test_a_gripper_that_never_settles_faults_the_session(self):
         from scorbot import ScorbotError

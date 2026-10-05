@@ -162,6 +162,7 @@ class SimulatedController:
         # gripper_disturbs adds counts to arm motors during the move.
         self.gripper_blocked_at: int | None = None
         self.gripper_never_settles = False
+        self.gripper_reversed = False      # open and close swapped, as a wrong inherited mapping
         self.gripper_disturbs: dict[str, int] = {}
         # Streaming model (modeled, not measured): each step the arm covers
         # this share of the distance to the setpoint; stuck means it does not move.
@@ -324,6 +325,8 @@ class SimulatedController:
     def _gripper(self, sign: int) -> int:
         """Ramp the gripper count like openScorbot/libcomm.py:clamp, with an object model."""
         stopped = False
+        if self.gripper_reversed:
+            sign = -sign
         for step in self._gripper_increments():
             if self.step_delay_s:
                 time.sleep(self.step_delay_s)
