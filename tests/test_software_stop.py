@@ -17,6 +17,11 @@ from unittest import mock
 from scorbot import MotionStopped, Scorbot, ScorbotError
 from scorbot.state import ENCODER_OFFSETS, JOINTS
 
+try:
+    from tests.sim_support import SimulatedRobotCase
+except ImportError:      # discovered with -s tests: the folder itself is on sys.path
+    from sim_support import SimulatedRobotCase
+
 STOPPED = 14
 OPEN, STEP, MODE, CONTROL_OFF, MOTOR = 0x47, 0x0D, 0x4F, 0x73, 0x42
 # (legacy mover, positive order, index in JOINTS, OUT region offset)
@@ -237,34 +242,10 @@ class LegacyStopTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
 
 
-class SdkStopTests(unittest.TestCase):
+class SdkStopTests(SimulatedRobotCase):
     """``Scorbot.request_stop`` through the simulator and the real facade."""
 
-    def robot(self, **controller_kwargs):
-        from scorbot.simulated import SimulatedController, SimulatedScorbot
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.log = Path(folder.name) / "run.controller.jsonl"
-        robot = SimulatedScorbot(controller=SimulatedController(**controller_kwargs),
-                                 log_path=self.log)
-        robot.STOP_SETTLE_INTERVAL_S = 0.01
-        robot.STOP_SETTLE_TIMEOUT_S = 0.2
-        robot.connect()
-        self.addCleanup(self.disconnect, robot)
-        robot.enable()
-        robot.home(start_position_confirmed=True)
-        return robot
-
-    @staticmethod
-    def disconnect(robot):
-        try:
-            robot.disconnect()
-        except ScorbotError:
-            pass  # a latched session may refuse a clean exit; the worker is a daemon
-
-    def events(self):
-        return [json.loads(line)["event"]
-                for line in self.log.read_text(encoding="utf-8").splitlines()]
+    SETTLE_TIMEOUT_S = 0.2
 
     def stop_soon(self, robot):
         hook = StopAtStep(robot.request_stop, robot.sim.step_delay_s)

@@ -444,13 +444,32 @@ class FrameTests(unittest.TestCase):
         self.assertEqual(out.frame_seq[:4], [0, 2, 5, 7])   # 0, 100, 200, 300 ms
 
 
+def file_hashes(folder):
+    import hashlib
+    return {str(p.relative_to(folder)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(Path(folder).rglob("*")) if p.is_file()}
+
+
 class CliTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # One paced recording (about 0.6 s of real key pauses) for the tests that
+        # only read it. They write their own output under self.root, never here;
+        # tearDown checks that.
+        shared = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        cls.addClassCleanup(shared.cleanup)
+        cls.shared_root = Path(shared.name)
+        cls.episode_path = record(cls.shared_root, TO_LOOP + EPISODE + FINISH)
+        cls.shared_hashes = file_hashes(cls.shared_root)
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.root = Path(self._tmp.name)
 
     def tearDown(self):
         self._tmp.cleanup()
+        self.assertEqual(file_hashes(self.shared_root), self.shared_hashes,
+                         "this test changed the recording shared by the class")
 
     def run_cli(self, *args):
         import contextlib
@@ -476,7 +495,7 @@ class CliTests(unittest.TestCase):
 
     @unittest.skipIf(COARSE_CLOCK, "coarse monotonic clock: exports are rightly refused")
     def test_preview_flag_writes_the_report(self):
-        path = record(self.root, TO_LOOP + EPISODE + FINISH)
+        path = self.episode_path
         report = self.root / "report.html"
         code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/t",
                                   "--no-video", "--dry-run", "--preview", report)
@@ -485,16 +504,21 @@ class CliTests(unittest.TestCase):
         self.assertIn(str(report), text)
 
     def test_preview_never_overwrites_a_file(self):
-        path = record(self.root, TO_LOOP + EPISODE + FINISH)
-        before = path.read_bytes()
+        import shutil
+        path = self.episode_path
+        # The file that must survive is a copy of the session log in this test's own
+        # folder: if the refusal ever broke, the shared recording would not be the
+        # thing overwritten.
+        existing = Path(shutil.copy(path, self.root / "existing.jsonl"))
+        before = existing.read_bytes()
         code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/t",
-                                  "--no-video", "--dry-run", "--preview", path)
+                                  "--no-video", "--dry-run", "--preview", existing)
         self.assertEqual(code, 1)
         self.assertIn("already exists", text)
-        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(existing.read_bytes(), before)
 
     def test_existing_output_is_refused(self):
-        path = record(self.root, TO_LOOP + EPISODE + FINISH)
+        path = self.episode_path
         (self.root / "ds").mkdir()
         code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/t",
                                   "--no-video")
@@ -502,7 +526,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("already exists", text)
 
     def test_no_camera_needs_no_video_flag(self):
-        path = record(self.root, TO_LOOP + EPISODE + FINISH)
+        path = self.episode_path
         code, text = self.run_cli(path, "--out", self.root / "ds", "--repo-id", "local/t",
                                   "--dry-run")
         self.assertEqual(code, 1)

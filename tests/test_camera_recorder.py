@@ -36,6 +36,23 @@ def wait_for(condition, attempts=500):
     return False
 
 
+class StuckSource(FakeSource):
+    """A camera whose read() never returns from frame `block_at` on, even after close().
+
+    `blocked` is set just before that read: a stop() sent earlier would find the
+    reader between two reads, where it sees the stop flag and leaves cleanly.
+    """
+
+    def __init__(self, block_at):
+        super().__init__(block_at=block_at, release_on_close=False)
+        self.blocked = threading.Event()
+
+    def read(self):
+        if self._next == self.block_at:
+            self.blocked.set()
+        return super().read()
+
+
 class RecorderTests(unittest.TestCase):
     def setUp(self):
         # A stuck-writer test leaves its file open in an abandoned thread.
@@ -107,7 +124,7 @@ class RecorderTests(unittest.TestCase):
         recorder.stop()
         self.assertGreaterEqual(recorder.counts["dropped_late"], 3)
 
-    def test_source_failure_fails_closes_stream_and_spares_the_robot(self):
+    def test_source_failure_fails_spares_the_robot_and_never_scans_clean(self):
         recorder = self.recorder(FakeSource(fail_at=5))
         recorder.start()
         self.assertTrue(wait_for(lambda: recorder.failure))
@@ -117,6 +134,9 @@ class RecorderTests(unittest.TestCase):
         self.assertIn("frame 5", recorder.failure)
         self.assertTrue(self.stream.sidecar_path.is_file())
         self.assertTrue(any(row["status"] == "failed" for row in recorder.drain_health()))
+        # A failed capture never scans clean.
+        errors = scan_stream(self.session.path, "wrist").errors
+        self.assertTrue(any("capture failed" in f.message for f in errors))
 
     def test_write_failure_fails_the_recorder(self):
         def broken(*args, **kwargs):
@@ -138,22 +158,46 @@ class RecorderTests(unittest.TestCase):
         recorder.stop()
         self.assertIn("no frame", recorder.failure)
 
-    def test_stuck_read_does_not_block_stop(self):
-        recorder = self.recorder(FakeSource(block_at=3, release_on_close=False))
+    def test_stuck_read_does_not_block_stop_and_is_recorded_in_the_stream(self):
+        source = StuckSource(block_at=0)
+        recorder = self.recorder(source)
         recorder.start()
+        self.assertTrue(source.blocked.wait(10))
+        # stop() gives the threads 3/4 of the timeout, and all of that goes on the
+        # stuck reader, so the writer must already be gone by then: only then is
+        # the stream closed with the finding. 0.5 s leaves it 0.375 s to see the
+        # stop flag.
         status = recorder.stop(timeout_s=0.5)
         self.assertIn("stuck", status)
+        # The sidecar is written by a helper thread that stop() waits on for the
+        # last 1/8 s only; a slow disk can finish it later.
+        self.assertTrue(wait_for(lambda: any(
+            "stuck" in f.message
+            for f in scan_stream(self.session.path, "wrist").errors)))
+
+    def test_a_read_that_sticks_after_some_frames_does_not_block_stop_either(self):
+        source = StuckSource(block_at=3)
+        recorder = self.recorder(source)
+        recorder.start()
+        self.assertTrue(source.blocked.wait(10))
+        self.assertIn("stuck", recorder.stop(timeout_s=0.5))
 
     def test_stuck_writer_leaves_no_sidecar_and_stop_returns(self):
         never = threading.Event()
 
+        entered = threading.Event()
+
         def stuck(*args, **kwargs):
+            entered.set()
             never.wait()
         self.stream.log_frame = stuck
         recorder = self.recorder(FakeSource())
         recorder.start()
-        wait_for(lambda: recorder.counts["frames"] > 0)
-        status = recorder.stop(timeout_s=0.5)
+        self.assertTrue(wait_for(lambda: recorder.counts["frames"] > 0))
+        # A writer still waiting for its first frame would leave cleanly on stop.
+        self.assertTrue(entered.wait(10))
+        # The writer never returns, so any timeout gives the same result.
+        status = recorder.stop(timeout_s=0.2)
         self.assertIn("stuck", status)
         self.assertFalse(self.stream.sidecar_path.exists())
 
@@ -166,24 +210,10 @@ class RecorderTests(unittest.TestCase):
         recorder = self.recorder(HangingClose())
         recorder.start()
         started = time.monotonic()
-        status = recorder.stop(timeout_s=0.5)
+        # close() never returns, so any timeout gives the same result.
+        status = recorder.stop(timeout_s=0.2)
         self.assertLess(time.monotonic() - started, 2.0)
         self.assertIn("stuck", status)
-
-    def test_failed_capture_never_scans_clean(self):
-        recorder = self.recorder(FakeSource(fail_at=5))
-        recorder.start()
-        self.assertTrue(wait_for(lambda: recorder.failure))
-        recorder.stop()
-        errors = scan_stream(self.session.path, "wrist").errors
-        self.assertTrue(any("capture failed" in f.message for f in errors))
-
-    def test_stuck_reader_is_recorded_in_the_stream(self):
-        recorder = self.recorder(FakeSource(block_at=0, release_on_close=False))
-        recorder.start()
-        recorder.stop(timeout_s=0.5)
-        errors = scan_stream(self.session.path, "wrist").errors
-        self.assertTrue(any("stuck" in f.message for f in errors))
 
     def test_last_write_time_is_tracked(self):
         recorder = self.recorder(FakeSource())

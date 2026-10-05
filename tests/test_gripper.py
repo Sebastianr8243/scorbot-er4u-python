@@ -18,6 +18,11 @@ try:
 except ImportError:      # discovered with -s tests: the folder itself is on sys.path
     from test_software_stop import FollowingController, START
 
+try:
+    from tests.sim_support import SimulatedRobotCase
+except ImportError:      # discovered with -s tests: the folder itself is on sys.path
+    from sim_support import SimulatedRobotCase
+
 STEP, MODE, SLAVE, MOTOR, CONTROL_OFF = 0x0D, 0x4F, 0x4C, 0x42, 0x73
 GRIPPER_MASK = 0x20
 GRIPPER, GRIPPER_REGION = JOINTS.index("gripper"), 12 + 4 * JOINTS.index("gripper")
@@ -164,35 +169,13 @@ class GripperPlanTests(unittest.TestCase):
                                  [lib.incremento(i + 1, speed, steps) for i in range(steps)])
 
 
-class SdkGripperTests(unittest.TestCase):
+class SdkGripperTests(SimulatedRobotCase):
+    HOMED = False          # the gripper needs motors on, not a homed arm
+
     def robot(self, **controller_kwargs):
-        import json
-        from pathlib import Path
-        import tempfile
-        from scorbot.simulated import SimulatedController, SimulatedScorbot
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.log = Path(folder.name) / "run.controller.jsonl"
-        self.rows = lambda: [json.loads(line) for line in
-                             self.log.read_text(encoding="utf-8").splitlines()]
-        self.events = lambda: [row["event"] for row in self.rows()]
-        robot = SimulatedScorbot(controller=SimulatedController(**controller_kwargs),
-                                 log_path=self.log)
-        robot.STOP_SETTLE_INTERVAL_S = 0.01
-        robot.STOP_SETTLE_TIMEOUT_S = 0.5
-        robot.connect()
-        self.addCleanup(self.disconnect, robot)
-        robot.enable()
+        robot = super().robot(**controller_kwargs)
         self.travel = sum(robot._legacy("motion_profile").gripper_increments(150, 30))
         return robot
-
-    @staticmethod
-    def disconnect(robot):
-        from scorbot import ScorbotError
-        try:
-            robot.disconnect()
-        except ScorbotError:
-            pass
 
     def assert_latched(self, robot):
         from scorbot import ScorbotError

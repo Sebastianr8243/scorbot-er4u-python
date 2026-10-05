@@ -2,6 +2,8 @@
 
 from datetime import date
 import contextlib
+import dataclasses
+import functools
 import io
 import json
 from pathlib import Path
@@ -12,9 +14,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from scorbot import simulated
+from scorbot.lab import __main__ as lab_main
 from scorbot.lab.__main__ import next_log_path
 from scorbot.lab.operator import ENTER
+from scorbot.lab.session import LabSession
 from scorbot.lab.terminal import TerminalOperator, termination_as_interrupt
+from scripts import review_lab_logs
 
 
 class CameraFlagTests(unittest.TestCase):
@@ -201,20 +207,57 @@ class CommandSmokeTests(unittest.TestCase):
             profile.write_text(json.dumps({"robot_id": "lab-er4u-1", "arm_label": "A-12",
                                            "controller_label": "C-3", "driver": "none",
                                            "operator": "SR", "speed": 10}), encoding="utf-8")
-            run = subprocess.run(
-                [sys.executable, "-m", "scorbot.lab", "--simulate", "--profile", str(profile),
-                 "--logs", str(root / "rehearsal")],
-                input="\n".join(answers) + "\n", capture_output=True, text=True,
-                encoding="utf-8", timeout=120)
-            self.assertEqual(run.returncode, 0, run.stdout[-2000:] + run.stderr[-2000:])
-            self.assertIn("SIMULATED", run.stdout)
-            self.assertIn("LOG CHECK: 0 problems", run.stdout)
+            code, stdout, stderr = self.run_main(
+                lab_main.main, ["--simulate", "--profile", str(profile),
+                                "--logs", str(root / "rehearsal")], answers)
+            self.assertEqual(code, 0, stdout[-2000:] + stderr[-2000:])
+            self.assertIn("SIMULATED", stdout)
+            self.assertIn("LOG CHECK: 0 problems", stdout)
             logs = sorted((root / "rehearsal").glob("*-session-*.jsonl"))
             session_log = [p for p in logs if not p.name.endswith(".controller.jsonl")][0]
-            review = subprocess.run(
-                [sys.executable, "scripts/review_lab_logs.py", "--session", str(session_log)],
-                capture_output=True, text=True, encoding="utf-8", timeout=60)
-            self.assertEqual(review.returncode, 0, review.stdout + review.stderr)
+            with patch.object(sys, "argv", ["review_lab_logs.py", "--session",
+                                            str(session_log)]):
+                code, stdout, stderr = self.run_main(lambda argv: review_lab_logs.main(),
+                                                     None, [])
+            self.assertEqual(code, 0, stdout + stderr)
+
+    def run_main(self, main, argv, answers):
+        """Call an entry point as a piped child would see it: exit code, stdout, stderr.
+
+        The rehearsal's real waits are removed (the modeled 3 s homing, as in
+        test_lab_session.py, and the 1 s between idle samples); nothing else differs
+        from `python -m scorbot.lab --simulate`.
+        """
+        pending = iter(answers)
+
+        def piped_input(prompt=""):
+            print(prompt, end="")
+            try:
+                return next(pending)
+            except StopIteration:
+                raise EOFError from None          # what a closed pipe gives
+        out, err = io.StringIO(), io.StringIO()
+        # stdin is replaced too: with a real console TerminalOperator would read
+        # the keyboard instead of calling input().
+        with patch("builtins.input", piped_input), patch.object(sys, "stdin", io.StringIO()), \
+                patch.object(lab_main, "LabSession",
+                             functools.partial(LabSession, sleep=lambda seconds: None)), \
+                patch.object(simulated, "REHEARSAL_PROFILE", dataclasses.replace(
+                    simulated.REHEARSAL_PROFILE, homing_duration_s=0.0)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                code = main(argv)
+            except SystemExit as stop:
+                code = stop.code
+        return code, out.getvalue(), err.getvalue()
+
+    def test_module_starts_as_a_process(self):
+        # The one real child: `python -m scorbot.lab` resolves and parses its
+        # arguments. --help exits before any controller, simulated or real, is made.
+        run = subprocess.run([sys.executable, "-m", "scorbot.lab", "--help"],
+                             capture_output=True, text=True, encoding="utf-8", timeout=60)
+        self.assertEqual(run.returncode, 0, run.stdout[-2000:] + run.stderr[-2000:])
+        self.assertIn("--simulate", run.stdout)
 
 
 if __name__ == "__main__":

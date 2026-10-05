@@ -6,10 +6,7 @@ docs/specs/2026-10-04-streaming-driver-requirements.md.
 """
 
 from importlib.util import find_spec
-import json
-from pathlib import Path
 import queue
-import tempfile
 import threading
 import time
 import unittest
@@ -17,6 +14,11 @@ from unittest import mock
 
 from scorbot import MotionStopped, Scorbot, ScorbotError, StreamRefused
 from scorbot.state import ENCODER_OFFSETS, JOINTS
+
+try:
+    from tests.sim_support import SimulatedRobotCase
+except ImportError:      # discovered with -s tests: the folder itself is on sys.path
+    from sim_support import SimulatedRobotCase
 
 HAS_RUCKIG = find_spec("ruckig") is not None
 OPEN, STEP, MODE, CONTROL_OFF, MOTOR = 0x47, 0x0D, 0x4F, 0x73, 0x42
@@ -165,35 +167,8 @@ class LegacyStreamTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
-class SdkStreamTests(unittest.TestCase):
-    def robot(self, **controller_kwargs):
-        from scorbot.simulated import SimulatedController, SimulatedScorbot
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.log = Path(folder.name) / "run.controller.jsonl"
-        controller_kwargs.setdefault("step_delay_s", 0.001)
-        robot = SimulatedScorbot(controller=SimulatedController(**controller_kwargs),
-                                 log_path=self.log)
-        robot.STOP_SETTLE_INTERVAL_S = 0.01
-        robot.STOP_SETTLE_TIMEOUT_S = 0.5
-        robot.connect()
-        self.addCleanup(self.disconnect, robot)
-        robot.enable()
-        robot.home(start_position_confirmed=True)
-        return robot
-
-    @staticmethod
-    def disconnect(robot):
-        try:
-            robot.disconnect()
-        except ScorbotError:
-            pass
-
-    def rows(self):
-        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
-
-    def events(self):
-        return [row["event"] for row in self.rows()]
+class SdkStreamTests(SimulatedRobotCase):
+    CONTROLLER_DEFAULTS = {"step_delay_s": 0.001}
 
     def follow(self, stream, robot, target, seconds=3.0, within=0):
         """Keep sending ``target`` until the arm is there (or time runs out)."""
