@@ -11,16 +11,10 @@ from pathlib import Path
 from scorbot.calibration import signed_count_delta
 from scorbot.state import JOINTS
 
-
-def read_rows(path):
-    rows = []
-    for line_number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
-        if line.strip():
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"{path}:{line_number}: invalid JSON") from exc
-    return rows
+try:
+    from scripts.vendor_check import read_rows
+except ImportError:  # Run as a script: scripts/ itself is on sys.path.
+    from vendor_check import read_rows
 
 
 def _packet_checks(states):

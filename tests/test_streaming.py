@@ -532,6 +532,22 @@ class SdkStreamTests(unittest.TestCase):
             robot.jog_joint("base", 1.0)       # no later command can take the stream's answer
         self.assertEqual(len(robot.sim.commands), queued)
 
+    def test_a_stop_request_after_the_stream_has_ended_is_logged_not_dropped(self):
+        robot = self.robot()
+        stream = robot.start_stream()
+        self.assertTrue(self.follow(stream, robot, {"base": 20}))
+        stream.core.finish()                    # the worker slows to rest and ends
+        self.assertTrue(self.wait_until_idle(robot))
+        robot.request_stop()                    # too late: nothing is left to cut short
+        stream.close()
+        events = self.events()
+        self.assertIn("stop_too_late", events)
+        self.assertIn("stream_complete", events)
+        self.assertNotIn("stream_stopped", events)
+        self.assertFalse(robot._stop_event.is_set())
+        self.assertIsNone(robot._fault)
+        robot.jog_joint("base", 1.0)            # and no stop is left pending
+
     def test_a_session_fault_from_elsewhere_stops_a_running_stream(self):
         robot = self.robot(step_delay_s=0.004)
         stream = robot.start_stream()

@@ -590,7 +590,12 @@ class Scorbot:
                         stream.fault_reported = True
                         self._record("stream_fault", error=self._fault)
             self._stream = None
+            too_late = self._stop_event.is_set() and failure is None and result == 0
             self._stop_event.clear()
+            if too_late:
+                # As for a jog: the stream had already ended by itself, so the
+                # request cut nothing short. Say so instead of dropping it.
+                self._record("stop_too_late", joint="stream")
             packets, dropped = self._trace.stop() if self._trace is not None else ([], 0)
             try:
                 # Written after the latch: this row can be large, and a write

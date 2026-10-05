@@ -24,6 +24,11 @@ import struct
 from scorbot.calibration import signed_count_delta
 from scorbot.state import JOINTS, PACKET_MIN_LENGTH, decode_state
 
+try:
+    from scripts.vendor_check import read_rows
+except ImportError:  # Run as a script: scripts/ itself is on sys.path.
+    from vendor_check import read_rows
+
 
 LINKTYPE_USBPCAP = 249
 TRANSFER_NAMES = {0: "isochronous", 1: "interrupt", 2: "control", 3: "bulk"}
@@ -226,17 +231,6 @@ def rows_from_controller_log(path):
                 "t": packet["host_monotonic_ns"] / 1e9, "direction": packet["direction"],
                 "endpoint": None, "transfer": 3, "payload": bytes.fromhex(packet["hex"])})
     return export_rows(transfers)
-
-
-def read_rows(path):
-    rows = []
-    for line_number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
-        if line.strip():
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"{path}:{line_number}: invalid JSON") from exc
-    return rows
 
 
 def percentile(values, fraction):
