@@ -17,7 +17,9 @@ from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
 from .state import HOME_SWITCH_BITS, JOINTS, RobotState, decode_state
 from .streaming import MOTORS as STREAM_MOTORS
-from .streaming import STREAM_ORDER, Stream, StreamCore, prior_limits
+from .streaming import (DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, DEFAULT_SPEED_FRACTION,
+                        HOLD_TIMEOUT_RANGE_S, PERIOD_RANGE_S, STREAM_ORDER, Stream, StreamCore,
+                        prior_limits)
 
 
 def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int | None]:
@@ -458,9 +460,12 @@ class Scorbot:
         self._record("stop_settle_failed", error=self._fault, state=asdict(current))
         raise ScorbotError(self._fault)
 
-    def start_stream(self, *, travel_cap_deg: float = 10.0, speed_fraction: float = 0.25,
-                     lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5,
-                     period_s: float = 0.024, use_emergency_bit: bool = False) -> Stream:
+    def start_stream(self, *, travel_cap_deg: float = STREAM_TRAVEL_CAP_MAX_DEG,
+                     speed_fraction: float = DEFAULT_SPEED_FRACTION,
+                     lead_limit_deg: float = 2.0,
+                     hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
+                     period_s: float = DEFAULT_PERIOD_S,
+                     use_emergency_bit: bool = False) -> Stream:
         """Start following a stream of targets for base, shoulder and elbow.
 
         Returns a ``Stream``: call ``set_target`` with motor counts from home as
@@ -481,6 +486,12 @@ class Scorbot:
                 if isinstance(value, bool) or not isinstance(value, (int, float)) \
                         or not math.isfinite(value) or not 0 < value <= top:
                     raise ValueError(f"{name} must be above 0 and at most {top:g} degrees")
+            for name, value, (low, high) in (("period_s", period_s, PERIOD_RANGE_S),
+                                             ("hold_timeout_s", hold_timeout_s,
+                                              HOLD_TIMEOUT_RANGE_S)):
+                if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                        or not math.isfinite(value) or not low <= value <= high:
+                    raise ValueError(f"{name} must be {low:g} through {high:g} seconds")
             if not self._enabled or not self._homed or self._home_counts is None:
                 raise ScorbotError("Enable and home before streaming")
             before = self._motion_state()
@@ -541,7 +552,7 @@ class Scorbot:
                 if stream.final_state is None:
                     raise ScorbotError("The stream has already ended")
                 return stream.final_state
-            result, failure = None, None
+            result, failure, interrupt = None, None, None
             try:
                 with self._lock:
                     result = self._next_result(self.command_timeout)
@@ -553,32 +564,45 @@ class Scorbot:
                 self._cancel_event.set()
             except ScorbotError as exc:
                 failure = str(exc)
-            finally:
-                if failure is not None:
-                    # A worker that comes back must stop, not carry on slowing
-                    # down after the session has reported a fault. A setpoint
-                    # it had already computed may still go out first (one
-                    # step, inside every limit), and it is not in the trace.
-                    # Its late answer stays unread: a latched session takes
-                    # no commands.
-                    stream.core.fail(failure)
-                self._stream = None
-                self._stop_event.clear()
-                packets, dropped = self._trace.stop() if self._trace is not None else ([], 0)
-                self._record("stream_trace", packets=packets, dropped_packets=dropped,
-                             steps=stream.steps, dropped_steps=stream.dropped_steps)
+            except (KeyboardInterrupt, SystemExit) as exc:
+                # As in _command: the worker's answer is still to come, so the
+                # session must fault or a later command would take it as its own.
+                failure = "Python interrupted while a stream was ending; physical stop " \
+                          "may be required"
+                interrupt = exc
+                self._cancel_event.set()
             if failure is None and stream.core.fault:
                 failure = f"Stream fault: {stream.core.fault}"
             if failure is None and result not in (0, self._STOPPED_CODE):
                 failure = f"Legacy controller returned error code {result}"
             if failure is not None:
+                # A worker that comes back must stop, not carry on slowing
+                # down after the session has reported a fault. A setpoint it
+                # had already computed may still go out first (one step,
+                # inside every limit), and it is not in the trace. Its late
+                # answer stays unread: a latched session takes no commands.
+                stream.core.fail(failure)
                 with stream.report_lock:   # the worker may be reporting the same fault
                     if not stream.fault_reported:
                         self._latch_fault(failure)
                         if self._link_alive():
                             self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
-                        self._record("stream_fault", error=self._fault)
                         stream.fault_reported = True
+                        self._record("stream_fault", error=self._fault)
+            self._stream = None
+            self._stop_event.clear()
+            packets, dropped = self._trace.stop() if self._trace is not None else ([], 0)
+            try:
+                # Written after the latch: this row can be large, and a write
+                # error must not be what decides whether the session faults.
+                self._record("stream_trace", packets=packets, dropped_packets=dropped,
+                             steps=stream.steps, dropped_steps=stream.dropped_steps)
+            except Exception:
+                if failure is None:
+                    raise
+            if interrupt is not None:
+                raise interrupt
+            if failure is not None:
                 raise ScorbotError(self._fault)
             if result == self._STOPPED_CODE:
                 after = self._settled_after_stop(stream._before)

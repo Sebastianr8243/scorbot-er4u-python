@@ -8,6 +8,7 @@ _SOURCE_FILES = (
     "openScorbot/libcomm.py",
     "openScorbot/libdef.py",
     "openScorbot/motion_profile.py",
+    "scorbot/calibration.py",
     "scorbot/robot.py",
     "scorbot/state.py",
     "scorbot/streaming.py",

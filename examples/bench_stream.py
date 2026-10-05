@@ -22,6 +22,7 @@ import subprocess
 import time
 
 from scorbot import Scorbot, ScorbotError, SimulatedScorbot, StreamRefused
+from scorbot.calibration import signed_count_delta
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder, SessionWriter
@@ -39,6 +40,11 @@ TRAVEL_CAP_DEG = 2.0
 LEAD_LIMIT_DEG = 2.0
 PHASE_TIMEOUT_S = 4.0       # longest wait for the arm to arrive, each way
 ARRIVED_COUNTS = 5          # ours: close enough to call it arrived
+OTHER_MOTOR_LIMIT_COUNTS = 10   # ours: the two motors that were not asked to move
+OVERSHOOT_LIMIT_COUNTS = 20     # ours: travel past the target
+# Exit code for a run that completed its procedure but whose arm did not do
+# what was asked (0 = passed, 1 also covers a failed session, 3 = declined).
+EXIT_TRIAL_FAILED = 1
 TARGET_REFRESH_S = 0.1      # well inside the stream's 0.5 s hold timeout
 
 
@@ -46,25 +52,50 @@ def summarize(steps, motor, target):
     """What the step records say. Counts are from home; gaps are between steps."""
     measured = [step["measured"] for step in steps]
     if not measured:
-        return {"steps": 0, "reached_target": False, "returned_home": False}
+        return {"steps": 0, "reached_target": False, "returned_home": False,
+                "passed": False, "problems": ["the stream took no steps"]}
     furthest = max((m[motor] for m in measured), key=abs)
     closest = min(abs(m[motor] - target) for m in measured)
     stamps = [step["host_monotonic_ns"] for step in steps]
     gaps = [(b - a) / 1e6 for a, b in zip(stamps, stamps[1:])]
+    reached = closest <= ARRIVED_COUNTS
+    returned = reached and abs(measured[-1][motor]) <= ARRIVED_COUNTS
+    # Past the target, or away from home on the wrong side of it.
+    side = 1 if target > 0 else -1
+    overshoot = max(0, max(max(m[motor] * side - abs(target), -m[motor] * side)
+                           for m in measured))
+    others = max(abs(m[other]) for m in measured for other in MOTORS if other != motor)
+    # The core's "lead" is taken before it makes the new setpoint, so the
+    # setpoint a step sends is compared with that step's own measurement too.
+    # Sampled once per step: the true peak between steps is not seen.
+    lead = max(max(abs(step["lead"][motor]) for step in steps),
+               max((abs(step["commanded"][motor] - step["measured"][motor])
+                    for step in steps if step["action"] == "send"), default=0))
+    problems = []
+    if not reached:
+        problems.append("did not reach the target")
+    elif not returned:
+        problems.append("did not return to home")
+    if overshoot > OVERSHOOT_LIMIT_COUNTS:
+        problems.append(f"went {overshoot} counts past the target")
+    if others > OTHER_MOTOR_LIMIT_COUNTS:
+        problems.append(f"another motor moved {others} counts")
     return {
         "steps": len(steps),
         "sends": sum(step["action"] == "send" for step in steps),
         "last_action": steps[-1]["action"],
         "furthest_counts_from_home": furthest,
         "closest_to_target_counts": closest,
-        "reached_target": closest <= ARRIVED_COUNTS,
+        "reached_target": reached,
         "final_counts_from_home": measured[-1][motor],
-        "returned_home": closest <= ARRIVED_COUNTS and abs(measured[-1][motor]) <= ARRIVED_COUNTS,
-        "max_lead_counts": max(abs(step["lead"][motor]) for step in steps),
-        "other_motors_max_counts": max(abs(m[other]) for m in measured
-                                       for other in MOTORS if other != motor),
+        "returned_home": returned,
+        "overshoot_counts": overshoot,
+        "max_lead_counts": lead,
+        "other_motors_max_counts": others,
         "step_gap_ms": ({"min": round(min(gaps), 2), "median": round(statistics.median(gaps), 2),
                          "max": round(max(gaps), 2)} if gaps else None),
+        "problems": problems,
+        "passed": not problems,
     }
 
 
@@ -149,6 +180,9 @@ def _run() -> int:
         target = Scorbot().preview_jog(args.motor, args.delta)["motor_count_deltas"][args.motor]
     except ValueError as exc:
         parser.error(f"--delta cannot be planned: {exc}")
+    if abs(target) <= 2 * ARRIVED_COUNTS:
+        parser.error(f"--delta plans {target:+d} counts, too small to tell from standing still "
+                     f"(arrival is judged within {ARRIVED_COUNTS} counts); use a larger move")
 
     # The only difference between a lab run and a rehearsal.
     if args.simulate:
@@ -248,6 +282,17 @@ def _run() -> int:
                 before = robot.get_state()
                 write("before_stream", state=asdict(before))
                 rec.log_state(before)
+                # One motor, one degree, from home: so every motor must be at home
+                # now. The stream holds the other two wherever they start.
+                try:
+                    from_home = {m: signed_count_delta(before.encoder_counts[m],
+                                                       home_state.encoder_counts[m])
+                                 for m in MOTORS}
+                except ValueError as exc:
+                    raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
+                if any(abs(counts) > ARRIVED_COUNTS for counts in from_home.values()):
+                    raise ScorbotError(f"The arm is not at home (counts from home {from_home}); "
+                                       "no stream was started")
                 open_command = rec.log_command("start_stream", plan)
                 stream = None
                 try:
@@ -255,7 +300,7 @@ def _run() -> int:
                                             lead_limit_deg=LEAD_LIMIT_DEG) as stream:
                         if follow(stream, args.motor, target, args.hold_s):
                             follow(stream, args.motor, 0, args.hold_s)
-                except (ScorbotError, KeyboardInterrupt):
+                except (Exception, KeyboardInterrupt):
                     # The steps taken so far are the evidence; write them first.
                     result = summarize(stream.steps if stream is not None else [],
                                        args.motor, target)
@@ -265,8 +310,12 @@ def _run() -> int:
                 result = summarize(stream.steps, args.motor, target)
                 command_id, open_command = open_command, None
                 write("after_stream", state=asdict(after), result=result)
-                rec.log_command_result(command_id, "completed",
-                                       completion_source="stream closed")
+                if result["passed"]:
+                    rec.log_command_result(command_id, "completed",
+                                           completion_source="stream closed")
+                else:
+                    rec.log_command_result(command_id, "faulted",
+                                           detail="; ".join(result["problems"]))
                 rec.log_state(after)
                 rec.log_note("stream result: " + json.dumps(result))
                 gap = result["step_gap_ms"] or {}
@@ -275,14 +324,17 @@ def _run() -> int:
                 print(f"Returned to home: {'yes' if result['returned_home'] else 'NO'} "
                       f"(ended {result['final_counts_from_home']:+d} counts from home).")
                 print(f"Largest lead of the command over the arm: "
-                      f"{result['max_lead_counts']} counts.")
+                      f"{result['max_lead_counts']} counts (sampled once per step).")
                 print(f"Other two motors moved at most {result['other_motors_max_counts']} "
                       "counts.")
                 print(f"Time between steps: median {gap.get('median')} ms "
                       f"(min {gap.get('min')}, max {gap.get('max')}); planned 24 ms.")
-                if not result["returned_home"]:
-                    # Not a fault: a degree is inside the lead limit, so a motor
-                    # that stalls or lags ends the run here, not in the SDK.
+                if result["passed"]:
+                    print("Trial result: PASSED.")
+                else:
+                    # Not an SDK fault: a degree is inside the lead limit, so a
+                    # motor that stalls or lags is caught here, not there.
+                    print("!!! Trial result: FAILED (" + "; ".join(result["problems"]) + ").")
                     print("!!! The arm did not follow the stream out and back. Do not "
                           "repeat with a larger move; review the record first.")
                 observe_leds("after_stream", write, rec,
@@ -323,7 +375,9 @@ def _run() -> int:
     print(f"Saved stream record to {output} and controller events to {events}")
     if rec.failure is None:
         print(f"Saved MCAP session to {rec.path}")
-    return 1 if rec.failure is not None else 0
+    if rec.failure is not None:
+        return 1
+    return 0 if result["passed"] else EXIT_TRIAL_FAILED
 
 
 if __name__ == "__main__":

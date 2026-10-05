@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 from scorbot import MotionStopped, Scorbot, ScorbotError, StreamRefused
 from scorbot.state import ENCODER_OFFSETS, JOINTS
@@ -237,8 +238,11 @@ class SdkStreamTests(unittest.TestCase):
     def test_r4_the_cap_cannot_be_raised_past_its_stage(self):
         robot = self.robot()
         queued = list(robot.sim.commands)
+        # A long period makes each step a jump; a long hold timeout switches the hold off.
         for kwargs in ({"travel_cap_deg": 10.5}, {"travel_cap_deg": 0}, {"lead_limit_deg": 6},
-                       {"travel_cap_deg": True}):
+                       {"travel_cap_deg": True}, {"period_s": 1.0}, {"period_s": 0.001},
+                       {"hold_timeout_s": 1e9}, {"hold_timeout_s": 0.001},
+                       {"period_s": float("nan")}, {"hold_timeout_s": True}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 robot.start_stream(**kwargs)
         self.assertEqual(robot.sim.commands, queued)
@@ -488,6 +492,71 @@ class SdkStreamTests(unittest.TestCase):
     def test_streaming_is_in_the_motion_fingerprint(self):
         from scorbot import provenance
         self.assertIn("scorbot/streaming.py", provenance._SOURCE_FILES)
+        # signed_count_delta now decides the setpoint bytes of a stream
+        self.assertIn("scorbot/calibration.py", provenance._SOURCE_FILES)
+
+    def wait_until_idle(self, robot, seconds=2.0):
+        deadline = time.monotonic() + seconds
+        while robot.sim._moving and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return not robot.sim._moving
+
+    def test_an_interrupt_while_a_stream_is_ending_faults_the_session(self):
+        # A second Ctrl-C while the first one's stop is being collected.
+        robot = self.robot(step_delay_s=0.004)
+        stream = robot.start_stream()
+        stream.set_target({"base": 1400})
+        self.assertTrue(self.running(stream))
+        with mock.patch.object(robot, "_next_result", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                stream.stop()
+        self.assertIn("interrupted", robot._fault)
+        self.assertIsNone(robot._enabled)
+        self.assertTrue(robot._cancel_event.is_set())
+        self.assertEqual(stream.core.state, "faulted")
+        self.assertTrue(self.wait_until_idle(robot), "the worker must leave the stream")
+        self.assertEqual(self.events().count("stream_fault"), 1)
+        queued = len(robot.sim.commands)
+        with self.assertRaises(ScorbotError):
+            robot.jog_joint("base", 1.0)       # no later command can take the stream's answer
+        self.assertEqual(len(robot.sim.commands), queued)
+
+    def test_a_session_fault_from_elsewhere_stops_a_running_stream(self):
+        robot = self.robot(step_delay_s=0.004)
+        stream = robot.start_stream()
+        stream.set_target({"base": 1400})
+        self.assertTrue(self.running(stream))
+        robot._latch_fault("feedback was lost")          # as _motion_state does on another thread
+        self.assertTrue(self.wait_until_idle(robot), "the worker must stop following")
+        self.assertEqual(stream.steps[-1]["action"], "stop")
+        self.assertIn("session faulted", stream.core.fault)
+        self.assertLess(robot.get_state().signed_encoder_counts["base"], 1400)
+        with self.assertRaises(ScorbotError):
+            stream.close()
+        self.assertEqual(robot._fault, "feedback was lost")
+
+    def test_a_failed_log_write_cannot_stop_a_timed_out_stream_from_faulting(self):
+        robot = self.robot(step_delay_s=0.004)
+        stream = robot.start_stream()
+        stream.set_target({"base": 1400})
+        time.sleep(0.15)
+        robot.command_timeout = 0.02
+        record = robot._record
+
+        def failing(event, **fields):
+            if event == "stream_trace":
+                raise OSError("disk full")
+            return record(event, **fields)
+
+        with mock.patch.object(robot, "_record", side_effect=failing):
+            with self.assertRaises(ScorbotError) as caught:
+                stream.close()
+        self.assertIn("did not end", str(caught.exception))
+        self.assertIsNotNone(robot._fault)
+        self.assertIsNone(robot._stream)
+        events = self.events()
+        self.assertIn("stream_fault", events)
+        self.assertNotIn("stream_trace", events)
 
 
 class _QuietRobot:
@@ -495,6 +564,7 @@ class _QuietRobot:
 
     def __init__(self):
         self._cancel_event = threading.Event()
+        self._fault = None
         self.faults = []
 
     def _stream_faulted(self, stream):

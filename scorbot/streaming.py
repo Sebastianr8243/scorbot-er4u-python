@@ -27,6 +27,10 @@ from .state import decode_state
 MOTORS = ("base", "shoulder", "elbow")
 DEFAULT_PERIOD_S = 0.024          # vendor planner period (PCPeriod x USBCPeriod); a prior
 DEFAULT_HOLD_TIMEOUT_S = 0.5      # ours
+# What Scorbot.start_stream accepts (ours). A long period turns each step into
+# a jump the size of the lead limit; a long hold timeout switches the hold off.
+PERIOD_RANGE_S = (0.01, 0.05)
+HOLD_TIMEOUT_RANGE_S = (0.05, 2.0)
 DEFAULT_ERROR_LIMIT = 40          # openScorbot conf MAX_ERROR, the legacy joint-limit threshold
 VENDOR_MAX_SPEED_COUNTS_S = 6500.0   # ER4AxN.ini MaxSpeed; counts/s is inferred from the DLL
 DEFAULT_SPEED_FRACTION = 0.25     # ours: start at a quarter of the vendor limit
@@ -326,6 +330,10 @@ class Stream:
         try:
             if self.robot._cancel_event.is_set():
                 self.core.fail("the session was cancelled while streaming")
+            elif self.robot._fault:
+                # Latched on another thread (lost feedback, say): a faulted
+                # session must not go on following targets.
+                self.core.fail(f"the session faulted while streaming: {self.robot._fault}")
             self._pace()
             state = decode_state(reply, connected=True, enabled=None, homed=True, fault=None)
             measured = {m: signed_count_delta(state.encoder_counts[m], self._home[m])

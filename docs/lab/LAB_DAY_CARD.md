@@ -93,20 +93,20 @@ What it answers: the vendor's maths says the forearm keeps its angle to the hori
 
 ## E. Stream trial (first run of the streaming driver)
 
-Only after B showed the base moves the right way. One motor goes out 1 degree, holds, comes back. Type `HOME`, `HOME_OK`, `STREAM`.
+Only after B showed the base moves the right way. The script refuses to stream if any of the three motors is more than 5 counts from home when you type `STREAM`. One motor goes out 1 degree, holds, comes back. Type `HOME`, `HOME_OK`, `STREAM`.
 
 ```powershell
 & $py examples\bench_stream.py --output logs\stream-base-01.jsonl @id --start-pose-note "homing start pose" --motor base --delta 1 --acknowledge-supervised-motion
 ```
 
-- [ ] Write down the five lines it prints:
+- [ ] Write down the lines it prints. The last one is the verdict: `Trial result: PASSED.` or `!!! Trial result: FAILED (reason)`. A failed trial still finishes its prompts and switches the motors off; it exits with code 1.
 
 | Line | Good | If not |
 |---|---|---|
-| `Reached the target:` | `yes` | `NO` is not a fault at this size; do not try a larger move |
+| `Reached the target:` | `yes` | `NO` fails the trial; do not try a larger move |
 | `Returned to home:` | `yes` | same |
-| `Largest lead of the command over the arm:` | well under 284 counts (2 degrees) | note the number |
-| `Other two motors moved at most` | a few counts | more than about 10: say so at the "other joint" prompt |
+| `Largest lead of the command over the arm:` | well under 284 counts (2 degrees). Sampled once per step, so the true peak can be a little higher | note the number |
+| `Other two motors moved at most` | a few counts | more than 10 fails the trial; say what you saw at the "other joint" prompt |
 | `Time between steps: median ... max ...` | median near 24 ms | a large max means the PC stalled; note it and close other programs |
 
 - [ ] Was the motion smooth, or did it buzz, step or hunt? Say so at the "issue" prompt. This is the main thing only you can see.

@@ -23,7 +23,7 @@ AFTER = "y\ng\n" "toward door\nnone\nno sounds\nnone\n" "n\ng\n"
 
 class BenchStreamTests(unittest.TestCase):
     def run_script(self, answers, *extra, motor="base", delta="1", simulate=True,
-                   controller=None):
+                   controller=None, drift=None):
         made = self.made = []
 
         class Arm(SimulatedScorbot):
@@ -32,6 +32,7 @@ class BenchStreamTests(unittest.TestCase):
                                                            **(controller or {}))
                 super().__init__(**kwargs)
                 made.append(self)
+
 
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
@@ -44,12 +45,20 @@ class BenchStreamTests(unittest.TestCase):
         if simulate:
             argv.append("--simulate")
         self.printed = io.StringIO()
+        replies = iter(answers.splitlines())
+
+        def answer(question):
+            if drift and "Type STREAM" in question:      # the arm sags while the operator reads
+                for name, counts in drift.items():
+                    made[0].sim.counts[name] += counts
+            return next(replies)
+
         with mock.patch.object(sys, "argv", argv), \
                 mock.patch.object(bench_stream, "SimulatedScorbot", Arm), \
                 mock.patch.object(bench_stream, "run_checks", return_value=[
                     Check("USB", False, "mocked: a test never reaches the arm")]) \
                 as self.checks, \
-                mock.patch("builtins.input", side_effect=answers.splitlines()), \
+                mock.patch("builtins.input", side_effect=answer), \
                 contextlib.redirect_stdout(self.printed), \
                 contextlib.redirect_stderr(self.printed):
             return bench_stream.main()
@@ -77,6 +86,8 @@ class BenchStreamTests(unittest.TestCase):
         result = next(r for r in rows if r["type"] == "after_stream")["result"]
         self.assertTrue(result["reached_target"])
         self.assertTrue(result["returned_home"])
+        self.assertEqual((result["passed"], result["problems"]), (True, []))
+        self.assertIn("Trial result: PASSED", self.printed.getvalue())
         self.assertEqual(result["furthest_counts_from_home"], 142)
         self.assertEqual(result["other_motors_max_counts"], 0)
         self.assertGreaterEqual(result["step_gap_ms"]["min"], 23.0)
@@ -113,13 +124,20 @@ class BenchStreamTests(unittest.TestCase):
     @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
     def test_an_arm_that_does_not_move_is_reported_plainly(self):
         # One degree is inside the two degree lead limit, so a stalled motor is
-        # not a fault here: the run completes and the verdict says NO.
+        # not an SDK fault. The script still finishes its prompts and disables,
+        # but the trial has failed and the exit code says so.
         with mock.patch.object(SimulatedController, "__init__",
                                _with(SimulatedController.__init__, stream_stuck=True)):
-            self.assertEqual(self.run_script(TO_STREAM + "STREAM\n" + AFTER), 0)
-        result = next(r for r in self.rows() if r["type"] == "after_stream")["result"]
+            self.assertEqual(self.run_script(TO_STREAM + "STREAM\n" + AFTER),
+                             bench_stream.EXIT_TRIAL_FAILED)
+        rows = self.rows()
+        result = next(r for r in rows if r["type"] == "after_stream")["result"]
         self.assertFalse(result["reached_target"])
         self.assertFalse(result["returned_home"])
+        self.assertFalse(result["passed"])
+        self.assertIn("did not reach the target", result["problems"])
+        self.assertIn("disabled", [row["type"] for row in rows])
+        self.assertIn("Trial result: FAILED", self.printed.getvalue())
         self.assertEqual(result["max_lead_counts"], 142)
         out = self.printed.getvalue()
         self.assertIn("Reached the target: NO", out)
@@ -140,6 +158,26 @@ class BenchStreamTests(unittest.TestCase):
         self.assertIn("stream_fault", self.events())
         self.assertIn("physical stop", self.printed.getvalue())
         self.assertEqual(self.made[0].sim.stream_sent, [])
+
+    @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
+    def test_an_arm_that_is_not_at_home_is_refused_before_any_stream(self):
+        for motor in ("base", "elbow"):          # the motor to move, and one that should not
+            with self.subTest(drifted=motor):
+                with self.assertRaises(ScorbotError) as caught:
+                    self.run_script(TO_STREAM + "STREAM\n", drift={motor: 30})
+                self.assertIn("not at home", str(caught.exception))
+                self.assertEqual(self.rows()[-1]["type"], "session_failed")
+                self.assertNotIn("stream_start", self.events())
+                self.assertFalse(any(c[0] == 21 for c in self.made[0].sim.commands))
+
+    def test_a_target_too_small_to_tell_from_standing_still_is_refused(self):
+        # Four counts is inside the "arrived" tolerance: a motor that never
+        # moved would have been reported as reached and returned.
+        with self.assertRaises(SystemExit) as caught:
+            self.run_script("", delta="0.03")
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("too small", self.printed.getvalue())
+        self.assertEqual(self.made, [])
 
     def test_limits_are_refused_before_preflight_or_any_connection(self):
         for extra, delta in (((), "1.5"), ((), "0"), ((), "0.001"), (("--hold-s", "9"), "1")):
@@ -168,6 +206,51 @@ class BenchStreamTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_script("", motor="wrist_motor_1")
         self.assertEqual(self.made, [])
+
+
+class SummaryTests(unittest.TestCase):
+    """The verdict, from step records alone."""
+
+    @staticmethod
+    def step(base, commanded=None, action="send", lead=0, shoulder=0, elbow=0, t=0):
+        measured = {"base": base, "shoulder": shoulder, "elbow": elbow}
+        return {"host_monotonic_ns": t, "action": action, "measured": measured,
+                "commanded": {**measured, "base": base if commanded is None else commanded},
+                "lead": {"base": lead, "shoulder": 0, "elbow": 0}}
+
+    def good(self):
+        return [self.step(0, 40), self.step(40, 100), self.step(100, 142), self.step(142),
+                self.step(142, 80), self.step(80, 0), self.step(0, action="end")]
+
+    def test_a_clean_out_and_back_passes(self):
+        result = bench_stream.summarize(self.good(), "base", 142)
+        self.assertEqual((result["passed"], result["problems"]), (True, []))
+
+    def test_another_motor_moving_fails_the_trial(self):
+        steps = self.good()
+        steps[3] = self.step(142, elbow=30)
+        result = bench_stream.summarize(steps, "base", 142)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["other_motors_max_counts"], 30)
+        self.assertIn("another motor moved 30 counts", result["problems"])
+
+    def test_travel_well_past_the_target_fails_the_trial(self):
+        steps = self.good()
+        steps[3] = self.step(190)
+        result = bench_stream.summarize(steps, "base", 142)
+        self.assertEqual(result["overshoot_counts"], 48)
+        self.assertIn("went 48 counts past the target", result["problems"])
+
+    def test_the_lead_counts_the_setpoint_just_sent_not_only_the_one_before(self):
+        # StreamCore's own "lead" is measured before the new setpoint is made.
+        steps = self.good()
+        self.assertEqual(max(abs(s["lead"]["base"]) for s in steps), 0)
+        self.assertEqual(bench_stream.summarize(steps, "base", 142)["max_lead_counts"], 80)
+
+    def test_no_steps_at_all_is_a_failed_trial(self):
+        result = bench_stream.summarize([], "base", 142)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["problems"], ["the stream took no steps"])
 
 
 def _with(original, **attributes):
