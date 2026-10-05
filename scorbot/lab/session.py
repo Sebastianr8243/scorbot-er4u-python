@@ -21,19 +21,18 @@ from ..state import JOINTS
 from .operator import ENTER, StatusLine
 from .moves import MAX_MARKS, MarkedPosition, plan_moves
 from .faults import format_guidance, guidance_for
+from .. import limits
 from .review import format_session_review, review_session_rows
 
 EXIT_OK, EXIT_FAILED, EXIT_DECLINED = 0, 1, 3
 STEPS = (1.0, 0.5)
-TRAVEL_CAP_DEG = 10.0
+TRAVEL_CAP_DEG = limits.TRAVEL_CAP_DEG
 # Motors whose commanded target is logged with every jog (the dataset action).
-ARM_MOTORS = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2")
+ARM_MOTORS = limits.RECORDED_MOTORS
 IDLE_DISARM_S = 60.0
 IDLE_SAMPLES = 5
-STABLE_COUNTS = 2
-# A legacy jog ends once the joint is within 20 counts of its target
-# (openScorbot/libcomm.py settle loop), so counts may keep settling that far.
-DRIFT_COUNTS = 20
+STABLE_COUNTS = limits.STABLE_COUNTS
+DRIFT_COUNTS = limits.DRIFT_COUNTS
 JOG_KEYS = {"1": ("base", 1), "q": ("base", -1), "2": ("shoulder", 1),
             "w": ("shoulder", -1), "3": ("elbow", 1), "e": ("elbow", -1)}
 CHECKLIST = (

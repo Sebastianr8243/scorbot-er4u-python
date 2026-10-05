@@ -91,6 +91,21 @@ Install it once into the LeRobot environment and replay:
 .\.venv-lerobot\Scripts\lerobot-replay.exe --robot.type=scorbot --robot.simulate=true --dataset.repo_id=local/scorbot-reach --dataset.root=datasets\reach-01 --dataset.episode=0 --play_sounds=false
 ```
 
+**Two ways to follow actions.** By default each `send_action` is at most one
+1 degree jog and waits for it, which suits replaying a keyboard recording.
+With `--robot.streaming=true` each `send_action` only moves the target of
+`Scorbot.start_stream` and returns at once, and the streaming driver moves
+the three arm motors toward it together: what a policy that acts many times a
+second needs. Same motors, same 10 degree cap. Streaming needs Ruckig in the
+LeRobot environment:
+
+```powershell
+.\.venv\Scripts\uv.exe pip install --python .venv-lerobot\Scripts\python.exe "ruckig>=0.12,<1"
+```
+
+`tests/test_lerobot_plugin.py` runs an observe, decide, act loop through the
+plugin in both modes. Neither has run on the arm.
+
 The plugin refuses the real arm (`simulate=false`) and points to the lab
 tool: LeRobot's replay connects outside its cleanup and has no stop key.
 Real-arm use through LeRobot gets its own reviewed design in M2.

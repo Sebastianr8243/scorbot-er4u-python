@@ -8,17 +8,21 @@ counted in steps; drift check) and adds no motion capability. Targets and
 observations are encoder counts from the session home, as the exporter
 writes them. Used by the simulator-only LeRobot plugin; real-arm replay goes
 through ``python -m scorbot.lab`` (key p).
+
+``StreamFollower`` has the same interface on the streaming driver, for a
+policy loop: every call just moves the target.
 """
 
 from __future__ import annotations
 
+from . import limits
 from .calibration import signed_count_delta
 
-MOTORS = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2")
-STEP_JOINTS = ("base", "shoulder", "elbow")
-TRAVEL_CAP_DEG = 10.0      # the lab session's cap (scorbot.lab.session.TRAVEL_CAP_DEG)
-DRIFT_COUNTS = 20          # the legacy settle band (scorbot.lab.session.DRIFT_COUNTS)
-WRIST_TOLERANCE_COUNTS = 20
+MOTORS = limits.RECORDED_MOTORS
+STEP_JOINTS = limits.ARM_MOTORS
+TRAVEL_CAP_DEG = limits.TRAVEL_CAP_DEG
+DRIFT_COUNTS = limits.DRIFT_COUNTS
+WRIST_TOLERANCE_COUNTS = limits.DRIFT_COUNTS
 
 
 class FollowRefused(Exception):
@@ -72,3 +76,47 @@ class TargetFollower:
         self.last_raw = dict(after.encoder_counts)
         commanded[joint] = current[joint] + direction * self.positive_counts[joint]
         return commanded
+
+
+class StreamFollower:
+    """The same ``observe`` / ``step_toward`` interface on ``Scorbot.start_stream``.
+
+    ``TargetFollower`` moves one joint one degree per call and waits for it,
+    which is right for replaying a keyboard recording and far too slow for a
+    policy that sends a new target many times a second. Here ``step_toward``
+    only updates the stream's target and returns at once; the streaming
+    driver moves all three arm motors toward it together, smoothly, inside
+    its own limits (travel cap, lead limit, speed, acceleration, jerk).
+
+    Targets and observations are encoder counts from the session home, as the
+    exporter writes them. Wrist targets are refused. Call ``close`` when done.
+    Never run on the arm.
+    """
+
+    def __init__(self, robot, home_raw: dict, **stream_settings):
+        self.robot, self.home = robot, dict(home_raw)
+        self.stream = robot.start_stream(**stream_settings)
+
+    def observe(self) -> dict[str, float]:
+        raw = self.robot.get_state().encoder_counts
+        return {m: float(signed_count_delta(raw[m], self.home[m])) for m in MOTORS}
+
+    def step_toward(self, target: dict) -> dict[str, float]:
+        """Make ``target`` the stream's target; return what was commanded."""
+        current = self.observe()
+        for motor in MOTORS:
+            if motor not in STEP_JOINTS and \
+                    abs(float(target[motor]) - current[motor]) > WRIST_TOLERANCE_COUNTS:
+                raise FollowRefused(f"{motor} target moves the wrist; wrist motion is disabled")
+        try:
+            self.stream.set_target({j: float(target[j]) for j in STEP_JOINTS})
+        except ValueError as exc:      # StreamRefused: outside the cap, or the stream has ended
+            raise FollowRefused(str(exc)) from exc
+        return {**current, **{j: float(target[j]) for j in STEP_JOINTS}}
+
+    def close(self) -> None:
+        """Slow to rest and end the stream. Safe to call twice."""
+        stream, self.stream = self.stream, None
+        if stream is not None and stream.final_state is None \
+                and self.robot._stream is stream:
+            stream.close()

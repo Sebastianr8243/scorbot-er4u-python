@@ -61,6 +61,44 @@ class PluginTests(unittest.TestCase):
         self.assertFalse(robot.is_connected)
         robot.disconnect()                       # idempotent
 
+    def test_a_policy_loop_runs_through_the_plugin_in_both_modes(self):
+        # Observe, decide, act: the loop a learned policy runs. The stand-in
+        # policy just asks for a fixed goal until the observation is there.
+        import time
+        from lerobot_robot_scorbot import ScorbotRobot
+        for streaming, rate_hz in ((False, 1000.0), (True, 30.0)):
+            with self.subTest(streaming=streaming):
+                robot = ScorbotRobot(self.config(streaming=streaming))
+                robot.connect()
+                try:
+                    step = robot._follower.robot.preview_jog("base", 1.0)["motor_count_deltas"]
+                    goal = {"base": 2.0 * step["base"], "shoulder": 0.0, "elbow": 0.0,
+                            "wrist_motor_1": 0.0, "wrist_motor_2": 0.0}
+                    observation = robot.get_observation()
+                    self.assertEqual(set(observation), set(robot.observation_features))
+                    deadline = time.monotonic() + 10
+                    while abs(observation["base"] - goal["base"]) > 1 \
+                            and time.monotonic() < deadline:
+                        sent = robot.send_action(goal)
+                        self.assertEqual(set(sent), set(robot.action_features))
+                        time.sleep(1.0 / rate_hz)
+                        observation = robot.get_observation()
+                    self.assertAlmostEqual(observation["base"], goal["base"], delta=1)
+                    self.assertEqual((observation["shoulder"], observation["elbow"]), (0.0, 0.0))
+                finally:
+                    robot.disconnect()
+                self.assertFalse(robot.is_connected)
+
+    def test_a_streaming_action_past_the_cap_is_refused_and_disconnects(self):
+        from lerobot_robot_scorbot import ScorbotRobot
+        from scorbot.follow import FollowRefused
+        robot = ScorbotRobot(self.config(streaming=True))
+        robot.connect()
+        with self.assertRaises(FollowRefused):
+            robot.send_action({"base": 50000.0, "shoulder": 0.0, "elbow": 0.0,
+                               "wrist_motor_1": 0.0, "wrist_motor_2": 0.0})
+        self.assertFalse(robot.is_connected)
+
     def test_connect_failure_after_connection_cleans_up(self):
         from unittest import mock
         from lerobot_robot_scorbot import ScorbotRobot

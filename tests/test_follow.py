@@ -1,5 +1,7 @@
 """TargetFollower: bounded steps toward LeRobot-style targets, on the simulator."""
 
+from importlib.util import find_spec
+import time
 import unittest
 
 from scorbot.simulated import SimulatedScorbot
@@ -68,6 +70,101 @@ class FollowTests(unittest.TestCase):
         seen = self.follower.observe()
         self.assertEqual((seen["base"], seen["elbow"]),
                          (-2 * self.base, self.follower.step_counts["elbow"]))
+
+
+@unittest.skipUnless(find_spec("ruckig"), "ruckig not installed (pip install .[planning])")
+class StreamFollowTests(unittest.TestCase):
+    """The same follower interface on the streaming driver: a policy can call it at any rate."""
+
+    def setUp(self):
+        from scorbot.follow import StreamFollower
+        from scorbot.simulated import SimulatedController
+        self.robot = SimulatedScorbot(controller=SimulatedController(step_delay_s=0.001)).connect()
+        self.robot.enable()
+        self.robot.home(start_position_confirmed=True)
+        self.follower = StreamFollower(self.robot, self.robot.get_state().encoder_counts)
+        self.addCleanup(self.shutdown)
+
+    def shutdown(self):
+        from scorbot import ScorbotError
+        for end in (self.follower.close, self.robot.disconnect):
+            try:
+                end()
+            except ScorbotError:
+                pass               # a faulted session reports it again on the way out
+        self.follower = self.robot = None
+
+    def run_policy(self, policy, seconds=4.0, rate_hz=30.0):
+        """Observe, ask the policy for an action, send it; as a policy loop would."""
+        observation = self.follower.observe()
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            action = policy(observation)
+            if action is None:
+                break
+            self.follower.step_toward(action)
+            time.sleep(1.0 / rate_hz)
+            observation = self.follower.observe()
+        return observation
+
+    def test_a_policy_loop_brings_three_motors_to_a_goal_at_once(self):
+        goal = target(base=400, shoulder=-250, elbow=180)
+
+        def policy(observation):
+            near = all(abs(observation[m] - goal[m]) <= 1 for m in ("base", "shoulder", "elbow"))
+            return None if near else goal
+
+        final = self.run_policy(policy)
+        for motor in ("base", "shoulder", "elbow"):       # the policy stops within a count
+            self.assertAlmostEqual(final[motor], goal[motor], delta=1, msg=motor)
+        self.assertEqual((final["wrist_motor_1"], final["wrist_motor_2"]), (0.0, 0.0))
+        self.assertIsNone(self.robot._fault)
+
+    def test_a_target_that_changes_every_step_is_followed_without_stopping(self):
+        # What a learned policy does: a slightly different target on every call.
+        steps = iter(range(1, 61))
+
+        def policy(_observation):
+            step = next(steps, None)
+            return None if step is None else target(base=5 * step)
+
+        self.run_policy(policy, rate_hz=50.0)
+        final = self.run_policy(lambda obs: None if abs(obs["base"] - 300) <= 1
+                                else target(base=300))
+        self.assertAlmostEqual(final["base"], 300.0, delta=1)
+        self.assertIsNone(self.robot._fault)
+
+    def test_the_command_is_echoed_back_like_the_step_follower_does(self):
+        commanded = self.follower.step_toward(target(base=120, elbow=-60))
+        self.assertEqual((commanded["base"], commanded["shoulder"], commanded["elbow"]),
+                         (120.0, 0.0, -60.0))
+        self.assertEqual(set(commanded), set(target()))
+
+    def test_wrist_targets_and_targets_past_the_cap_are_refused(self):
+        from scorbot.follow import FollowRefused
+        with self.assertRaisesRegex(FollowRefused, "wrist"):
+            self.follower.step_toward(target(wrist=200))
+        with self.assertRaisesRegex(FollowRefused, "travel cap"):
+            self.follower.step_toward(target(base=5000))       # 10 degrees is 1420 counts
+        self.assertIsNone(self.robot._fault, "a refused target is not a fault")
+        self.follower.step_toward(target(base=50))             # and the stream carries on
+
+    def test_closing_ends_the_stream_and_leaves_the_session_usable(self):
+        self.follower.step_toward(target(base=60))
+        self.follower.close()
+        self.follower.close()                                   # idempotent
+        self.assertIsNone(self.robot._stream)
+        self.robot.jog_joint("base", 1.0)
+
+    def test_a_faulted_stream_refuses_further_actions(self):
+        from scorbot.follow import FollowRefused
+        self.robot.sim.stream_error_word = 40
+        deadline = time.monotonic() + 3
+        with self.assertRaises(FollowRefused):
+            while time.monotonic() < deadline:
+                self.follower.step_toward(target(base=100))
+                time.sleep(0.01)
+        self.assertIsNotNone(self.robot._fault)
 
 
 if __name__ == "__main__":

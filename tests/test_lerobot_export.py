@@ -4,7 +4,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tests.lerobot_fixtures import ARM, COARSE_CLOCK, FINISH, TO_LOOP, paced, record
+try:
+    from tests.lerobot_fixtures import ARM, COARSE_CLOCK, FINISH, TO_LOOP, paced, record
+except ImportError:   # .venv-lerobot has a third-party top-level 'tests' package
+    from lerobot_fixtures import ARM, COARSE_CLOCK, FINISH, TO_LOOP, paced, record
 
 EPISODE = ARM + ["t", paced("r"), "reach left", paced("q"), paced("q"), paced("r"), "y",
                  "t"]

@@ -7,11 +7,12 @@ pyarrow). The exporter checks it against LeRobot's own copy before publishing.
 
 from __future__ import annotations
 
+from .. import limits
 from .load import MOTORS
 
 SIDECAR = "scorbot_episodes.jsonl"
 UNITS = "uncalibrated encoder counts from session home"
-STEP_JOINTS = ("base", "shoulder", "elbow")
+STEP_JOINTS = limits.ARM_MOTORS
 
 
 def step_counts() -> dict[str, int]:

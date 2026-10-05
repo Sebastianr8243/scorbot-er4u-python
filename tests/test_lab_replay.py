@@ -155,7 +155,10 @@ class LabReplayTests(unittest.TestCase):
         from scorbot.lab.operator import ScriptedOperator
         from scorbot.lab.session import LabSession
         from scorbot.simulated import SimulatedController
-        from tests.lerobot_fixtures import PROFILE
+        try:
+            from tests.lerobot_fixtures import PROFILE
+        except ImportError:   # .venv-lerobot has a third-party top-level 'tests' package
+            from lerobot_fixtures import PROFILE
         self.ctrl = SimulatedController()
         self.op = ScriptedOperator(answers)
         self.runs = getattr(self, "runs", 0) + 1
@@ -222,7 +225,10 @@ class LabReplayTests(unittest.TestCase):
 
     def test_recorded_episode_replays_to_the_same_counts(self):
         """Record -> export (sidecar) -> replay, all joints: catches any sign error."""
-        from tests.lerobot_fixtures import COARSE_CLOCK, paced, record
+        try:
+            from tests.lerobot_fixtures import COARSE_CLOCK, paced, record
+        except ImportError:   # .venv-lerobot has a third-party top-level 'tests' package
+            from lerobot_fixtures import COARSE_CLOCK, paced, record
         if COARSE_CLOCK:
             self.skipTest("coarse monotonic clock")
         from scorbot.lerobot_export import sidecar

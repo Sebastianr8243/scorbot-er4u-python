@@ -10,7 +10,9 @@ from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 import math
 
-TARGET_TOLERANCE_COUNTS = 20   # the legacy settle band (lab DRIFT_COUNTS)
+from .. import limits
+
+TARGET_TOLERANCE_COUNTS = limits.DRIFT_COUNTS   # the legacy settle band
 MAX_CLOCK_RESOLUTION_S = 1e-3
 MIN_FRAMES = 2
 FAULT_ROWS = ("jog_failed", "counts_drift")

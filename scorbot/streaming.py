@@ -21,11 +21,12 @@ import math
 import threading
 import time
 
+from . import limits
 from .calibration import signed_count_delta
 from .state import decode_state
 from .vendor_profile import MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION, VendorProfile
 
-MOTORS = ("base", "shoulder", "elbow")
+MOTORS = limits.ARM_MOTORS
 DEFAULT_PERIOD_S = 0.024          # vendor planner period (PCPeriod x USBCPeriod); a prior
 DEFAULT_HOLD_TIMEOUT_S = 0.5      # ours
 # What Scorbot.start_stream accepts (ours). A long period turns each step into

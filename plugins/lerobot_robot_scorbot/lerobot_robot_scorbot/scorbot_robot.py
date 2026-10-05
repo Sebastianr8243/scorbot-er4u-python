@@ -1,10 +1,14 @@
 """ScorBot as a LeRobot ``Robot``, on the simulated controller only.
 
 Observations and actions are encoder counts from the session home for base,
-shoulder, elbow and the two wrist motors, as the exporter writes them. Each
-``send_action`` is at most one ordinary 1 degree jog through
+shoulder, elbow and the two wrist motors, as the exporter writes them. By
+default each ``send_action`` is at most one ordinary 1 degree jog through
 ``scorbot.follow.TargetFollower`` (lab limits: base, shoulder and elbow only,
 10 degree cap, drift check), so replay runs at the arm's pace.
+
+With ``streaming=true`` each ``send_action`` instead moves the target of
+``Scorbot.start_stream`` (``scorbot.follow.StreamFollower``) and returns at
+once: what a policy acting many times a second needs. Same motors and cap.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ import time
 
 from lerobot.robots.robot import Robot
 
-from scorbot.follow import MOTORS, TargetFollower
+from scorbot.follow import MOTORS, StreamFollower, TargetFollower
 
 from .config_scorbot import ScorbotRobotConfig
 
@@ -33,7 +37,7 @@ class ScorbotRobot(Robot):
         super().__init__(config)
         self.config = config
         self._robot = None
-        self._follower: TargetFollower | None = None
+        self._follower: TargetFollower | StreamFollower | None = None
 
     @property
     def observation_features(self) -> dict:
@@ -65,8 +69,11 @@ class ScorbotRobot(Robot):
             robot.enable()
             robot.home(start_position_confirmed=True)
             home = robot.get_state().encoder_counts
-            self._follower = TargetFollower(robot, home, step_deg=self.config.step_deg,
-                                            speed=self.config.speed)
+            if self.config.streaming:
+                self._follower = StreamFollower(robot, home)
+            else:
+                self._follower = TargetFollower(robot, home, step_deg=self.config.step_deg,
+                                                speed=self.config.speed)
         except BaseException:
             # lerobot-replay calls connect() outside its cleanup block: clean up here.
             self._shutdown(robot)
@@ -84,8 +91,13 @@ class ScorbotRobot(Robot):
             raise
 
     def disconnect(self) -> None:
+        follower = self._follower
         robot, self._robot, self._follower = self._robot, None, None
         if robot is not None:
+            try:
+                getattr(follower, "close", lambda: None)()   # ends a stream; the jog follower has none
+            except Exception:
+                pass          # a faulted stream says so again here; shut down regardless
             self._shutdown(robot)
 
     @staticmethod

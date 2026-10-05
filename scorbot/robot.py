@@ -12,6 +12,7 @@ import sys
 import threading
 import traceback
 
+from . import limits
 from .calibration import load_calibration, signed_count_delta
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
@@ -88,21 +89,19 @@ class Scorbot:
     # "Has it stopped" follows the USNA ScorBot Toolbox for MATLAB
     # (ScorWaitForMove): successive readings 0.05 s apart that no longer change,
     # giving up after 8 s. We ask for three such pairs in a row, so one pause
-    # in a slow move is not taken for rest. The 2 count band is our lab idle
-    # band (scorbot.lab.session.STABLE_COUNTS). None of it is measured on our arm.
+    # in a slow move is not taken for rest. The count band is our lab idle
+    # band (limits.STABLE_COUNTS). None of it is measured on our arm.
     STOP_SETTLE_INTERVAL_S = 0.05
     STOP_SETTLE_TIMEOUT_S = 8.0
-    STOP_SETTLE_COUNTS = 2
+    STOP_SETTLE_COUNTS = limits.STABLE_COUNTS
     STOP_SETTLE_QUIET_PAIRS = 3
-    # Streaming travel from home. Stage 1 of the staged widening in
-    # docs/specs/2026-10-04-streaming-driver-requirements.md; raise it
-    # only with lab evidence, and say why in docs/project/PROJECT_LOG.md.
-    STREAM_TRAVEL_CAP_MAX_DEG = 10.0
+    # Streaming travel from home: the shared cap in scorbot/limits.py.
+    STREAM_TRAVEL_CAP_MAX_DEG = limits.TRAVEL_CAP_DEG
     # Gripper (ours, not measured): how far short of the planned travel still
     # counts as the whole move, and how far an arm motor may read differently
     # after a gripper move before the session faults.
     GRIPPER_FULL_TRAVEL_TOLERANCE_COUNTS = 100
-    GRIPPER_ARM_TOLERANCE_COUNTS = 20
+    GRIPPER_ARM_TOLERANCE_COUNTS = limits.DRIFT_COUNTS
 
     _JOG_CODES = {
         "base": (5, 4),
@@ -113,11 +112,11 @@ class Scorbot:
     }
 
     def __init__(self, *, log_path: str | Path | None = None,
-                 command_timeout: float = 30.0, max_jog_degrees: float = 5.0,
+                 command_timeout: float = 30.0, max_jog_degrees: float = limits.MAX_JOG_DEG,
                  response_timeout: float = 2.0, robot_id: str | None = None,
                  calibration_path: str | Path | None = None):
         if (not math.isfinite(command_timeout) or command_timeout <= 0
-                or not math.isfinite(max_jog_degrees) or not 0 < max_jog_degrees <= 5
+                or not math.isfinite(max_jog_degrees) or not 0 < max_jog_degrees <= limits.MAX_JOG_DEG
                 or not math.isfinite(response_timeout) or response_timeout <= 0):
             raise ValueError("Timeouts must be positive; maximum jog must be 0-5 degrees")
         if calibration_path is not None and not robot_id:

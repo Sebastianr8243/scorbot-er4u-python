@@ -11,9 +11,10 @@ from pathlib import Path
 from ..calibration import signed_count_delta
 from ..camera.stream import StreamIndex, scan_stream
 from ..session.replay import Session, load_session
+from .. import limits
 from ..state import decode_state
 
-MOTORS = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2")
+MOTORS = limits.RECORDED_MOTORS
 CAMERA_ID = "main"
 
 
