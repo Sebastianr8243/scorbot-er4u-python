@@ -298,19 +298,19 @@ I, not traced: every axis is driven from the one normalised 0..1 curve scaled by
 |---|---|
 | Emulation | Six profiles (including the defaults, the largest fractions, a 1 ms move and a 10 s move), 1,032 time samples at and around every segment boundary: position, velocity and acceleration equal the Python model to 2e-15 |
 | Second build | Set-up and evaluator are instruction-for-instruction identical in the 2008 build |
-| Ruckig, an independent jerk-limited planner | Given the vendor profile's own peak velocity, acceleration and jerk as limits, Ruckig's time-optimal move has the same duration and the same positions and velocities to 1e-6. This supports the shape claim; it is not a second source for the vendor's parameter values |
+| Ruckig, an independent jerk-limited planner | Given peak velocity, acceleration and jerk computed from our own model of the vendor profile, Ruckig's time-optimal move has the same duration and the same positions and velocities to 1e-6. This is a mathematical statement about one normalised curve: it is the standard jerk-limited shape. It is circular as evidence about the DLL (the limits came from our model) and says nothing about real vendor setpoints |
 
 One behaviour worth knowing: the evaluator has no guard for negative time. It runs the first cubic backwards and returns a small negative position.
 
 ### 11.3 Speed and time
 
 - `Time(group, ms)` (`0x10016eb8`) stores ms / 1000 seconds and marks the group as "time mode". A negative value is error 909 (V).
-- `Speed(group, percent)` (`0x10016f93`) accepts 1 to 100 and stores 0.3 + 0.007 x percent, so a factor from 0.307 to 1.0, in "speed mode". Below 1 is error 586; above 100 is error 913 (V). The lowest setting is therefore about 31% of full speed, not 1%.
+- `Speed(group, percent)` (`0x10016f93`) accepts 1 to 100 and stores 0.3 + 0.007 x percent, so a factor from 0.307 to 1.0, in "speed mode". Below 1 is error 586; above 100 is error 913 (V). That is the stored factor only. What speed it produces is not known until the next point is resolved.
 - **Unresolved:** how the speed factor and the per-axis limits below turn into a duration T. The move set-up functions (`0x1000b910` and its siblings, reached from `MoveJoint` through `0x10035eab`) were not read.
 
 ### 11.4 Velocity jog
 
-`MoveManual(axis, percent)` (`0x1001ba0c`, V) takes the axis's `Manual_1` (negative direction) or `Manual_2` (positive) value, multiplies by percent / 100, and starts a move with A = 0.3 and J = 0.05: a much shorter jerk ramp than a point move, which is what makes a jog feel immediate. In XYZ manual mode the scale comes from `[ManualSpeedXYZ]` instead. `EnterManual` clears the controller's buffer first and the queue limit drops to `ManualBuffers` (section 2).
+`MoveManual(axis, percent)` (`0x1001ba0c`, V) uses the **sign** of percent only to choose between the axis's `Manual_1` (percent negative) and `Manual_2` (percent zero or positive), then multiplies the chosen value by the **magnitude**, |percent| / 100 (the helper at `0x10043217` is the C runtime's `fabs`). The direction therefore comes from the sign of the INI value, which differs per axis: for the base at -50% the result is `Manual_1` x 0.5 = -72.5, and for the shoulder at -50% it is `Manual_1` x 0.5 = +72.5. It then starts a move with A = 0.3 and J = 0.05: a much shorter jerk ramp than a point move, which is what makes a jog feel immediate. In XYZ manual mode the scale comes from `[ManualSpeedXYZ]` instead. `EnterManual` clears the controller's buffer first and the queue limit drops to `ManualBuffers` (section 2).
 
 ### 11.5 Per-axis limits
 
@@ -325,7 +325,7 @@ From `ER4AxN.ini`, loaded by `0x100043b2` into a 0xA8-byte record per axis (V fo
 | 5 wrist motor 2 | -1000000 / 1000000 | effectively none | 6500 | 11000 | -475 / 475 | 70 | 20 |
 | 6 gripper | -200 / 6000 | | 15000 | 50000 | -7500 / 7500 | 300 | 200 |
 
-The encoder limits are per motor, in counts from zero. They are the vendor's own soft limits in the same coordinates our SDK works in, which makes them more directly usable than the joint-angle limits in `[Limits]`. The same record holds the servo gains (`PropGain`, `DifferGain`, `IntegralGain`, `FeedForward`), the thermal model, and the homing settings used in question D (`Type`, `Velocity`, `SwitchState`, `SwitchMask`, `ImpactCondEnc`, `ImpactCondTicks`, `MaxTime`, `MaxDistance`).
+The encoder limits are per motor, in the vendor's counts. They are **diagnostic priors, not limits our SDK can apply**: whether our counts share the vendor's zero and signs is unverified (section 10.3; the legacy homing does not zero the counters), and the limits are asymmetric, so an offset or a flipped sign would let a bad target through or refuse a good one. They become usable only after the home count and motor signs are measured. The same record holds the servo gains (`PropGain`, `DifferGain`, `IntegralGain`, `FeedForward`), the thermal model, and the homing settings used in question D (`Type`, `Velocity`, `SwitchState`, `SwitchMask`, `ImpactCondEnc`, `ImpactCondTicks`, `MaxTime`, `MaxDistance`).
 
 `[Motion]` also gives `MaxJointSpeed = 2.0` and `MaxLinearSpeed = 0.20`. They are copied into the planner's state (`0x10020ef4`); where they are applied was not traced.
 
@@ -338,8 +338,10 @@ Stated plainly, as the plan requires:
 - **Lifecycle.** What the planner does on a new target while moving, a stop, a full queue, a late or missing reply, and an emergency. The per-reply tick (`0x10025c6c`, about 3,200 instructions) was not read. No transition table exists yet.
 - **Linear, circular and spline moves.**
 
+Reviewed by Codex against the disassembly and INI files. The INI table and the profile formulas held. Five statements were corrected: the velocity jog multiplies by the magnitude of the percentage and takes its direction from the sign of the INI value; the encoder limits are diagnostic priors, not limits in our coordinates; the Ruckig agreement is about the curve's shape only; the speed factor is a stored number, not a known speed; and `setpoints` could stop short of the target when the period did not divide the duration.
+
 ### 11.7 What this means for us
 
-- Our Ruckig planner (`scorbot/planning.py`) can produce the vendor's motion exactly, given the right limits. Nothing about the vendor's profile needs a different planner.
+- The vendor's profile is a curve a jerk-limited planner such as Ruckig can express, so nothing about its shape calls for a different planner. Whether `scorbot/planning.py` reproduces actual vendor setpoints is not shown: that needs the duration and sampling questions answered and a capture to compare with.
 - The vendor plans by time, not by limits: the move takes T seconds and the peaks follow from the distance. A policy that sends a new target many times a second is a different regime, closer to the velocity jog with its short jerk ramp.
 - The lab check is capture B's slow go-to (lab plan V19): the setpoint stream should follow this curve with the 30/40/30 split.

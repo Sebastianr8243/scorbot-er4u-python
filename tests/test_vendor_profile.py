@@ -107,10 +107,17 @@ class ProfileTests(unittest.TestCase):
                 VendorProfile(*parameters)
 
     def test_setpoints_scale_the_profile_and_end_on_the_distance(self):
-        points = VendorProfile().setpoints(142.0, 0.016)
-        self.assertEqual(points[0], 0.0)
-        self.assertEqual(points[-1], 142.0)
-        self.assertEqual(len(points), 189)          # 3.0 s / 16 ms = 187.5, rounded, plus the start
+        # 0.016 s does not divide 3 s (187.5 ticks); 0.017 s leaves the last
+        # regular tick at 2.992 s; 0.5 s divides it exactly. All must end on
+        # the full distance, with every tick before it short of it.
+        for period, count in ((0.016, 189), (0.017, 178), (0.5, 7)):
+            with self.subTest(period=period):
+                points = VendorProfile().setpoints(142.0, period)
+                self.assertEqual(points[0], 0.0)
+                self.assertEqual(points[-1], 142.0)
+                self.assertEqual(len(points), count)
+                self.assertTrue(all(point < 142.0 for point in points[:-1]))
+                self.assertTrue(all(b >= a for a, b in zip(points, points[1:])))
         with self.assertRaises(ValueError):
             VendorProfile().setpoints(142.0, 0)
 
@@ -125,8 +132,11 @@ class ProfileTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
 class RuckigAgreementTests(unittest.TestCase):
-    """Given the vendor profile's own peak velocity, acceleration and jerk as
-    limits, a time-optimal jerk-limited planner should produce the same move."""
+    """Given peak velocity, acceleration and jerk computed from our own model, a
+    time-optimal jerk-limited planner should produce the same normalised move.
+
+    This shows the curve is the standard jerk-limited shape. It is not evidence
+    about the DLL beyond that: the limits come from the model under test."""
 
     def test_ruckig_reproduces_the_vendor_profile_from_its_limits(self):
         from ruckig import InputParameter, Result, Ruckig, Trajectory

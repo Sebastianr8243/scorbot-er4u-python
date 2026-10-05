@@ -130,6 +130,9 @@ class VendorProfile:
         """
         if period <= 0:
             raise ValueError("period must be positive")
-        steps = int(self.total_time / period + 0.5)
-        return [distance * self.sample(min(step * period, self.total_time)).position
-                for step in range(steps + 1)]
+        points, step = [], 0
+        while step * period < self.total_time:
+            points.append(distance * self.sample(step * period).position)
+            step += 1
+        points.append(distance * self.sample(self.total_time).position)
+        return points
