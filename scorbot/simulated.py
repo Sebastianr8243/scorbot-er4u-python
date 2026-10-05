@@ -51,6 +51,8 @@ _JOG_ORDERS = set(range(4, 14))
 _ERROR_UNKNOWN_ORDER, _ERROR_INJECTED, _ERROR_COUNT_RANGE, _ERROR_MOTORS_OFF = 1, 3, 4, 5
 _ERROR_HOME_SEARCH = 2  # what openScorbot/setHome.py puts in the queue on a search time-out
 _STOPPED = 14  # openScorbot/libcomm.py:STOPPED, a jog ended by a stop request
+_GRIPPER_OPEN, _GRIPPER_CLOSE = 14, 15   # the order codes; unrelated to the result 14 above
+_ERROR_NO_SETTLE = 2    # what libcomm.clamp reports for a gripper still moving at the end
 ARM_MOTORS = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2")
 
 
@@ -152,7 +154,15 @@ class SimulatedController:
         self._lock = threading.Condition()
         self._index = 0
         self._plan_jog = None
+        self._gripper_increments = None
         self._stop_event = None
+        # Gripper model (modeled, not measured). A close stops at
+        # gripper_blocked_at if set: an object in the jaws. gripper_never_settles
+        # makes the move report that the gripper was still moving at the end.
+        # gripper_disturbs adds counts to arm motors during the move.
+        self.gripper_blocked_at: int | None = None
+        self.gripper_never_settles = False
+        self.gripper_disturbs: dict[str, int] = {}
         # Streaming model (modeled, not measured): each step the arm covers
         # this share of the distance to the setpoint; stuck means it does not move.
         self.stream_follow = 1.0
@@ -275,6 +285,10 @@ class SimulatedController:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
             return self._stream(payload[1])
+        elif order in (_GRIPPER_OPEN, _GRIPPER_CLOSE):
+            if not self.motors_on:
+                return _ERROR_MOTORS_OFF
+            return self._gripper(1 if order == _GRIPPER_OPEN else -1)
         elif order in _JOG_ORDERS:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
@@ -306,6 +320,29 @@ class SimulatedController:
         else:
             return _ERROR_UNKNOWN_ORDER
         return 0
+
+    def _gripper(self, sign: int) -> int:
+        """Ramp the gripper count like openScorbot/libcomm.py:clamp, with an object model."""
+        stopped = False
+        for step in self._gripper_increments():
+            if self.step_delay_s:
+                time.sleep(self.step_delay_s)
+            with self._lock:
+                target = self.counts["gripper"] + sign * step
+                if abs(target) > MAX_COUNT:
+                    return _ERROR_COUNT_RANGE
+                if sign < 0 and self.gripper_blocked_at is not None:
+                    target = max(target, self.gripper_blocked_at)   # closed on the object
+                self.counts["gripper"] = target
+            if self._stop_event is not None and self._stop_event.is_set():
+                stopped = True
+                break
+        with self._lock:
+            for motor, counts in self.gripper_disturbs.items():
+                self.counts[motor] += counts
+        if stopped:
+            return _STOPPED
+        return _ERROR_NO_SETTLE if self.gripper_never_settles else 0
 
     def _stream(self, source) -> int:
         """Follow a stream like openScorbot/libcomm.py:stream_targets, with an arm model."""
@@ -407,6 +444,7 @@ class SimulatedScorbot(Scorbot):
         self._cancel_event.clear()
         self._stop_event.clear()
         self.sim._plan_jog = self._legacy("motion_profile").plan_jog
+        self.sim._gripper_increments = self._gripper_plan
         self.sim._stop_event = self._stop_event
         self._device = "simulated-controller"
         self._input = self.sim
@@ -430,6 +468,11 @@ class SimulatedScorbot(Scorbot):
                 self._record("connect_cleanup_failed", error=str(cleanup_error))
             raise ScorbotError(f"Simulated connection failed: {exc}") from exc
         return self
+
+    def _gripper_plan(self) -> list[int]:
+        conf = self._legacy("conf")
+        return self._legacy("motion_profile").gripper_increments(
+            conf.readData("pinza", "vel"), conf.readData("pinza", "ite_clamp"))
 
     def get_state_and_packet(self, *, after_index: int | None = None):
         state, packet = super().get_state_and_packet(after_index=after_index)

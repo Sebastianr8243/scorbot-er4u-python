@@ -331,7 +331,25 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 # a los anteriores movimientos.
 # Tiene velocidad constante, y en funcion de la orden hará un incremento o decremento
 # de los valores de enconder del mensaje de escritura.
-def clamp(b_1, epout, epin, buffer, orden, cola_read):
+#
+# Order 14 opens (the gripper count rises), 15 closes. The gripper is switched
+# on, its setpoint is ramped by a fixed number of counts, held, and the gripper
+# is switched off again. Fixed 2026-10-05 (tests/test_gripper.py), with no new
+# command byte, template or delay:
+#  - the old wait loop ran only while the gripper WAS at its target and then
+#    reported an error through cola_orden, a name this function did not have,
+#    so a gripper that arrived crashed the worker;
+#  - a gripper stopped short by an object is a grasp, not an error. The move
+#    now ends when the gripper stops moving. Result 2 only if it is still
+#    moving after 100 further messages;
+#  - a stop request ends the ramp and switches the gripper off on the measured
+#    position, with result STOPPED.
+# Never run on the arm by this project. The vendor closes its gripper another
+# way (docs/protocol/VENDOR_DLL_PROTOCOL.md section 12).
+#
+# cola_orden -> Result queue, as for the jogs
+# stop_event -> Optional threading.Event; when set the move ends early
+def clamp(b_1, epout, epin, buffer, orden, cola_read, cola_orden=None, stop_event=None):
 	write = conf.readData("pinza","write")
 	read = conf.readData("pinza","read")
 	vel = conf.readData("pinza","vel")
@@ -351,56 +369,69 @@ def clamp(b_1, epout, epin, buffer, orden, cola_read):
 	dato_in = [step_in, signo]
 	signal_out= ''
 	ite = conf.readData("pinza","ite_clamp")
+	stopped = False
 	for i in range(ite):
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
-
-	for _ in range(15):
-		cadena = libhex.mov_comm(1)
-		b_1 = libdef.countByte1(b_1)
-		cadena = cadena.format(libdef.f_byte(b_1))
-		cadena = libdef.fill_msg(cadena, 24)
-		media = libdef.get_media(buffer, media)
-		msg = libdef.get_encoder(buffer, media)
-		cadena += libdef.getStruct(orden, signal_out, msg)
-		libdef.set_msg(cadena, epout, epin, buffer, write, read)
-		media = libdef.get_media(buffer, media)
-
-	cont = 0
-	while abs(dato_in[0] - media[5]) == 0:
-		cadena = libhex.mov_comm(1)
-		b_1 = libdef.countByte1(b_1)
-		cadena = cadena.format(libdef.f_byte(b_1))
-		cadena = libdef.fill_msg(cadena, 24)
-		media = libdef.get_media(buffer, media)
-		msg = libdef.get_encoder(buffer, media)
-		cadena += libdef.getStruct(orden, signal_out, msg)
-		libdef.set_msg(cadena, epout, epin, buffer, write, read)
-		media = libdef.get_media(buffer, media)
-		if cont == 100:
-			print("ERROR: Joint did not respond")
-			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
-			logging.warning(libdef.error_msg(1))
+		if stop_event is not None and stop_event.is_set():
+			stopped = True
 			break
-		cont += 1
 
-	media = libdef.get_media(buffer, media)
-	cadena = libhex.clamp(4)
-	b_1 = libdef.countByte1(b_1)
-	cadena = cadena.format(libdef.f_byte(b_1))
-	cadena = libdef.fill_msg(cadena, 24)
-	msg = libdef.get_encoder(buffer,media)
-	cadena += libdef.getStruct(orden, signal_out, msg)
-	libdef.set_msg(cadena, epout, epin, buffer, write, read)
+	if not stopped:
+		for _ in range(15):
+			cadena = libhex.mov_comm(1)
+			b_1 = libdef.countByte1(b_1)
+			cadena = cadena.format(libdef.f_byte(b_1))
+			cadena = libdef.fill_msg(cadena, 24)
+			media = libdef.get_media(buffer, media)
+			msg = libdef.get_encoder(buffer, media)
+			cadena += libdef.getStruct(orden, signal_out, msg)
+			libdef.set_msg(cadena, epout, epin, buffer, write, read)
+			media = libdef.get_media(buffer, media)
 
-	media = libdef.get_media(buffer, media)
-	cadena = libhex.clamp(5)
-	b_1 = libdef.countByte1(b_1)
-	cadena = cadena.format(libdef.f_byte(b_1))
-	cadena = libdef.fill_msg(cadena, 24)
-	msg = libdef.get_encoder(buffer,media)
-	cadena += libdef.getStruct(orden, signal_out, msg)
-	libdef.set_msg(cadena, epout, epin, buffer, write, read)
+		# Hold until the gripper has stopped moving: at its target, or against
+		# whatever it closed on.
+		cont = 0
+		quiet = 0
+		while quiet < 2:
+			previous = media[5]
+			cadena = libhex.mov_comm(1)
+			b_1 = libdef.countByte1(b_1)
+			cadena = cadena.format(libdef.f_byte(b_1))
+			cadena = libdef.fill_msg(cadena, 24)
+			media = libdef.get_media(buffer, media)
+			msg = libdef.get_encoder(buffer, media)
+			cadena += libdef.getStruct(orden, signal_out, msg)
+			libdef.set_msg(cadena, epout, epin, buffer, write, read)
+			media = libdef.get_media(buffer, media)
+			quiet = quiet + 1 if abs(media[5] - previous) <= 1 else 0
+			if stop_event is not None and stop_event.is_set():
+				stopped = True
+				break
+			if cont == 100 and quiet < 2:
+				print("ERROR: Joint did not respond")
+				if cola_orden is not None:
+					cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
+				logging.warning(libdef.error_msg(2))
+				break
+			cont += 1
+
+	# Gripper off. After a stop the two messages carry the measured position,
+	# not the target the ramp was heading for.
+	for i in (4, 5):
+		media = libdef.get_media(buffer, media)
+		cadena = libhex.clamp(i)
+		b_1 = libdef.countByte1(b_1)
+		cadena = cadena.format(libdef.f_byte(b_1))
+		cadena = libdef.fill_msg(cadena, 24)
+		msg = libdef.get_encoder(buffer,media)
+		cadena += msg if stopped else libdef.getStruct(orden, signal_out, msg)
+		libdef.set_msg(cadena, epout, epin, buffer, write, read)
+
+	if stopped:
+		if cola_orden is not None:
+			cola_orden.put(STOPPED)
+		logging.warning(libdef.error_msg(STOPPED))
 
 	media = libdef.get_media(buffer,media)
 	cola_read.put(media)
@@ -563,7 +594,7 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 				elif orden == 10 or orden == 11 or orden == 12 or orden == 13:
 					b_1 = move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
 				elif orden == 14 or orden == 15:
-					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read)
+					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read, cola_result, stop_event)
 				elif orden == STREAM:
 					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:

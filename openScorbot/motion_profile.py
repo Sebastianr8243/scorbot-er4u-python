@@ -69,6 +69,27 @@ def increments_for_counts(counts, speed):
     return result
 
 
+GRIPPER_ORDERS = {"open": 14, "close": 15}
+
+
+def gripper_increments(speed, steps):
+    """The count added to the gripper setpoint in each message of libcomm.clamp.
+
+    The same ramp as libdef.incremento (tests/test_gripper.py checks they
+    agree), kept here because this module needs no USB import. The gripper
+    count rises to open and falls to close. Inherited values, not measured.
+    """
+    values = []
+    for count in range(1, steps + 1):
+        if count < 12:
+            values.append(min(round((speed / 12) * count), speed))
+        elif count >= steps - 12:
+            values.append(max(round((speed / 12) * (steps - count)), 0))
+        else:
+            values.append(speed)
+    return values
+
+
 def plan_jog(order, degrees, speed):
     """Return an offline preview for one legacy order code."""
     if order not in ORDER_TO_JOINT:

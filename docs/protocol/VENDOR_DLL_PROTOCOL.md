@@ -369,3 +369,41 @@ Reviewed by Codex against the disassembly and INI files. The INI table and the p
 - **The vendor does not do what a policy needs.** It refuses a new target mid-move. Streaming a new target many times a second is our own design problem, with the vendor's limits and period as priors.
 - **Our planner's period prior is probably wrong.** The offline planner `scorbot/planning.py` defaulted to 16 ms (`PCPeriod`); the vendor's planner steps at 24 ms, which is what the streaming driver uses. That planner was removed on 2026-10-05. Which period the controller expects is for the lab to measure.
 - **We now have speed priors per motor**: 6500 counts/s, where `planning.py` had only datasheet joint speeds and no acceleration or jerk at all.
+
+## 12. Gripper
+
+Read on 2026-10-05 from the 2018 build. Everything here is read from the decompiled code (label V) and unverified on the arm.
+
+### 12.1 What the vendor sends
+
+`OpenGripper` (`0x100188f0`) and `CloseGripper` (`0x100189c4`) both call one routine (`0x1000d943`) with 1 to open and 0 to close. In the real-controller branch it sends three messages for the gripper axis (mask `20`):
+
+| # | Message | Builder | Meaning |
+|---|---|---|---|
+| 1 | `42 20 01` | `0x1003f49a` | Turn motors, gripper axis, on |
+| 2 | `4F 20 54` | `0x1003f4e9` (case 2) | Mode `T` for the gripper axis |
+| 3 | `4D 20` + a signed 32-bit value | `0x1003f89c` | Move with a drive value: positive to open, negative to close |
+
+- The value in message 3 is a signed 16-bit per-axis parameter (at offset `0x3d6` of the axis block). The same builder is what the exported `MoveTorque` uses, so mode `T` plus `4D` reads as "drive the motor with this torque", not "go to this position". Which INI key holds the value was not traced.
+- A countdown is then set to `0x78` (120); its unit, and what ends the move, were not traced. Elsewhere the DLL raises an "End of Gripper movement" notification and re-enables control.
+- If the gripper is already at the requested end (its percentage is 0 or 100 and every axis is in position), nothing is sent.
+- With a servo gripper configured (`0x29`), `OpenGripper` and `CloseGripper` call `JawMetric` instead.
+
+### 12.2 Against the legacy code
+
+| | Vendor | Legacy `libcomm.clamp` |
+|---|---|---|
+| Mode | `4F 20 54` (`T`) | `4F 20 53` (`S`) |
+| Extra command | none | `4C 20 00` ("Slave Cmd"; the vendor has a builder for it at `0x1003f96a`, but the gripper routine does not call it) |
+| Motor on | `42 20 01` | `42 20 01` |
+| Motion | one `4D` message with a drive value | about 45 `0D` messages ramping the gripper position setpoint by a fixed 2700 counts |
+| End | not traced | `73 20`, `42 20` |
+
+So the two close the gripper by different means: the vendor pushes with a set drive for a time, the legacy code asks for a position. The vendor's way has a natural grip force (the drive value). The legacy way has none: against an object the setpoint runs far past where the jaws stopped.
+
+### 12.3 What this means for us
+
+- `Scorbot.move_gripper` uses the **legacy** sequence, fixed (`tests/test_gripper.py`). Every command byte in it is already in `openScorbot/libhex.py`, which the packet rule allows; `4C` has not yet been sent to the arm by this project.
+- The vendor's sequence needs `4D` and a single-axis mode `T`, which the legacy code never sends. Under the packet rule it needs a capture first (S1 card: one open and one close in SCORBASE).
+- First trials on the arm are with empty jaws, then a soft object (lab day card, step G).
+- Still to read: what ends the vendor's gripper move, the drive value's INI key, and the gripper's count limits in the vendor's terms (section 11.5 lists -200 to 6000).

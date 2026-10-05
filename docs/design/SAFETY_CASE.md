@@ -8,7 +8,7 @@ Baseline: commit `99d3ab6` (branch `claude/docs-system-engineering`), 2026-09-29
 
 | ID | Statement | Basis |
 |---|---|---|
-| A1 | Scope: gate G1 (idle capture, one home, one base/shoulder/elbow jog of at most 1 degree per run) with G2 and G3 planned in section 6. Out of scope: Cartesian motion, autonomous operation, unattended use, wrist and gripper motion, the legacy GUI. | `docs/lab/G1_LAB_CHECKLIST.md`, `docs/design/ARCHITECTURE.md` |
+| A1 | Scope: gate G1 (idle capture, one home, one base/shoulder/elbow jog of at most 1 degree per run) with G2 and G3 planned in section 6. Out of scope: Cartesian motion, autonomous operation, unattended use, wrist motion, the legacy GUI. The gripper was out of scope until 2026-10-05; `Scorbot.move_gripper` now exists, has no force limit, and has no gate or hazard analysis here beyond its own checks (motors enabled, arm motors unchanged afterwards) until its first bench trial. | `docs/lab/G1_LAB_CHECKLIST.md`, `docs/design/ARCHITECTURE.md` |
 | A2 | Three roles held by three people: stop operator (hand at the emergency stop, eyes on the arm), keyboard operator, recorder. | `docs/lab/G1_LAB_CHECKLIST.md` |
 | A3 | The physical emergency stop is the only authoritative stop. Software `disable()` is a queued command and is not a stop. | `scorbot/robot.py:Scorbot.disable`, `docs/manual/HARDWARE_REFERENCE.md` |
 | A4 | Exactly one program owns the controller: Intelitek software and the legacy GUI are closed before Python connects. | Checklist section B; not enforced in code |
