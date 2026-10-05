@@ -37,7 +37,7 @@ flowchart TD
 
 | Path | Responsibility |
 |---|---|
-| `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, kinematics, trajectory planning and the viewer's link chain `arm_chain.py` (all offline, wired into nothing), simulator, preflight |
+| `scorbot/` | Public SDK: facade, state decode, calibration, nominal manual values, kinematics, trajectory planning and the viewer's link chain `arm_chain.py` and 3D view `arm_view.py` (all offline, wired into no motion), simulator, preflight |
 | `scorbot/session/` | MCAP session recorder, replay, analysis, CLI (`python -m scorbot.session`). Never imports USB |
 | `plugins/lerobot_robot_scorbot/` | LeRobot robot plugin, simulator only (refuses the real arm); each action is one bounded jog via `scorbot/follow.py`. Installed into `.venv-lerobot` with `-e`. Real-arm replay is `python -m scorbot.lab` key `p` (`scorbot/lab/replay.py`) |
 | `scorbot/lerobot_export/` | Lab sessions to a local LeRobot dataset: load, refusal checks, resampling (pure), `write.py` (only module importing `lerobot`, run in `.venv-lerobot`). `python -m scorbot.lerobot_export ... --dry-run`. See `docs/design/LEROBOT_EXPORT.md` |
@@ -48,6 +48,7 @@ flowchart TD
 | `scripts/` | Offline analysis (fit, review, live view, USB trace), kit and Windows setup |
 | `tests/` | `unittest` suite, no hardware |
 | `docs/` | Design, hardware reference, bench and lab checklists, capture and recording guides. `docs/specs/` holds design specs (old implementation plans are in git history) |
+| `models/er4u_meshes/` | Optional community link meshes for the 3D view. Only the README is tracked; never commit the STL files (licence unclear) |
 | `tools/foxglove/` | Foxglove layouts for recorded sessions |
 | `tools/usbc_analysis/` | Ghidra export script and query tool for static analysis of the vendor `USBC.dll`. Never commit the DLL or its decompiled output |
 | `tools/usbc_probe/` | Parked ctypes bindings for the vendor DLL (one getter, never run on the real DLL). Not part of the SDK; nothing calls it |
@@ -73,6 +74,7 @@ python examples\record_raw_state.py --output rehearsal\idle-01.jsonl --robot-id 
 python examples\bench_joint.py --output rehearsal\base-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --start-pose-note rehearsal --joint base --delta 1 --simulate --acknowledge-supervised-motion
 python scripts\review_lab_logs.py --idle rehearsal\idle-01.jsonl --bench rehearsal\base-01.jsonl
 python -m scorbot.session list|export|compare <paths>
+python -m scorbot.arm_view --simulate            # live 3D picture of a simulated stream (viz + planning extras); UNVALIDATED geometry
 ```
 
 CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, compileall, unittest, synthetic session.

@@ -26,3 +26,7 @@ rehearsal/
 references/er4u_manual_100343-b.pdf
 references/controller_usb_manual_100341-g.pdf
 .venv-lerobot/
+
+# Community ER-4U link meshes for the 3D view: downloaded locally, licence unclear, never commit
+models/er4u_meshes/*
+!models/er4u_meshes/README.md

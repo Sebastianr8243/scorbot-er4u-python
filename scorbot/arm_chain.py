@@ -82,6 +82,21 @@ MANUAL = ChainGeometry(
            "legacy openScorbot conf.py; tool length from the vendor ROB_4u.INI")
 
 
+# The vendor's own numbers (ROB_4u.INI: base height 349, links 221, gripper
+# 145) with the legacy 16 mm offset. With the vendor's count formula this
+# reproduces the home position the USNA toolbox publishes to within 0.3 mm
+# (tests/test_arm_view.py), which is evidence about the vendor's model of the
+# arm, not about ours.
+VENDOR_INI = ChainGeometry(
+    base_to_turret_mm=148.33,
+    turret_to_shoulder_mm=nominal.VENDOR_BASE_HEIGHT_MM.value - 148.33,
+    shoulder_forward_mm=16.0,
+    upper_arm_mm=nominal.VENDOR_UPPER_ARM_MM.value, forearm_mm=nominal.VENDOR_FOREARM_MM.value,
+    tool_length_mm=nominal.VENDOR_GRIPPER_LENGTH_MM.value,
+    source="vendor ROB_4u.INI (349, 221, 221, 145 mm); 16 mm shoulder offset from legacy "
+           "openScorbot conf.py")
+
+
 def _translate(x: float, y: float, z: float) -> np.ndarray:
     pose = np.eye(4)
     pose[:3, 3] = (x, y, z)
