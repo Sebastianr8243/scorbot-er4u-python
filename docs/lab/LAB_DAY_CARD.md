@@ -1,8 +1,8 @@
-# Lab day card: the five things to bring back
+# Lab day card: the six things to bring back
 
 One sheet for the visit after the vendor-protocol work. Each step is one command and one thing to look at. Reasons are in the [lab plan](VENDOR_PROTOCOL_LAB_PLAN.md); safety rules are those of the [G1 card](G1_LAB_CHECKLIST.md).
 
-**None of the new parts has run on the arm:** the software stop, the streaming driver and the layout checker are from disassembly and the simulator. Someone is at the physical stop for every step from B to F. Neither Ctrl-C nor a software stop is an emergency stop. If anything moves unexpectedly, the MOTORS LED disagrees with the software, or a step faults: use the physical stop, end the session, keep the logs. Do not retry a faulted command.
+**None of the new parts has run on the arm:** the software stop, the streaming driver, the gripper and the layout checker are from disassembly, the legacy code and the simulator. Someone is at the physical stop for every step from B to F. Neither Ctrl-C nor a software stop is an emergency stop. If anything moves unexpectedly, the MOTORS LED disagrees with the software, or a step faults: use the physical stop, end the session, keep the logs. Do not retry a faulted command.
 
 ```mermaid
 flowchart LR
@@ -11,8 +11,9 @@ flowchart LR
   B --> C["C Stop trial"]
   C --> D["D Shoulder jog with a phone level"]
   D --> E["E Stream trial"]
-  E --> F["F Idle with an e-stop press"]
-  F --> G["G Copy logs"]
+  E --> F["F Gripper trial"]
+  F --> G["G Idle with an e-stop press"]
+  G --> H["H Copy logs"]
 ```
 
 Each step stands alone: if one fails, stop, keep the logs, and the earlier steps are still useful. Every command needs a new `--output` name; a file is never overwritten.
@@ -117,7 +118,28 @@ The live view in a second terminal (`& $py scripts\watch_lab_log.py logs\stream-
 
 Two things are new on the wire here: messages come a few milliseconds further apart than in a jog, and each one carries three setpoints. If the stream faults, the script says so and the log has every step.
 
-## F. Idle recording with an e-stop press (last, on purpose)
+## F. Gripper trial (first run of the gripper)
+
+**Empty jaws. Fingers clear.** The gripper moves a fixed distance with no force limit, by a sequence this project has never sent to the arm. The arm is not homed in this step and no arm joint is commanded. Type `ENABLE`, then `GRIP` before each move.
+
+```powershell
+& $py examples\bench_gripper.py --output logs\gripper-01.jsonl @id --start-pose-note "as left after step E" --moves open close --acknowledge-supervised-motion
+& $py scripts\review_lab_logs.py --idle logs\idle-01.jsonl --gripper logs\gripper-01.jsonl
+```
+
+- [ ] Write down the line it prints for each move, for example `open: moved +2700 of 2700 counts (full travel)`.
+
+| What you see | Meaning | Next |
+|---|---|---|
+| Jaws open, then close; both lines say `full travel` | The legacy gripper sequence works on this arm | A second run with a soft object (a sponge) in the jaws: `--moves open close`, put it in after the open |
+| A line says `stopped short` with empty jaws | The jaws reached the end of their own travel before the fixed distance | Note the counts; that is the gripper's range |
+| The jaws go the wrong way for the word on screen | Open and close are swapped in the inherited code | Say so at the "issue" prompt; do not grip anything |
+| Nothing moves, or the script reports a fault | The sequence does not drive this gripper as written | Keep the log; the vendor's own sequence needs a capture first |
+| An arm joint moves | The script faults by itself if it is more than 20 counts | Use the physical stop if in doubt; keep the log |
+
+- [ ] With an object: did it hold it? Did the gripper buzz, stall or get warm? Say so at the "issue" prompt. Do not leave it squeezing: the sequence switches the gripper off at the end of each move.
+
+## G. Idle recording with an e-stop press (last, on purpose)
 
 Last because the controller may need a reset afterwards. Arm at rest, nothing commanded. Start the recording, wait about 10 seconds, press the e-stop, wait about 10 seconds, release it the way the lab procedure says.
 
@@ -130,7 +152,7 @@ Last because the controller may need a reset afterwards. Arm at rest, nothing co
 - [ ] If the recording ends with a fault when the stop is pressed, that is a result too: keep the log and note it.
 - [ ] Look for the emergency line in the check. `bit 0 never changes` means the bit did not show the press.
 
-## G. Before you leave
+## H. Before you leave
 
 - [ ] Copy the whole `logs\` folder again, including every `.controller.jsonl` and `sessions\`.
 - [ ] Photograph this card if you wrote on paper.
@@ -154,7 +176,8 @@ One line per claim: matches, CONTRADICTED, or not seen. `from-log` reads the pac
 | C | The stop ends a jog early | A stop key in the lab tool and teleop |
 | D | The forearm keeps its angle | The vendor's count-to-angle maths can be used as the calibration starting point |
 | E | The arm follows a stream | Wider travel in stages, then teleop and the LeRobot plugin on streaming |
-| F | The emergency bit follows the button | The session can fault on an e-stop |
+| F | The gripper opens and closes, and holds a soft object | Pick-and-place steps in a demo; a grip key in the lab tool |
+| G | The emergency bit follows the button | The session can fault on an e-stop |
 
 ## Rehearsal
 

@@ -32,7 +32,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_arm_control.py` | Fresh-packet tracking, fit/load calibration, vendor-display refusal, wrap, calibrated move, soft limits, wrist gate, jog ceiling, stale feedback |
 | `test_simulated.py` | Simulator fidelity to the facade, every fault kind latches, full G1 rehearsal, LED mismatch, recorder failure, interrupts |
 | `test_session.py`, `test_schemas.py`, `test_analysis.py` | Recorder, replay integrity and crash tails, schemas, source mixing, list/export/compare |
-| `test_bench_joint.py`, `test_calibration_capture.py`, `test_bench_stream.py` | Prompt gates and exit codes of the lab scripts; the stream trial rehearsed end to end through the simulator |
+| `test_bench_joint.py`, `test_calibration_capture.py`, `test_bench_stream.py`, `test_bench_gripper.py` | Prompt gates and exit codes of the lab scripts; the stream trial rehearsed end to end through the simulator |
 | `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | Offline analysis scripts |
 | `test_nominal.py`, `test_kinematics.py`, `test_motion_profile.py` | Manual values and span bound, offline kinematics and legacy `cIn` findings, jog planning |
 | `test_arm_view.py` | The 3D view against a fake recording (no Rerun, no meshes): mesh placement, the line fallback, the notice, the simulated demo, and that zero counts reproduce the USNA toolbox's published home position |

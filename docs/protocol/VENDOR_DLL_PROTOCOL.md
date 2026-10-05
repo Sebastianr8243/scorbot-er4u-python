@@ -405,5 +405,5 @@ So the two close the gripper by different means: the vendor pushes with a set dr
 
 - `Scorbot.move_gripper` uses the **legacy** sequence, fixed (`tests/test_gripper.py`). Every command byte in it is already in `openScorbot/libhex.py`, which the packet rule allows; `4C` has not yet been sent to the arm by this project.
 - The vendor's sequence needs `4D` and a single-axis mode `T`, which the legacy code never sends. Under the packet rule it needs a capture first (S1 card: one open and one close in SCORBASE).
-- First trials on the arm are with empty jaws, then a soft object (lab day card, step G).
+- First trials on the arm are with empty jaws, then a soft object (lab day card, step F).
 - Still to read: what ends the vendor's gripper move, the drive value's INI key, and the gripper's count limits in the vendor's terms (section 11.5 lists -200 to 6000).

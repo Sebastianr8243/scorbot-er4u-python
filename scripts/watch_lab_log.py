@@ -123,9 +123,11 @@ class RunView:
             self.state, self.state_source = state, f"{source}:{kind}"
             if type(index) is int:
                 self.state_index = index
-        if kind in ("before_jog", "motion_start", "before_stream"):
+        if kind in ("before_jog", "motion_start", "before_stream", "before_gripper",
+                    "gripper_start"):
             self.before_counts, self.after_counts = counts, {}
-        elif kind in ("after_jog", "motion_complete", "after_stream"):
+        elif kind in ("after_jog", "motion_complete", "after_stream", "after_gripper",
+                      "gripper_complete"):
             self.after_counts = counts
 
     def render(self, width: int = 78, last_write_epoch: float | None = None) -> str:

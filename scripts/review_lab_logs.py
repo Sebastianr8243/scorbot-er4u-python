@@ -41,6 +41,8 @@ def _packet_checks(states):
 IDLE_LED_STEPS = ("after_connect", "after_exit")
 BENCH_LED_STEPS = ("after_connect", "after_enable", "after_jog", "after_disable")
 STREAM_LED_STEPS = ("after_connect", "after_enable", "after_stream", "after_disable")
+GRIPPER_LED_STEPS = ("after_connect", "after_enable", "after_gripper", "after_disable")
+ARM_JOINTS = tuple(joint for joint in JOINTS if joint != "gripper")
 
 
 def _led_review(rows, session, steps):
@@ -181,11 +183,72 @@ def review_stream(path):
     }
 
 
+def review_gripper(path):
+    """A gripper trial record (examples/bench_gripper.py): open and close moves, no homing."""
+    rows = read_rows(path)
+    events = {row.get("type"): row for row in rows}
+    required = ("session", "connected", "gripper_plan", "before_gripper", "after_gripper",
+                "operator_observation", "disabled")
+    problems = [f"missing {kind}" for kind in required if kind not in events]
+    if "session_failed" in events:
+        problems.append("session reported failure")
+    if "recorder_failed" in events:
+        problems.append("MCAP recorder reported failure")
+    session = events.get("session", {})
+    befores = {row.get("move"): row for row in rows if row.get("type") == "before_gripper"}
+    afters = {row.get("move"): row for row in rows if row.get("type") == "after_gripper"}
+    states = [events[kind]["state"] for kind in ("connected", "disabled")
+              if isinstance(events.get(kind, {}).get("state"), dict)]
+    moves = []
+    for number in sorted(befores, key=lambda value: (value is None, value)):
+        before, after = befores[number], afters.get(number)
+        if after is None:
+            problems.append(f"move {number} has no result")
+            continue
+        states[-1:-1] = [before.get("state", {}), after.get("state", {})]
+        result = after.get("result") or {}
+        start = before.get("state", {}).get("encoder_counts", {})
+        end = after.get("state", {}).get("encoder_counts", {})
+        arm = {}
+        for joint in ARM_JOINTS:
+            try:
+                arm[joint] = signed_count_delta(end[joint], start[joint])
+            except (KeyError, ValueError):
+                problems.append(f"move {number}: {joint} count cannot be compared")
+        moves.append({"move": number, **{key: result.get(key) for key in
+                                         ("direction", "planned_counts", "moved_counts",
+                                          "full_travel")},
+                      "arm_count_deltas": arm})
+    planned = session.get("moves") or []
+    if len(moves) != len(planned):
+        problems.append(f"{len(moves)} of {len(planned)} planned moves have a result")
+    problems += _packet_checks(states)
+    observation = events.get("operator_observation", {})
+    for field in ("direction_and_displacement", "other_motion", "controller_indicators", "issue"):
+        if observation.get(field) in (None, "", "not recorded"):
+            problems.append(f"operator {field} missing")
+    leds, led_problems = _led_review(rows, session, GRIPPER_LED_STEPS)
+    problems += led_problems
+    return {
+        "file": str(path), "kind": "gripper", "robot_id": session.get("robot_id"),
+        "data_source": session.get("data_source", "real"),
+        "motion_source_sha256": session.get("motion_source_sha256"),
+        "moves": moves, "operator_observation": observation, "led_observations": leds,
+        "operator_declined": events.get("operator_declined", {}).get("text"),
+        "problems": sorted(set(problems)),
+        "physical_review_required": True,
+    }
+
+
 def review_bench(path):
     rows = read_rows(path)
     events = {row.get("type"): row for row in rows}
-    if events.get("session", {}).get("procedure") == "stream_trial":
-        return review_stream(path)    # a stream record given as --bench is still reviewed right
+    # A stream or gripper record given as --bench is still reviewed as what it is.
+    procedure = events.get("session", {}).get("procedure")
+    if procedure == "stream_trial":
+        return review_stream(path)
+    if procedure == "gripper_trial":
+        return review_gripper(path)
     required = ("session", "connected", "home_complete", "home_observation",
                 "motion_preview", "before_jog", "after_jog",
                 "operator_observation", "disabled")
@@ -234,6 +297,8 @@ def main():
     parser.add_argument("--bench", type=Path, action="append", default=[])
     parser.add_argument("--stream", type=Path, action="append", default=[],
                         help="Stream trial record (examples/bench_stream.py)")
+    parser.add_argument("--gripper", type=Path, action="append", default=[],
+                        help="Gripper trial record (examples/bench_gripper.py)")
     parser.add_argument("--session", type=Path,
                         help="Guided lab-session log (python -m scorbot.lab)")
     parser.add_argument("--json", action="store_true", help="With --session: print JSON")
@@ -246,7 +311,8 @@ def main():
     if args.idle is None:
         parser.error("--idle is required unless --session is given")
     reports = ([review_idle(args.idle)] + [review_bench(path) for path in args.bench]
-               + [review_stream(path) for path in args.stream])
+               + [review_stream(path) for path in args.stream]
+               + [review_gripper(path) for path in args.gripper])
     ids = {report["robot_id"] for report in reports}
     fingerprints = {report["motion_source_sha256"] for report in reports}
     if len(ids) != 1 or None in ids:
