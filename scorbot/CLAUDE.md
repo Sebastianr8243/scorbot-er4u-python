@@ -14,6 +14,7 @@ Facade and pure helpers over the legacy USB code. Read the root [CLAUDE.md](../C
 | `simulated.py` | `SimulatedScorbot` overrides `connect`, `disconnect`, `get_state_and_packet` (which `get_state` goes through), `_record` only. `SimulatedController.inject(kind)` arms one-shot faults from `FAULT_KINDS` |
 | `preflight.py` | `python -m scorbot.preflight`: enumerate only, never open, reset or configure |
 | `kinematics.py` | Offline, unvalidated DH model. Wired into no motion command |
+| `vendor_model.py` | The vendor's count/angle conversion and wrist mixing, read from `USBC.dll` (`docs/VENDOR_DLL_PROTOCOL.md` section 10). Pure, stdlib only, wired into nothing. A prior, never calibration: do not feed it to `calibration.py` or use it to enable wrist jogs |
 | `lab/` | Guided session. `session.py` LabSession engine (no print/input; Operator protocol), `terminal.py` front end, `profile.py` lab.json, `review.py` shared with `scripts/review_lab_logs.py --session`, `teleop.py` teleop mode and episodes (one press = one step, release gate), `camera.py` session camera with liveness. Adds no motion capability: 1 degree steps, base/shoulder/elbow, 10 degree net travel cap |
 | `provenance.py` | SHA-256 over `_SOURCE_FILES` (motion path). Add a file there if it can change what is sent |
 | `transport/codec.py` | Pure OUT-packet codec, stdlib only (never `usb`, `openScorbot`, `numpy`). Golden tests prove it byte-identical to the legacy code; not used by `Scorbot` yet (USB upgrade phase A). Unverified against the controller |

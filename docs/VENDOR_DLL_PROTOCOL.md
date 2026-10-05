@@ -192,3 +192,78 @@ Nothing in the code yet. Candidates, each needing a capture before it touches `o
 - OUT bytes 2 and 3 (what the two small queues carry).
 - Reply bytes 3-4, 15-18, 60-63 and the teach-mode source.
 - Whether the lab's `USBC.dll` matches either build.
+
+## 10. Counts, joint angles and the wrist
+
+Desk analysis, 2026-10-04 (plan: `docs/superpowers/specs/2026-10-04-vendor-desk-analysis-plan.md`, questions C and B). Re-implemented in `scorbot/vendor_model.py`, tested in `tests/test_vendor_model.py`. **A prior from disassembly, not measured on our arm.**
+
+Labels here: **V** read from the instructions; **E** the Python version agrees with the vendor function run in Ghidra's emulator; **S** agrees with a second source that never went through our emulator.
+
+### 10.1 Parameters
+
+Per axis, from Intelitek's `ER4AxN.ini` (loader `0x100043b2`) and `ROB_4u.INI` (loader `0x10003655`). Values are the `$Default` set shipped with the USNA toolbox.
+
+| Axis (motor) | `NoEnc90`: counts per 90 degrees | Counts per degree | `HorizPos`: count where the DLL's angle is zero |
+|---|---|---|---|
+| 1 base | -12770 | -141.89 | 0 |
+| 2 shoulder | -10216 | -113.51 | -13653 |
+| 3 elbow | 10216 | 113.51 | -10786 |
+| 4 wrist motor 1 | 2511 | 27.90 | -1773 |
+| 5 wrist motor 2 | 2511 | 27.90 | 0 |
+
+`[Gearing]` 1-4 = `1, -1, -1, 1`: signs that say how encoders combine (below). The DLL stores radians per count = (pi/2) / `NoEnc90` and counts per radian = `NoEnc90` / (pi/2) (`0x100068ff`, V).
+
+### 10.2 Encoder counts to joint angles
+
+Function `0x100303db` (V, E, S). With e1..e5 the encoder counts, k the radians per count, H the `HorizPos`:
+
+```text
+base     = (e1 - H1) * k1
+shoulder = (e2 - H2) * k2
+elbow    = (e3 + e2 - H3) * k3                  elbow uses the shoulder encoder too
+pitch    = -shoulder - elbow + ((e4 - e5)/2 - H4) * k4
+roll     = ((e4 + e5)/2 - H5) * k5
+```
+
+The two halvings are integer divisions that truncate toward zero, so an odd wrist difference or sum loses half a count. The function has a branch for each gearing sign (-1, 0, 1); the lines above are the ER-4u case. Controller types `0x24` and `0xEC` take a different wrist path that was not traced.
+
+The inverse is `0x10030ed2` (V; E for its structure). It converts each term with `__ftol`, which sets the x87 rounding mode to truncate toward zero before storing. A round trip can therefore differ from the starting counts by up to three on a wrist motor.
+
+### 10.3 What the formulas say about the arm
+
+- **Wrist mixing.** Pitch comes from half the *difference* of the two wrist motors and roll from half their *sum*. Moving the motors in opposite directions pitches; moving them together rolls. One count on both motors is 1/27.9 degree.
+- **The forearm and gripper keep their orientation when the shoulder moves.** `shoulder + elbow` depends only on the elbow encoder, and `shoulder + elbow + pitch` only on the wrist encoders. The elbow and wrist motors set angles to the horizontal, not to the previous link. So a move of the shoulder *motor* alone changes three relative joint angles (shoulder, elbow, pitch) while the forearm and gripper stay pointing the same way.
+- **"One joint" in the legacy code means one motor.** A legacy shoulder jog is therefore not a pure shoulder rotation in joint-angle terms. Anything that needs joint angles (kinematics, a dataset's state, soft limits) has to go through this mapping, not through per-motor scales.
+- **Zero counts is the home pose.** At all counts zero the formulas give shoulder 120.28, elbow -95.02, pitch -88.81 degrees in the toolboxes' sign convention, and a gripper pitch of -63.55 degrees to the horizontal.
+
+Sign conventions: the DLL's internal angles are as above. The USNA toolboxes negate shoulder, elbow and pitch when reporting (`ScorGetJt`), to match the teach pendant.
+
+### 10.4 Evidence
+
+| Check | Result |
+|---|---|
+| Emulation, counts to angles | 1,018 count vectors (zeros, single counts, odd wrist values, both ends of `EncLimit`, 1,000 random): Python equals the emulated function to 2e-15 rad on every output |
+| Emulation, angles to counts | 1,005 angle vectors: equal on every count once rounding is set to match the emulator. See the note below |
+| Second build | The five functions involved (`0x100303db`, `0x10030ed2`, `0x100068ff`, `0x10006a1c`, `__ftol`) are instruction-for-instruction identical in the 2008 build |
+| USNA MTIS `ScorCnts2Deg` (2010), a separately written conversion used on real arms | Agrees on all five joints over 500 random count vectors to within 0.03 degree, which is the rounding of its published offsets |
+| Kutzer `BSEPRhome` and `XYZPRhome` | Zero counts reproduce the published home joint angles and home pitch to 2e-5 rad |
+
+**An emulator artifact, caught.** Ghidra's emulator ignored the rounding mode that `__ftol` sets, and rounded to nearest. Trusting it would have put the inverse one count out on most inputs. The truncation was read from the instructions (`OR AH,0x0C` on the control word before `FISTP`), which is the standard MSVC `_ftol`. The Python model truncates; the test compares structure with the emulator under the emulator's rounding.
+
+### 10.5 Against the legacy code
+
+Counts per degree in `openScorbot/motion_profile.py:COUNTS_PER_DEGREE` beside the vendor's:
+
+| Legacy "joint" | Legacy | Vendor | Difference |
+|---|---|---|---|
+| base | 141.85 | 141.89 | none to speak of |
+| shoulder | 115.0 | 113.51 | legacy 1.3% high |
+| elbow | 112.6 | 113.51 | legacy 0.8% low |
+| wrist pitch | 33.8 | 27.90 per motor | legacy 21% high |
+| wrist roll | 27.9 | 27.90 per motor | same |
+
+The legacy code and the vendor agree on which way the wrist motors move for pitch (opposite) and roll (together). The pitch scale is the one real disagreement: if the vendor is right, a legacy pitch jog of 1 degree is 1.21 degrees. Wrist jogs stay disabled; this tells the bench test what to measure.
+
+### 10.6 Still to confirm on the arm
+
+Added to the lab plan as V16-V18: the counts per degree of base, shoulder and elbow against a physical angle; that the forearm keeps its orientation during a shoulder jog; and, when wrist jogs are bench-tested, the 27.9 scale and the difference/sum mixing.

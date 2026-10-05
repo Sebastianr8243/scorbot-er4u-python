@@ -7,7 +7,7 @@ This reads the DLL as a file. It never loads or runs it, opens no USB device and
 ## Rules
 
 - Keep the DLL, the Ghidra project and the decompiled dump **outside this repository**. They are Intelitek's code; the repository is public.
-- Only the two files here are ours: `ExportDecomp.java` and `query.py`.
+- Only the scripts here are ours: `ExportDecomp.java`, `ExportAsm.java`, `EmulateCalls.java`, `query.py` and `peread.py`.
 - Anything learned this way is "from disassembly, unverified" until a USB capture agrees.
 
 ## Steps
@@ -34,6 +34,28 @@ This reads the DLL as a file. It never loads or runs it, opens no USB device and
     python tools\usbc_analysis\query.py $work\usbc.c callers WriteFile
     python tools\usbc_analysis\query.py $work\usbc.c grep "s_Clear_communication_buffer"
     ```
+
+## Reading arithmetic
+
+The decompiler hides x87 floating-point code behind calls such as `__ftol`, so formulas are read from the instructions:
+
+```powershell
+& "C:\path\to\ghidra\support\analyzeHeadless.bat" "$work\proj" usbc -process USBC.dll -noanalysis -readOnly `
+    -scriptPath "<repo>\tools\usbc_analysis" -postScript ExportAsm.java "$work\usbc.asm"
+python tools\usbc_analysis\query.py $work\usbc.asm show FUN_100303db
+python tools\usbc_analysis\peread.py $work\USBC.dll double 0x10065cc0
+```
+
+`query.py` reads both dumps. `peread.py` reads constants out of the file by address.
+
+## Checking a formula by emulation
+
+`EmulateCalls.java` runs single functions in Ghidra's p-code emulator from a spec file (memory, registers, stack arguments, what to read back). Nothing is loaded by Windows and no driver code runs. Use it for leaf arithmetic only.
+
+Two cautions, both met in practice:
+
+- The emulator ignores the x87 rounding mode. `__ftol` truncates on a real CPU; the emulator rounds to nearest. Read rounding from the instructions.
+- Agreement between your re-implementation and the emulator is internal consistency. Look for a second source that never went through the emulator.
 
 ## Where to start reading
 
