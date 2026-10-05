@@ -30,7 +30,7 @@ import time
 
 import numpy as np
 
-from . import arm_chain, vendor_model
+from . import arm_chain, source_model, vendor_model
 
 MESH_DIR_ENV = "SCORBOT_MESH_DIR"
 DEFAULT_MESH_DIR = Path(__file__).resolve().parents[1] / "models" / "er4u_meshes"
@@ -104,8 +104,7 @@ def chain_angles_from_counts(counts) -> tuple[float, float, float, float, float]
     toolboxes (positive shoulder, elbow and pitch lift). Whether our arm's
     home is that pose, and whether each sign is right, is unverified.
     """
-    joints = vendor_model.counts_to_joints([counts[name] for name in vendor_model.MOTORS])
-    degrees = vendor_model.toolbox_degrees(joints)
+    degrees = source_model.angles_from_counts(counts)
     return (degrees["base"], degrees["shoulder"], degrees["elbow"], degrees["pitch"],
             degrees["roll"])
 

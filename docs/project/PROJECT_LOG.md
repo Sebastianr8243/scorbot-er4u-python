@@ -35,6 +35,25 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
 - Reviewed by Codex (adversarial, against the decompiled code): two wording
   errors about the stop sequence found and corrected. Gemini unavailable.
 
+### Owner decisions, 2026-10-05: build from sources, confirm at the lab
+
+- **Why:** lab time is short and the arm is not ours. The ER-4U is well
+  described already: the vendor's DLL, the USNA ScorBot Toolbox, a ROS 2
+  description, the manuals, the original thesis. The plan is to build one
+  model from those, run everything on it in the simulator, and use the lab
+  only to confirm it with a short acceptance run.
+- **Rule changed:** a second calibration tier, "sources"
+  (`scorbot/source_model.py`), may drive motion inside the travel cap until
+  the acceptance run confirms or corrects it. Measured calibration stays the
+  only tier that can widen travel.
+- **Gripper allowed** through `Scorbot.move_gripper` (legacy sequence).
+- **Policy:** ACT first, by the easiest route; SmolVLA after.
+- **Found the same day:** the vendor zeroes each encoder at the end of homing
+  (a "set position" message with 0), so "all counts zero" is its home pose.
+  The legacy homing does not, and stops a little past the switch, so our
+  home differs from the vendor's by a small amount per joint. That offset is
+  one of the things the acceptance run reads.
+
 ### Streaming driver (built in the simulator, not yet on the arm)
 
 - Why now: reading the vendor planner showed it refuses a new target while

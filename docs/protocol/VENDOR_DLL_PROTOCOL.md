@@ -407,3 +407,15 @@ So the two close the gripper by different means: the vendor pushes with a set dr
 - The vendor's sequence needs `4D` and a single-axis mode `T`, which the legacy code never sends. Under the packet rule it needs a capture first (S1 card: one open and one close in SCORBASE).
 - First trials on the arm are with empty jaws, then a soft object (lab day card, step F).
 - Still to read: what ends the vendor's gripper move, the drive value's INI key, and the gripper's count limits in the vendor's terms (section 11.5 lists -200 to 6000).
+
+## 13. Homing: the counters are zeroed
+
+Read on 2026-10-05 from the 2018 build (label V; unverified on the arm). Only the end of the per-axis homing was read; the search itself is described in section 11 of `docs/manual/HARDWARE_REFERENCE.md` from the parameter files.
+
+- At the end of each axis's homing the routine calls `0x1000758e` with the value 0, which sends `48` ("Set position") through the builder at `0x1003f845` for that axis and for the axes whose encoders are combined with it (the gearing values decide which). So **the vendor sets each encoder count to 0 at home.**
+- It then copies the positions into its own tables and sends Mode `S` for all axes (`4F` with mask `&`), and logs "End of the homing (Axis %d)".
+- This is why all counts zero is the home pose in the vendor's formulas (section 10) and in the USNA toolboxes.
+
+Against the legacy code: `openScorbot/setHome.py` never sends `48`. After its homing the counts are whatever they were, which is why the SDK records them as the session home and works in counts from there. The two homes are also not the same place: the vendor moves off each switch by a set offset from its parameter files (for example -190 counts on the shoulder), and the legacy code sends twelve more messages after the switch trips and stops. The difference is a small fixed number of counts per joint. `scorbot/source_model.py` assumes the two homes coincide; the lab acceptance run reads the difference.
+
+`48` is a byte the legacy code never sends, so under the packet rule using it needs a capture first.
