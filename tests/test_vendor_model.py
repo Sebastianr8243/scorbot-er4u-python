@@ -77,7 +77,9 @@ class ForwardTests(unittest.TestCase):
                 self.assertAlmostEqual(math.degrees(joints[name]), expected, delta=0.03,
                                        msg=f"{name} at {counts}")
 
-    def test_zero_counts_give_the_published_home_pose(self):
+    def test_zero_counts_give_the_pose_the_toolboxes_publish_as_home(self):
+        # The vendor's nominal zero-count pose; not a claim about where our
+        # arm's counters sit after homing.
         # Kutzer ScorSimGoHome: BSEPRhome = [0, 2.09925, -1.65843, -1.54994, 0] rad
         home = vm.counts_to_joints([0, 0, 0, 0, 0])
         reported = vm.toolbox_degrees(home)
@@ -108,6 +110,19 @@ class MechanismTests(unittest.TestCase):
             self.assertNotAlmostEqual(before["upper_arm"], after["upper_arm"], delta=1e-3)
             self.assertAlmostEqual(before["forearm"], after["forearm"], delta=1e-12)
             self.assertAlmostEqual(before["gripper_pitch"], after["gripper_pitch"], delta=1e-12)
+
+    def test_orientation_is_not_decoupled_for_other_parameters(self):
+        self.assertTrue(vm.ER4U.orientation_is_decoupled())
+        for axes in (vm.VendorAxes(no_enc_90=(-12770, -10216, 9000, 2511, 2511)),
+                     vm.VendorAxes(gearing=(0, -1, -1, 1)),
+                     vm.VendorAxes(gearing=(1, 0, -1, 1))):
+            with self.subTest(axes=axes):
+                self.assertFalse(axes.orientation_is_decoupled())
+                before = vm.absolute_angles(vm.counts_to_joints([0, 0, 0, 0, 0], axes))
+                after = vm.absolute_angles(vm.counts_to_joints([0, 500, 0, 0, 0], axes))
+                changed = (abs(before["forearm"] - after["forearm"]) > 1e-6
+                           or abs(before["gripper_pitch"] - after["gripper_pitch"]) > 1e-6)
+                self.assertTrue(changed)
 
     def test_wrist_motors_opposite_pitch_and_together_roll(self):
         start = vm.counts_to_joints([0, 0, 0, 100, -100])

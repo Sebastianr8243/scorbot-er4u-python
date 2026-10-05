@@ -232,9 +232,9 @@ The inverse is `0x10030ed2` (V; E for its structure). It converts each term with
 ### 10.3 What the formulas say about the arm
 
 - **Wrist mixing.** Pitch comes from half the *difference* of the two wrist motors and roll from half their *sum*. Moving the motors in opposite directions pitches; moving them together rolls. One count on both motors is 1/27.9 degree.
-- **The forearm and gripper keep their orientation when the shoulder moves.** `shoulder + elbow` depends only on the elbow encoder, and `shoulder + elbow + pitch` only on the wrist encoders. The elbow and wrist motors set angles to the horizontal, not to the previous link. So a move of the shoulder *motor* alone changes three relative joint angles (shoulder, elbow, pitch) while the forearm and gripper stay pointing the same way.
+- **The forearm and gripper keep their orientation when the shoulder moves** (with the default parameters: it needs gearing 1 = 1, gearing 2 = -1, and shoulder and elbow scales that are equal and opposite, which the defaults have). `shoulder + elbow` then depends only on the elbow encoder, and `shoulder + elbow + pitch` only on the wrist encoders. The elbow and wrist motors set angles to the horizontal, not to the previous link. So a move of the shoulder *motor* alone changes three relative joint angles (shoulder, elbow, pitch) while the forearm and gripper stay pointing the same way.
 - **"One joint" in the legacy code means one motor.** A legacy shoulder jog is therefore not a pure shoulder rotation in joint-angle terms. Anything that needs joint angles (kinematics, a dataset's state, soft limits) has to go through this mapping, not through per-motor scales.
-- **Zero counts is the home pose.** At all counts zero the formulas give shoulder 120.28, elbow -95.02, pitch -88.81 degrees in the toolboxes' sign convention, and a gripper pitch of -63.55 degrees to the horizontal.
+- **All counts zero is the pose the toolboxes publish as home.** There the formulas give shoulder 120.28, elbow -95.02, pitch -88.81 degrees in the toolboxes' sign convention, and a gripper pitch of -63.55 degrees to the horizontal. This is the vendor's nominal zero-count pose. It does not show that our arm's counters read zero after homing: the legacy homing sends nothing that zeroes them, the SDK records whatever counts it sees after homing, and calibration deliberately does not assume homed angles. Whether the vendor's homing zeroes the counters (it has a Set position command, `48`) is part of the homing question.
 
 Sign conventions: the DLL's internal angles are as above. The USNA toolboxes negate shoulder, elbow and pitch when reporting (`ScorGetJt`), to match the teach pendant.
 
@@ -265,5 +265,7 @@ Counts per degree in `openScorbot/motion_profile.py:COUNTS_PER_DEGREE` beside th
 The legacy code and the vendor agree on which way the wrist motors move for pitch (opposite) and roll (together). The pitch scale is the one real disagreement: if the vendor is right, a legacy pitch jog of 1 degree is 1.21 degrees. Wrist jogs stay disabled; this tells the bench test what to measure.
 
 ### 10.6 Still to confirm on the arm
+
+Reviewed by Codex against the disassembly and INI files: the gearing branches, pitch signs and truncation were confirmed; two statements were narrowed as a result (the orientation property holds for the default parameters only, and zero counts is the nominal pose, not a measured home).
 
 Added to the lab plan as V16-V18: the counts per degree of base, shoulder and elbow against a physical angle; that the forearm keeps its orientation during a shoulder jog; and, when wrist jogs are bench-tested, the 27.9 scale and the difference/sum mixing.

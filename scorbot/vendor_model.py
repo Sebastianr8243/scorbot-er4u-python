@@ -15,16 +15,25 @@ Angles are the DLL's internal joint values, in radians:
 - The USNA toolboxes report the same values with shoulder, elbow and pitch
   negated (their ``ScorGetJt``), to match the teach pendant's directions.
 
-Two facts follow from the formulas and matter for anything built on them:
+Two facts follow from the formulas **with the ER-4u default parameters** and
+matter for anything built on them:
 
 - The elbow motor sets the forearm's angle to the horizontal, not to the upper
   arm: ``shoulder + elbow`` depends only on the elbow encoder. Likewise the
   two wrist motors set the gripper's pitch to the horizontal:
   ``shoulder + elbow + pitch`` depends only on the wrist encoders. Moving the
   shoulder alone therefore leaves the forearm and gripper orientation as they
-  were, while the relative elbow and pitch angles change.
+  were, while the relative elbow and pitch angles change. This is not a
+  general property of the formula: it needs gearing ``(1, -1, ...)`` and
+  shoulder and elbow scales that are equal and opposite, which the defaults
+  have. ``orientation_is_decoupled`` checks a parameter set for it.
 - Pitch and roll come from the two wrist motors together: pitch from half
   their difference, roll from half their sum.
+
+All counts zero gives the pose the USNA toolboxes publish as "home". That is
+the vendor's nominal zero-count pose. Whether our arm's homing leaves the
+counters at zero is a separate, unverified question: the legacy homing does
+not zero them, and the SDK records the counts it observes after homing.
 """
 
 from __future__ import annotations
@@ -66,6 +75,16 @@ class VendorAxes:
 
     def counts_per_degree(self, axis: int) -> float:
         return self.no_enc_90[axis] / 90.0
+
+    def orientation_is_decoupled(self) -> bool:
+        """Whether a shoulder-motor move leaves forearm and gripper orientation alone.
+
+        True for the ER-4u defaults. It needs the elbow to add the shoulder
+        encoder (gearing 1 = 1), the pitch to subtract the elbow (gearing 2 =
+        -1), and shoulder and elbow scales that are equal and opposite.
+        """
+        return (self.gearing[0] == 1 and self.gearing[1] == -1
+                and self.no_enc_90[1] == -self.no_enc_90[2])
 
 
 ER4U = VendorAxes()
