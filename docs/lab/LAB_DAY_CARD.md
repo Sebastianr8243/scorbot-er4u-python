@@ -97,7 +97,10 @@ Only after B showed the base moves the right way. The script refuses to stream i
 
 ```powershell
 & $py examples\bench_stream.py --output logs\stream-base-01.jsonl @id --start-pose-note "homing start pose" --motor base --delta 1 --acknowledge-supervised-motion
+& $py scripts\review_lab_logs.py --idle logs\idle-01.jsonl --stream logs\stream-base-01.jsonl
 ```
+
+The live view in a second terminal (`& $py scripts\watch_lab_log.py logs\stream-base-01.jsonl`) shows the plan, the counts and a `stream trial FAILED` alarm if the verdict is bad.
 
 - [ ] Write down the lines it prints. The last one is the verdict: `Trial result: PASSED.` or `!!! Trial result: FAILED (reason)`. A failed trial still finishes its prompts and switches the motors off; it exits with code 1.
 

@@ -66,6 +66,35 @@ class BenchStreamTests(unittest.TestCase):
     def rows(self):
         return [json.loads(line) for line in self.output.read_text(encoding="utf-8").splitlines()]
 
+    def assert_tools_read_the_record(self, *, passed):
+        """The log reviewer and the live view both understand a stream trial."""
+        from scripts.review_lab_logs import review_bench, review_stream
+        from scripts.watch_lab_log import RunView
+        report = review_stream(self.output)
+        self.assertEqual((report["kind"], report["motor"], report["data_source"]),
+                         ("stream", "base", "simulated"))
+        self.assertEqual(report["target_counts_from_home"], 142)
+        self.assertEqual(report["result"]["passed"], passed)
+        if passed:
+            self.assertEqual(report["problems"], [])
+            self.assertEqual(report["count_deltas"]["base"],
+                             {"planned": 0, "observed": 0, "difference": 0})
+        else:
+            self.assertIn("stream trial failed: did not reach the target", report["problems"])
+        # --bench given a stream record reviews it as one, with no false "missing" rows
+        self.assertEqual(review_bench(self.output), report)
+        view = RunView()
+        for row in self.rows():
+            view.add(row, "run")
+        screen = view.render()
+        self.assertIn("joint base", screen)
+        self.assertEqual(view.plan_deltas, {"base": 142})
+        self.assertTrue(view.before_counts and view.after_counts)
+        self.assertIn("after_stream", screen)
+        self.assertIn("PASSED" if passed else "FAILED", screen)
+        self.assertEqual(any("stream trial FAILED" in alarm for alarm in view.alarms),
+                         not passed)
+
     def events(self):
         log = self.output.with_name(self.output.stem + ".controller.jsonl")
         return [json.loads(line)["event"] for line in log.read_text(encoding="utf-8").splitlines()]
@@ -101,6 +130,7 @@ class BenchStreamTests(unittest.TestCase):
         self.assertIn("SIMULATED", out)
         self.assertIn("NOT an emergency stop", out)
         self.assertIn("Reached the target: yes", out)
+        self.assert_tools_read_the_record(passed=True)
         # one motor only: the others were never asked to leave home
         self.assertTrue(all(step[1:] == (0, 0) for step in self.made[0].sim.stream_sent))
         self.checks.assert_not_called()
@@ -139,6 +169,7 @@ class BenchStreamTests(unittest.TestCase):
         self.assertIn("did not reach the target", result["problems"])
         self.assertIn("disabled", [row["type"] for row in rows])
         self.assertIn("Trial result: FAILED", self.printed.getvalue())
+        self.assert_tools_read_the_record(passed=False)
         self.assertEqual(result["max_lead_counts"], 142)
         out = self.printed.getvalue()
         self.assertIn("Reached the target: NO", out)

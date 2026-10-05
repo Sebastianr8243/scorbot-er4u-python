@@ -74,6 +74,39 @@ class FollowingController:
         return [int.from_bytes(packet[region:region + 2], "little") for packet in self.packets]
 
 
+class StopAtStep:
+    """Call ``function`` as the simulated arm begins a chosen jog step.
+
+    A wall-clock timer that has to land in the middle of a jog fails on a slow
+    or busy machine, in either direction. The simulator sleeps ``step_delay_s``
+    once per jog step, so counting those sleeps places the stop exactly, and
+    the steps themselves need not really wait. It has the ``start``/``cancel``
+    shape of ``threading.Timer`` so it can stand in for one.
+    """
+
+    def __init__(self, function, step_delay_s, step=3):
+        self.function, self.step_delay_s, self.step = function, step_delay_s, step
+        self.daemon = False
+        self._seen, self._patch, self._real = 0, None, None
+
+    def start(self):
+        self._real = time.sleep
+        self._patch = mock.patch("time.sleep", self._sleep)
+        self._patch.start()
+
+    def cancel(self):
+        if self._patch is not None:
+            self._patch.stop()
+            self._patch = None
+
+    def _sleep(self, seconds):
+        if seconds != self.step_delay_s:
+            return self._real(seconds)
+        self._seen += 1
+        if self._seen == self.step:
+            self.function()
+
+
 @unittest.skipUnless(find_spec("usb"), "PyUSB is needed to import the legacy modules")
 class LegacyStopTests(unittest.TestCase):
     @classmethod
@@ -234,9 +267,9 @@ class SdkStopTests(unittest.TestCase):
                 for line in self.log.read_text(encoding="utf-8").splitlines()]
 
     def stop_soon(self, robot):
-        timer = threading.Timer(0.1, robot.request_stop)
-        timer.start()
-        self.addCleanup(timer.join)
+        hook = StopAtStep(robot.request_stop, robot.sim.step_delay_s)
+        hook.start()
+        self.addCleanup(hook.cancel)
 
     def test_stop_mid_jog_ends_early_without_a_fault(self):
         robot = self.robot(step_delay_s=0.02)
@@ -408,7 +441,11 @@ class SdkStopTests(unittest.TestCase):
         return code, rows, printed.getvalue(), review_bench(output)
 
     def test_bench_stop_trial_records_an_early_stop(self):
-        code, rows, printed, review = self.bench("--stop-after-ms", "100", step_delay_s=0.02)
+        from examples import bench_joint
+        with mock.patch.object(bench_joint.threading, "Timer",
+                               lambda _delay, function: StopAtStep(function, 0.02)):
+            code, rows, printed, review = self.bench("--stop-after-ms", "100",
+                                                     step_delay_s=0.02)
         self.assertEqual(code, 0, printed)
         self.assertIn("NOT an emergency stop", printed)
         self.assertIn("ended early on the stop request", printed)

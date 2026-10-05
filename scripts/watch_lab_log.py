@@ -25,7 +25,7 @@ ALARM_EVENTS = {"command_timeout", "command_error", "command_interrupted", "feed
                 "home_failed", "following_error", "calibration_fault", "connect_failed",
                 "session_failed", "disable_skipped_worker_crashed",
                 "led_gate_failed", "jog_refused", "jog_failed", "disable_failed",
-                "counts_drift", "stop_settle_failed", "stream_fault"}
+                "counts_drift", "stop_settle_failed", "stream_fault", "stream_failed"}
 # Every SDK command logs these around it; they bury the events worth reading.
 QUIET_EVENTS = {"command_start", "command_complete"}
 KNOWN_SWITCH_MASK = sum(HOME_SWITCH_BITS.values())
@@ -95,6 +95,8 @@ class RunView:
         elif kind not in QUIET_EVENTS:
             detail = (row.get("error") or row.get("text") or row.get("message")
                       or row.get("step") or "")
+            if kind == "after_stream":
+                detail = "PASSED" if (row.get("result") or {}).get("passed") else "FAILED"
             self.events.append((source, kind, str(detail)))
             del self.events[:-8]
         if kind in ALARM_EVENTS:
@@ -102,6 +104,11 @@ class RunView:
             self.alarms.append(f"{kind}: {error}" if error else kind)
         if kind == "motion_preview" and isinstance(row.get("plan"), dict):
             self.plan_deltas = row["plan"].get("motor_count_deltas", {})
+        if kind == "stream_plan":        # a stream trial: one motor out to this and back
+            self.plan_deltas = {row.get("motor"): row.get("target_counts_from_home")}
+        if kind == "after_stream" and not (row.get("result") or {}).get("passed"):
+            problems = (row.get("result") or {}).get("problems") or ["no verdict recorded"]
+            self.alarms.append("stream trial FAILED: " + "; ".join(problems))
         state = row.get("state")
         if not (isinstance(state, dict) and isinstance(state.get("encoder_counts"), dict)):
             return
@@ -116,9 +123,9 @@ class RunView:
             self.state, self.state_source = state, f"{source}:{kind}"
             if type(index) is int:
                 self.state_index = index
-        if kind in ("before_jog", "motion_start"):
+        if kind in ("before_jog", "motion_start", "before_stream"):
             self.before_counts, self.after_counts = counts, {}
-        elif kind in ("after_jog", "motion_complete"):
+        elif kind in ("after_jog", "motion_complete", "after_stream"):
             self.after_counts = counts
 
     def render(self, width: int = 78, last_write_epoch: float | None = None) -> str:
@@ -130,7 +137,8 @@ class RunView:
         if self.session:
             s = self.session
             lines.append(f"robot {s.get('robot_id')}  operator {s.get('operator')}  "
-                         f"joint {s.get('joint', '-')}  delta {s.get('requested_delta_deg', '-')}")
+                         f"joint {s.get('joint') or s.get('motor') or '-'}  "
+                         f"delta {s.get('requested_delta_deg', '-')}")
         if self.alarms:
             lines += ["", *(f"!!! {alarm}" for alarm in self.alarms[-3:]),
                       "!!! If motion or motor state is uncertain, use the physical stop."]

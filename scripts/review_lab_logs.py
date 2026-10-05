@@ -46,6 +46,7 @@ def _packet_checks(states):
 
 IDLE_LED_STEPS = ("after_connect", "after_exit")
 BENCH_LED_STEPS = ("after_connect", "after_enable", "after_jog", "after_disable")
+STREAM_LED_STEPS = ("after_connect", "after_enable", "after_stream", "after_disable")
 
 
 def _led_review(rows, session, steps):
@@ -115,9 +116,82 @@ def review_idle(path):
     }
 
 
+def _count_deltas(events, before_kind, after_kind, planned):
+    """Per-joint planned and observed count change between two recorded states."""
+    before = events.get(before_kind, {}).get("state", {}).get("encoder_counts", {})
+    after = events.get(after_kind, {}).get("state", {}).get("encoder_counts", {})
+    deltas, problems = {}, []
+    for joint in JOINTS:
+        if joint not in before or joint not in after:
+            problems.append(f"missing {joint} before/after count")
+            continue
+        try:
+            observed = signed_count_delta(after[joint], before[joint])
+        except ValueError:
+            problems.append(f"ambiguous {joint} count difference")
+            continue
+        predicted = planned.get(joint, 0)
+        deltas[joint] = {"planned": predicted, "observed": observed,
+                         "difference": observed - predicted}
+    return deltas, problems
+
+
+def review_stream(path):
+    """A stream trial record (examples/bench_stream.py): one motor out and back."""
+    rows = read_rows(path)
+    events = {row.get("type"): row for row in rows}
+    required = ("session", "connected", "home_complete", "home_observation",
+                "stream_plan", "before_stream", "after_stream",
+                "operator_observation", "disabled")
+    problems = [f"missing {kind}" for kind in required if kind not in events]
+    for kind, text in (("session_failed", "session reported failure"),
+                       ("stream_failed", "stream ended on a fault or an interrupt"),
+                       ("recorder_failed", "MCAP recorder reported failure")):
+        if kind in events:
+            problems.append(text)
+    declined = events.get("operator_declined", {}).get("text")
+    states = [events[kind]["state"] for kind in
+              ("connected", "home_complete", "before_stream", "after_stream", "disabled")
+              if isinstance(events.get(kind, {}).get("state"), dict)]
+    problems += _packet_checks(states)
+    if events.get("home_observation", {}).get("text") in (None, "", "not recorded"):
+        problems.append("home observation missing")
+    observation = events.get("operator_observation", {})
+    for field in ("direction_and_displacement", "other_motion", "controller_indicators", "issue"):
+        if observation.get(field) in (None, "", "not recorded"):
+            problems.append(f"operator {field} missing")
+    result = (events.get("after_stream") or events.get("stream_failed") or {}).get("result") or {}
+    if "after_stream" in events and not result.get("passed"):
+        problems += [f"stream trial failed: {problem}"
+                     for problem in result.get("problems") or ["no verdict recorded"]]
+    # Out and back: every motor is planned to end where it started.
+    deltas, delta_problems = _count_deltas(events, "before_stream", "after_stream", {})
+    if "before_stream" in events and "after_stream" in events:
+        problems += delta_problems
+    session = events.get("session", {})
+    leds, led_problems = _led_review(rows, session, STREAM_LED_STEPS)
+    problems += led_problems
+    plan = events.get("stream_plan", {})
+    return {
+        "file": str(path), "kind": "stream", "robot_id": session.get("robot_id"),
+        "data_source": session.get("data_source", "real"),
+        "motion_source_sha256": session.get("motion_source_sha256"),
+        "motor": session.get("motor"), "requested_delta_deg": session.get("requested_delta_deg"),
+        "target_counts_from_home": plan.get("target_counts_from_home"),
+        "result": result, "count_deltas": deltas,
+        "home_observation": events.get("home_observation"),
+        "operator_observation": observation, "led_observations": leds,
+        "operator_declined": declined,
+        "problems": sorted(set(problems)),
+        "physical_review_required": True,
+    }
+
+
 def review_bench(path):
     rows = read_rows(path)
     events = {row.get("type"): row for row in rows}
+    if events.get("session", {}).get("procedure") == "stream_trial":
+        return review_stream(path)    # a stream record given as --bench is still reviewed right
     required = ("session", "connected", "home_complete", "home_observation",
                 "motion_preview", "before_jog", "after_jog",
                 "operator_observation", "disabled")
@@ -138,24 +212,9 @@ def review_bench(path):
         if observation.get(field) in (None, "", "not recorded"):
             problems.append(f"operator {field} missing")
     plan = events.get("motion_preview", {}).get("plan", {})
-    expected = plan.get("motor_count_deltas", {})
-    before = events.get("before_jog", {}).get("state", {}).get("encoder_counts", {})
-    after = events.get("after_jog", {}).get("state", {}).get("encoder_counts", {})
-    deltas = {}
-    for joint in JOINTS:
-        if joint not in before or joint not in after:
-            problems.append(f"missing {joint} before/after count")
-            continue
-        try:
-            observed = signed_count_delta(after[joint], before[joint])
-        except ValueError:
-            problems.append(f"ambiguous {joint} count difference")
-            continue
-        predicted = expected.get(joint, 0)
-        deltas[joint] = {
-            "planned": predicted, "observed": observed,
-            "difference": observed - predicted,
-        }
+    deltas, delta_problems = _count_deltas(events, "before_jog", "after_jog",
+                                           plan.get("motor_count_deltas", {}))
+    problems += delta_problems
     session = events.get("session", {})
     leds, led_problems = _led_review(rows, session, BENCH_LED_STEPS)
     problems += led_problems
@@ -179,6 +238,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--idle", type=Path)
     parser.add_argument("--bench", type=Path, action="append", default=[])
+    parser.add_argument("--stream", type=Path, action="append", default=[],
+                        help="Stream trial record (examples/bench_stream.py)")
     parser.add_argument("--session", type=Path,
                         help="Guided lab-session log (python -m scorbot.lab)")
     parser.add_argument("--json", action="store_true", help="With --session: print JSON")
@@ -190,7 +251,8 @@ def main():
         return 1 if report["problems"] else 0
     if args.idle is None:
         parser.error("--idle is required unless --session is given")
-    reports = [review_idle(args.idle)] + [review_bench(path) for path in args.bench]
+    reports = ([review_idle(args.idle)] + [review_bench(path) for path in args.bench]
+               + [review_stream(path) for path in args.stream])
     ids = {report["robot_id"] for report in reports}
     fingerprints = {report["motion_source_sha256"] for report in reports}
     if len(ids) != 1 or None in ids:
