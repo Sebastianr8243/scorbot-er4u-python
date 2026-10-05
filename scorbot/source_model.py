@@ -27,7 +27,8 @@ What it assumes about our arm, each to be checked at the lab:
 * the encoders count the way the vendor's parameter files say;
 * the arm is an ER-4u with the default parameter set.
 
-Pure: standard library only, no USB, wired into no motion command by itself.
+No USB. The count and limit half is standard library only; the geometry half
+loads ``kinematics.py`` (NumPy) when it is first used.
 """
 
 from __future__ import annotations
@@ -112,11 +113,38 @@ def pose_for_arm(*, base: float | None = None, shoulder: float | None = None,
     return angles_from_counts(counts)
 
 
+def limit_window() -> dict[str, tuple[float, float]]:
+    """Counts from home at the joint limits, for the motors whose own count sets them.
+
+    That is the base and the shoulder. The elbow's angle also depends on the
+    shoulder's count, so its limit has to be checked on a pose.
+    """
+    window = {}
+    for motor in ("base", "shoulder"):
+        low, high = sorted(arm_counts_from_angles(**{motor: limit})[motor]
+                           for limit in LIMITS_DEG[motor])
+        window[motor] = (float(low), float(high))
+    return window
+
+
 def motion_window() -> dict[str, tuple[float, float]]:
-    """Counts from home each arm motor may be sent to under this tier."""
-    return {motor: (-limits.TRAVEL_CAP_DEG * COUNTS_PER_DEGREE[motor],
-                    limits.TRAVEL_CAP_DEG * COUNTS_PER_DEGREE[motor])
-            for motor in limits.ARM_MOTORS}
+    """Counts from home each arm motor may be sent to under this tier.
+
+    The travel cap either side of home, cut short where a joint limit is
+    nearer. Only the shoulder's is: home has the upper arm 120 degrees up and
+    its limit is 124, so there are under four degrees of travel upward (a
+    rising count).
+    The base and shoulder counts fix their own joint angles. The elbow's angle
+    also depends on the shoulder's count, so its limit is checked on the pose
+    (``outside_window``), not here.
+    """
+    at_limits = limit_window()
+    window = {}
+    for motor in limits.ARM_MOTORS:
+        cap = limits.TRAVEL_CAP_DEG * COUNTS_PER_DEGREE[motor]
+        low, high = at_limits.get(motor, (-cap, cap))
+        window[motor] = (max(-cap, low), min(cap, high))
+    return window
 
 
 def outside_window(angles) -> dict[str, int]:
@@ -128,7 +156,99 @@ def outside_window(angles) -> dict[str, int]:
     counts = counts_from_angles(angles)
     window = motion_window()
     outside = {motor: counts[motor] for motor, (low, high) in window.items()
-               if not low <= counts[motor] <= high}
+               if not low - 1 <= counts[motor] <= high + 1}       # a count of rounding
+    # A joint limit reached through another motor (the elbow's angle depends
+    # on the shoulder's count) is charged to the motor of that name.
+    for name in outside_limits(angles):
+        motor = name if name in limits.ARM_MOTORS else "wrist_motor_1"
+        outside.setdefault(motor, counts[motor])
     outside.update({motor: counts[motor] for motor in limits.WRIST_MOTORS
                     if abs(counts[motor]) > limits.DRIFT_COUNTS})
     return outside
+
+
+# -- geometry ---------------------------------------------------------------
+#
+# The same five dimensions in the vendor's ROB_4u.INI and in the USNA
+# toolbox's DH table (ScorDHtable.m): shoulder axis 349 mm up and 16 mm ahead
+# of the base axis, upper arm and forearm 221 mm, wrist to tool point 145.125.
+# The community CAD model says 346 and 29 instead; it is the odd one out and
+# is used only to place its own meshes (arm_chain.MESH_MODEL).
+DH_OFFSETS_MM = (349.0, 0.0, 0.0, 0.0, 145.125)
+DH_LENGTHS_MM = (16.0, 221.0, 221.0, 0.0, 0.0)
+
+
+def geometry():
+    """The dimensions as ``kinematics.DHParameters``.
+
+    Imported here, not at the top: ``kinematics.py`` needs NumPy, and
+    importing the SDK must not load it.
+    """
+    from . import kinematics
+    return kinematics.DHParameters(d=DH_OFFSETS_MM, a=DH_LENGTHS_MM)
+
+
+def _dh_angles(angles) -> list[float]:
+    # kinematics.py measures wrist pitch from 90 degrees below the forearm, as
+    # the toolbox's DH table does (its theta 4 is P + 90).
+    base, shoulder, elbow, pitch, roll = _numbers(angles, JOINTS, "Angles")
+    return [base, shoulder, elbow, pitch + 90.0, roll]
+
+
+def xyzpr_from_angles(angles) -> tuple[float, float, float, float, float]:
+    """Tool point (x, y, z in mm) and tool pitch and roll (degrees) for joint angles.
+
+    Pitch is the tool's angle to the horizontal, shoulder + elbow + pitch, as
+    in the toolbox's XYZPR.
+    """
+    from . import kinematics
+    q = _dh_angles(angles)
+    x, y, z = (float(value) for value in kinematics.tool_position(q, geometry()))
+    tool_pitch, tool_roll = kinematics.tool_pitch_roll(q)
+    return x, y, z, tool_pitch, tool_roll
+
+
+def angles_from_xyzpr(x: float, y: float, z: float, pitch: float,
+                      roll: float = 0.0) -> dict[str, float]:
+    """Joint angles reaching a tool point (mm) with a tool pitch and roll (degrees).
+
+    Elbow-up, facing the point: the solution the toolbox uses on hardware.
+    A pose that reaches back over the base is not returned. Raises ValueError
+    if the point is out of reach or on the base axis. Limits
+    are a separate question: see ``outside_limits`` and ``outside_window``.
+    """
+    from . import kinematics
+    q = kinematics.inverse(x, y, z, pitch, roll, elbow="up", params=geometry())
+    base, shoulder, elbow, wrist, tool_roll = (float(value) for value in q)
+    return {"base": base, "shoulder": shoulder, "elbow": elbow,
+            "pitch": kinematics._wrap(wrist - 90.0), "roll": tool_roll}
+
+
+# -- limits -----------------------------------------------------------------
+#
+# The narrower, joint by joint, of two sources:
+#   - what the vendor's controller accepted when the USNA toolbox stepped a
+#     degree at a time (ScorBSEPRLimits.m, which calls them "an estimate"):
+#     base -133.77/175.81, shoulder -28.28/126.30, elbow -140.80/-5.16,
+#     pitch -109.65/134.13, roll +/-360 (its guess);
+#   - the vendor's parameter file (ROB_4u.INI, turned into this sign
+#     convention): base -132/174, shoulder -31/124, elbow -160/115,
+#     pitch -115/113, roll +/-570.
+# Both are narrower than the manual's travel. The real limits are coupled:
+# the toolbox notes that shoulder, elbow and pitch near their upper limits
+# together can fail. The elbow's upper limit is the toolbox refusing
+# elbow-down, not a mechanical stop.
+LIMITS_DEG = {
+    "base": (-132.0, 174.0),
+    "shoulder": (-28.28, 124.0),
+    "elbow": (-140.80, -5.16),
+    "pitch": (-109.65, 113.0),
+    "roll": (-360.0, 360.0),
+}
+
+
+def outside_limits(angles) -> dict[str, float]:
+    """Joints a pose puts outside ``LIMITS_DEG``; empty if none."""
+    values = _numbers(angles, JOINTS, "Angles")
+    return {name: value for name, value in zip(JOINTS, values)
+            if not LIMITS_DEG[name][0] <= value <= LIMITS_DEG[name][1]}

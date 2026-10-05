@@ -219,6 +219,17 @@ class SdkStreamTests(SimulatedRobotCase):
             self.assertGreater(len(robot.sim.stream_sent), sent)
             self.assertLessEqual(max(abs(step[0]) for step in robot.sim.stream_sent), 120)
 
+    def test_r4_the_shoulder_cannot_be_streamed_past_its_joint_limit(self):
+        # Home has the upper arm 120 degrees up and the limit is 124 (source model).
+        robot = self.robot()
+        with robot.start_stream() as stream:
+            with self.assertRaises(StreamRefused) as caught:
+                stream.set_target({"shoulder": 600})
+            self.assertIn("shoulder", str(caught.exception))
+            self.assertTrue(self.follow(stream, robot, {"shoulder": 400}))
+            self.assertTrue(self.follow(stream, robot, {"shoulder": -900}))
+        self.assertIsNone(robot._fault)
+
     def test_r4_the_cap_cannot_be_raised_past_its_stage(self):
         robot = self.robot()
         queued = list(robot.sim.commands)

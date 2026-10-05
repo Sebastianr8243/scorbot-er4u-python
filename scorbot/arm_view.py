@@ -205,7 +205,7 @@ DEMO_TARGETS = (                      # motor counts from home, inside a 10 degr
     {"base": 1200, "shoulder": 0, "elbow": 0},
     {"base": 1200, "shoulder": -900, "elbow": 700},
     {"base": -1200, "shoulder": -900, "elbow": -700},
-    {"base": -1200, "shoulder": 600, "elbow": 0},
+    {"base": -1200, "shoulder": 300, "elbow": 0},     # the shoulder has little room above home
     {"base": 0, "shoulder": 0, "elbow": 0},
 )
 

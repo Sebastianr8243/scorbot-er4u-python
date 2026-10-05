@@ -97,6 +97,7 @@ class StreamCore:
     """One stream. ``set_target`` and ``request_stop`` may come from another thread."""
 
     def __init__(self, start: dict[str, int], *, travel_cap: dict[str, float],
+                 window: dict[str, tuple[float, float]] | None = None,
                  lead_limit: dict[str, float], limits: StreamLimits | None = None,
                  period_s: float = DEFAULT_PERIOD_S,
                  hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
@@ -113,8 +114,13 @@ class StreamCore:
                 raise StreamRefused(f"{name} needs a positive value for each of {MOTORS}")
         if set(start) != set(MOTORS) or any(type(v) is not int for v in start.values()):
             raise StreamRefused(f"start needs an integer count for each of {MOTORS}")
-        if any(abs(start[m]) > travel_cap[m] for m in MOTORS):
-            raise StreamRefused("the arm is already outside the travel cap")
+        # Allowed counts from home per motor: the travel cap either side, cut
+        # short where ``window`` (a joint limit) is nearer.
+        self.bounds = {m: (max(-travel_cap[m], (window or {}).get(m, (-math.inf, math.inf))[0]),
+                           min(travel_cap[m], (window or {}).get(m, (-math.inf, math.inf))[1]))
+                       for m in MOTORS}
+        if any(not self.bounds[m][0] <= start[m] <= self.bounds[m][1] for m in MOTORS):
+            raise StreamRefused("the arm is already outside the travel cap or a joint limit")
         limits = limits or prior_limits()
         self.period_s = period_s
         self.travel_cap = dict(travel_cap)
@@ -152,9 +158,10 @@ class StreamCore:
             if isinstance(value, bool) or not isinstance(value, (int, float)) \
                     or not math.isfinite(value):
                 raise StreamRefused(f"{motor} target must be a finite number")
-            if abs(value) > self.travel_cap[motor]:
-                raise StreamRefused(f"{motor} target {value:g} is outside the travel cap of "
-                                    f"{self.travel_cap[motor]:g} counts from home")
+            low, high = self.bounds[motor]
+            if not low <= value <= high:
+                raise StreamRefused(f"{motor} target {value:g} is outside the travel cap or "
+                                    f"joint limit: {low:g} to {high:g} counts from home")
         with self._lock:
             if self.state not in (TRACKING, HOLDING) or self._finish_requested:
                 raise StreamRefused(f"the stream is {self.state}; it takes no more targets")
@@ -227,7 +234,7 @@ class StreamCore:
                 return result(STOP)
             self._output.pass_to_input(self._input)
             proposed = {m: round(p) for m, p in zip(MOTORS, self._output.new_position)}
-            if any(abs(proposed[m]) > self.travel_cap[m] for m in MOTORS):
+            if any(not self.bounds[m][0] <= proposed[m] <= self.bounds[m][1] for m in MOTORS):
                 self._fault(f"commanded position left the travel cap: {proposed}")
                 return result(STOP)
             # Checked before it is sent: the limit bounds every setpoint, so a

@@ -180,6 +180,27 @@ class CalibrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Scorbot(max_jog_degrees=6)
 
+    def test_shoulder_jogs_stop_short_of_the_joint_limit_above_home(self):
+        # From the source model: about 3.7 degrees of travel above home. The
+        # legacy "positive" shoulder direction is that way.
+        from scorbot.simulated import SimulatedScorbot
+        robot = SimulatedScorbot().connect()
+        self.addCleanup(robot.disconnect)
+        robot.enable()
+        robot.home(start_position_confirmed=True)
+        queued = list(robot.sim.commands)
+        with self.assertRaises(ValueError) as caught:
+            robot.jog_joint("shoulder", 4.0)
+        self.assertIn("joint limit", str(caught.exception))
+        self.assertEqual(robot.sim.commands, queued, "a refused jog queues nothing")
+        self.assertIsNone(robot._fault, "a refused jog is not a fault")
+        robot.jog_joint("shoulder", 3.0)
+        with self.assertRaises(ValueError):
+            robot.jog_joint("shoulder", 1.0)              # 4 degrees in all
+        robot.jog_joint("shoulder", -5.0)                 # away from the limit is fine
+        robot.jog_joint("shoulder", -5.0)
+        robot.jog_joint("base", 5.0)
+
     def test_stale_feedback_faults_before_any_motion(self):
         robot = Scorbot(response_timeout=0.01)
         robot._device = object()

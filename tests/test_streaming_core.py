@@ -132,6 +132,22 @@ class StreamCoreTests(unittest.TestCase):
         records = run(core, arm, 200, start=5, on_step=keep_alive(core, {"base": 100}))
         self.assertEqual(records[-1].commanded, {"base": 100, "shoulder": 0, "elbow": 0})
 
+    def test_r4_a_joint_limit_nearer_than_the_cap_is_the_bound_on_that_side(self):
+        # The shoulder has only a few degrees of travel above home.
+        core, arm = make(window={"shoulder": (-1100.0, 420.0)}), Arm()
+        from scorbot.streaming import StreamRefused
+        with self.assertRaises(StreamRefused) as caught:
+            core.set_target({"shoulder": 500}, 0.0)
+        self.assertIn("420", str(caught.exception))
+        core.set_target({"shoulder": 420}, 0.0)
+        core.set_target({"shoulder": -1000}, 0.0)          # the other side keeps the cap
+        records = run(core, arm, 400, on_step=keep_alive(core, {"shoulder": 420}))
+        self.assertEqual(records[-1].commanded["shoulder"], 420)
+        self.assertIsNone(core.fault)
+        with self.assertRaises(StreamRefused):
+            make(start={"base": 0, "shoulder": 500, "elbow": 0},
+                 window={"shoulder": (-1100.0, 420.0)})
+
     def test_r4_bad_targets_are_refused(self):
         from scorbot.streaming import StreamRefused
         core = make()

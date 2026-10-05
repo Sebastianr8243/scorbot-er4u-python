@@ -58,6 +58,7 @@ Start with [`../README.md`](../README.md) for the project summary and [`../START
 
 | Doc | Read when |
 |---|---|
+| [`ER4U_MODEL.md`](manual/ER4U_MODEL.md) | **What this project believes about the arm**: geometry, counts to angles, home, joint limits, gripper, each number with its sources and what the lab still has to confirm |
 | [`HARDWARE_REFERENCE.md`](manual/HARDWARE_REFERENCE.md) | Interpreting a LED, a limit or a manual claim. Nominal values |
 | [`MANUAL_AND_PRIOR_ART_FINDINGS.md`](manual/MANUAL_AND_PRIOR_ART_FINDINGS.md) | Looking up vendor INI priors, SCORBASE facts and other projects' findings |
 | [`MANUAL_VERIFICATION_IMPACT.md`](manual/MANUAL_VERIFICATION_IMPACT.md) | Seeing what the manual audit changed in the code |

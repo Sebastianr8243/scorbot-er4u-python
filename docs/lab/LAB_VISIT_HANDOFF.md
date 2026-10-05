@@ -186,6 +186,7 @@ After the visit, record what happened in [PROJECT_LOG.md](../project/PROJECT_LOG
 
 ## 10. Known limits, so nobody is surprised
 
+- **The shoulder has little room above home.** Home has the upper arm about 120 degrees up and the joint limit is 124, so the SDK refuses a shoulder jog or stream target more than about 3.7 degrees in the positive direction. The 1 degree moves on the card are well inside it. From the source model, not measured.
 - **Travel is small on purpose.** Jogs are at most 1 degree in the bench script and 5 in the SDK. A stream stays within 10 degrees of home, and the bench trial within 2.
 - **No Cartesian moves and no wrist jogs.** The kinematics are unvalidated and the wrist's two motors are unmeasured.
 - **The gripper has no force limit.** It moves a fixed 2700 counts by the legacy sequence. Empty jaws first, then something soft. The vendor closes its gripper differently (a set drive for a time); using that needs a USB capture of SCORBASE first.

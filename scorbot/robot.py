@@ -12,7 +12,7 @@ import sys
 import threading
 import traceback
 
-from . import limits
+from . import limits, source_model
 from .calibration import load_calibration, signed_count_delta
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
@@ -532,6 +532,7 @@ class Scorbot:
                 core = StreamCore(
                     start,
                     travel_cap={m: travel_cap_deg * per_degree[m] for m in STREAM_MOTORS},
+                    window=source_model.limit_window(),
                     lead_limit={m: lead_limit_deg * per_degree[m] for m in STREAM_MOTORS},
                     limits=prior_limits(speed_fraction), period_s=period_s,
                     hold_timeout_s=hold_timeout_s, now=time.monotonic())
@@ -779,6 +780,7 @@ class Scorbot:
             preview = self.preview_jog(
                 joint, delta_degrees, speed=speed,
                 starting_signed_counts=before.signed_encoder_counts)
+            self._refuse_past_joint_limit(before, preview["motor_count_deltas"])
             preview["vendor_limit_report"] = vendor_limit_report(_home_relative_targets(
                 before.encoder_counts, self._home_counts, preview["motor_count_deltas"]))
             self._record("motion_preview", plan=preview, state=asdict(before))
@@ -926,6 +928,30 @@ class Scorbot:
                          moved_counts=travelled, full_travel=result.full_travel,
                          state=asdict(after))
             return result
+
+    def _refuse_past_joint_limit(self, before: RobotState, deltas: dict) -> None:
+        """Refuse a jog that would pass a joint limit of the source model.
+
+        Only the shoulder's upper limit is within reach of small jogs: home
+        has the upper arm about 120 degrees up, and the limit is 124. From
+        ``source_model.py``, not measured: it assumes the session home is the
+        vendor's home pose. Nothing is queued.
+        """
+        if self._home_counts is None:
+            return
+        for motor, (low, high) in source_model.limit_window().items():
+            if not deltas.get(motor):
+                continue
+            try:
+                target = signed_count_delta(before.encoder_counts[motor],
+                                            self._home_counts[motor]) + deltas[motor]
+            except ValueError:
+                continue      # the count cannot be placed; the jog's own checks decide
+            if not low <= target <= high:
+                raise ValueError(
+                    f"Jog would take the {motor} past its joint limit ({target:+d} counts "
+                    f"from home; allowed {low:+.0f} to {high:+.0f}, from the source model, "
+                    "not measured)")
 
     def get_joint_angles(self) -> dict[str, float]:
         """Return calibrated angles only after a verified home on this arm."""
