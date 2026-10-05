@@ -39,7 +39,9 @@ from types import MappingProxyType
 
 from .packet import PacketSnapshot
 from .robot import Scorbot, ScorbotError
-from .state import ENCODER_OFFSETS, JOINTS
+from .state import ENCODER_OFFSETS, ERROR_OFFSETS, JOINTS
+from .streaming import MOTORS as STREAM_MOTORS
+from .streaming import STREAM_ORDER
 
 FAULT_KINDS = ("timeout", "late_answer", "controller_error", "worker_crash",
                "stale_feedback", "corrupt_packet", "motors_dropped")
@@ -151,6 +153,13 @@ class SimulatedController:
         self._index = 0
         self._plan_jog = None
         self._stop_event = None
+        # Streaming model (modeled, not measured): each step the arm covers
+        # this share of the distance to the setpoint; stuck means it does not move.
+        self.stream_follow = 1.0
+        self.stream_stuck = False
+        self.stream_error_word = 0
+        self.stream_emergency = False
+        self.stream_sent: list[tuple] = []
 
     def inject(self, kind: str) -> None:
         """Arm a one-shot fault for the next command or feedback read.
@@ -262,6 +271,10 @@ class SimulatedController:
                 if self.drop_motors_after_home:
                     self.drop_motors_after_home = False
                     self.motors_on = False
+        elif order == STREAM_ORDER:
+            if not self.motors_on:
+                return _ERROR_MOTORS_OFF
+            return self._stream(payload[1])
         elif order in _JOG_ORDERS:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
@@ -293,6 +306,34 @@ class SimulatedController:
         else:
             return _ERROR_UNKNOWN_ORDER
         return 0
+
+    def _stream(self, source) -> int:
+        """Follow a stream like openScorbot/libcomm.py:stream_targets, with an arm model."""
+        self._moving = True
+        try:
+            while True:
+                with self._lock:
+                    reply = bytearray(encode_packet(self.counts, self.switch_bits))
+                    reply[2] |= 1 if self.stream_emergency else 0
+                    for offset in ERROR_OFFSETS[:len(STREAM_MOTORS)]:
+                        reply[offset:offset + 2] = self.stream_error_word.to_bytes(2, "little")
+                step = source(bytes(reply))
+                if step[0] == "end":
+                    return 0
+                if step[0] == "stop":
+                    return _STOPPED
+                if self.step_delay_s:
+                    time.sleep(self.step_delay_s)
+                if step[0] == "wait":
+                    continue
+                self.stream_sent.append(tuple(step[1]))
+                with self._lock:
+                    if not self.stream_stuck:
+                        for motor, target in zip(STREAM_MOTORS, step[1]):
+                            move = round((target - self.counts[motor]) * self.stream_follow)
+                            self.counts[motor] += move
+        finally:
+            self._moving = False
 
     def _pressed_switches(self) -> int:
         """Switch byte for the current counts (call with ``_lock`` held)."""
@@ -397,6 +438,7 @@ class SimulatedScorbot(Scorbot):
     def disconnect(self):
         if self._device is None:
             return
+        self._abandon_stream()
         self._cancel_event.set()
         thread = self._command_thread
         if thread is not None and thread.is_alive():

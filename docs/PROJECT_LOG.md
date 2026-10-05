@@ -35,6 +35,26 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
 - Reviewed by Codex (adversarial, against the decompiled code): two wording
   errors about the stop sequence found and corrected. Gemini unavailable.
 
+### Streaming driver (built in the simulator, not yet on the arm)
+
+- Why now: reading the vendor planner showed it refuses a new target while
+  moving ("motion in progress"). There is nothing to copy; streaming with
+  retargeting is ours to design. The owner chose to stop reading the vendor
+  lifecycle and build.
+- Requirements and the owner's four decisions:
+  `docs/superpowers/specs/2026-10-04-streaming-driver-requirements.md`. The
+  "no coordinated motion" rule was narrowed: base, shoulder and elbow may
+  move together as count targets inside the travel cap.
+- Built as a USB-free core (`scorbot/streaming.py`, Ruckig online for the
+  speed, acceleration and jerk limits) and a thin hook into the legacy
+  worker (`libcomm.stream_targets`, order 21), so every byte is one the arm
+  has accepted from a jog. `Scorbot.start_stream` returns a `Stream`.
+- Starting values are vendor priors: 24 ms, a quarter of 6500 counts/s.
+  Travel is capped at 10 degrees from home and is to be widened in stages
+  with lab evidence.
+- Off by default until the lab confirms the bytes: pacing on the echoed
+  message ID, and the emergency-bit fault.
+
 ### Raw reply bytes and a software stop (built, not yet on the arm)
 
 - Design and plan: `docs/superpowers/specs/2026-10-04-software-stop-design.md`.

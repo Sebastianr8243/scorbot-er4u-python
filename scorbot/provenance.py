@@ -10,6 +10,7 @@ _SOURCE_FILES = (
     "openScorbot/motion_profile.py",
     "scorbot/robot.py",
     "scorbot/state.py",
+    "scorbot/streaming.py",
 )
 
 

@@ -1,6 +1,6 @@
 # Streaming driver: requirements
 
-Date: 2026-10-04. Status: **decisions answered; awaiting the owner's go to build. Nothing is built.** This is step 2 of the agreed path: write down what the driver must do, get a yes, then build it against the simulator.
+Date: 2026-10-04. Status: **built and tested in the simulator; never run on the arm.** Section 8 says what was built and what is deliberately switched off. This is step 2 of the agreed path: write down what the driver must do, get a yes, then build it against the simulator.
 
 ## 1. Why
 
@@ -70,3 +70,35 @@ Cartesian targets, wrist and gripper motion, calibration, the policy itself, and
 - In the simulator: every requirement has a passing test, and a recorded teleop episode replays through the streaming driver with a stated tracking error.
 - Reviewed by Codex before it goes near the arm.
 - At the lab: one motor, 1 degree, someone at the physical stop, then the starting values replaced by measured ones.
+
+## 8. What was built (2026-10-04)
+
+```mermaid
+flowchart TD
+  C["Caller: stream.set_target(counts from home)"] --> K["scorbot/streaming.py StreamCore (no USB)"]
+  K --> A["Stream.source: one call per period, never raises"]
+  A --> L["openScorbot/libcomm.py stream_targets (order 21)"]
+  A -. "simulator runs the same source" .-> S["SimulatedController._stream (arm model with lag)"]
+  L --> U["USB: 47, then 0D messages with three setpoints, then close or stop"]
+```
+
+| Requirement | State | Where tested |
+|---|---|---|
+| R1 new target any time, three motors | Built | `test_streaming_core`, `test_streaming` |
+| R2 speed, acceleration, jerk limits | Built (Ruckig online) | `test_streaming_core` |
+| R3 lead limit | Built; default 2 degrees, at most the jog ceiling | both |
+| R4 travel cap | Built; 10 degrees, and the code refuses more | both |
+| R5 stop | Built; ends with the stop sequence on the measured position | both, plus the exact messages |
+| R6 faults | Built for lead, error word, bad reply, worker crash. **Emergency bit: built, off by default** until the lab confirms reply byte 2 (lab plan V6) | both |
+| R7 hold when targets stop | Built; 0.5 s default | both |
+| R8 pacing on the echoed ID | **Core only.** `StreamCore` waits when told the queue is full, but nothing feeds it the echo yet, because reply byte 0 is unconfirmed (lab plan V4). The legacy loop sends one message and reads one reply per step, as jogs do | `test_streaming_core`, and the wait action in `test_streaming` |
+| R9 wrist and gripper untouched | Built | exact messages in `test_streaming` |
+| R10 log | Built: one `stream_trace` row with every step's target, command, measurement and lead, plus the raw packets | `test_streaming` |
+| R11 simulator with lag | Built: `SimulatedController.stream_follow`, `stream_stuck` | both |
+| R12 opt-in, gated, jogs unchanged | Built; other commands are refused while a stream is active, before they log or queue anything | `test_streaming`; the existing suite is unchanged |
+
+Things to know before the first trial on the arm:
+
+- **The loop's real period is not the planned one.** The core plans in 24 ms steps; the legacy loop's own delays give about 20 ms plus USB time. The arm therefore moves a little faster than planned. The limits start at a quarter of the vendor's, so there is room, and the log records real timestamps so the period can be set from data.
+- **Three setpoints in one message has not been sent to this arm before.** Each field is what a jog sends for that joint; the layout is the one `moveXYZ` uses, which the SDK never ran.
+- **First trial:** one motor, a target one degree away, `travel_cap_deg=1` or 2, someone at the physical stop. Then read the `stream_trace` row: tracking error and real period.

@@ -36,6 +36,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | Offline analysis scripts |
 | `test_nominal.py`, `test_kinematics.py`, `test_motion_profile.py` | Manual values and span bound, offline kinematics and legacy `cIn` findings, jog planning |
 | `test_properties.py` | Hypothesis properties of encoder and packet arithmetic; `test_known_bug_*` are `expectedFailure` |
+| `test_streaming_core.py`, `test_streaming.py` | The streaming driver: the USB-free core against a small arm model (one or more tests per requirement R1-R12), the legacy loop against fake endpoints (exact messages), and `Scorbot.start_stream` through the simulator |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |
 | `test_vendor_check.py`, `test_usbc_query.py`, `test_usbc_bindings.py` | The vendor-layout checker, the decompiled-dump query tool, the parked DLL bindings (fake library) |
 

@@ -40,6 +40,8 @@ READ	  = conf.readData("general","READ")
 MAX_ERROR = conf.readData("general", "MAX_ERROR")
 # Result code for a jog ended early by a stop request (libdef.error_msg)
 STOPPED   = 14
+# Order for following a stream of base/shoulder/elbow setpoints (SDK only)
+STREAM    = 21
 
 #------------------------------ARGUMENTOS USADOS-------------------------------#
 # b_1		-> Byte de secuencia
@@ -472,6 +474,59 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 	media = libdef.get_media(buffer,media)
 	cola_read.put(media)
 
+# Follows a stream of setpoints for base, shoulder and elbow together.
+#
+# Opens a movement like every jog, then sends one ordinary setpoint message
+# (mov_comm(1)) per step. The three joints' fields are placed with
+# getStruct(20, ...), the layout moveXYZ already uses. The steps come from
+# `source`, which is called with a copy of the last reply and returns:
+#   ("send", (base, shoulder, elbow))  signed counts to send
+#   ("wait",)                          send nothing this period
+#   ("end",)                           finish like a normal movement
+#   ("stop",)                          finish with the stop sequence
+# No new command byte or template; the write/read delays are the base's.
+# From the vendor disassembly (docs/VENDOR_DLL_PROTOCOL.md); never run on the arm.
+#
+# source -> callable described above; it must not raise
+def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source):
+	write = conf.readData("cadera","write")
+	read = conf.readData("cadera","read")
+	media = cola_read.get()
+	[b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, write, read)
+	signal_out = ''
+	stopped = False
+	while True:
+		step = source(bytes(buffer))
+		if step[0] == "end":
+			break
+		if step[0] == "stop":
+			stopped = True
+			break
+		if step[0] == "wait":
+			time.sleep(write + read)
+			continue
+		signal_out = ''.join(libdef.setpointField(valor) for valor in step[1])
+		cadena = libhex.mov_comm(1)
+		b_1 = libdef.countByte1(b_1)
+		cadena = cadena.format(libdef.f_byte(b_1))
+		cadena = libdef.fill_msg(cadena, 24)
+		msg = libdef.get_encoder(buffer, media)
+		cadena += libdef.getStruct(20, signal_out, msg)
+		libdef.set_msg(cadena, epout, epin, buffer, write, read)
+		media = libdef.get_media(buffer, media)
+
+	if stopped or signal_out == '':
+		# Nothing was sent, or a stop: end on the measured position.
+		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
+		if stopped:
+			cola_orden.put(STOPPED)
+			logging.warning(libdef.error_msg(STOPPED))
+	else:
+		[b_1, buffer, media] = libdef.closeMov(b_1, media, 20, signal_out, epout, epin, buffer, write, read)
+
+	cola_read.put(media)
+	return b_1
+
 #################################################################################
 # Segundo hilo de programa.
 # Gestiona las ordenes enviadas por el usuario desde la interfaz gráfica y
@@ -512,6 +567,8 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					b_1 = move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
 				elif orden == 14 or orden == 15:
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read)
+				elif orden == STREAM:
+					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:
 					b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
 				elif orden == 17:

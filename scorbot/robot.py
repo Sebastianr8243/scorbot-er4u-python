@@ -16,6 +16,8 @@ from .calibration import load_calibration, signed_count_delta
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
 from .state import HOME_SWITCH_BITS, JOINTS, RobotState, decode_state
+from .streaming import MOTORS as STREAM_MOTORS
+from .streaming import STREAM_ORDER, Stream, StreamCore, prior_limits
 
 
 def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int | None]:
@@ -74,6 +76,10 @@ class Scorbot:
     STOP_SETTLE_TIMEOUT_S = 8.0
     STOP_SETTLE_COUNTS = 2
     STOP_SETTLE_QUIET_PAIRS = 3
+    # Streaming travel from home. Stage 1 of the staged widening in
+    # docs/superpowers/specs/2026-10-04-streaming-driver-requirements.md; raise it
+    # only with lab evidence, and say why in docs/PROJECT_LOG.md.
+    STREAM_TRAVEL_CAP_MAX_DEG = 10.0
 
     _JOG_CODES = {
         "base": (5, 4),
@@ -117,6 +123,7 @@ class Scorbot:
         self._lock = threading.Lock()
         self._cancel_event = threading.Event()
         self._stop_event = threading.Event()
+        self._stream = None
         self._enabled = False
         self._homed = False
         self._fault = None
@@ -299,6 +306,8 @@ class Scorbot:
             raise ScorbotError("Not connected")
         if self._fault:
             raise ScorbotError(f"Controller is faulted: {self._fault}")
+        if self._stream is not None:
+            raise ScorbotError("A stream is active; close or stop it first")
         wait_timeout = self.command_timeout if timeout is None else timeout
         with self._lock:
             self._record("command_start", payload=payload)
@@ -389,8 +398,14 @@ class Scorbot:
             raise ScorbotError(f"Controller is faulted: {self._fault}")
         return state
 
+    def _refuse_if_streaming(self) -> None:
+        # Before any log row or trace change, so a refused call leaves no mark.
+        if self._stream is not None:
+            raise ScorbotError("A stream is active; close or stop it first")
+
     def enable(self):
         with self._motion_lock:
+            self._refuse_if_streaming()
             self._motion_state()
             self._command([17, 1, 1])
             self._enabled = True
@@ -411,6 +426,9 @@ class Scorbot:
         authoritative.
         """
         self._stop_event.set()
+        stream = self._stream
+        if stream is not None:
+            stream.request_stop()      # the caller still ends it with stop() or close()
         self._record("stop_requested")
 
     def _settled_after_stop(self, before: RobotState) -> RobotState:
@@ -440,9 +458,125 @@ class Scorbot:
         self._record("stop_settle_failed", error=self._fault, state=asdict(current))
         raise ScorbotError(self._fault)
 
+    def start_stream(self, *, travel_cap_deg: float = 10.0, speed_fraction: float = 0.25,
+                     lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5,
+                     period_s: float = 0.024, use_emergency_bit: bool = False) -> Stream:
+        """Start following a stream of targets for base, shoulder and elbow.
+
+        Returns a ``Stream``: call ``set_target`` with motor counts from home as
+        often as you like, then ``close`` (or use it as a context manager).
+        Until it ends, every other command is refused. Unverified on the arm:
+        the period, limits and stop sequence are priors, so the first trials
+        are one motor, about a degree, supervised. Not an emergency stop;
+        the physical stop is authoritative. Needs the ``planning`` extra.
+        """
+        with self._motion_lock:
+            if self._device is None:
+                raise ScorbotError("Not connected")
+            if self._stream is not None:
+                raise ScorbotError("A stream is already active")
+            for name, value, top in (("travel_cap_deg", travel_cap_deg,
+                                      self.STREAM_TRAVEL_CAP_MAX_DEG),
+                                     ("lead_limit_deg", lead_limit_deg, self.max_jog_degrees)):
+                if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                        or not math.isfinite(value) or not 0 < value <= top:
+                    raise ValueError(f"{name} must be above 0 and at most {top:g} degrees")
+            if not self._enabled or not self._homed or self._home_counts is None:
+                raise ScorbotError("Enable and home before streaming")
+            before = self._motion_state()
+            if self._stop_event.is_set():
+                self._stop_event.clear()
+                self._record("stop_before_motion", joint="stream")
+                raise MotionStopped("A stop was requested; the stream was not started",
+                                    state=before, started=False)
+            per_degree = {m: abs(self.preview_jog(m, 1.0)["motor_count_deltas"][m])
+                          for m in STREAM_MOTORS}
+            try:
+                start = {m: signed_count_delta(before.encoder_counts[m], self._home_counts[m])
+                         for m in STREAM_MOTORS}
+            except ValueError as exc:
+                raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
+            try:
+                core = StreamCore(
+                    start,
+                    travel_cap={m: travel_cap_deg * per_degree[m] for m in STREAM_MOTORS},
+                    lead_limit={m: lead_limit_deg * per_degree[m] for m in STREAM_MOTORS},
+                    limits=prior_limits(speed_fraction), period_s=period_s,
+                    hold_timeout_s=hold_timeout_s, now=time.monotonic())
+            except ImportError as exc:
+                raise ScorbotError("Streaming needs the planning extra "
+                                   "(pip install .[planning])") from exc
+            stream = Stream(self, core, self._home_counts, before,
+                            use_emergency_bit=use_emergency_bit)
+            self._record("stream_start", travel_cap_deg=travel_cap_deg,
+                         speed_fraction=speed_fraction, lead_limit_deg=lead_limit_deg,
+                         hold_timeout_s=hold_timeout_s, period_s=period_s,
+                         use_emergency_bit=use_emergency_bit, start_counts_from_home=start,
+                         state=asdict(before))
+            if self._trace is not None:
+                self._trace.start()
+            with self._lock:
+                self._stream = stream
+                self._commands.put([STREAM_ORDER, stream.source, 0])
+            return stream
+
+    def _end_stream(self, stream: Stream) -> RobotState:
+        """Collect the worker's answer for a stream and settle the session."""
+        with self._motion_lock:
+            if self._stream is not stream:
+                if stream.final_state is None:
+                    raise ScorbotError("The stream has already ended")
+                return stream.final_state
+            result, failure = None, None
+            try:
+                with self._lock:
+                    result = self._next_result(self.command_timeout)
+                    if result != 0:
+                        while self._next_result(self.command_timeout) != 0:
+                            pass
+            except queue.Empty:
+                failure = "The stream did not end; physical stop may be required"
+                self._cancel_event.set()
+            except ScorbotError as exc:
+                failure = str(exc)
+            finally:
+                self._stream = None
+                self._stop_event.clear()
+                packets, dropped = self._trace.stop() if self._trace is not None else ([], 0)
+                self._record("stream_trace", packets=packets, dropped_packets=dropped,
+                             steps=stream.steps, dropped_steps=stream.dropped_steps)
+            if failure is None and stream.core.fault:
+                failure = f"Stream fault: {stream.core.fault}"
+            if failure is None and result not in (0, self._STOPPED_CODE):
+                failure = f"Legacy controller returned error code {result}"
+            if failure is not None:
+                self._latch_fault(failure)
+                if self._link_alive():
+                    self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
+                self._record("stream_fault", error=self._fault)
+                raise ScorbotError(self._fault)
+            if result == self._STOPPED_CODE:
+                after = self._settled_after_stop(stream._before)
+                self._record("stream_stopped", state=asdict(after))
+            else:
+                after = self._motion_state(after_index=stream._before.packet_index)
+                self._record("stream_complete", state=asdict(after))
+            stream.final_state = after
+            return after
+
+    def _abandon_stream(self) -> None:
+        """Before disconnecting: end a stream the caller left open."""
+        stream = self._stream
+        if stream is not None:
+            try:
+                stream.stop()
+            except ScorbotError:
+                pass  # the session is latched; disconnect carries on
+
     def disable(self):
         """Queue a motor-disable command while the worker is responsive."""
         with self._motion_lock:
+            self._refuse_if_streaming()
             self._command([16, 1, 1])
             self._enabled = False
             self._homed = False
@@ -451,6 +585,7 @@ class Scorbot:
     def home(self, *, start_position_confirmed: bool = False):
         """Search switches from the confirmed legacy start pose; never Go Home."""
         with self._motion_lock:
+            self._refuse_if_streaming()
             if not start_position_confirmed:
                 raise ValueError("Confirm the legacy homing start position first")
             if not self._enabled:
@@ -517,6 +652,7 @@ class Scorbot:
     def jog_joint(self, joint: str, delta_degrees: float, *, speed: int = 10):
         """Move one joint by a bounded legacy relative jog; read back raw state."""
         with self._motion_lock:
+            self._refuse_if_streaming()
             if joint not in self._JOG_CODES:
                 raise ValueError(f"Unknown joint: {joint}")
             if joint.startswith("wrist_"):
@@ -650,6 +786,7 @@ class Scorbot:
     def disconnect(self):
         if self._device is None:
             return
+        self._abandon_stream()
         self._cancel_event.set()
         # If either worker died, an exit command can never reach USB; leave the
         # daemon thread, since the session is already faulted.

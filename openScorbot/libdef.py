@@ -333,6 +333,17 @@ def stopMov(b_1, media, epout, epin, buffer, write, read):
 
 	return [b_1, buffer, media]
 
+# Builds one joint's setpoint field from a signed count: the value in the
+# legacy unsigned form plus its sign word, as suma/resta produce it.
+#
+# valor -> Signed encoder count, -65535..65535
+def setpointField(valor):
+	if valor < -65535 or valor > 65535:
+		raise ValueError("Setpoint out of range: {}".format(valor))
+	if valor < 0:
+		return detrans(valor + 65535) + 'ffff'
+	return detrans(valor) + '0000'
+
 # Selects the standard structure for sending positions to the controller according to
 # the received command.
 #

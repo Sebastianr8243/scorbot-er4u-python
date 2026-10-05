@@ -38,6 +38,8 @@ Two facts make that possible:
 | F2 | Record idle with our code, press the e-stop at rest, release it per the lab procedure | one button press. Built: each idle sample row now carries `raw_hex` | V6 |
 | F3 | Try the vendor stop from our own code: `bench_joint.py --stop-after-ms 150` on a 1 degree jog | built, simulator-tested, never run on the arm | V3 |
 
+| F4 | Try streaming: one motor, a target one degree away, with `Scorbot.start_stream(travel_cap_deg=2)` | built, simulator-tested, never run on the arm; needs a small bench script first | whether the arm follows a stream of setpoints, the real loop period, the tracking error |
+
 At a desk, for F1:
 
 ```powershell

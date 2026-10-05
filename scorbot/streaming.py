@@ -19,6 +19,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import threading
+import time
+
+from .calibration import signed_count_delta
+from .state import decode_state
 
 MOTORS = ("base", "shoulder", "elbow")
 DEFAULT_PERIOD_S = 0.024          # vendor planner period (PCPeriod x USBCPeriod); a prior
@@ -26,6 +30,8 @@ DEFAULT_HOLD_TIMEOUT_S = 0.5      # ours
 DEFAULT_ERROR_LIMIT = 40          # openScorbot conf MAX_ERROR, the legacy joint-limit threshold
 VENDOR_MAX_SPEED_COUNTS_S = 6500.0   # ER4AxN.ini MaxSpeed; counts/s is inferred from the DLL
 DEFAULT_SPEED_FRACTION = 0.25     # ours: start at a quarter of the vendor limit
+STREAM_ORDER = 21                 # openScorbot/libcomm.py:STREAM
+MAX_STREAM_STEPS = 20000          # step records kept for the log (8 minutes at 24 ms)
 TRACKING, HOLDING, STOPPED, FAULTED, ENDED = "tracking", "holding", "stopped", "faulted", "ended"
 SEND, WAIT, STOP, END = "send", "wait", "stop", "end"
 
@@ -225,3 +231,85 @@ class StreamCore:
                     return result(END)
                 self._rest_sent = True     # send the resting position once, then end
             return result(SEND)
+
+
+def _legacy_error(raw: int) -> int:
+    """The controller error word as openScorbot/libdef.py:getError reads it."""
+    return 65535 - raw if raw >= 65500 else raw
+
+
+class Stream:
+    """A running stream on a ``Scorbot``. Made by ``Scorbot.start_stream``.
+
+    ``set_target`` takes motor counts from this session's home, for any of
+    base, shoulder and elbow, at any time. ``close`` slows to rest and ends;
+    ``stop`` ends at once with the stop sequence. Neither is an emergency
+    stop. Use it as a context manager so it always ends.
+    """
+
+    def __init__(self, robot, core: StreamCore, home_counts: dict, before, *,
+                 use_emergency_bit: bool = False):
+        self.robot, self.core = robot, core
+        self._home = dict(home_counts)
+        self._before = before
+        self._use_emergency_bit = use_emergency_bit
+        self.steps: list[dict] = []
+        self.dropped_steps = 0
+        self.final_state = None
+
+    def set_target(self, target: dict) -> None:
+        self.core.set_target(target, time.monotonic())
+
+    def request_stop(self) -> None:
+        self.core.request_stop()
+
+    def close(self):
+        """Slow to rest, end the stream and return the final state."""
+        self.core.finish()
+        return self.robot._end_stream(self)
+
+    def stop(self):
+        """End now with the stop sequence and return the final state."""
+        self.core.request_stop()
+        return self.robot._end_stream(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, kind, _value, _traceback):
+        if self.final_state is None and self.robot._stream is self:
+            if kind is None:
+                self.close()
+            else:
+                self.stop()
+
+    def source(self, reply: bytes):
+        """Called by the worker once per period with the last reply. Never raises."""
+        try:
+            state = decode_state(reply, connected=True, enabled=None, homed=True, fault=None)
+            measured = {m: signed_count_delta(state.encoder_counts[m], self._home[m])
+                        for m in MOTORS}
+            errors = {m: _legacy_error(state.controller_error_counts[m]) for m in MOTORS}
+            emergency = self._use_emergency_bit and bool(reply[2] & 1)
+            step = self.core.step(measured, time.monotonic(), error_counts=errors,
+                                  emergency=emergency)
+            if len(self.steps) < MAX_STREAM_STEPS:
+                self.steps.append({"host_monotonic_ns": time.monotonic_ns(),
+                                   "action": step.action, "state": step.state,
+                                   "target": step.target, "commanded": step.commanded,
+                                   "measured": step.measured, "lead": step.lead})
+            else:
+                self.dropped_steps += 1
+            if step.action != SEND:
+                return (step.action,)
+            # Absolute setpoints: where the arm is now, plus how far the
+            # command is from where the arm is, both in counts from home.
+            absolute = tuple(state.signed_encoder_counts[m] + step.commanded[m] - measured[m]
+                             for m in MOTORS)
+            if any(abs(value) > 65535 for value in absolute):
+                self.core.fail(f"setpoint outside the counter range: {absolute}")
+                return (STOP,)
+            return (SEND, absolute)
+        except Exception as exc:   # the worker thread must never see an exception
+            self.core.fail(f"stream step failed: {type(exc).__name__}: {exc}")
+            return (STOP,)
