@@ -7,6 +7,68 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 The implementation plans this log cites under `docs/superpowers/plans/` were removed from the tree on 2026-10-04; they are in git history (last present at commit `e5ef11e`).
 
+## 2026-10-05 (desk work for the lab visit)
+
+### Three front doors, simulator only
+
+- **Why:** the owner wants a teaching tool and a research tool for VLA. One arm
+  model, three ways in: `scorbot.toolbox.Arm` (MATLAB-style names from the USNA
+  toolbox), a browser page (`python -m scorbot.ui --simulate`, Viser, `ui`
+  extra) and the existing LeRobot plugin. Spec:
+  `docs/specs/2026-10-05-three-front-doors-design.md`.
+- **Where:** `scorbot/mover.py` (the one owner of `start_stream`; degree and
+  millimetre targets, closes a stream nobody drives), `scorbot/toolbox.py`,
+  `scorbot/ui/` (`panel.py` logic with no Viser import, `app.py` the page).
+- **Owner decisions:** Viser as an optional extra, never on the lab PC;
+  millimetre targets allowed in the simulator only (the "no Cartesian motion"
+  rule now says "on the arm"). Every new class refuses a robot that is not a
+  `SimulatedScorbot`.
+- **Reviewed by Codex three times** (design, code, then the page). Found and
+  fixed: stale feedback leaving a stream open, a failed stop reported as a
+  timeout, Stop waiting behind a stream close, abandoned targets resuming, Stop
+  lost between a stream ending and the gripper starting, `is_moving` hiding a
+  fault, `scorbot.ui` missing from the package list, late slider events
+  restarting the arm after Stop, a gripper left running when the last tab
+  closed, the drag handle fighting the user, one failed read ending the page.
+  Rejected: a watchdog thread (over-engineering) and moving Home onto a worker
+  thread (it would not make Stop faster; pinned by a test instead).
+- **Not done:** recording from the browser (the exporter only understands jog
+  sessions) and a policy-loop document. Nothing here has touched the arm.
+
+### Wrap-aware settle check (backlog 5)
+
+- **Change:** the nine `abs(target - media) > 20` checks in `libcomm.py` and
+  `setHome.py` now call `motion_profile.count_distance`, which equals `abs`
+  away from the 0/65535 seam. `moveXYZ.py` is left (order 19 is never sent).
+- **Evidence:** `tests/test_settle_seam.py` drives the real `libcomm.move_hips`
+  against fake endpoints; a 1 degree jog back to zero with the arm reading just
+  below zero ended in result 2 before the change and ends cleanly after it.
+- **Found while building:** `SimulatedScorbot` has its own jog logic and never
+  runs the legacy loops, so no simulator test (including seam jitter, which
+  stops during moves) can show this bug. The fake-endpoint harness of
+  `tests/test_software_stop.py` can.
+- **Prior art for the method:** difference modulo the counter size, treated as
+  signed ([PMUL rollover](https://industrialmonitordirect.com/blogs/knowledgebase/troubleshooting-logix-pmul-block-encoder-rollover),
+  [24-bit wrap to signed](https://industrialmonitordirect.com/blogs/knowledgebase/resolving-24-bit-encoder-wrap-around-to-signed-mm-in-tia-portal)).
+- Changes `motion_source_sha256`, as intended. Never run on the arm.
+
+### Lab session log to calibration CSV
+
+- `scripts/build_calibration_csv.py` takes counts, robot id and approach from
+  lab session logs and only the physical angles from the operator, writes the
+  CSV `fit_calibration.py` wants, and can run the fit. The lab session now
+  prints `Step n:` after each jog so a reading can name its step.
+- **Codex found four ways to a wrong calibration, all fixed:** a log with two
+  sessions or two homings (simulated counts labelled physical), a move target
+  typed by the operator (now derived from the logged steps and the home
+  reading), `1`/`01`/`+1` counting one jog three times, and two logs with the
+  same file name replacing each other.
+- Runs on synthetic logs in the real row shapes only. The new lab card is
+  `docs/lab/ACCEPTANCE_RUN.md` (1 degree steps; `bench_joint` refuses more, and
+  a phone level cannot tell the two shoulder scales apart from one degree).
+- The two implementation plans for this day's work were dropped once built, as
+  on 2026-10-04; what lasts is in the spec, the backlog and these notes.
+
 ## 2026-10-04
 
 ### Vendor DLL read by static analysis

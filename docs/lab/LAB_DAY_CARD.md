@@ -16,6 +16,8 @@ flowchart LR
   G --> H["H Copy logs"]
 ```
 
+To check the arm model's numbers (scale, directions, coupling) in the same visit, add [ACCEPTANCE_RUN.md](ACCEPTANCE_RUN.md): it uses the guided session and a phone level, not new code.
+
 Each step stands alone: if one fails, stop, keep the logs, and the earlier steps are still useful. Every command needs a new `--output` name; a file is never overwritten.
 
 ## 0. Prepare (no arm motion)

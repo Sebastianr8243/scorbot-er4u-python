@@ -65,7 +65,7 @@ Facade and pure helpers over the legacy USB code. Read the root [CLAUDE.md](../C
 
 ## Do not
 
-- Do not add absolute or Cartesian motion or wrist jogs without measured evidence and a matching test flip. The gripper has one path, `move_gripper`; do not add a second, a position target or a force setting without lab evidence.
+- Do not add absolute or Cartesian motion or wrist jogs without measured evidence and a matching test flip. The one exception is `mover.py`, simulator only (owner, 2026-10-05): it turns degree and millimetre targets into count targets inside the travel cap and refuses a robot that is not a `SimulatedScorbot`. Do not loosen that check. The gripper has one path, `move_gripper`; do not add a second, a position target or a force setting without lab evidence.
 - Do not raise the 5 degree ceiling or widen speed 1-20.
 - Do not import `openScorbot` modules at top level of `scorbot/*` (breaks import without PyUSB).
 - Do not report facts through `print`; log via `_record`. The stderr banner in `_worker_died` is deliberate.

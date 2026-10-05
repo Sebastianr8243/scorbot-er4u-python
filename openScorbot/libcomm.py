@@ -92,7 +92,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 
 	#Control de error
 	cont = 0
-	while not stopped and abs(dato_in[0] - media[0]) > 20 and value_err < MAX_ERROR:
+	while not stopped and motion_profile.count_distance(dato_in[0], media[0]) > 20 and value_err < MAX_ERROR:
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena.format(libdef.f_byte(b_1))
@@ -154,7 +154,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 			break
 
 	cont = 0
-	while not stopped and abs(dato_in[0] - media[1]) > 20 and value_err < MAX_ERROR:
+	while not stopped and motion_profile.count_distance(dato_in[0], media[1]) > 20 and value_err < MAX_ERROR:
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena. format(libdef.f_byte(b_1))
@@ -217,7 +217,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			break
 
 	cont = 0
-	while not stopped and abs(dato_in[0] - media[2]) > 20 and value_err < MAX_ERROR:
+	while not stopped and motion_profile.count_distance(dato_in[0], media[2]) > 20 and value_err < MAX_ERROR:
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena. format(libdef.f_byte(b_1))
@@ -306,7 +306,7 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 		media = libdef.get_media(buffer,media)
 
 	cont = 0
-	while (abs(dato_in_1[0] - media[3]) > 20 or abs(dato_in_2[0] - media[4]) > 20) and value_err1 < MAX_ERROR and value_err2 < MAX_ERROR: #cambia media segun articulacion
+	while (motion_profile.count_distance(dato_in_1[0], media[3]) > 20 or motion_profile.count_distance(dato_in_2[0], media[4]) > 20) and value_err1 < MAX_ERROR and value_err2 < MAX_ERROR: #cambia media segun articulacion
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena. format(libdef.f_byte(b_1))

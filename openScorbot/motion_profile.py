@@ -111,3 +111,9 @@ def plan_jog(order, degrees, speed):
         },
         "scale_status": "legacy assumption; not physically calibrated",
     }
+
+
+def count_distance(a, b):
+    """Shortest distance between two raw encoder counts (modulus 65535; 0 and 65535 are equal)."""
+    gap = abs(a - b) % 65535
+    return min(gap, 65535 - gap)

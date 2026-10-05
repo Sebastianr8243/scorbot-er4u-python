@@ -9,8 +9,8 @@ Written 2026-10-05. Branch `feat/vendor-dll-analysis`.
 - **The arm:** an Intelitek ScorBot ER-4U with the original Controller-USB (USB `09F1:0007`), driven from a Windows lab PC by this repository's Python SDK. The SDK wraps old open-source protocol code in `openScorbot/`.
 - **What has run on the real arm:** one visit, 2026-09-29. Connect, read state, home, and small jogs of base, shoulder and elbow worked. Nothing else has ever touched the arm.
 - **What is new and untested on the arm:** a software stop, a streaming driver (the arm follows a moving target), the gripper, and a checker for the message format. All were built from the vendor DLL's disassembly, the legacy code and the simulator.
-- **What this visit is for:** try each new piece once, small and supervised, and bring the logs home. Seven short steps, A to G.
-- **Tests:** 834 pass in about three minutes (`python -m unittest discover -s tests`). They never touch USB.
+- **What this visit is for:** try each new piece once, small and supervised, and bring the logs home. Seven short steps, A to G. To also check the arm model's scale, directions and coupling in the same visit, add [ACCEPTANCE_RUN.md](ACCEPTANCE_RUN.md); the browser page and teaching API (`scorbot.ui`, `scorbot.toolbox`) are simulator only and not part of the visit.
+- **Tests:** about 950 pass in two to three minutes (`python -m unittest discover -s tests`). They never touch USB.
 
 ```mermaid
 flowchart LR

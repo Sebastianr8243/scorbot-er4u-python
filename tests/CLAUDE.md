@@ -3,7 +3,7 @@
 `unittest` suite. It must never open USB, enumerate a real device, or move the arm. Root rules in [../CLAUDE.md](../CLAUDE.md) apply.
 
 ```powershell
-python -m unittest discover -s tests -v                      # full suite, about 800 tests in 2 to 3 min, 2 expected failures
+python -m unittest discover -s tests -v                      # full suite, about 950 tests in 2 to 3 min (about 30 s with pytest -n auto), 2 expected failures
 python -m unittest tests.test_simulated -v                   # one module
 python -m unittest tests.test_python_api.CommandTests -v     # one class
 ```

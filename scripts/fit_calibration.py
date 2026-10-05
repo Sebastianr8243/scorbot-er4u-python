@@ -166,6 +166,12 @@ def scale_warnings(result: dict, tolerance: float = 0.10,
     return lines
 
 
+def write_result(result: dict, output: Path) -> None:
+    with output.open("x", encoding="utf-8") as stream:
+        json.dump(result, stream, indent=2, allow_nan=False)
+        stream.write("\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--measurements", required=True, type=Path)
@@ -175,9 +181,7 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     result = fit(args.measurements, args.limits, args.robot_id)
-    with args.output.open("x", encoding="utf-8") as stream:
-        json.dump(result, stream, indent=2, allow_nan=False)
-        stream.write("\n")
+    write_result(result, args.output)
     print(f"Validated {', '.join(result['joints'])}; wrote {args.output}")
     for line in scale_warnings(result):
         print(line)

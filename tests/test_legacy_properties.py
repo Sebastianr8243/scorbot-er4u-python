@@ -16,6 +16,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from openScorbot import motion_profile
 from scorbot import Scorbot
 from scorbot import packet as packet_module
 from scorbot.calibration import signed_count_delta
@@ -242,17 +243,15 @@ class LegacyKnownBugs(unittest.TestCase):
         self.assertGreaterEqual(out[0], 0)
         self.assertEqual(len(self.lib.detrans(out[0])), 4)
 
-    def test_legacy_settle_check_is_not_wrap_aware(self):
-        # Documents openScorbot/libcomm.py:86/135/185/266, which loop on
-        #   abs(dato_in[0] - media[i]) > 20
-        # That check sits inside a USB loop, so it is restated here rather than
-        # run; this test cannot notice a fix in libcomm, only record the gap.
-        # Target raw 3 and measured raw 65533 are 5 counts apart (mod 65535),
-        # but abs() gives 65530 > 20: a move that crosses the 0/65535 seam never
-        # settles and aborts with a spurious motion error.
+    def test_settle_check_is_wrap_aware(self):
+        # openScorbot/libcomm.py and setHome.py settle on
+        #   motion_profile.count_distance(target, measured) > 20
+        # Target raw 3 and measured raw 65533 are 5 counts apart (mod 65535); a
+        # plain abs() gave 65530 and the move never settled (backlog item 5,
+        # fixed 2026-10-05; the jog itself is pinned in test_settle_seam.py).
         target, measured = 3, 65533
         self.assertTrue(abs(target - measured) > 20)
-        self.assertFalse(abs(signed_count_delta(target, measured)) > 20)
+        self.assertFalse(motion_profile.count_distance(target, measured) > 20)
 
     def test_signed_counts_are_not_linear_across_the_seam(self):
         # By design, not a bug: the sign byte gives +/-65535 over a counter that

@@ -460,7 +460,7 @@ class LabSession:
             except (KeyError, ValueError):
                 measured[motor] = None
         self._write("jog_result", n=n, planned=plan["motor_count_deltas"], measured=measured)
-        self.op.show(f"Planned {plan['motor_count_deltas']}, measured "
+        self.op.show(f"Step {n}: planned {plan['motor_count_deltas']}, measured "
                      f"{ {m: v for m, v in measured.items() if v} or 'no change'}.")
         return True
 

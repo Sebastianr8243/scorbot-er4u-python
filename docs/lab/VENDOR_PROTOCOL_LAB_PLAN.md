@@ -23,6 +23,10 @@ flowchart LR
 
 Why it matters: until 2026-10-04 the project rule was that packet code in `openScorbot/` does not change without a captured trace. The rule now also accepts the disassembly for sequences built only from command bytes the legacy code already sends, tried first on a 1 degree jog. That covers the stop and a connect that leaves motors off. Anything using a byte the legacy code never sends is still blocked until a capture confirms it.
 
+## Decision (2026-10-05): legacy bytes first
+
+Verify what our own code already sends before anything new, and go to the arm with 1 degree jogs only: the fast path below, steps F1 to F5, which the [day card](LAB_DAY_CARD.md) runs as steps A to G. No SCORBASE capture is needed for that. Reasons: the controller already accepted those bytes on 2026-09-29, so the worst case is a 1 degree move with someone at the stop, and every result comes back as a log the desk tools can check. The source-model numbers (scale, direction, coupling) are checked in the same visit by [ACCEPTANCE_RUN.md](ACCEPTANCE_RUN.md), which uses the same bytes. The SCORBASE captures (sections 2 to 4) wait for a visit with spare time; they answer how SCORBASE itself behaves, which nothing here depends on.
+
 ## Fast path (do this first)
 
 The commands for the visit, in order, are on one sheet: [LAB_DAY_CARD.md](LAB_DAY_CARD.md). This section says why.

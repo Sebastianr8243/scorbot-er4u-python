@@ -7,6 +7,7 @@ import libdef
 import conf
 import libhex
 import time
+import motion_profile
 import log
 import logging
 
@@ -136,7 +137,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
             media = libdef.get_media(buffer,media)
 
         cont = 0
-        while abs(dato_in[0] - media[1]) > 20:
+        while motion_profile.count_distance(dato_in[0], media[1]) > 20:
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))
@@ -231,7 +232,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
             media = libdef.get_media(buffer,media)
 
         cont = 0
-        while abs(dato_in[0] - media[2]) > 20 and block != True:
+        while motion_profile.count_distance(dato_in[0], media[2]) > 20 and block != True:
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))
@@ -373,7 +374,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
             media = libdef.get_media(buffer,media)
 
         cont = 0
-        while abs(dato_in_1[0] - media[3]) > 20 or abs(dato_in_2[0] - media[4]) > 20:
+        while motion_profile.count_distance(dato_in_1[0], media[3]) > 20 or motion_profile.count_distance(dato_in_2[0], media[4]) > 20:
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))
@@ -511,7 +512,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
             media = libdef.get_media(buffer,media)
 
         cont = 0
-        while abs(dato_in_1[0] - media[3]) > 20 or abs(dato_in_2[0] - media[4]) > 20:
+        while motion_profile.count_distance(dato_in_1[0], media[3]) > 20 or motion_profile.count_distance(dato_in_2[0], media[4]) > 20:
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))
@@ -605,7 +606,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
             media = libdef.get_media(buffer,media)
 
         cont = 0
-        while abs(dato_in[0] - media[0]) > 20:
+        while motion_profile.count_distance(dato_in[0], media[0]) > 20:
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))

@@ -49,6 +49,29 @@ Save that as `limits.json`, then run:
 
 The fitter never connects to USB and refuses to overwrite an existing output. The JSON records robot ID, CSV hash, fit and verification counts, measured limits, home repeatability, and directional bias. Keep the source CSV and bench logs with it. Review actual repeated target-versus-achieved results before loading the calibration for supervised `move_joint` use.
 
+## From a guided lab session
+
+`python -m scorbot.lab` prints `Step n: planned ..., measured ...` after every jog. Write that number beside the angle you read off the level or protractor. Each homing trial is its own session and its own log, so three homes are three sessions.
+
+Fill one readings file by hand (`home` is the point for the angle at the homed pose):
+
+```csv
+log,point,joint,role,physical_angle_deg,requested_target_deg
+lab-20261012-a.jsonl,home,base,home,0.0,
+lab-20261012-a.jsonl,3,base,fit,2.9,
+lab-20261012-a.jsonl,5,base,move_verify,4.9,5.0
+```
+
+Then, with the log files from `logs\`:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\build_calibration_csv.py --log logs\lab-20261012-a.jsonl --log logs\lab-20261012-b.jsonl --log logs\lab-20261012-c.jsonl --readings measurements\readings.csv --output measurements\arm-1.csv
+```
+
+It takes the counts, the robot id and the approach direction (the sign of that step) from the logs, so only angles are typed. For a `move_verify` row the target is worked out from the logs (the home reading for that joint in the same log, plus the degrees commanded by the steps up to that one, legacy scale); leave `requested_target_deg` empty, or it must agree. A log must be one session with at most one homing, and two logs may not share a file name. It refuses a simulated log, logs from different robots, a reading whose joint is not the one that step moved, a step that does not exist, and an output file that already exists. It prints how many rows each joint has against what the fitter needs (3 home, 4 fit, 3 verify, 3 move verification, both directions), so a short set shows before you leave the lab. Add `--limits limits.json --calibration-output calibration\arm-1.json` to run the fit in the same command.
+
+The fitter wants measured angles at least 2.5 degrees beyond each soft limit, so a +/-7 degree soft range needs readings out to about +/-9.5 degrees. The guided session allows 10 degrees from home; the shoulder only goes about 3.7 degrees up, so its upper soft limit stays small. Unverified on the arm: the builder has run on synthetic logs only.
+
 ## Manual priors and bounds
 
 `scorbot/nominal.py` holds the ER-4u manual's values (#100343 Rev. B, pp. 4-6), each with its source. They are **nominal, from the manual, not measured**, and serve only as priors and sanity bounds:
