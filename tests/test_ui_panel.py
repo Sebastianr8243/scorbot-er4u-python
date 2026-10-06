@@ -157,6 +157,14 @@ class PanelTests(SimulatedRobotCase):
         self.assertTrue(panel.mover.moving())
         self.assertIsNone(robot._fault)
 
+    def test_late_home_and_gripper_button_events_cannot_restart_after_stop(self):
+        panel, _robot = self.panel()
+        panel.press("stop")
+        self.assertEqual(panel.press("home"), "Stopped")
+        self.assertEqual(panel.press("close"), "Stopped")
+        self.assertFalse(panel.mover.moving())
+        self.assertIsNone(panel.view().busy)
+
     def test_closing_the_last_tab_during_a_gripper_move_stops_it(self):
         panel, robot = self.panel(step_delay_s=0.01)
         panel.press("close")

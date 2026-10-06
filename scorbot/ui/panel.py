@@ -103,6 +103,21 @@ class Panel:
             return self.message
         return self._try(lambda: self.mover.set_target_angles(**{name: degrees}))
 
+    def nudge_joint(self, name: str, delta: float) -> str | None:
+        """Move one joint by a small amount from its latest requested angle."""
+        if name not in JOINTS:
+            raise ValueError(f"No joint control for {name!r}")
+        if self._just_stopped():
+            return self.message
+
+        def move_one_step() -> None:
+            angles = self.mover.target_angles() if self.mover.moving() else None
+            if angles is None:
+                angles = self.mover.angles()
+            self.mover.set_target_angles(**{name: angles[name] + float(delta)})
+
+        return self._try(move_one_step)
+
     def drag_tool(self, x: float, y: float, z: float) -> str | None:
         if self._just_stopped():
             return self.message
@@ -113,6 +128,8 @@ class Panel:
             raise ValueError(f"No button {button!r}")
         if button == "stop":
             return self._stop()
+        if self._just_stopped():
+            return self.message
         if button == "home":
             return self._try(self.mover.home)
         with self._busy_lock:

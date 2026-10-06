@@ -22,6 +22,9 @@ ARM_COLOR, GHOST_COLOR = (70, 130, 220), (240, 160, 40)
 HANDS_OFF_S = 0.6                  # leave a control alone this long after the user touched it
 DRAG_STUCK_S = 5.0                 # a drag with no event for this long has ended, whatever we heard
 REFRESH_S = 0.05
+KEY_BINDINGS = (("base", -1.0, "A"), ("base", 1.0, "D"),
+                ("shoulder", 1.0, "W"), ("shoulder", -1.0, "S"),
+                ("elbow", 1.0, "E"), ("elbow", -1.0, "Q"))
 
 
 class ViserUnavailable(RuntimeError):
@@ -77,12 +80,21 @@ class App:
 
         gui.add_markdown("## SIMULATED\n\nNo arm is connected. Angles and positions are from "
                          "the source model, not measured.")
+        gui.add_markdown("**Keyboard:** A/D base, W/S shoulder, E/Q elbow. "
+                         "Each key requests a 1° step; the simulator enforces its limits.")
         self.sliders = {}
+        self.step_buttons = {}
         for joint, (low, high) in panel.slider_limits().items():
             slider = gui.add_slider(f"{joint} (deg)", min=round(low, 2), max=round(high, 2),
                                     step=0.1, initial_value=round(view.angles[joint], 1))
             slider.on_update(lambda event, joint=joint: self._slid(joint, event))
             self.sliders[joint] = slider
+            self.step_buttons[joint] = {}
+            for delta, label in ((-1.0, f"{joint} −1°"), (1.0, f"{joint} +1°")):
+                button = gui.add_button(label)
+                button.on_click(lambda _event, joint=joint, delta=delta:
+                                self.panel.nudge_joint(joint, delta))
+                self.step_buttons[joint][delta] = button
         self.buttons = {}
         for name, label in (("home", "Home"), ("open", "Open gripper"),
                             ("close", "Close gripper"), ("stop", STOP_LABEL)):
@@ -92,11 +104,23 @@ class App:
         gui.add_markdown(STOP_NOTE)
         self.readout = gui.add_markdown("")
 
-        self.server.on_client_connect(lambda _client: self._count_clients())
+        self.server.on_client_connect(self._client_connected)
         self.server.on_client_disconnect(lambda _client: self._count_clients())
         self.refresh()
 
     # -- events from the browser -----------------------------------------------
+
+    def _client_connected(self, client) -> None:
+        """Install keyboard commands for this browser tab only."""
+        self._count_clients()
+        for joint, delta, hotkey in KEY_BINDINGS:
+            command = client.gui.add_command(
+                f"Jog {joint} {delta:+.0f} degree",
+                description="One degree simulator step; travel limits still apply.",
+                hotkey=hotkey,
+            )
+            command.on_trigger(lambda _event, joint=joint, delta=delta:
+                               self.panel.nudge_joint(joint, delta))
 
     def _count_clients(self) -> None:
         self.panel.clients(len(self.server.get_clients()))
@@ -183,9 +207,16 @@ class App:
             self.handle.position = self._metres(view.xyz)
         for name in ("home", "open", "close"):
             self.buttons[name].disabled = view.busy is not None or view.fault is not None
+        for buttons in self.step_buttons.values():
+            for button in buttons.values():
+                button.disabled = view.busy is not None or view.fault is not None
         x, y, z, pitch, _roll = view.xyz
-        lines = [" | ".join(f"{joint} {view.angles[joint]:.1f}" for joint in JOINTS) + " deg",
-                 f"tool ({x:.0f}, {y:.0f}, {z:.0f}) mm, pitch {pitch:.1f} deg"]
+        lines = ["**Current:** " + " | ".join(f"{joint} {view.angles[joint]:.1f} deg"
+                                               for joint in JOINTS)]
+        if target is not None:
+            lines.append("**Target:** " + " | ".join(f"{joint} {target[joint]:.1f} deg"
+                                                      for joint in JOINTS))
+        lines.append(f"Tool ({x:.0f}, {y:.0f}, {z:.0f}) mm; pitch {pitch:.1f} deg")
         if view.busy:
             lines.append(f"**Busy: {view.busy}**")
         if view.fault:
