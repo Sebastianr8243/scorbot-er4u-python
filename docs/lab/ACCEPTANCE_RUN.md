@@ -42,6 +42,13 @@ Rough numbers are fine: the question is 349 or 364, not a millimetre.
 
 - [ ] Write down the homing start pose and whether home looked right.
 
+What the session asks that this card does not repeat (all of it is in [LAB_SESSION.md](LAB_SESSION.md), and every prompt was rehearsed in the simulator on 2026-10-05):
+
+- The first time you press a joint key it asks you to **type the move** (for example `BASE +1`); pressing the same key again repeats it without typing.
+- After every step it asks which way the joint went and whether anything else moved, then prints `Step n: planned ..., measured ...`. **Write that `n` down.**
+- `b` (back to start) needs the typed word `BACK`, runs one step per degree, and asks at the end whether the arm is where it should be. **Those steps take step numbers too**, so after a `b` the next `-` step is not number 6. Always copy the number printed on screen.
+- The `measured` counts on that line are for one step. Add up the steps of one run to get the counts change, or read the summary table the session prints at the end (every step, its number and its measured counts).
+
 ## 3. Direction (item 2 of the list)
 
 In the same session, arm (`a`) and step each joint **one** step of 1 degree in its `+` key (`1`, `2`, `3`). For each, answer the "toward or away" prompt for the landmark, and write down which way the joint went in plain words (base: left or right seen from above; shoulder and elbow: up or down).
@@ -69,7 +76,7 @@ The shoulder goes up only 3.7 degrees from home before its joint limit refuses f
 | elbow | + | 5 | | | | | | |
 | elbow | - | 5 | | | | | | |
 
-The counts change is `encoder_counts` of the state row after the steps minus the one before, taken with `scorbot.calibration.signed_count_delta`, never by plain subtraction.
+The counts change is the sum of the `measured` counts the session printed for the steps of that run (about 142 per base step if the model is right), or `encoder_counts` of the log row after the last step minus the one before, taken with `scorbot.calibration.signed_count_delta`, never by plain subtraction.
 
 What to compare, from the model:
 

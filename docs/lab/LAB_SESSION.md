@@ -63,7 +63,7 @@ kind asks you to type it (for example `BASE -1`); pressing the same key again
 repeats it. Unknown keys, 60 s without a key, a declined confirmation or any
 error disarm. Each joint can move at most 10 degrees from home per session
 (legacy scale, not measured). After each move you say which way it went and
-whether anything else moved, before the numbers are shown.
+whether anything else moved, before the numbers are shown. The numbers then appear as `Step n: planned ..., measured ...`; `n` counts every executed step of the session, including the steps of `b` and `g`, and is what a physical-angle readings sheet refers to ([PHYSICAL_CALIBRATION.md](PHYSICAL_CALIBRATION.md)).
 
 `b` and `g` show the whole move first and need one typed confirmation
 (`BACK`, `GOTO P2`), and the session must be armed. Joints move one at a time:
