@@ -113,3 +113,15 @@ C:\Intelitek\SCORBASE\Programming Interface\Manual Movement\Visual Studio 6\Rele
 C:\Intelitek\SCORBASE\Programming Interface\Manual Movement\Visual Studio 6\Release\ER4CONF.INI                     127
 C:\Intelitek\SCORBASE\Programming Interface\Manual Movement\Visual Studio 6\Release\USBC.dll                        040
 C:\Intelitek\SCORBASE\Programming Interface\Manual Movement\Visual Studio 6\Release\USBC.INI                        292
+
+
+
+$b = 'C:\Intelitek\SCORBASE\BIN'
+$p = "$b\Par\er4u"
+foreach ($f in 'ER4CONF.INI','USBC.INI') { "==== $f"; Get-Content "$b\$f" }
+foreach ($set in '$CURRENT','$Default') {
+  foreach ($n in 'ER4Ax1.ini','ER4Ax2.ini','ER4Ax3.ini','ER4Ax4.ini','ER4Ax5.ini','ER4Ax6.ini','ROB_4u.INI') {
+    "==== $set\$n"; Get-Content "$p\$set\$n"
+  }
+}
+"==== USBC.dll"; Get-FileHash "$b\USBC.dll" | Format-List; (Get-Item "$b\USBC.dll").Length
