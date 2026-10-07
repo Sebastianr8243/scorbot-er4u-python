@@ -53,14 +53,16 @@ class LabSessionTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def run_session(self, answers, *, stop_on_key=True, data_source="simulated"):
+    def run_session(self, answers, *, stop_on_key=True, data_source="simulated",
+                    **session_kwargs):
         self.op = ScriptedOperator(answers)
         self.op.stop_on_key = stop_on_key
         session = LabSession(
             profile=PROFILE, operator=self.op,
             robot_factory=lambda **kw: SimulatedScorbot(controller=self.ctrl, **kw),
             data_source=data_source, log_path=self.root / "s.jsonl",
-            session_root=self.root / "sessions", clock=self.clock, sleep=lambda s: None)
+            session_root=self.root / "sessions", clock=self.clock, sleep=lambda s: None,
+            **session_kwargs)
         code = session.run()
         self.rows = [json.loads(line) for line in
                      (self.root / "s.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -176,6 +178,27 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual(len(refused), 1)
         self.assertIn("10", refused[0]["reason"])
         self.assertEqual(self.of("disarmed")[-1]["reason"], "travel cap")
+
+    def test_inch_home_homes_by_inching_with_the_same_typed_words(self):
+        # --inch-home: the same prompts (HOME, the observation, home ok), but the home is
+        # found by small legacy jogs reading modeled switches; no order 18.
+        from scorbot.simulated import SimulatorProfile
+        self.ctrl = SimulatedController(profile=SimulatorProfile(model_homing=True),
+                                        start_counts={"base": 2000, "shoulder": -1500,
+                                                      "elbow": 1200})
+        code = self.run_session(TO_LOOP + FINISH, inch_home=True)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual([row.get("method") for row in self.of("home_complete")], ["inch"])
+        orders = {c[0] for c in self.ctrl.commands if c}
+        self.assertFalse(orders & {18}, "no legacy home order was sent")
+        self.assertTrue(orders & set(range(4, 10)), "the joints were inched with legacy jogs")
+        self.assertIn("Inch homing", " ".join(self.op.shown))
+
+    def test_the_legacy_home_is_still_the_default(self):
+        code = self.run_session(TO_LOOP + FINISH)
+        self.assertEqual(code, EXIT_OK)
+        self.assertIn(18, {c[0] for c in self.ctrl.commands if c})
+        self.assertNotIn("method", self.of("home_complete")[0])
 
     def test_unsure_led_after_connect_fails_before_enable(self):
         code = self.run_session(CHECKLIST + ["u", "g"])

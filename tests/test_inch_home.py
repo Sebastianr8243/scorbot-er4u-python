@@ -259,11 +259,37 @@ class HomeInchTests(SimulatedRobotCase):
     def test_a_controller_error_during_the_search_latches_a_fault(self):
         robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)
         robot.sim.inject("controller_error")
-        with self.assertRaises(ScorbotError):
+        with self.assertRaises(ScorbotError) as caught:
             robot.home_inch(operator_at_stop=True)
+        # The terminal line must say which joint, which jog and how far it had gone:
+        # the bare "error code" alone cannot tell us what happened on the arm.
+        self.assertRegex(str(caught.exception),
+                         r"Home search failed on the shoulder on jog 1 \(\+0\.0 degrees .* before it\)")
+        self.assertIn("error code", str(caught.exception))
         self.assertIsNotNone(robot._fault)
         self.assertFalse(robot._homed)
-        self.assertIn("home_failed", self.events())              # and it says which joint
+        failed = [row for row in self.rows() if row.get("event") == "home_failed"]
+        self.assertEqual(failed[0]["joint"], "shoulder")
+        self.assertIn("jog 1", failed[0]["error"])
+
+    def test_a_jog_failure_later_in_the_search_reports_how_far_it_had_come(self):
+        # Break the third jog of the shoulder: two 1 degree steps are behind it.
+        from unittest.mock import patch
+        robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)
+        original, jogs = robot._command, [0]
+
+        def command(payload, **kwargs):
+            if payload[0] in JOG_ORDERS:
+                jogs[0] += 1
+                if jogs[0] == 3:
+                    raise ScorbotError("Legacy controller returned error code 1")
+            return original(payload, **kwargs)
+
+        with patch.object(robot, "_command", command):
+            with self.assertRaisesRegex(ScorbotError,
+                                        r"shoulder on jog 3 \(\+2\.0 degrees toward its switch "
+                                        r"before it\): Legacy controller returned error code 1"):
+                robot.home_inch(operator_at_stop=True)
 
     def test_a_stop_request_ends_the_search_without_a_fault_and_without_a_home(self):
         robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)

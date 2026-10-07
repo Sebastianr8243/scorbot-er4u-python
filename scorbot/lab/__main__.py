@@ -50,6 +50,9 @@ def main(argv=None) -> int:
     parser.add_argument("--camera", default=None,
                         help="Record a webcam during the session: an index (0, 1, ...), "
                              "or 'fake' with --simulate")
+    parser.add_argument("--inch-home", action="store_true",
+                        help="Home by inching (shoulder, elbow, base) instead of the legacy "
+                             "search; start within a few tens of degrees of the home pose")
     parser.add_argument("--logs", type=Path, default=None,
                         help="Log folder (default: logs, or rehearsal with --simulate)")
     args = parser.parse_args(argv)
@@ -107,7 +110,7 @@ def main(argv=None) -> int:
         return LabSession(profile=profile, operator=operator, robot_factory=robot_class,
                           data_source=source, log_path=log_path,
                           session_root=folder / "sessions", preflight=preflight,
-                          software_commit=_software_commit(),
+                          software_commit=_software_commit(), inch_home=args.inch_home,
                           camera_factory=camera_factory).run()
 
 

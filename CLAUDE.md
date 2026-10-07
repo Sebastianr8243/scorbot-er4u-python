@@ -63,7 +63,7 @@ flowchart TD
 python -m pip install -e ".[dev]"              # add ,kinematics for the Robotics Toolbox cross-check; windows extra adds libusb-package; gui adds PyQt5; ui adds Viser for the browser page (already in dev, never needed on the lab PC)
 uv sync --locked --extra windows --extra test --extra planning  # lab PC: Python 3.13 + exact versions from uv.lock (planning = Ruckig, needed by start_stream); after editing deps run `uv lock` (CI checks it)
 python -m compileall -q scorbot openScorbot scripts examples tests
-python -m unittest discover -s tests -v        # about 950 tests, 2 to 3 min on a laptop (about 30 s with pytest -n auto), 2 expected failures (documented legacy bugs)
+python -m unittest discover -s tests -v        # about 1,020 tests, 2 to 3 min on a laptop (about 30 s with pytest -n auto), no expected failures (the two legacy bugs were fixed 2026-10-06)
 python examples/make_synthetic_session.py --root <tmpdir>   # CI smoke test
 .venv-lerobot/Scripts/python.exe -m unittest discover -s tests -p "test_lerobot_export_write.py"  # LeRobot round trip (docs/design/LEROBOT_EXPORT.md)
 ruff check .                                   # CI rules incl. bugbear (openScorbot/ excluded); `pre-commit install` runs it on every commit

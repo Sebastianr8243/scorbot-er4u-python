@@ -15,7 +15,7 @@ Written 2026-10-06. For an AI agent on the lab laptop that helps a human operato
 | # | Command | Pass |
 |---|---|---|
 | P1 | `python -m compileall -q scorbot openScorbot scripts examples tests` | no output |
-| P2 | `python -m unittest discover -s tests` | only the 2 expected failures |
+| P2 | `python -m unittest discover -s tests` | `OK` (some tests skip when an optional package is missing; no failures) |
 | P3 | `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.ps1` | `PASS USB 09F1:0007` |
 | P4 | `python -m scorbot.lab --simulate --profile rehearsal\lab.json --logs rehearsal` (operator drives it) | session runs end to end, every output says SIMULATED |
 | P5 | `python scripts\review_lab_logs.py --idle rehearsal\idle-01.jsonl --bench rehearsal\base-01.jsonl` after the rehearsal commands in the root `CLAUDE.md` | no problems reported |
@@ -23,6 +23,8 @@ Written 2026-10-06. For an AI agent on the lab laptop that helps a human operato
 If P3 fails, stop: nothing else can run.
 
 ## Homing without a start pose: `--inch-home` (added 2026-10-06, never run on the arm)
+
+It is an option of `bench_joint.py`, `bench_stream.py` and the keyboard session (`python -m scorbot.lab --inch-home`). The keyboard session without it uses the legacy home, which failed on the arm on 2026-10-06 (shoulder rose a few degrees, stopped, noise, error code 1).
 
 `bench_joint.py ... --inch-home` homes shoulder, elbow and base by inching each joint a degree at a time to its switch (each way from where it started, up to 30, 30 and 100 degrees for the shoulder, elbow and base, then the vendor's offset). **Start the arm within a few tens of degrees of its home pose** (shoulder up, not folded down): the elbow and wrist motors are coupled to the shoulder, this code moves one motor at a time, and a long sweep from a folded pose is the likely reason the legacy home failed (see the project log, 2026-10-06), from any pose. Same typed words (`HOME`, `HOME_OK`). Operator's hand at the physical stop, whole arm path clear; it homes all three joints every time (there is no single-joint option, because a partial home would be recorded as a full one); the jog that follows is the base (`--joint base --delta 1`) first. If a joint's switch is missed it can be driven into its stop. The wrist is not homed: the operator sets it by eye first. If it faults it says which joint and why, switches the motors off and leaves no home: keep the log and report. Design: `docs/protocol/VENDOR_HOMING_TRACE.md`, `docs/project/PROJECT_LOG.md` (2026-10-06).
 

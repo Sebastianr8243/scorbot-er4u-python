@@ -21,7 +21,7 @@ from scorbot.calibration import signed_count_delta
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder, SessionWriter
-from scorbot.state import HOME_SWITCH_BITS
+from scorbot.state import switch_summary
 
 # Exit code for a run the operator ended at a prompt (0 = completed, 1 = failed).
 EXIT_DECLINED = 3
@@ -293,22 +293,6 @@ class OpenCommand:
     def fault(self, exc: BaseException) -> None:
         if self._id is not None:
             self._rec.log_command_result(self._id, "faulted", detail=str(exc))
-
-
-def switch_summary(bits: int) -> str:
-    """One line for the operator: which home switches read set, before any homing.
-
-    A set bit is read as pressed (``scorbot.state.HOME_SWITCH_BITS``; polarity from the
-    vendor DLL, unverified on the arm). Bits this SDK does not know are flagged.
-    """
-    parts = [f"{name.replace('wrist_', 'wrist ')} {'ON' if bits & bit else 'off'}"
-             for name, bit in HOME_SWITCH_BITS.items()]
-    line = ("Home switches now (a set bit is read as pressed; polarity unverified): "
-            + ", ".join(parts))
-    unknown = bits & ~sum(HOME_SWITCH_BITS.values())
-    if unknown:
-        line += f". UNEXPECTED BITS {unknown:#x}: do not home."
-    return line
 
 
 def connect_and_home(robot, write, rec, prompt, command: OpenCommand, declined_after_home: str,

@@ -17,7 +17,7 @@ import time
 from ..calibration import signed_count_delta
 from ..provenance import motion_source_sha256
 from ..session import BestEffortRecorder, SessionWriter
-from ..state import JOINTS
+from ..state import JOINTS, switch_summary
 from .operator import ENTER, StatusLine
 from .moves import MAX_MARKS, MarkedPosition, plan_moves
 from .faults import format_guidance, guidance_for
@@ -69,7 +69,8 @@ class SessionFailed(RuntimeError):
 class LabSession:
     def __init__(self, *, profile, operator, robot_factory, data_source, log_path,
                  session_root, preflight=None, clock=time.monotonic, sleep=time.sleep,
-                 software_commit="unknown", camera_factory=None):
+                 software_commit="unknown", camera_factory=None, inch_home=False):
+        self.inch_home = inch_home       # home with Scorbot.home_inch, not the legacy search
         self.profile, self.op = profile, operator
         self.robot_factory, self.data_source = robot_factory, data_source
         self.log_path, self.session_root = log_path, session_root
@@ -272,8 +273,18 @@ class LabSession:
             self.op.show("Counts stable while idle.")
 
     def _home(self):
-        self.op.show("HOME NEEDED. Homing searches every axis switch from the known start pose.",
-                     "warn")
+        if self.inch_home:
+            self.op.show("HOME NEEDED. Inch homing: shoulder, elbow and base are moved a degree "
+                         "at a time to find each switch (up to 30, 30 and 100 degrees each way). "
+                         "Start the arm within a few tens of degrees of its home pose: with the "
+                         "elbow and wrist motors held, a long shoulder sweep forces the elbow into "
+                         "its stop. The wrist is NOT homed: set it by eye (gripper down and "
+                         "forward, about 64 degrees below horizontal). A missed switch can drive a "
+                         "joint into its stop. Never run on the arm.", "warn")
+        else:
+            self.op.show("HOME NEEDED. Homing searches every axis switch from the known start "
+                         "pose.", "warn")
+        self.op.show(switch_summary(self.robot.get_state().home_switch_bits))
         self._write("start_pose", text=self.op.text("Start pose: does it match the photo? "
                                                     "Describe: ") or "not recorded")
         if not self.op.confirm("Type HOME to enable motors and search home: ", "HOME"):
@@ -282,10 +293,18 @@ class LabSession:
         self.robot.enable()
         self._write("enabled")
         self._led("after_enable", motors="lit", power="green", required=True)
-        command = self.rec.log_command("home", {"start_position_confirmed": True})
-        self.robot.home(start_position_confirmed=True)
-        self.rec.log_command_result(command, "completed", completion_source="home() returned")
-        state = self._state("home_complete")
+        if self.inch_home:
+            command = self.rec.log_command("home", {"method": "inch", "operator_at_stop": True})
+            self.robot.home_inch(operator_at_stop=True)
+            self.rec.log_command_result(command, "completed",
+                                        completion_source="home_inch() returned")
+            state = self._state("home_complete", method="inch")
+        else:
+            command = self.rec.log_command("home", {"start_position_confirmed": True})
+            self.robot.home(start_position_confirmed=True)
+            self.rec.log_command_result(command, "completed",
+                                        completion_source="home() returned")
+            state = self._state("home_complete")
         self.home_counts = dict(state.encoder_counts)
         self.last_counts = dict(state.encoder_counts)
         self.homed = True

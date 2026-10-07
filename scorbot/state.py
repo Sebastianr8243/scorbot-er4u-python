@@ -13,6 +13,22 @@ PACKET_MIN_LENGTH = ERROR_OFFSETS[-1] + 2
 HOME_SWITCH_BITS = {"base": 1, "shoulder": 2, "elbow": 4, "wrist_pitch": 8, "wrist_roll": 16}
 
 
+def switch_summary(bits: int) -> str:
+    """One line for the operator: which home switches read set, before any homing.
+
+    A set bit is read as pressed (``HOME_SWITCH_BITS``; polarity from the vendor DLL,
+    unverified on the arm). Bits this SDK does not know are flagged.
+    """
+    parts = [f"{name.replace('wrist_', 'wrist ')} {'ON' if bits & bit else 'off'}"
+             for name, bit in HOME_SWITCH_BITS.items()]
+    line = ("Home switches now (a set bit is read as pressed; polarity unverified): "
+            + ", ".join(parts))
+    unknown = bits & ~sum(HOME_SWITCH_BITS.values())
+    if unknown:
+        line += f". UNEXPECTED BITS {unknown:#x}: do not home."
+    return line
+
+
 @dataclass(frozen=True)
 class RobotState:
     """One decoded controller response.

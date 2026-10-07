@@ -772,8 +772,10 @@ class Scorbot:
             self._record("home_start", method="inch", max_search_deg=caps, speed=speed,
                          wrist_homed=False, state=asdict(before))
             joint = None
+            jogs, travel = [0], [0.0]      # on this joint: jogs started, degrees moved toward its switch
             try:
                 for joint in inch_home.ORDER:
+                    jogs[0], travel[0] = 0, 0.0
                     # Which jog sign moves the counts toward the switch: the inherited
                     # sign convention decides, not an assumption here. Counts per degree
                     # come from the same plan, so the offset is the jog's own scale.
@@ -799,7 +801,9 @@ class Scorbot:
                         expected = self.preview_jog(joint, jog, speed=speed)[
                             "motor_count_deltas"][joint]
                         count_before = self._motion_state().encoder_counts[joint]
+                        jogs[0] += 1
                         after = self._jog_joint(joint, jog, speed, homing=True)
+                        travel[0] += delta
                         moved = signed_count_delta(after.encoder_counts[joint], count_before)
                         # A jog ends within 20 counts of its target, so a coarse step that
                         # moved less than 40 percent of what was asked is a joint that is
@@ -825,7 +829,8 @@ class Scorbot:
                                  travel_toward_switch_deg=net, offset_counts=offset_counts,
                                  start=asdict(start), state=asdict(edge))
             except inch_home.InchHomeError as exc:
-                message = f"Home search failed on the {joint}: {exc}"
+                message = (f"Home search failed on the {joint} on jog {jogs[0]} "
+                           f"({travel[0]:+.1f} degrees toward its switch before it): {exc}")
                 self._disable_best_effort()
                 self._latch_fault(message)
                 self._record("home_failed", method="inch", joint=joint, error=message)
@@ -834,9 +839,12 @@ class Scorbot:
                 raise                    # not a fault: no home, motors as they are
             except ScorbotError as exc:
                 # A jog or a read failed: ``_command`` has already latched and switched
-                # the motors off. Say which joint.
-                self._record("home_failed", method="inch", joint=joint, error=str(exc))
-                raise
+                # the motors off. Say which joint, which jog and how far it had come: the
+                # controller's own text ("error code 1") says neither.
+                message = (f"Home search failed on the {joint} on jog {jogs[0]} "
+                           f"({travel[0]:+.1f} degrees toward its switch before it): {exc}")
+                self._record("home_failed", method="inch", joint=joint, error=message)
+                raise ScorbotError(message) from exc
             except KeyboardInterrupt:
                 self._disable_best_effort()
                 self._latch_fault("Python interrupted during homing")

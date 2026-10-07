@@ -9,6 +9,39 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
 
 ## 2026-10-06 (lab PC)
 
+### Keyboard session: `--inch-home`, and a failed inch home names the joint
+
+- **Why:** on the next arm run the owner used the keyboard session
+  (`python -m scorbot.lab`), which homes with the legacy search: the shoulder
+  rose a few degrees, stopped with a noise, and the session reported only
+  "error code 1" (the same failure as `base-first-02`). That fits the coupling
+  finding below (the elbow is dragged into its stop from a folded start). No
+  log reached the repo; the owner was away from the lab afterwards.
+- **What:** `python -m scorbot.lab --inch-home` (`LabSession(inch_home=True)`)
+  homes with `Scorbot.home_inch`, with the same typed words and prompts, the
+  same near-home warning and the switch line (`state.switch_summary`, moved from
+  the bench script into the SDK). A jog or read that fails inside `home_inch`
+  now raises "Home search failed on the shoulder on jog 7 (+6.0 degrees toward
+  its switch before it): ..." and the log row says the same, so the terminal line
+  names the joint, the jog and the distance. The legacy home stays the default.
+  Tests: `tests/test_lab_session.py`, `tests/test_inch_home.py`. Never run on
+  the arm.
+
+### The two legacy arithmetic bugs fixed
+
+- **What:** `libdef.suma` and `resta` wrapped a counter only once, so a step of
+  a full turn (65,536 counts) or more left a value above 65,535 or below 0 and
+  the 4-hex-digit position field came out misaligned or negative. Pinned since
+  the property tests as the suite's only two `expectedFailure` tests
+  (BACKLOG 12). The arm never reached it: real steps are at most about 100.
+- **Fix:** the `if` became a `while` in both, five lines in `libdef.py`. For
+  every real step the loop runs once, so no byte sent for a real move changes;
+  `tests/test_legacy_properties.py` pins that against a copy of the old logic
+  for every step up to one full turn around both seams, and the two known-bug
+  tests were flipped to ordinary tests. The suite now reports no expected
+  failures. Editing `libdef.py` changes `motion_source_sha256` in lab logs, as
+  intended.
+
 ### Inch homing (`Scorbot.home_inch`): a home that needs no start pose
 
 - **Why:** the legacy `home()` failed on 2026-10-06 (`base-first-02`, code 1
