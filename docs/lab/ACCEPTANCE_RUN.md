@@ -18,7 +18,7 @@ flowchart LR
 
 ## Why not the jogs of plus and minus 2 degrees
 
-`examples/bench_joint.py` refuses `--delta` above 1 degree, on purpose. One degree is only 114 to 142 counts, and a phone level reads to about 0.1 degree, so a single 1 degree jog is good to roughly 10 percent. The two shoulder scales being told apart (113.5 against 101.7 counts per degree) are 11.6 percent apart. So the scale step uses the guided session (`python -m scorbot.lab`), which takes single 1 degree steps and lets a joint go up to 10 degrees from home: 5 degrees gives about 2 percent, which separates them. No limit is raised.
+`examples/bench_joint.py` refuses `--delta` above 1 degree, on purpose. One degree is only 114 to 142 counts, and a phone level reads to about 0.1 degree, so a single 1 degree jog is good to roughly 10 percent. The two shoulder scales being told apart (113.5 against 101.7 counts per degree) are 11.6 percent apart. So the scale step uses the guided session (`python -m scorbot.lab`), which takes single 1 degree steps and lets a joint go as far as you choose (its travel cap was 10 degrees until 2026-10-06 and is now 180, so the joint limits bind; 5 to 10 degrees from home is enough here): 5 degrees gives about 2 percent, which separates them. No limit is raised.
 
 ## 0. Prepare (no arm motion)
 

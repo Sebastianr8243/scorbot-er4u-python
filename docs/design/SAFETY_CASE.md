@@ -127,6 +127,16 @@ Known gap: `Scorbot.jog_joint` and `Scorbot.get_joint_angles` set `_fault` direc
 | G2 | G1 passed. Idle capture understood. Both directions of the base, then shoulder and elbow, each at 1 degree | Controller watchdog observation: with a supervised, non-moving arm, stop the sync worker or unplug USB and record MOTORS and POWER LEDs and timing (closes HZ-16). Direction and scale for each joint against an independent reference. Real disable: compare captured Intelitek packets with `[16,1,1]` using `scripts/usb_trace.py` (`docs/lab/USB_CAPTURE.md`). E-stop release behaviour in packets and error bytes (HZ-17). Handshake motor-on interval (HZ-01). Distance-from-seam check before jogs (HZ-12) | Each hazard row with "unverified on hardware" either gets an observation or stays open with a recorded reason. Direction and counts per degree measured for the joints in use. HZ-16 answered yes or no |
 | G3 | G2 passed. Homing travel and overshoot understood (HZ-05, HZ-06), ideally with a manual-style back-off. Independent angle reference available | Measurement files and `scripts/fit_calibration.py` with holdout; validated calibration file loaded; soft limits from measured travel; return-to-home; repeat-home repeatability vs `home_tolerance_counts` | Calibration `validated` with holdout and motion checks under 2 degrees; soft-limit gate exercised on hardware; return-to-home repeatable within tolerance; wrist gate reviewed separately |
 
+## 6a. Changes of 2026-10-06 (owner decisions, not yet exercised on the arm)
+
+The register above predates these. Each is a hazard with its mitigation and what is still open; details in `docs/project/PROJECT_LOG.md`.
+
+| ID | Hazard | Mitigation | Open |
+|---|---|---|---|
+| HZ-25 | The travel cap was lifted from 10 to 180 degrees without lab evidence; the unmeasured source-model joint limits are the only travel bound | `jog_joint` and `start_stream` check the whole pose against them (elbow limit, wrist pitch, shoulder-elbow coupling); the 5 degree jog ceiling and the stream lead limit stay | The model's home may differ from the arm's by more than the travel it allows (the vendor backs off its switches by offsets the legacy home does not); scale unmeasured (113.5 against 101.7); hard stops and clearances unmeasured |
+| HZ-26 | `home_inch` searches from an arbitrary pose with the elbow and wrist motors held: the elbow and wrist are coupled to the shoulder, so a long sweep forces the elbow into its stop | Small default search caps (shoulder 30, elbow 30, base 100 degrees); a coarse step that moves under 40 percent faults before the next jog; the controller error word; operator at the physical stop | The coupled motors are not moved with the shoulder; no source-model limit check during the search; wrist not homed; a missed switch drives the joint toward its stop for one or two jogs; switch width and approach directions are unmeasured; the simulator has no stops |
+| HZ-27 | A stop request lost between homing steps, or a wrong home from one false switch reading | Stop kept across steps; majority-of-three switch reads; edge cap | None known; unexercised on the arm |
+
 ## 7. Open questions
 
 | ID | Question | Affects |

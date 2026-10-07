@@ -45,7 +45,7 @@ The vendor's formula (`scorbot/vendor_model.py`, from the DLL) with the vendor's
 | Home pose in joint angles (base, shoulder, elbow, pitch, roll) | 0, 120.28, -95.02, -88.81, 0 degrees | Vendor formula at zero counts; the toolbox's simulator uses the same vector | photo against the 3D view |
 | Tool point at home | x 169.3, y 0, z 504.3 mm; tool pitch -63.5 degrees | USNA toolbox `ScorGoHome`; this model gives the same to 0.3 mm | none needed |
 | Counts at home | The vendor sets each counter to 0 at the end of homing | Vendor DLL | none (we work from the session home) |
-| Our home against the vendor's | A small fixed offset per joint: the vendor backs off each switch by a set amount (shoulder -190, elbow +45, pitch +850, roll -690 counts); the legacy code runs on for twelve messages | Vendor INI, legacy code | read from the encoders: counts between the switch edge and where homing stops |
+| Our home against the vendor's | A small fixed offset per joint: the vendor backs off each switch by a set amount (shoulder -190, elbow +45, pitch +850, roll -690 counts); the legacy code runs on for twelve messages | Vendor INI, legacy code | read from the encoders: counts between the switch edge and where homing stops Confirmed 2026-10-06: the lab arm's `$Default` parameter files give the same offsets (`docs/protocol/VENDOR_HOMING_TRACE.md`); `Scorbot.home_inch` applies them; the wrist coupling is in `docs/protocol/VENDOR_COUPLING_TRACE.md`. |
 
 ## Joint limits
 

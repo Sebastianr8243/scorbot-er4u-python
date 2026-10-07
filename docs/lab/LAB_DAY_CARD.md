@@ -32,7 +32,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.
 
 - [ ] Wanted: `PASS USB 09F1:0007`. If preflight fails, stop here.
 - [ ] Close SCORBASE and every other program that could talk to the controller. Close what you can besides: a busy PC makes step E's timing worse.
-- [ ] Put the arm in the known homing start pose. Set the labels once for this terminal:
+- [ ] Put the arm in the known homing start pose. If the legacy home fails (it did on 2026-10-06), put the arm within a few tens of degrees of its home pose by hand, motors off, wrist set by eye, and add `--inch-home` to the `bench_joint.py` and `bench_stream.py` commands below (same typed words). Never run on the arm; see `docs/lab/AGENT_RUNBOOK.md`. Set the labels once for this terminal:
 
 ```powershell
 $py = '.\.venv\Scripts\python.exe'

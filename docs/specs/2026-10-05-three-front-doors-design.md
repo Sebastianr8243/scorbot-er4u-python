@@ -198,8 +198,9 @@ by any of this.
 
 ## Known limits
 
-- The travel cap is 10 degrees from home (under 4 upward for the shoulder), so
-  the reachable box is small: enough to teach and to prove the chain.
+- The travel cap was 10 degrees from home when this was written; since 2026-10-06 it is 180 and the
+  joint limits bind (under 4 degrees upward for the shoulder), so the reachable box is no longer
+  small. Simulator only.
 - Simulated timing on the development PC means nothing.
 
 ## Outside review (Codex, 2026-10-05)

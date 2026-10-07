@@ -103,7 +103,7 @@ Order matters in two places: B before E (the stream uses the direction B showed)
 |---|---|---|
 | `MOTORS LED lit? [y/n/u=unsure]` | what the controller's front panel shows | Answer what you see. The script never shows the expected answer first |
 | `POWER LED colour? [g/o/f/u]` | green, orange, flashing, unsure | Green means the controller is talking to the PC |
-| `Type HOME to search home:` | `HOME` | Only with the arm in the known homing start pose. Anything else declines |
+| `Type HOME to search home:` | `HOME` | Only with the arm in the known homing start pose (or, with `--inch-home`, within a few tens of degrees of home). Anything else declines |
 | `Type HOME_OK:` | `HOME_OK` | Only if the homing looked right and the path is clear |
 | `Type MOVE` / `STREAM` / `ENABLE` / `GRIP` | that word | Anything else declines the step, safely |
 | "Describe..." and "Observed..." | plain words | What you saw: direction, size, noises, anything odd. "none" if nothing |
@@ -192,7 +192,7 @@ After the visit, record what happened in [PROJECT_LOG.md](../project/PROJECT_LOG
 - **The gripper has no force limit.** It moves a fixed 2700 counts by the legacy sequence. Empty jaws first, then something soft. The vendor closes its gripper differently (a set drive for a time); using that needs a USB capture of SCORBASE first.
 - **Open and close may be swapped,** and each joint's positive direction is inherited from the old code. Step B and step F are where that shows.
 - **Counts are not degrees.** No calibration exists. Angles printed anywhere come from inherited scales.
-- **Homing assumes a start pose.** It is not home-from-anywhere.
+- **The legacy home assumes a start pose;** it failed on 2026-10-06 (code 1 after about 4 s). `--inch-home` on `bench_joint.py` and `bench_stream.py` (added 2026-10-06, never run on the arm) homes shoulder, elbow and base by small jogs and tolerates a start within a few tens of degrees of the home pose, no more: the elbow and wrist motors are coupled to the shoulder and are not moved with it. Wrist set by eye first. See `docs/lab/AGENT_RUNBOOK.md`.
 - **A stream longer than about 45 seconds** would lose packets from its log. The bench trial is about 10 seconds. Fix before long streams (BACKLOG).
 - **The simulator says nothing about timing, dynamics or the real controller.** Its jogs are instant and exact.
 - **Where three sources disagree:** the shoulder axis height (346, 349 or 364 mm). A tape measure from the base to the shoulder pivot settles it, if there is a spare minute.

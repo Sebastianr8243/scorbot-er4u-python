@@ -39,7 +39,7 @@ flowchart TD
 
 | Path | Responsibility |
 |---|---|
-| `scorbot/` | Public SDK: facade, state decode, calibration, the shared limits (`limits.py`), the source-based joint model (`source_model.py`), nominal manual values, the streaming follower (`streaming.py`), offline kinematics, the vendor's formulas read from the DLL (`vendor_model.py`, `vendor_profile.py`), the viewer's link chain `arm_chain.py` and 3D view `arm_view.py`, simulator, preflight |
+| `scorbot/` | Public SDK: facade, state decode, calibration, the shared limits (`limits.py`), the source-based joint model (`source_model.py`), nominal manual values, the streaming follower (`streaming.py`), the inch home (`inch_home.py`), offline kinematics, the vendor's formulas read from the DLL (`vendor_model.py`, `vendor_profile.py`), the viewer's link chain `arm_chain.py` and 3D view `arm_view.py`, simulator, preflight |
 | `scorbot/mover.py`, `scorbot/toolbox.py`, `scorbot/ui/` | Simulator only, refuse any other robot. `Mover`: degree and millimetre targets on `start_stream`, one owner of the stream. `toolbox.Arm`: the teaching API (names follow the USNA MATLAB toolbox). `ui/panel.py`: the browser page's logic, no Viser import; `ui/app.py`: the page itself, the only Viser import (`ui` extra). Design: `docs/specs/2026-10-05-three-front-doors-design.md` |
 | `scorbot/session/` | MCAP session recorder, replay, analysis, CLI (`python -m scorbot.session`). Never imports USB |
 | `plugins/lerobot_robot_scorbot/` | LeRobot robot plugin, simulator only (refuses the real arm); each action is one bounded jog via `scorbot/follow.py`, or with `streaming=true` a new target for `Scorbot.start_stream`. Installed into `.venv-lerobot` with `-e`. Real-arm replay is `python -m scorbot.lab` key `p` (`scorbot/lab/replay.py`) |
@@ -102,6 +102,8 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | Why is the design what it is, open risks | `docs/design/ARCHITECTURE.md` |
 | Packet layout, command codes | `docs/protocol/PROTOCOL.md`, `openScorbot/libhex.py`, `scorbot/state.py` |
 | What the vendor DLL sends (from disassembly, unverified) | `docs/protocol/VENDOR_DLL_PROTOCOL.md`; method in `tools/usbc_analysis/README.md` |
+| How the vendor homes (order, directions, switch polarity, offsets, `48`) and the elbow and wrist coupling | `docs/protocol/VENDOR_HOMING_TRACE.md`, `docs/protocol/VENDOR_COUPLING_TRACE.md` (from disassembly; the lab arm's own parameter files agree with the values) |
+| Running a lab session as an agent (rules, pass criteria, inch homing) | `docs/lab/AGENT_RUNBOOK.md` |
 | How to confirm it at the lab, claim by claim | `docs/lab/VENDOR_PROTOCOL_LAB_PLAN.md` |
 | Safety argument | `docs/design/SAFETY_CASE.md` |
 | Known bugs and next work | `docs/project/BACKLOG.md` |

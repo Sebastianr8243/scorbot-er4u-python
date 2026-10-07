@@ -382,12 +382,12 @@ Read on 2026-10-05 from the 2018 build. Everything here is read from the decompi
 |---|---|---|---|
 | 1 | `42 20 01` | `0x1003f49a` | Turn motors, gripper axis, on |
 | 2 | `4F 20 54` | `0x1003f4e9` (case 2) | Mode `T` for the gripper axis |
-| 3 | `4D 20` + a signed 32-bit value | `0x1003f89c` | Move with a drive value: positive to open, negative to close |
+| 3 | `4D 20` + a signed 32-bit value | `0x1003f89c` | Move with a drive value. With the shipped `ER4Ax6.ini` open sends -165 and close +165 (correction from `VENDOR_HOMING_TRACE.md`) |
 
 - The value in message 3 is a signed 16-bit per-axis parameter (at offset `0x3d6` of the axis block). The same builder is what the exported `MoveTorque` uses, so mode `T` plus `4D` reads as "drive the motor with this torque", not "go to this position". Which INI key holds the value was not traced.
 - A countdown is then set to `0x78` (120); its unit, and what ends the move, were not traced. Elsewhere the DLL raises an "End of Gripper movement" notification and re-enables control.
 - If the gripper is already at the requested end (its percentage is 0 or 100 and every axis is in position), nothing is sent.
-- With a servo gripper configured (`0x29`), `OpenGripper` and `CloseGripper` call `JawMetric` instead.
+- On an ER-4u (`SystemType` `0x29`, which is also the default when the key is missing), `OpenGripper` may call `JawMetric` instead when a condition (`0x10023b1e`, not traced) holds. Correction from `VENDOR_HOMING_TRACE.md`: `0x29` is the ER-4u type, not a servo gripper.
 
 ### 12.2 Against the legacy code
 
@@ -419,3 +419,5 @@ Read on 2026-10-05 from the 2018 build (label V; unverified on the arm). Only th
 Against the legacy code: `openScorbot/setHome.py` never sends `48`. After its homing the counts are whatever they were, which is why the SDK records them as the session home and works in counts from there. The two homes are also not the same place: the vendor moves off each switch by a set offset from its parameter files (for example -190 counts on the shoulder), and the legacy code sends twelve more messages after the switch trips and stops. The difference is a small fixed number of counts per joint. `scorbot/source_model.py` assumes the two homes coincide; the lab acceptance run reads the difference.
 
 `48` is a byte the legacy code never sends, so under the packet rule using it needs a capture first.
+
+The whole homing routine and the coupled-motor arithmetic are traced in `VENDOR_HOMING_TRACE.md` and `VENDOR_COUPLING_TRACE.md`.
