@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from scorbot.lerobot_export.load import MOTORS
 from scorbot.lerobot_export.sidecar import SIDECAR, UNITS, step_counts
@@ -43,6 +44,11 @@ TWO_BASE_STEPS = [action(), action(), action(-B), action(-B + 3), action(-2 * B)
 
 class ReplayPlanningTests(unittest.TestCase):
     def setUp(self):
+        # The cap case tests the mechanism, not its production value
+        # (limits.TRAVEL_CAP_DEG, lifted from 10 to 180 on 2026-10-06).
+        patcher = mock.patch("scorbot.lab.session.TRAVEL_CAP_DEG", 10.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
 

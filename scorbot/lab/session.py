@@ -2,7 +2,7 @@
 
 Every motion goes through Scorbot's own gates (enable, home, jog_joint) and its
 fault latch. The session only adds stricter limits: 1 degree steps, base,
-shoulder and elbow only, a 10 degree net travel cap per joint from home, and an
+shoulder and elbow only, a net travel cap per joint from home (limits.TRAVEL_CAP_DEG), and an
 armed state that anything unexpected clears. Every arming asks for the MOTORS
 LED, because the controller can cut motor power by itself (e-stop, over-current,
 time-out) and nothing the SDK reads shows it. The physical stop is the stop.

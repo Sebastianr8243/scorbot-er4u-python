@@ -89,12 +89,12 @@ class MoverTests(SimulatedRobotCase):
         self.assertTrue(self.drive(mover))
         self.assertAlmostEqual(mover.angles()["base"], HOME["base"] + 3.0, delta=0.1)
 
-    def test_a_target_past_the_cap_is_refused_and_names_the_range(self):
+    def test_a_target_past_a_joint_limit_is_refused_and_names_the_range(self):
         mover, robot = self.mover()
         with self.assertRaises(MoverRefused) as caught:
-            mover.set_target_angles(base=HOME["base"] + 11.0)
+            mover.set_target_angles(base=HOME["base"] + 175.0)       # the base ends at 174
         self.assertIn("base", str(caught.exception))
-        self.assertIn("-10.0 to +10.0", str(caught.exception))
+        self.assertIn("-132.0 to 174.0", str(caught.exception))
         self.assertFalse(mover.moving(), "a refused target opens nothing")
         self.assertIsNone(mover.target_angles())
         self.assertNotIn("stream_start", self.events())
@@ -113,7 +113,7 @@ class MoverTests(SimulatedRobotCase):
         mover, robot = self.mover()
         mover.set_target_angles(base=HOME["base"] + 5.0)
         with self.assertRaises(MoverRefused):
-            mover.set_target_angles(base=HOME["base"] + 50.0)
+            mover.set_target_angles(base=HOME["base"] + 175.0)
         with self.assertRaises(MoverRefused):
             mover.set_target_angles(base=float("nan"))
         self.assertTrue(mover.moving())
@@ -283,11 +283,23 @@ class MoverTests(SimulatedRobotCase):
         mover, _robot = self.mover()
         with self.assertRaises(MoverRefused) as caught:
             mover.set_target_angles(shoulder=130.0)
-        self.assertIn("110.3 to 124.0 degrees", str(caught.exception))
+        # alone from home: the elbow's -5.16 limit stops the shoulder 89.9 degrees down
+        self.assertIn("30.4 to 124.0 degrees", str(caught.exception))
         with self.assertRaises(MoverRefused) as caught:
-            mover.set_target_angles(elbow=-60.0)
+            mover.set_target_angles(elbow=-150.0)                   # the elbow ends at -140.8
         self.assertIn("elbow", str(caught.exception))
+        self.assertIn("-140.8", str(caught.exception))
         self.assertNotIn("wrist", str(caught.exception), "a side effect is not the reason")
+
+    def test_an_elbow_target_that_takes_the_wrist_pitch_past_its_limit_says_so(self):
+        # Raising the elbow 35 degrees with the wrist motors still pushes the
+        # pitch past -109.65: the elbow's own limit is not the reason.
+        mover, robot = self.mover()
+        with self.assertRaises(MoverRefused) as caught:
+            mover.set_target_angles(elbow=HOME["elbow"] + 35.0)
+        self.assertIn("pitch", str(caught.exception))
+        self.assertFalse(mover.moving())
+        self.assertIsNone(robot._fault)
 
     def test_only_a_simulated_robot_is_accepted(self):
         class NotSimulated:

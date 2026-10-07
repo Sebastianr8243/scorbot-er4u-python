@@ -66,20 +66,26 @@ class PanelTests(SimulatedRobotCase):
         self.assertIsNone(panel.view().ghost, "no ghost once the arm is there")
         self.assertIsNone(robot._fault)
 
-    def test_slider_limits_are_the_travel_window_in_degrees(self):
+    def test_slider_limits_are_the_joint_limits_in_degrees(self):
+        # Each joint alone from home, by the source model's whole-pose limits.
         limits = Panel.slider_limits()
         self.assertEqual(set(limits), {"base", "shoulder", "elbow"})
-        self.assertAlmostEqual(limits["base"][0], -10.0, delta=0.05)
-        self.assertAlmostEqual(limits["base"][1], 10.0, delta=0.05)
+        self.assertAlmostEqual(limits["base"][0], -132.0, delta=0.05)
+        self.assertAlmostEqual(limits["base"][1], 174.0, delta=0.05)
         self.assertAlmostEqual(limits["shoulder"][1] - HOME["shoulder"], 3.72, delta=0.05)
-        self.assertAlmostEqual(HOME["shoulder"] - limits["shoulder"][0], 10.0, delta=0.05)
+        # Down, the elbow's -5.16 limit stops the shoulder 89.9 degrees from home.
+        self.assertAlmostEqual(HOME["shoulder"] - limits["shoulder"][0], 89.9, delta=0.1)
+        # Up (counts negative) the wrist pitch stops the elbow after 20.8 degrees,
+        # down it is the elbow's own -140.8 limit, 45.8 degrees from home.
+        self.assertAlmostEqual(limits["elbow"][1] - HOME["elbow"], 20.8, delta=0.1)
+        self.assertAlmostEqual(HOME["elbow"] - limits["elbow"][0], 45.8, delta=0.1)
         for joint, (low, high) in limits.items():
             self.assertLess(low, HOME[joint])
             self.assertGreater(high, HOME[joint])
 
     def test_a_refused_slider_or_drag_says_why_and_changes_nothing(self):
         panel, robot = self.panel()
-        reason = panel.set_joint("base", 40.0)
+        reason = panel.set_joint("base", 175.0)           # the base ends at 174 degrees
         self.assertIn("travel cap", reason)
         self.assertEqual(panel.message, reason)
         self.assertIn("reach", panel.drag_tool(900.0, 0.0, 349.0))

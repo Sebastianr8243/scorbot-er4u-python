@@ -85,19 +85,23 @@ class MotionWindowTests(unittest.TestCase):
     def test_the_window_is_the_travel_cap_around_home_where_no_limit_is_nearer(self):
         window = motion_window()
         self.assertEqual(set(window), set(limits.ARM_MOTORS))
-        for motor in ("base", "elbow"):
-            low, high = window[motor]
-            self.assertEqual(low, -high)
-            per_degree = source_model.COUNTS_PER_DEGREE[motor]
-            self.assertAlmostEqual(high / per_degree, limits.TRAVEL_CAP_DEG, places=6)
+        # The elbow's own count sets no limit (its angle follows the shoulder's
+        # too, see pose_limit_excess), so the cap alone bounds its window.
+        low, high = window["elbow"]
+        self.assertEqual(low, -high)
+        self.assertAlmostEqual(high / source_model.COUNTS_PER_DEGREE["elbow"],
+                               limits.TRAVEL_CAP_DEG, places=6)
+        # Base and shoulder have joint limits nearer than the cap.
+        self.assertEqual(window["base"], source_model.limit_window()["base"])
+        self.assertEqual(window["shoulder"], source_model.limit_window()["shoulder"])
 
-    def test_a_pose_is_inside_only_if_no_arm_motor_leaves_the_cap(self):
+    def test_a_pose_is_inside_only_if_no_arm_motor_leaves_its_window(self):
         self.assertEqual(source_model.outside_window(HOME_ANGLES), {})
         three_up = source_model.pose_for_arm(shoulder=HOME_ANGLES["shoulder"] + 3)
         self.assertEqual(source_model.outside_window(three_up), {})
         five_down = source_model.pose_for_arm(shoulder=HOME_ANGLES["shoulder"] - 5)
         self.assertEqual(source_model.outside_window(five_down), {})
-        far = dict(HOME_ANGLES, base=HOME_ANGLES["base"] + 25)
+        far = dict(HOME_ANGLES, base=HOME_ANGLES["base"] + 175)     # past the 174 limit
         self.assertEqual(list(source_model.outside_window(far)), ["base"])
 
     def test_moving_the_arm_motors_alone_changes_the_relative_pitch(self):
@@ -223,15 +227,22 @@ class LimitTests(unittest.TestCase):
         # is past both. The travel cap alone does not protect that direction.
         headroom = source_model.LIMITS_DEG["shoulder"][1] - HOME_ANGLES["shoulder"]
         self.assertAlmostEqual(headroom, 3.72, delta=0.01)
-        up_ten = source_model.pose_for_arm(shoulder=HOME_ANGLES["shoulder"] + limits.TRAVEL_CAP_DEG)
+        up_ten = source_model.pose_for_arm(shoulder=HOME_ANGLES["shoulder"] + 10.0)
         self.assertIn("shoulder", source_model.outside_limits(up_ten))
         self.assertIn("shoulder", source_model.outside_window(up_ten))
 
-    def test_everywhere_else_the_travel_cap_is_inside_the_limits(self):
+    def test_the_travel_cap_is_past_every_joints_range_so_the_limits_bind(self):
+        # Lifted from 10 degrees on 2026-10-06: from home, no arm joint can go
+        # as far as the cap before its own limit stops it.
+        for joint in limits.ARM_MOTORS:
+            low, high = source_model.LIMITS_DEG[joint]
+            farthest = max(abs(low - HOME_ANGLES[joint]), abs(high - HOME_ANGLES[joint]))
+            self.assertGreater(limits.TRAVEL_CAP_DEG, farthest, joint)
+
+    def test_a_10_degree_move_of_one_joint_is_inside_the_limits_except_the_shoulder_up(self):
         for joint, sign in (("base", -1), ("base", 1), ("shoulder", -1), ("elbow", -1),
                             ("elbow", 1)):
-            pose = source_model.pose_for_arm(
-                **{joint: HOME_ANGLES[joint] + sign * limits.TRAVEL_CAP_DEG})
+            pose = source_model.pose_for_arm(**{joint: HOME_ANGLES[joint] + sign * 10.0})
             self.assertEqual(source_model.outside_limits(pose), {}, (joint, sign))
             self.assertEqual(source_model.outside_window(pose), {}, (joint, sign))
 
@@ -251,7 +262,72 @@ class LimitTests(unittest.TestCase):
         per_degree = source_model.COUNTS_PER_DEGREE["shoulder"]
         # Raising the shoulder raises its count in the vendor's convention.
         self.assertAlmostEqual(high / per_degree, 3.72, delta=0.02)
-        self.assertAlmostEqual(-low / per_degree, limits.TRAVEL_CAP_DEG, places=6)
+        # Down, the joint limit (148.56 degrees below home) is nearer than the cap.
+        self.assertAlmostEqual(-low / per_degree, 148.56, delta=0.05)
+
+
+class PoseLimitTests(unittest.TestCase):
+    """The whole-pose check the real arm uses (jog_joint and start_stream).
+
+    Counts are from the session home. Expected edges from the sources: the
+    elbow ends at -140.8 degrees (45.8 degrees, 5196 counts, from home), and on
+    the other side the wrist pitch reaches its -109.65 limit first, about 20.8
+    degrees (2366 counts) from home, because the wrist motors stand still
+    while the elbow moves. The shoulder's own limit is 3.72 degrees up; down,
+    the elbow's upper limit stops it at about 89.9 degrees.
+    """
+
+    def test_home_is_inside_every_limit(self):
+        self.assertEqual(source_model.pose_limit_excess({}), {})
+        self.assertIsNone(source_model.pose_limit_problem({}))
+
+    def test_each_arm_motor_is_inside_at_its_edge_and_past_it_beyond(self):
+        for motor, inside, past, joint in (
+                ("elbow", 5190, 5300, "elbow"), ("elbow", -2360, -2500, "pitch"),
+                ("shoulder", 420, 440, "shoulder"), ("shoulder", -10190, -10300, "elbow"),
+                ("base", -24680, -24800, "base"), ("base", 18720, 18800, "base")):
+            with self.subTest(motor=motor, count=past):
+                self.assertEqual(source_model.pose_limit_excess({motor: inside}), {})
+                self.assertIn(joint, source_model.pose_limit_excess({motor: past}))
+                self.assertIn(joint, source_model.pose_limit_problem({motor: past}))
+
+    def test_the_excess_grows_with_the_distance_past_the_limit(self):
+        near = source_model.pose_limit_excess({"elbow": 5400})["elbow"]
+        far = source_model.pose_limit_excess({"elbow": 6000})["elbow"]
+        self.assertGreater(far, near)
+        self.assertAlmostEqual(far - near, 600 / source_model.COUNTS_PER_DEGREE["elbow"],
+                               delta=0.05)
+
+    def test_a_count_inside_its_own_window_can_still_break_another_joints_limit(self):
+        # The shoulder going down moves the elbow's angle too: each of these
+        # counts is fine alone, but together they put the elbow past -5.16.
+        self.assertEqual(source_model.pose_limit_excess({"shoulder": -10000}), {})
+        self.assertEqual(source_model.pose_limit_excess({"elbow": -2000}), {})
+        self.assertIn("elbow",
+                      source_model.pose_limit_excess({"shoulder": -10000, "elbow": -2000}))
+
+    def test_wrist_motors_are_taken_into_account_when_given(self):
+        self.assertEqual(source_model.pose_limit_excess({"elbow": -2000}), {})
+        self.assertIn("pitch",
+                      source_model.pose_limit_excess({"elbow": -2000, "wrist_motor_1": 1000}))
+
+    def test_home_window_is_each_motors_edge_alone_from_home(self):
+        window = source_model.home_window()
+        self.assertEqual(set(window), set(limits.ARM_MOTORS))
+        expected = {"base": (-24688, 18729), "shoulder": (-10200, 422), "elbow": (-2366, 5196)}
+        for motor, (low, high) in expected.items():
+            self.assertAlmostEqual(window[motor][0], low, delta=3, msg=motor)
+            self.assertAlmostEqual(window[motor][1], high, delta=3, msg=motor)
+            # the first count past either edge is outside
+            self.assertEqual(source_model.pose_limit_excess({motor: window[motor][0]}), {})
+            self.assertNotEqual(source_model.pose_limit_excess({motor: window[motor][0] - 1}), {})
+            self.assertEqual(source_model.pose_limit_excess({motor: window[motor][1]}), {})
+            self.assertNotEqual(source_model.pose_limit_excess({motor: window[motor][1] + 1}), {})
+
+    def test_bad_counts_are_refused(self):
+        for bad in ({"elbow": float("nan")}, {"elbow": True}, {"elbow": "5"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                source_model.pose_limit_excess(bad)
 
 
 if __name__ == "__main__":

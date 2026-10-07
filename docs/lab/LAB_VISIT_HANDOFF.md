@@ -157,7 +157,7 @@ python -m scorbot.session list logs\sessions
 | A, B and the desk check: the layout and the echoed message number match | Pacing a stream on the controller's echo (not built yet; to be designed) |
 | C: the stop ends a jog early | A stop key in the guided session and in teleop |
 | D: the forearm keeps its angle | The vendor's count-to-angle formula as the calibration starting point |
-| E: the arm follows a stream | Wider travel in stages (the cap is 10 degrees), then teleop and the LeRobot plugin on streaming |
+| E: the arm follows a stream | Wider travel in stages (the cap is 180 degrees since 2026-10-06, so the joint limits bind; the bench trial stays at 2), then teleop and the LeRobot plugin on streaming |
 | F: the gripper opens, closes and holds a soft object | Pick-and-place in a demo; a grip key in the guided session |
 | G: the emergency bit follows the button | Switching on the e-stop fault in a stream (`use_emergency_bit`) |
 
@@ -187,7 +187,7 @@ After the visit, record what happened in [PROJECT_LOG.md](../project/PROJECT_LOG
 ## 10. Known limits, so nobody is surprised
 
 - **The shoulder has little room above home.** Home has the upper arm about 120 degrees up and the joint limit is 124, so the SDK refuses a shoulder jog or stream target more than about 3.7 degrees in the positive direction. The 1 degree moves on the card are well inside it. From the source model, not measured.
-- **Travel is small on purpose.** Jogs are at most 1 degree in the bench script and 5 in the SDK. A stream stays within 10 degrees of home, and the bench trial within 2.
+- **Travel is small on purpose.** Jogs are at most 1 degree in the bench script and 5 in the SDK. A stream may go as far as the joint limits of the source model (unmeasured; the travel cap was lifted from 10 to 180 degrees on 2026-10-06), and the bench trial stays within 2. Start small anyway: a wrong scale or direction is no longer held to a few degrees.
 - **No Cartesian moves and no wrist jogs.** The kinematics are unvalidated and the wrist's two motors are unmeasured.
 - **The gripper has no force limit.** It moves a fixed 2700 counts by the legacy sequence. Empty jaws first, then something soft. The vendor closes its gripper differently (a set drive for a time); using that needs a USB capture of SCORBASE first.
 - **Open and close may be swapped,** and each joint's positive direction is inherited from the old code. Step B and step F are where that shows.

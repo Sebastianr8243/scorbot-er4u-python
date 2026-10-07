@@ -10,7 +10,7 @@ from scorbot.robot import Scorbot
 
 class OneHomeTests(unittest.TestCase):
     def test_every_module_uses_the_same_travel_cap(self):
-        self.assertEqual(limits.TRAVEL_CAP_DEG, 10.0)
+        self.assertEqual(limits.TRAVEL_CAP_DEG, 180.0)
         for name, value in (("follow", follow.TRAVEL_CAP_DEG),
                             ("lab session", lab_session.TRAVEL_CAP_DEG),
                             ("stream", Scorbot.STREAM_TRAVEL_CAP_MAX_DEG)):

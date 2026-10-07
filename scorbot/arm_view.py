@@ -201,7 +201,7 @@ class ArmView:
 
 # -- command line -----------------------------------------------------------
 
-DEMO_TARGETS = (                      # motor counts from home, inside a 10 degree cap
+DEMO_TARGETS = (                      # motor counts from home, well inside the joint limits
     {"base": 1200, "shoulder": 0, "elbow": 0},
     {"base": 1200, "shoulder": -900, "elbow": 700},
     {"base": -1200, "shoulder": -900, "elbow": -700},

@@ -125,13 +125,14 @@ class Mover:
 
     @staticmethod
     def angle_limits() -> dict[str, tuple[float, float]]:
-        """Degrees each of base, shoulder and elbow may be asked for: the travel window.
+        """Degrees each of base, shoulder and elbow may be asked for, alone from home.
 
-        The elbow's angle also depends on the shoulder's motor, so its ends
-        are for the shoulder at home; every target is still checked.
+        The whole-pose limits, with the other motors at home: the elbow's
+        angle also depends on the shoulder's motor, and the wrist pitch on
+        both, so the ends move with the others; every target is still checked.
         """
         limits = {}
-        for joint, (low, high) in source_model.motion_window().items():
+        for joint, (low, high) in source_model.home_window().items():
             ends = sorted(source_model.angles_from_counts(
                 dict(dict.fromkeys(source_model.MOTORS, 0), **{joint: round(edge)}))[joint]
                 for edge in (low, high))
@@ -140,7 +141,7 @@ class Mover:
 
     @staticmethod
     def _outside_message(outside: dict) -> str:
-        window, per_degree = source_model.motion_window(), source_model.COUNTS_PER_DEGREE
+        window, per_degree = source_model.home_window(), source_model.COUNTS_PER_DEGREE
         angles = Mover.angle_limits()
         parts = []
         # A wrist motor outside its window is usually a side effect of an arm joint being
@@ -152,7 +153,8 @@ class Mover:
                 parts.append(f"{motor} (it may be {angles[motor][0]:.1f} to {angles[motor][1]:.1f} "
                              f"degrees: {low:+.1f} to {high:+.1f} from home)")
             else:
-                parts.append(f"{motor} (wrist motion is disabled)")
+                parts.append(f"{motor} (the wrist pitch would pass its limit while the wrist "
+                             "motors stand still; wrist motion is disabled)")
         return ("Target is outside the travel cap or a joint limit: " + "; ".join(parts)
                 + ". Source model, not measured.")
 

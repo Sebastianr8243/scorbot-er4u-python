@@ -97,7 +97,8 @@ class CalibrationTests(unittest.TestCase):
         robot = Scorbot(robot_id="arm-1", calibration_path=path)
         robot._device = object()
         robot._enabled = robot._homed = True
-        robot._home_counts = {"base": 1000}
+        robot._home_counts = {"base": 1000, "shoulder": 0, "elbow": 0, "wrist_motor_1": 0,
+                              "wrist_motor_2": 0, "gripper": 0}
         class Input:
             count = 1000
             index = 0
@@ -200,6 +201,99 @@ class CalibrationTests(unittest.TestCase):
         robot.jog_joint("shoulder", -5.0)                 # away from the limit is fine
         robot.jog_joint("shoulder", -5.0)
         robot.jog_joint("base", 5.0)
+
+    def test_elbow_jogs_stop_at_the_whole_pose_limit_in_both_directions(self):
+        # From the source model, not measured. In the simulator a positive
+        # elbow jog gives negative counts: those reach the wrist pitch's
+        # -109.65 limit first, 20.8 degrees (2366 counts) from home, because
+        # the wrist motors stand still. A negative jog gives positive counts,
+        # toward the elbow's own -140.8 degree limit, 45.8 degrees (5196
+        # counts) from home. Five degree jogs are 568 counts each.
+        from scorbot.simulated import SimulatedScorbot
+        for sign, allowed, joint in ((1, 4, "pitch"), (-1, 9, "elbow")):
+            with self.subTest(direction=sign):
+                robot = SimulatedScorbot().connect()
+                self.addCleanup(robot.disconnect)
+                robot.enable()
+                robot.home(start_position_confirmed=True)
+                for _ in range(allowed):
+                    robot.jog_joint("elbow", sign * 5.0)
+                queued = list(robot.sim.commands)
+                with self.assertRaises(ValueError) as caught:
+                    robot.jog_joint("elbow", sign * 5.0)
+                self.assertIn(joint, str(caught.exception))
+                self.assertIn("not measured", str(caught.exception))
+                self.assertEqual(robot.sim.commands, queued, "a refused jog queues nothing")
+                self.assertIsNone(robot._fault, "a refused jog is not a fault")
+                robot.jog_joint("elbow", -sign * 5.0)          # back toward home is fine
+
+    def test_a_shoulder_jog_that_moves_the_elbow_past_its_limit_is_refused(self):
+        # The shoulder alone may go down to -10200 counts. With the elbow moved
+        # three jogs (-1703 counts) the elbow angle passes -5.16 degrees
+        # already at -8497: the shoulder's window shrinks with the elbow.
+        from scorbot.simulated import SimulatedScorbot
+        robot = SimulatedScorbot().connect()
+        self.addCleanup(robot.disconnect)
+        robot.enable()
+        robot.home(start_position_confirmed=True)
+        for _ in range(3):
+            robot.jog_joint("elbow", 5.0)                      # -1703 counts
+        for _ in range(14):
+            robot.jog_joint("shoulder", -5.0)                  # -7952 counts
+        queued = list(robot.sim.commands)
+        with self.assertRaises(ValueError) as caught:
+            robot.jog_joint("shoulder", -5.0)
+        self.assertIn("elbow", str(caught.exception))
+        self.assertEqual(robot.sim.commands, queued)
+
+    def test_a_jog_toward_the_limits_from_outside_them_is_allowed_but_not_further_out(self):
+        # An arm that is already past a limit (a wrong home, a hand-moved arm)
+        # may be jogged back in, never further out.
+        from types import SimpleNamespace
+        robot = Scorbot()
+        robot._home_counts = {m: 0 for m in ("base", "shoulder", "elbow",
+                                             "wrist_motor_1", "wrist_motor_2")}
+        outside = SimpleNamespace(encoder_counts=dict(robot._home_counts, elbow=5400))
+        robot._refuse_past_joint_limit(outside, {"elbow": -568})        # toward home
+        with self.assertRaises(ValueError):
+            robot._refuse_past_joint_limit(outside, {"elbow": 568})     # further out
+
+    def test_a_base_or_shoulder_past_its_window_may_be_jogged_back_in_but_not_further_out(self):
+        # The same rule as the whole pose, for the per-motor windows: the
+        # shoulder's top is +422 counts; at +500 a jog of -58 still ends past it
+        # but is an improvement, +58 is further out.
+        from types import SimpleNamespace
+        robot = Scorbot()
+        robot._home_counts = dict.fromkeys(("base", "shoulder", "elbow", "wrist_motor_1",
+                                            "wrist_motor_2"), 0)
+        outside = SimpleNamespace(encoder_counts=dict(robot._home_counts, shoulder=500))
+        robot._refuse_past_joint_limit(outside, {"shoulder": -58})      # 442: still out, but nearer
+        robot._refuse_past_joint_limit(outside, {"shoulder": -100})     # back inside
+        with self.assertRaises(ValueError):
+            robot._refuse_past_joint_limit(outside, {"shoulder": 58})   # further out
+
+    def test_a_jog_check_that_cannot_place_the_arm_fails_closed_and_latches(self):
+        from types import SimpleNamespace
+        counts = dict.fromkeys(("base", "shoulder", "elbow", "wrist_motor_1",
+                                "wrist_motor_2"), 0)
+        cases = (
+            ("no home counts", None, SimpleNamespace(encoder_counts=dict(counts)), False),
+            ("a wrist motor missing from home",
+             {k: v for k, v in counts.items() if k != "wrist_motor_1"},
+             SimpleNamespace(encoder_counts=dict(counts)), True),
+            ("half the counter from home", dict(counts),
+             SimpleNamespace(encoder_counts=dict(counts, base=32767)), True),
+        )
+        for name, home, state, latches in cases:
+            with self.subTest(case=name):
+                robot = Scorbot()
+                robot._home_counts = home
+                robot._homed = True
+                with self.assertRaises(ScorbotError):
+                    robot._refuse_past_joint_limit(state, {"elbow": 100})
+                if latches:
+                    self.assertIsNotNone(robot._fault)
+                    self.assertFalse(robot._homed)
 
     def test_stale_feedback_faults_before_any_motion(self):
         robot = Scorbot(response_timeout=0.01)

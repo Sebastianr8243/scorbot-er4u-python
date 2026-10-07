@@ -95,7 +95,7 @@ class ArmTests(unittest.TestCase):
     def test_a_bad_target_raises_and_the_arm_can_carry_on(self):
         arm = self.arm()
         with self.assertRaises(MoverRefused):
-            arm.move_to_angles(base=45.0)
+            arm.move_to_angles(base=175.0)                   # the base ends at 174 degrees
         with self.assertRaises(ValueError):                  # MoverRefused is a ValueError
             arm.move_to_xyz(900.0, 0.0, 349.0)
         arm.move_to_angles(base=2.0)

@@ -61,7 +61,7 @@ Whether the arm holds its pose with motors off is unverified (no brake or holdin
 One press is one step; nothing moves while a key is held. The first move of a
 kind asks you to type it (for example `BASE -1`); pressing the same key again
 repeats it. Unknown keys, 60 s without a key, a declined confirmation or any
-error disarm. Each joint can move at most 10 degrees from home per session
+error disarm. Each joint can move at most `limits.TRAVEL_CAP_DEG` (180 degrees since 2026-10-06, so the joint limits bind first; it was 10) from home per session
 (legacy scale, not measured). After each move you say which way it went and
 whether anything else moved, before the numbers are shown. The numbers then appear as `Step n: planned ..., measured ...`; `n` counts every executed step of the session, including the steps of `b` and `g`, and is what a physical-angle readings sheet refers to ([PHYSICAL_CALIBRATION.md](PHYSICAL_CALIBRATION.md)).
 
@@ -110,7 +110,7 @@ press `t`.
   meanwhile. Release and press again for the
   next step.
 - The same limits as the rest of the session: base, shoulder and elbow only,
-  the 10 degree cap from home, the drift check, the fault latch. A refusal
+  the travel cap from home and the whole-pose joint limits, the drift check, the fault latch. A refusal
   disarms and leaves teleop; re-arm with `a`.
 - Teleop disarms after 15 s without a key (60 s elsewhere).
 - An episode that ends any way other than `r` (disarm, fault, `x`, camera

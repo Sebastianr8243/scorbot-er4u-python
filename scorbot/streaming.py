@@ -16,6 +16,7 @@ created.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import math
 import threading
@@ -98,6 +99,7 @@ class StreamCore:
 
     def __init__(self, start: dict[str, int], *, travel_cap: dict[str, float],
                  window: dict[str, tuple[float, float]] | None = None,
+                 pose_check: Callable[[dict[str, float]], str | None] | None = None,
                  lead_limit: dict[str, float], limits: StreamLimits | None = None,
                  period_s: float = DEFAULT_PERIOD_S,
                  hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
@@ -121,6 +123,12 @@ class StreamCore:
                        for m in MOTORS}
         if any(not self.bounds[m][0] <= start[m] <= self.bounds[m][1] for m in MOTORS):
             raise StreamRefused("the arm is already outside the travel cap or a joint limit")
+        # ``pose_check`` sees all three counts at once and returns a sentence if
+        # they put a joint past its limit: a joint's angle can depend on another
+        # motor's count, which ``window`` (one motor at a time) cannot see.
+        self._pose_check = pose_check
+        if pose_check is not None and (problem := pose_check(dict(start))):
+            raise StreamRefused(f"the arm is already past a joint limit: {problem}")
         limits = limits or prior_limits()
         self.period_s = period_s
         self.travel_cap = dict(travel_cap)
@@ -165,6 +173,12 @@ class StreamCore:
         with self._lock:
             if self.state not in (TRACKING, HOLDING) or self._finish_requested:
                 raise StreamRefused(f"the stream is {self.state}; it takes no more targets")
+            if self._pose_check is not None:
+                problem = self._pose_check({**self._target,
+                                            **{m: float(v) for m, v in target.items()}})
+                if problem:
+                    raise StreamRefused(f"that target would put the arm past a joint limit: "
+                                        f"{problem}")
             self._target.update({m: float(v) for m, v in target.items()})
             self._input.control_interface = self._position_interface
             self._input.target_position = [self._target[m] for m in MOTORS]
@@ -236,6 +250,9 @@ class StreamCore:
             proposed = {m: round(p) for m, p in zip(MOTORS, self._output.new_position)}
             if any(not self.bounds[m][0] <= proposed[m] <= self.bounds[m][1] for m in MOTORS):
                 self._fault(f"commanded position left the travel cap: {proposed}")
+                return result(STOP)
+            if self._pose_check is not None and (problem := self._pose_check(dict(proposed))):
+                self._fault(f"commanded position is past a joint limit: {problem}: {proposed}")
                 return result(STOP)
             # Checked before it is sent: the limit bounds every setpoint, so a
             # stalled arm is never asked for one more step past it.
