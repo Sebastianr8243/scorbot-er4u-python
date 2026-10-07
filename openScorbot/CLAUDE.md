@@ -7,7 +7,7 @@ Original OpenScorbot code (University of La Laguna, GPL-3.0) that builds and sen
 - Do not change packet construction, sequence-byte handling, message tables (`libhex.py`), or the `WRITE`/`READ` sleeps without evidence: captured traces (`docs/lab/USB_CAPTURE.md`, `scripts/usb_trace.py`), or the vendor disassembly (`docs/protocol/VENDOR_DLL_PROTOCOL.md`) for sequences built only from command bytes already in `libhex.py`. A disassembly-based change is tried first on a 1 degree jog; bytes the legacy code never sends still need a capture (root `CLAUDE.md`). The sleeps are required for the controller to answer (comment in `libdef.py:set_msg`). Timing and byte layout are unverified against the Intelitek software.
 - Never run, import for side effects, or test anything here against the real device. Tests import these modules only for pure functions (`tests/test_legacy_properties.py`, `tests/test_python_api.py`, `tests/test_kinematics.py`).
 - Changes to `libcomm.py`, `libdef.py`, `motion_profile.py` alter `scorbot.provenance.motion_source_sha256`, which every lab log records. That is intended; do not bypass it.
-- Bug fixes need a test that shows the bug first. Known bugs are pinned as `expectedFailure` in `tests/test_legacy_properties.py` (`test_known_bug_*`); when you fix one, the test turns into an unexpected success and you must flip it.
+- Bug fixes need a test that shows the bug first. Known bugs are pinned as `expectedFailure` in `tests/test_legacy_properties.py` (`test_known_bug_*`); when you fix one, the test turns into an unexpected success and you must flip it. None is open: the two found so far (`suma`/`resta` past one full turn) were fixed 2026-10-06 and flipped.
 
 ## How it is loaded
 
@@ -23,7 +23,7 @@ Original OpenScorbot code (University of La Laguna, GPL-3.0) that builds and sen
 
 ## Arithmetic gotchas (each verified in code)
 
-- Encoders are unsigned 16-bit with modulus 65535 (one's complement), not 65536. `libdef.suma` subtracts 65535 on overflow and sets the sign to `'0000'`; `resta` adds 65535 on underflow and sets `'ffff'`. A step >= 65536 double-overflows (pinned `expectedFailure` in `test_legacy_properties.py`).
+- Encoders are unsigned 16-bit with modulus 65535 (one's complement), not 65536. `libdef.suma` subtracts 65535 on overflow and sets the sign to `'0000'`; `resta` adds 65535 on underflow and sets `'ffff'`. A step >= 65536 wraps more than once; `suma`/`resta` loop for that since 2026-10-06 (before, they double-overflowed), and for every real step (at most about 100) the result is the old single wrap, pinned by an equivalence test in `test_legacy_properties.py`.
 - The SDK counterpart is `scorbot.calibration.signed_count_delta`. Do not subtract raw counts from `buffer` or `media` in new code.
 - Settle checks use `motion_profile.count_distance(dato_in[0], media[i]) > 20` (fixed 2026-10-05; it equals `abs` away from the 0/65535 seam and treats 3 and 65533 as 5 apart). Before, a target at the seam against a reading just across it spun to the 100-iteration cap and returned error code 2. `moveXYZ.py:205` still uses `abs` (order 19 is never sent). The simulator does not run these loops, so `tests/test_settle_seam.py` drives `libcomm.move_hips` with fake endpoints. Never run on the arm.
 - `libdef.get_media` averages the last reading into `media` and replaces it when the jump is >= 1000 counts. Values must stay `int` for hex formatting (`detrans`).

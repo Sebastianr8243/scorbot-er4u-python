@@ -407,14 +407,16 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
                     self.assert_step_matches_legacy(count, sign, step)
                     self.assert_step_matches_legacy(count, sign, -step)
 
-    def test_step_beyond_domain_is_rejected_where_legacy_double_overflows(self):
-        # Legacy suma leaves 65536 here. detrans still emits four hex digits
-        # (characters 2, 3, 0, 1 of '10000'), so the packet stays intact but
-        # carries a silently wrong count: 4096 instead of a wrapped value.
+    def test_step_beyond_domain_is_still_rejected_by_the_codec(self):
+        # Until 2026-10-06 legacy suma left 65536 here (a double overflow) and
+        # detrans, a pure function that is unchanged, turned that into a silently
+        # wrong count. suma now wraps repeatedly: 65535 + 65536 is 1. A step of a
+        # full turn is still outside the codec's domain (real steps are at most
+        # about 100), so the codec refuses it instead of choosing a meaning.
         state = self.lib.suma([65535, "0000"], 1, 0, 0, step=65536)
-        self.assertEqual(state[0], 65536)
-        self.assertEqual(self.lib.detrans(state[0]), "0010")
-        self.assertEqual(self.lib.detrans(131070), "ff1f")
+        self.assertEqual(state, [1, "0000"])
+        self.assertEqual(self.lib.detrans(state[0]), "0100")
+        self.assertEqual(self.lib.detrans(131070), "ff1f")      # detrans itself is unchanged
         with self.assertRaises(ValueError):
             codec.step_count(65535, 128, 65536)
 

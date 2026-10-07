@@ -28,7 +28,7 @@ controller can be echoed without translation.
 
 Inputs outside the domain where the legacy code is correct raise
 ``ValueError``; legacy bugs are not reproduced (for example a count step above
-65535, which ``libdef.suma``/``resta`` double-overflow).
+65535, which ``libdef.suma``/``resta`` double-overflowed until 2026-10-06).
 """
 
 from collections.abc import Mapping

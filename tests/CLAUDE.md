@@ -3,7 +3,7 @@
 `unittest` suite. It must never open USB, enumerate a real device, or move the arm. Root rules in [../CLAUDE.md](../CLAUDE.md) apply.
 
 ```powershell
-python -m unittest discover -s tests -v                      # full suite, about 950 tests in 2 to 3 min (about 30 s with pytest -n auto), 2 expected failures
+python -m unittest discover -s tests -v                      # full suite, about 1,020 tests in 2 to 3 min (about 30 s with pytest -n auto), no expected failures
 python -m unittest tests.test_simulated -v                   # one module
 python -m unittest tests.test_python_api.CommandTests -v     # one class
 ```
@@ -37,7 +37,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_nominal.py`, `test_kinematics.py`, `test_motion_profile.py` | Manual values and span bound, offline kinematics and legacy `cIn` findings, jog planning |
 | `test_arm_view.py` | The 3D view against a fake recording (no Rerun, no meshes): mesh placement, the line fallback, the notice, the simulated demo, and that zero counts reproduce the USNA toolbox's published home position |
 | `test_arm_chain.py` | The viewer's link chain: zero pose, sign conventions, agreement with the manual's lengths and reach, and with the DH model in `kinematics.py` |
-| `test_legacy_properties.py` | Hypothesis properties of encoder and packet arithmetic; `test_known_bug_*` are `expectedFailure` |
+| `test_legacy_properties.py` | Hypothesis properties of encoder and packet arithmetic; known bugs are pinned as `test_known_bug_*` with `expectedFailure`; none is open since 2026-10-06 (the two for `suma`/`resta` were fixed and flipped), and an equivalence test pins that real steps are unchanged |
 | `test_streaming_core.py`, `test_streaming.py` | The streaming driver: the USB-free core against a small arm model (one or more tests per requirement R1-R12), the legacy loop against fake endpoints (exact messages), and `Scorbot.start_stream` through the simulator |
 | `test_source_model.py` | The source-based joint model: it reproduces the USNA toolbox's home position, uses the vendor's scales, round-trips, couples shoulder and elbow as the vendor does, and stays inside the travel cap |
 | `test_limits.py` | Every module's travel cap, motor list and count band is the one in `scorbot/limits.py` |

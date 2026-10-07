@@ -7,7 +7,9 @@ Encoder counts are 16-bit little-endian values plus a separate sign byte
 Properties that hold only on a restricted domain are restricted to it. Inputs
 outside the domain that expose real defects are pinned by explicit
 ``test_known_bug_*`` tests marked ``expectedFailure``; they document the bug and
-turn into "unexpected success" (a loud failure) once product code is fixed.
+turn into "unexpected success" (a loud failure) once product code is fixed. None is
+open now: the two found so far (``suma`` and ``resta`` past one full turn) were fixed
+on 2026-10-06 and their tests flipped.
 No USB is ever opened.
 """
 
@@ -218,14 +220,45 @@ class LegacyLibdefProperties(unittest.TestCase):
 @unittest.skipUnless(HAVE_HYPOTHESIS, "hypothesis is not installed")
 @unittest.skipUnless(HAVE_USB, "pyusb is required by the legacy modules")
 class LegacyKnownBugs(unittest.TestCase):
-    """Real defects found by property search. Product code is untouched."""
+    """Defects found by property search. Both were fixed on 2026-10-06 (see each test)."""
 
     @classmethod
     def setUpClass(cls):
         cls.lib = _legacy("libdef")
 
-    @unittest.expectedFailure
-    def test_known_bug_suma_double_overflow(self):
+    @staticmethod
+    def old_suma(value, step):
+        """libdef.suma before 2026-10-06: one wrap only."""
+        value += step
+        if value > 65535:
+            return value - 65535, "0000"
+        return value, None
+
+    @staticmethod
+    def old_resta(value, step):
+        """libdef.resta before 2026-10-06: one wrap only."""
+        value -= step
+        if value < 0:
+            return 65535 + value, "ffff"
+        return value, None
+
+    def test_suma_and_resta_are_unchanged_for_every_step_the_arm_can_send(self):
+        # The fix wraps repeatedly; for a step under one full turn that is the old single
+        # wrap, so no byte sent for a real move changes. Checked around both seams for
+        # every step size up to one full turn.
+        for start in (0, 1, 20, 100, 32767, 65434, 65515, 65534, 65535):
+            for step in list(range(0, 130)) + [1000, 32767, 32768, 65534, 65535]:
+                with self.subTest(start=start, step=step):
+                    value, sign = self.old_suma(start, step)
+                    got = self.lib.suma([start, "AAAA"], 1, 20, 100, step=step)
+                    self.assertEqual(got[0], value)
+                    self.assertEqual(got[1], sign or "AAAA")
+                    value, sign = self.old_resta(start, step)
+                    got = self.lib.resta([start, "AAAA"], 1, 20, 100, step=step)
+                    self.assertEqual(got[0], value)
+                    self.assertEqual(got[1], sign or "AAAA")
+
+    def test_suma_double_overflow_is_fixed(self):
         # Counterexample: suma([65535, '0000'], step=65536). The wrap subtracts
         # 65535 once, leaving 65536: still > 65535, so detrans() emits 5 hex
         # digits and the 4-byte position field of the USB message is
@@ -234,8 +267,7 @@ class LegacyKnownBugs(unittest.TestCase):
         self.assertLessEqual(out[0], 65535)
         self.assertEqual(len(self.lib.detrans(out[0])), 4)
 
-    @unittest.expectedFailure
-    def test_known_bug_resta_double_underflow(self):
+    def test_resta_double_underflow_is_fixed(self):
         # Counterexample: resta([0, '0000'], step=65536). 65535 + (-65536) = -1,
         # still negative, so detrans() formats "-001" and the message carries
         # garbage instead of a position.

@@ -523,7 +523,9 @@ def get_signo(pos, buffer):
 #
 def suma(dato_in,cont,vel,ite,step=None):
 	dato_in[0] += incremento(cont,vel,ite) if step is None else step
-	if dato_in[0] > 65535:
+	# A step of a full turn or more wraps more than once (fixed 2026-10-06); a real
+	# step wraps at most once, so nothing sent for a real move changes.
+	while dato_in[0] > 65535:
 		dato_in[0] -= 65535
 		dato_in[1] = '0000'
 	return dato_in
@@ -545,7 +547,8 @@ def suma(dato_in,cont,vel,ite,step=None):
 ###
 def resta(dato_in,cont,vel,ite,step=None):
 	dato_in[0] -= incremento(cont,vel,ite) if step is None else step
-	if dato_in[0] < 0:
+	# As in suma: wraps more than once for a step of a full turn or more (fixed 2026-10-06).
+	while dato_in[0] < 0:
 		dato_in[0] = 65535 + dato_in[0]
 		dato_in[1] = 'ffff'
 	return dato_in
