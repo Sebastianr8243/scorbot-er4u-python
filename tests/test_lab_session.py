@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from scorbot import SimulatedScorbot
 from scorbot.lab.operator import ScriptedOperator
@@ -39,6 +40,11 @@ class Clock:
 
 class LabSessionTests(unittest.TestCase):
     def setUp(self):
+        # These tests exercise the session's cap mechanism, not its production
+        # value (limits.TRAVEL_CAP_DEG, lifted from 10 to 180 on 2026-10-06).
+        patcher = mock.patch("scorbot.lab.session.TRAVEL_CAP_DEG", 10.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
         self.ctrl = SimulatedController()

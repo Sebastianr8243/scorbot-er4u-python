@@ -172,6 +172,9 @@ def _run() -> int:
     parser.add_argument("--hold-s", type=float, default=1.0,
                         help="Seconds to hold at the target and again at home (0.2 to 5)")
     parser.add_argument("--acknowledge-supervised-motion", action="store_true")
+    parser.add_argument("--inch-home", action="store_true",
+                        help="Home by inching (any start pose; shoulder, elbow, base) instead "
+                             "of the legacy search from the fixed start pose")
     parser.add_argument("--session-root", type=Path, default=None,
                         help="Folder for the MCAP session (default: <output folder>/sessions)")
     parser.add_argument("--simulate", action="store_true",
@@ -225,7 +228,7 @@ def _run() -> int:
             with robot_class(log_path=events, robot_id=args.robot_id) as robot:
                 home_state = bench.connect_and_home(
                     robot, write, rec, prompt, command,
-                    "stopped after homing; no stream requested")
+                    "stopped after homing; no stream requested", inch=args.inch_home)
                 plan = dict(motor=args.motor, requested_delta_deg=args.delta,
                             target_counts_from_home=target, travel_cap_deg=TRAVEL_CAP_DEG,
                             lead_limit_deg=LEAD_LIMIT_DEG, hold_s=args.hold_s,

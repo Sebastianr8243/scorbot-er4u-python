@@ -108,7 +108,10 @@ class AppTests(SimulatedRobotCase):
         app, panel, _robot = self.app()
         panel.clients(1)
         held = tuple(app.handle.position)
-        app.handle.position = (held[0], held[1] + 0.03, held[2])
+        # Three metres sideways: out of reach, so releasing the handle is refused
+        # and it goes back to the arm (a small nudge is a legal move since the
+        # travel cap was lifted on 2026-10-06, and the arm would follow it).
+        app.handle.position = (held[0], held[1] + 3.0, held[2])
         moved = tuple(app.handle.position)
         app._dragged(SimpleNamespace(client=object(), phase="start", target=app.handle))
         with mock.patch.object(app_module, "HANDS_OFF_S", 0.0):
@@ -117,7 +120,7 @@ class AppTests(SimulatedRobotCase):
             app.refresh()
             self.assertEqual(tuple(app.handle.position), moved, "held: the page leaves it alone")
             app._dragged(SimpleNamespace(client=object(), phase="end", target=app.handle))
-            panel.drag_tool(0.0, 0.0, 0.0)                 # refused (out of reach): back to the arm
+            panel.drag_tool(900.0, 0.0, 349.0)             # refused (out of reach): back to the arm
             app._touched.clear()
             app.refresh()
         for got, was in zip(app.handle.position, held):

@@ -3,7 +3,7 @@
 ``TargetFollower`` turns "be at these counts" into at most one ordinary
 ``jog_joint`` step per call: the arm joint with the largest error beyond half
 a step moves one step toward its target. It keeps the lab's limits (base,
-shoulder and elbow only; wrist targets refused; 10 degree cap from home
+shoulder and elbow only; wrist targets refused; travel cap from home (limits.TRAVEL_CAP_DEG)
 counted in steps; drift check) and adds no motion capability. Targets and
 observations are encoder counts from the session home, as the exporter
 writes them. Used by the simulator-only LeRobot plugin; real-arm replay goes

@@ -70,7 +70,7 @@ lab tool checks the dataset:
 - it is real data for a real session (simulated data only in `--simulate`
   rehearsals) and was recorded on this robot id;
 - units, motor order and the step scale match this software;
-- every target stays inside the 10 degree cap and the wrist never moves;
+- every target stays inside the travel cap (`limits.TRAVEL_CAP_DEG`, 180 degrees since 2026-10-06; the joint limits bind first) and the wrist never moves;
 - consecutive targets change by at most one step on one joint.
 
 Then, if the arm is not at the episode's start pose, it shows the moves and
@@ -96,7 +96,7 @@ Install it once into the LeRobot environment and replay:
 With `--robot.streaming=true` each `send_action` only moves the target of
 `Scorbot.start_stream` and returns at once, and the streaming driver moves
 the three arm motors toward it together: what a policy that acts many times a
-second needs. Same motors, same 10 degree cap. Streaming needs Ruckig in the
+second needs. Same motors, same travel cap. Streaming needs Ruckig in the
 LeRobot environment:
 
 ```powershell

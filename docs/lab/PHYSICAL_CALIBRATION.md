@@ -70,7 +70,7 @@ Then, with the log files from `logs\`:
 
 It takes the counts, the robot id and the approach direction (the sign of that step) from the logs, so only angles are typed. For a `move_verify` row the target is worked out from the logs (the home reading for that joint in the same log, plus the degrees commanded by the steps up to that one, legacy scale); leave `requested_target_deg` empty, or it must agree. A log must be one session with at most one homing, and two logs may not share a file name. It refuses a simulated log, logs from different robots, a reading whose joint is not the one that step moved, a step that does not exist, and an output file that already exists. It prints how many rows each joint has against what the fitter needs (3 home, 4 fit, 3 verify, 3 move verification, both directions), so a short set shows before you leave the lab. Add `--limits limits.json --calibration-output calibration\arm-1.json` to run the fit in the same command.
 
-The fitter wants measured angles at least 2.5 degrees beyond each soft limit, so a +/-7 degree soft range needs readings out to about +/-9.5 degrees. The guided session allows 10 degrees from home; the shoulder only goes about 3.7 degrees up, so its upper soft limit stays small. Unverified on the arm: the builder has run on synthetic logs only.
+The fitter wants measured angles at least 2.5 degrees beyond each soft limit, so a +/-7 degree soft range needs readings out to about +/-9.5 degrees. The guided session allows up to the joint limits (the cap was lifted from 10 degrees on 2026-10-06); the shoulder only goes about 3.7 degrees up, so its upper soft limit stays small. Unverified on the arm: the builder has run on synthetic logs only.
 
 ## Manual priors and bounds
 

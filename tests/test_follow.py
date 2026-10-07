@@ -3,6 +3,7 @@
 from importlib.util import find_spec
 import time
 import unittest
+from unittest import mock
 
 from scorbot.simulated import SimulatedScorbot
 
@@ -12,8 +13,21 @@ def target(base=0.0, shoulder=0.0, elbow=0.0, wrist=0.0):
             "wrist_motor_1": float(wrist), "wrist_motor_2": 0.0}
 
 
+def pin_the_cap(case):
+    """Hold the follower's cap at 10 degrees for one test case.
+
+    These tests exercise the cap mechanism, not its production value
+    (limits.TRAVEL_CAP_DEG, lifted from 10 to 180 on 2026-10-06).
+    """
+    for name in ("scorbot.follow.TRAVEL_CAP_DEG", "scorbot.lab.session.TRAVEL_CAP_DEG"):
+        patcher = mock.patch(name, 10.0)      # both, so the two stay the same limit
+        patcher.start()
+        case.addCleanup(patcher.stop)
+
+
 class FollowTests(unittest.TestCase):
     def setUp(self):
+        pin_the_cap(self)
         from scorbot.follow import TargetFollower
         self.robot = SimulatedScorbot().connect()
         self.robot.enable()
@@ -82,7 +96,10 @@ class StreamFollowTests(unittest.TestCase):
         self.robot = SimulatedScorbot(controller=SimulatedController(step_delay_s=0.001)).connect()
         self.robot.enable()
         self.robot.home(start_position_confirmed=True)
-        self.follower = StreamFollower(self.robot, self.robot.get_state().encoder_counts)
+        # The stream's own cap, held at 10 degrees: the test exercises the
+        # cap mechanism, not the production value (180 since 2026-10-06).
+        self.follower = StreamFollower(self.robot, self.robot.get_state().encoder_counts,
+                                       travel_cap_deg=10.0)
         self.addCleanup(self.shutdown)
 
     def shutdown(self):
@@ -145,7 +162,7 @@ class StreamFollowTests(unittest.TestCase):
         with self.assertRaisesRegex(FollowRefused, "wrist"):
             self.follower.step_toward(target(wrist=200))
         with self.assertRaisesRegex(FollowRefused, "travel cap"):
-            self.follower.step_toward(target(base=5000))       # 10 degrees is 1420 counts
+            self.follower.step_toward(target(base=5000))       # the pinned 10 degrees is 1420 counts
         self.assertIsNone(self.robot._fault, "a refused target is not a fault")
         self.follower.step_toward(target(base=50))             # and the stream carries on
 

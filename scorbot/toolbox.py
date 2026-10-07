@@ -16,7 +16,8 @@ arm for years: ``go_home`` (ScorHome / ScorGoHome), ``get_angles``
 
 Every angle and position comes from ``source_model.py``: the vendor's formula
 and parameter files, not measured on our arm. Motion stays inside the travel
-cap (ten degrees from home, less for the shoulder upward) and only the base,
+cap (180 degrees from home since 2026-10-06, so the joint limits bind, shown
+by ``Mover.angle_limits``) and only the base,
 shoulder and elbow move; the wrist is read-only. Never run on the arm.
 
 Design: docs/specs/2026-10-05-three-front-doors-design.md.

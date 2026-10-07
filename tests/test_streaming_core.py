@@ -148,6 +148,40 @@ class StreamCoreTests(unittest.TestCase):
             make(start={"base": 0, "shoulder": 500, "elbow": 0},
                  window={"shoulder": (-1100.0, 420.0)})
 
+    def test_r4_a_pose_check_refuses_targets_that_break_it_and_changes_nothing(self):
+        # A joint can be inside the window of its own count and still be past a
+        # limit because of another motor: the check sees all three counts.
+        from scorbot.streaming import StreamRefused
+
+        def check(counts):
+            return "elbow past its limit" if counts["elbow"] > 500 and counts["shoulder"] < -100 \
+                else None
+
+        core, arm = make(pose_check=check), Arm()
+        core.set_target({"elbow": 600}, 0.0)                    # fine on its own
+        with self.assertRaises(StreamRefused) as caught:
+            core.set_target({"shoulder": -200}, 0.0)            # merged with the elbow target
+        self.assertIn("elbow past its limit", str(caught.exception))
+        with self.assertRaises(StreamRefused):
+            core.set_target({"elbow": 600, "shoulder": -200}, 0.0)
+        records = run(core, arm, 300, on_step=keep_alive(core, {"elbow": 600}))
+        self.assertEqual(records[-1].commanded, {"base": 0, "shoulder": 0, "elbow": 600})
+        self.assertIsNone(core.fault)
+
+    def test_r4_a_stream_cannot_start_on_a_pose_that_breaks_the_check(self):
+        from scorbot.streaming import StreamRefused
+        with self.assertRaises(StreamRefused):
+            make(pose_check=lambda counts: "already past a limit")
+
+    def test_r4_r6_a_setpoint_on_the_way_that_breaks_the_check_faults_the_stream(self):
+        # Both ends are fine; the path crosses a region that is not.
+        core, arm = make(pose_check=lambda c: "past a joint limit" if 200 < c["elbow"] < 400
+                         else None), Arm()
+        records = run(core, arm, 300, on_step=keep_alive(core, {"elbow": 600}))
+        self.assertEqual(records[-1].action, "stop")
+        self.assertIn("past a joint limit", core.fault)
+        self.assertLess(max(r.commanded["elbow"] for r in records), 400)
+
     def test_r4_bad_targets_are_refused(self):
         from scorbot.streaming import StreamRefused
         core = make()

@@ -4,7 +4,7 @@ Observations and actions are encoder counts from the session home for base,
 shoulder, elbow and the two wrist motors, as the exporter writes them. By
 default each ``send_action`` is at most one ordinary 1 degree jog through
 ``scorbot.follow.TargetFollower`` (lab limits: base, shoulder and elbow only,
-10 degree cap, drift check), so replay runs at the arm's pace.
+travel cap, drift check), so replay runs at the arm's pace.
 
 With ``streaming=true`` each ``send_action`` instead moves the target of
 ``Scorbot.start_stream`` (``scorbot.follow.StreamFollower``) and returns at

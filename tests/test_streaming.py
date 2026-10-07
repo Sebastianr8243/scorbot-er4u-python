@@ -212,7 +212,7 @@ class SdkStreamTests(SimulatedRobotCase):
             self.assertTrue(self.follow(stream, robot, {"base": 100}))
             sent = len(robot.sim.stream_sent)
             with self.assertRaises(StreamRefused):
-                stream.set_target({"base": 1500})          # 10 degrees is 1420 counts
+                stream.set_target({"base": 19000})         # past the base's joint limit
             with self.assertRaises(StreamRefused):
                 stream.set_target({"wrist_motor_1": 5})
             self.assertTrue(self.follow(stream, robot, {"base": 120}))
@@ -230,11 +230,43 @@ class SdkStreamTests(SimulatedRobotCase):
             self.assertTrue(self.follow(stream, robot, {"shoulder": -900}))
         self.assertIsNone(robot._fault)
 
+    def test_r4_the_elbow_cannot_be_streamed_past_its_pose_limits(self):
+        # Source model, not measured: the elbow reaches -140.8 degrees at +5196
+        # counts; at negative counts the wrist pitch reaches its limit first, at
+        # -2366. Neither is a limit of the elbow's count alone.
+        robot = self.robot()
+        with robot.start_stream() as stream:
+            for refused in ({"elbow": 5300}, {"elbow": -2500}):
+                with self.subTest(target=refused), self.assertRaises(StreamRefused) as caught:
+                    stream.set_target(refused)
+                self.assertIn("joint limit", str(caught.exception))
+            # inside their own windows, but together the elbow angle is past -5.16
+            with self.assertRaises(StreamRefused):
+                stream.set_target({"shoulder": -10000, "elbow": -2000})
+            self.assertTrue(self.follow(stream, robot, {"elbow": 400}))
+            self.assertTrue(self.follow(stream, robot, {"elbow": -400}))
+        self.assertIsNone(robot._fault)
+
+    def test_r4_the_pose_check_uses_the_measured_wrist_not_an_assumed_home(self):
+        # The pitch follows the wrist motors too. With the wrist 1000 counts
+        # from home an elbow target of -2000 is past the pitch limit; with the
+        # wrist at home it is not. A wrist moved after homing must count.
+        robot = self.robot()
+        with robot.start_stream() as stream:
+            stream.set_target({"elbow": -2000})                    # wrist at home: fine
+        robot = self.robot()
+        robot.sim.counts["wrist_motor_1"] += 1000
+        with robot.start_stream() as stream:
+            with self.assertRaises(StreamRefused) as caught:
+                stream.set_target({"elbow": -2000})
+            self.assertIn("pitch", str(caught.exception))
+        self.assertIsNone(robot._fault)
+
     def test_r4_the_cap_cannot_be_raised_past_its_stage(self):
         robot = self.robot()
         queued = list(robot.sim.commands)
         # A long period makes each step a jump; a long hold timeout switches the hold off.
-        for kwargs in ({"travel_cap_deg": 10.5}, {"travel_cap_deg": 0}, {"lead_limit_deg": 6},
+        for kwargs in ({"travel_cap_deg": 180.5}, {"travel_cap_deg": 0}, {"lead_limit_deg": 6},
                        {"travel_cap_deg": True}, {"period_s": 1.0}, {"period_s": 0.001},
                        {"hold_timeout_s": 1e9}, {"hold_timeout_s": 0.001},
                        {"period_s": float("nan")}, {"hold_timeout_s": True}):

@@ -7,6 +7,138 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 The implementation plans this log cites under `docs/superpowers/plans/` were removed from the tree on 2026-10-04; they are in git history (last present at commit `e5ef11e`).
 
+## 2026-10-06 (lab PC)
+
+### Inch homing (`Scorbot.home_inch`): a home that needs no start pose
+
+- **Why:** the legacy `home()` failed on 2026-10-06 (`base-first-02`, code 1
+  after about 4 s) and only works from a fixed start pose; the owner does not
+  want SCORBASE in the loop. The vendor DLL's homing was traced
+  (`docs/protocol/VENDOR_HOMING_TRACE.md`, from disassembly): the controller
+  runs the search, it reverses after a stall or `MaxDistance`, it backs off by an
+  offset, then `48` zeroes the counter. `4D` and `48` have never been sent, so
+  they need a capture; everything else the vendor does uses legacy bytes.
+- **What:** the owner chose the vendor's offsets and a plain build. The joint is
+  inched with the legacy jog (at most 1 degree a step) and the switch bit read
+  after each step: toward the switch up to 30, 30 and 100 degrees (shoulder,
+  elbow, base; see the coupling finding below), back and the other way if not found,
+  then off the switch and back to its near edge (at most 6 degrees), then the vendor
+  offset (shoulder -190, elbow +45, base 0 counts), then the counts are recorded
+  as the session home. Shoulder, elbow and base only; no wrist; no `48`; no new
+  command byte. Polarity (bit set = on the switch) and directions are the
+  vendor's, from disassembly. Edge accuracy is about a quarter of a degree (the
+  legacy jog settles within 20 counts).
+- **Where:** `scorbot/inch_home.py` (pure), `Scorbot.home_inch` and
+  `Scorbot._jog_joint(..., homing=True)` in `robot.py`, `--inch-home` on
+  `examples/bench_joint.py` and `bench_stream.py`, `tests/test_inch_home.py`
+  (36 tests, simulator with modeled switches). **Never run on the arm.**
+- **Reviews (Codex and an Opus agent; Gemini returned 402):** fixed the same day:
+  a measured-progress check (a coarse step that moves under 40 percent faults
+  before the next jog); a stop request that arrives as a step ends is kept for
+  the next step and the end; a switch read needs two agreeing readings (one
+  false reading had produced a wrong home about 1 degree high); back-off and
+  creep are capped at 6 degrees; a jog ceiling under 2 degrees is refused; an
+  interrupt or a failed read latches and switches the motors off, and says which
+  joint; the offset uses the jog's own count scale. **Left open (owner's call,
+  stated in the CLAUDE.md row):** the source model's joint limits are not checked
+  during the search because there is no home to measure them from, so a missed
+  shoulder switch drives it toward its upper stop (about 1 to 2 jogs before the
+  progress check or the controller's error word); the elbow moves without the
+  vendor's coupled wrist drive, so in the model a long elbow sweep takes the
+  wrist pitch past its limit; the wrist is not homed and the pose checks assume it
+  stands where it would at home; the simulator has no hard stops or coupling and
+  its switch positions and the approach directions come from the same sources as
+  the code, so the tests cannot catch a sign error that exists on the arm; the
+  switch width is unmeasured (a switch narrower than the 1 degree coarse step
+  could be skipped).
+- **Not copied from the vendor:** the coupled motors that move with the shoulder
+  and elbow, wrist homing, stall detection by the controller, the parameter
+  download, `48`.
+
+- **Coupling finding (after the reviews; changes the advice):** the elbow and
+  wrist motors are mechanically coupled to the shoulder, and the vendor homes with
+  them moving together. By the source model (the vendor's own counts-to-angles
+  formulas), shoulder +1000 counts alone changes the elbow joint angle by -8.81
+  degrees (pitch 0); elbow +1000 alone changes elbow -8.81 and pitch +8.81. So
+  with the other motors held, a shoulder sweep of N degrees swings the elbow joint
+  by N degrees, and the elbow's range is 135 degrees: a 150 degree sweep from a
+  folded pose drives the elbow into its stop. This is the likely cause of the
+  legacy home's failure (code 1 after about 4 s from the arm's lowest point), and
+  it means `home_inch` from a folded pose would fail the same way. The default
+  search caps are therefore small (shoulder 30, elbow 30, base 100): the arm must
+  start within a few tens of degrees of its home pose. Compensating only the elbow
+  just moves the swing to the wrist pitch (model: pitch -8.81 per +1000 shoulder).
+  The vendor's offset vectors (shoulder -190 -> elbow +190, m1 +95, m2 -95) and the
+  model disagree by a factor 2 on the wrist part (the model's cancelling vector is
+  about -Ds/4 on m1 and +Ds/4 on m2). **Settled by a trace of the DLL**
+  (`docs/protocol/VENDOR_COUPLING_TRACE.md`, from disassembly): the model is right
+  and the vendor's offset vectors overshoot the wrist by about 2x (they are
+  hand-picked integer halves with no geometric basis, and every coupled counter is
+  re-zeroed at the end of a full home, so it did not matter to the vendor). The
+  count change that moves only the shoulder by Ds keeping the elbow, pitch and roll
+  angles fixed is (base 0, shoulder Ds, elbow -Ds, m1 -0.246 Ds, m2 +0.246 Ds);
+  elbow by De: (m1 +0.246 De, m2 -0.246 De). Real arbitrary-pose homing needs the
+  coupled motors moved with each shoulder or elbow step, which means wrist motor
+  moves (disabled by the owner's rule) and, ideally, the multi-motor stream;
+  neither has run on the arm. Not built.
+
+### Travel cap lifted from 10 to 180 degrees, with a whole-pose limit check
+
+- **Why:** the owner wanted real tests and judged the 10 degree cap too tight.
+  This skips the staged widening (10, 20, 45, ...) of
+  `docs/specs/2026-10-04-streaming-driver-requirements.md` and the evidence
+  gate of `docs/specs/2026-10-06-travel-cap-widening-plan.md`. **The owner's
+  decision; no lab evidence behind it.** Nothing in the logs of that day shows
+  a jog: `idle-01` is idle only, `base-first-01` was declined before homing,
+  `base-first-02` enabled the motors and `home()` failed after about 4 s with
+  `Legacy controller returned error code 1` (a joint error word at or above
+  40; which joint is not in the log). The documented way to home is SCORBASE
+  first, then the legacy search from the pose it leaves
+  (`docs/lab/ARM_CONTROL_BENCH.md`); not yet tried.
+- **What changed:** `limits.TRAVEL_CAP_DEG` is 180, past every joint's range,
+  so the source model's joint limits (`source_model.LIMITS_DEG`: base -132 to
+  174, shoulder -28.28 to 124, elbow -140.8 to -5.16, pitch -109.65 to 113;
+  narrower of the toolbox's and the vendor INI's, unmeasured) are the travel
+  bound. The motion fingerprint in lab logs changes.
+- **The gap this opened, and its fix:** the elbow's limit was enforced only
+  in the simulator's `Mover`; on the real arm the 10 degree cap was the only
+  thing bounding it. `jog_joint` and `start_stream` now check the whole pose
+  (`source_model.pose_limit_excess`; `StreamCore(pose_check=...)` on every
+  target and every setpoint): the elbow's angle follows the shoulder's count,
+  and the wrist pitch follows both while the wrist motors stand still. Alone
+  from home that gives (counts, `source_model.home_window`): base -24688 to
+  18729, shoulder -10200 to 422, elbow -2366 to 5196. In the simulator a
+  positive elbow jog gives negative counts, which reach the pitch limit after
+  20.8 degrees; a negative jog reaches the elbow's own limit after 45.8. An
+  arm already past a limit may be jogged back in, never further out.
+- **Tests:** `test_limits`, `test_source_model` (new `PoseLimitTests`),
+  `test_arm_control`, `test_streaming_core`, `test_streaming` updated or added;
+  `test_follow`, `test_lab_session`, `test_lab_teleop`, `test_lab_replay` pin
+  the cap to 10 inside the test so they still exercise the mechanism;
+  `test_mover`, `test_toolbox`, `test_ui_*` now use targets past a joint
+  limit. Docs that said "10 degrees" updated.
+- **Still open (from a read-only review of the limits against the sources):**
+  the 11.6 percent shoulder/elbow scale disagreement (113.51 against 101.68
+  counts per degree) is unmeasured, and at 180 degrees a scale error is tens of
+  degrees, not a few; the shoulder has only 3.72 degrees (about 422 counts) of
+  margin above home against a 190 count homing offset; real hard-stop
+  positions, table, cable and gripper clearance are not measured; the lead
+  limit has never fired on the arm. Start every new motion small.
+- **Reviews (Codex and an Opus agent; Gemini returned 402, credits depleted):**
+  found and fixed the same day: the stream pose check assumed the wrist at
+  home (now the measured wrist counts at stream start); a per-motor window
+  refused jogs that moved back toward a limit; the jog check failed open or
+  raised without latching when home counts were missing or the arm could not
+  be placed. **Left open, owner's call:** the limits assume the legacy home is
+  the vendor home, but the vendor backs off its switches by shoulder -190,
+  elbow +45, pitch +850 counts; 850 pitch counts moves the computed pitch about
+  30 degrees, more than the 20.8 degrees the elbow has on that side, so the
+  limits can be wrong by more than the travel they allow, in either direction.
+  Codex advised keeping a conservative cap until the home offset is measured.
+  A multi-axis stream path may also touch a coupled limit between two valid
+  poses and fault (fails closed, not reproduced). The stream reads the wrist
+  once, at start.
+
 ## 2026-10-05 (desk work for the lab visit)
 
 ### Three front doors, simulator only

@@ -10,7 +10,10 @@ ScorBot Toolbox publishes to within 0.3 mm (``tests/test_source_model.py``).
 The owner allowed this tier to drive motion on 2026-10-05, **inside the
 travel cap only** (``limits.TRAVEL_CAP_DEG`` from the session home, base,
 shoulder and elbow), until a lab acceptance run confirms or corrects it.
-``outside_window`` is the check for that. It is a model of the arm, not a
+On 2026-10-06 the owner lifted the cap from 10 to 180 degrees without that
+run, so the joint limits below are the real travel bound and the whole pose
+is checked (``pose_limit_excess``). ``outside_window`` is the simulator's
+check. It is a model of the arm, not a
 measurement of ours: a joint may be a little off in scale or zero, and what
 it assumes about our arm is listed below.
 
@@ -33,6 +36,7 @@ loads ``kinematics.py`` (NumPy) when it is first used.
 
 from __future__ import annotations
 
+import functools
 import math
 
 from . import limits, vendor_model
@@ -252,3 +256,62 @@ def outside_limits(angles) -> dict[str, float]:
     values = _numbers(angles, JOINTS, "Angles")
     return {name: value for name, value in zip(JOINTS, values)
             if not LIMITS_DEG[name][0] <= value <= LIMITS_DEG[name][1]}
+
+
+def limit_excess(angles) -> dict[str, float]:
+    """How far, in degrees, each joint is past its limit; empty if none are."""
+    values = _numbers(angles, JOINTS, "Angles")
+    excess = {name: max(LIMITS_DEG[name][0] - value, value - LIMITS_DEG[name][1])
+              for name, value in zip(JOINTS, values)}
+    return {name: over for name, over in excess.items() if over > 0}
+
+
+def pose_limit_excess(counts_from_home) -> dict[str, float]:
+    """``limit_excess`` for the pose these motor counts from home give.
+
+    Counts left out count as home. This is the whole-pose check the real arm
+    needs: the elbow's angle follows the shoulder's count, and the wrist
+    pitch follows the shoulder and elbow while the wrist motors stand still,
+    so a count that is inside its own window can still put another joint past
+    its limit. Wrist motors left out are taken at home, as for a stream.
+    """
+    counts = dict.fromkeys(MOTORS, 0)
+    counts.update(counts_from_home)
+    return limit_excess(angles_from_counts(counts))
+
+
+@functools.cache
+def home_window() -> dict[str, tuple[int, int]]:
+    """Counts each arm motor may move from home alone, by the whole-pose limits.
+
+    The other motors stay at home. Found by bisection from home out to the
+    travel cap. This is the range to show a person (sliders, messages); every
+    target is still checked with ``pose_limit_excess``, because the window of
+    one motor moves with the others.
+    """
+    window = {}
+    for motor in limits.ARM_MOTORS:
+        cap = int(limits.TRAVEL_CAP_DEG * COUNTS_PER_DEGREE[motor])
+        edges = []
+        for sign in (-1, 1):
+            low, high = 0, cap
+            if pose_limit_excess({motor: sign * high}):
+                while high - low > 1:
+                    middle = (low + high) // 2
+                    if pose_limit_excess({motor: sign * middle}):
+                        high = middle
+                    else:
+                        low = middle
+                high = low
+            edges.append(sign * high)
+        window[motor] = (edges[0], edges[1])
+    return window
+
+
+def pose_limit_problem(counts_from_home) -> str | None:
+    """A sentence naming the joints these counts would put past a limit, or None."""
+    excess = pose_limit_excess(counts_from_home)
+    if not excess:
+        return None
+    return "; ".join(f"{name} {over:.1f} degrees past its {LIMITS_DEG[name][0]:g} to "
+                     f"{LIMITS_DEG[name][1]:g} degree limit" for name, over in excess.items())
