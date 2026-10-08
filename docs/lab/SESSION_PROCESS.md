@@ -45,21 +45,38 @@ The arm is used to a routine: **every working session starts with the robot near
 - Whether the coupled moves (inch home, the park, and the opt-in `--coupled-pre-home`) are right on the arm. The vectors and signs come from the vendor's own joint formulas and the simulator and the tests are built on the same formulas, so they cannot show a wrong wrist sign: only a trial can.
 - The wrist roll and the gripper are not homed; nothing jogs the roll.
 
-## First trial of the pre-home moves (before any homing)
+## First trial (before any homing)
 
-Supervised, hand at the physical stop, arm supported near its home pose, wrist set by eye. `python -m scorbot.lab --inch-home`, answer `y` to "Bring the arm near home first?". The default moves only the motor you name, like the vendor's manual jog, and sends no wrist command:
+**There is no wrist-free way to home.** The legacy `home()` drives the wrist pitch and roll toward their switches whenever those read off (`openScorbot/setHome.py`, BACKLOG items 3 and 4), and the inch home drives the wrist pitch as a follower of the shoulder and elbow (never run on the arm). What differs is the record: the legacy home homed the arm on 2026-09-29 from the right start pose; the inch home has never run. An earlier version of this page said the legacy home avoids wrist commands. That was wrong.
+
+Supervised, hand at the physical stop, arm supported near its home pose, wrist set by eye. Take it in this order and stop at the first surprise:
+
+### A. The single-motor pre-home moves (no wrist command)
+
+`python -m scorbot.lab --inch-home`, answer `y` to "Bring the arm near home first?". The default moves only the motor you name, like the vendor's manual jog:
 
 1. **Base.** `BASE +2` twice and back: the base turns the expected way and returns.
 2. **Shoulder.** `SHOULDER +2` three times, then `-2` three times. The upper arm rotates. The vendor model (`VENDOR_COUPLING_TRACE.md`) predicts the forearm and gripper keep their direction in space while the elbow angle changes by the opposite amount: this is a prediction, unverified. A forearm that swings the same way as the upper arm, anything much bigger than the commanded angle, or a noise: stop and send the log.
 3. **Elbow.** `ELBOW +2` then `-2`, a few times: the forearm rotates. The model predicts the gripper keeps its direction in space (unverified). If the gripper swings with the forearm, treat it as a finding and stop.
-4. Only then `HOME`, then at the end `PARK`. Note that the inch home and the park still use the coupled moves, including the wrist pitch, which have never run on the arm. If you would rather not send any wrist command on the first visit, put the arm near home by hand and run the legacy `home` without `--inch-home`.
 
-### Trial of the coupled pre-home move (a later visit, after the above)
+End the session at the HOME prompt (decline) if you are not going on.
 
-Only after the default trial went well: `python -m scorbot.lab --inch-home --coupled-pre-home`.
+### B. Homing: the legacy home first
+
+With the arm placed near home by hand, motors off and supported, run the session without `--inch-home`. It is the home that has a record on this arm. If it works, you have a home and the rest is optional.
+
+### C. The coupled direction check, before any inch home
+
+Only if the legacy home failed or you want the inch home. Run `python -m scorbot.lab --inch-home --coupled-pre-home` and answer `y` to the pre-home question. These are small, bounded moves (2 degrees at most; the wrist pitch moves about half a degree) and the first wrist-pitch commands ever sent:
 
 1. **Elbow direction check.** Type `ELBOW +2` five times, watching the gripper against the forearm: with the coupling right, the gripper turns with the forearm and the angle between them does not change (a phone level on each link helps). Then `ELBOW -2` five times. If the gripper tilts relative to the forearm, about twice as far as the elbow moved, the wrist sign is wrong: press the stop, end the session, send the log.
 2. **Shoulder check.** `SHOULDER +2` three times: the whole arm should lift with the angle at the elbow unchanged. If the elbow bends, the elbow sign is wrong: stop.
 3. **Base check.** `BASE +2` twice and back.
+
+Only after all three look right, `HOME` (inch). The session then says the wrist was not homed and asks whether the gripper points as at home. Answer honestly: the search kept the wrist's angle to the forearm, which is not its home angle if the forearm ended in a different direction than it started, and the wrist-pitch limit checks assume the home angle. If it does not, answer `n` (the session ends before any jog); put the wrist right by hand with the motors off and start a new session.
+
+### D. The park
+
+At the end `PARK` returns the arm to this session's home counts; it re-arms, checks that nothing drifted, and uses the coupled moves. It says "NOT parked" and why if it cannot.
 
 Any unusual noise, strain or motion: stop, do not retry in the same session, and keep the log (`logs\`).

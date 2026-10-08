@@ -99,6 +99,36 @@ def run_move(arm, target, joint, degrees, *, primary):
         arm.jog(jog_motor, counts)
 
 
+class RollDriftTests(unittest.TestCase):
+    """Roll (both wrist motors the same way) is never jogged, so it must never build up unseen."""
+
+    def drift_run(self, short):
+        counts = dict.fromkeys(MOTORS, 30000)       # unsigned 16-bit, mid-range
+
+        def read():
+            return dict(counts)
+
+        def jog(name, amount):
+            if name == "wrist_pitch":
+                counts["wrist_motor_1"] += amount
+                counts["wrist_motor_2"] -= amount - short      # motor 2 lands `short` counts early
+            else:
+                counts[name] += amount
+
+        target = joint_move.CoupledTarget(counts)
+        for _ in range(60):
+            target.add("shoulder", 1.0)
+            joint_move.run(target, read, jog, primary="shoulder")
+        return target.roll_error(read())
+
+    def test_motors_that_land_exactly_leave_no_roll(self):
+        self.assertLess(abs(self.drift_run(0)), 20)
+
+    def test_a_wrist_motor_that_lands_short_every_jog_faults_instead_of_building_roll(self):
+        with self.assertRaisesRegex(joint_move.StallError, "roll"):
+            self.drift_run(20)
+
+
 class SingleMotorTargetTests(unittest.TestCase):
     """coupled=False: a move asks for the requested motor only (the vendor's joint jog)."""
 

@@ -1,6 +1,7 @@
 """Small, synchronous Python adapter around the original USB controller code."""
 
 from dataclasses import asdict, dataclass
+import contextlib
 import importlib
 import json
 import math
@@ -148,6 +149,7 @@ class Scorbot:
         self._lock = threading.Lock()
         self._cancel_event = threading.Event()
         self._stop_event = threading.Event()
+        self._stop_lock = threading.Lock()       # makes "was a stop asked for" + clear one step
         self._stream = None
         self._enabled = False
         self._homed = False
@@ -440,7 +442,7 @@ class Scorbot:
         """Ask the jog in progress to end early. This is NOT an emergency stop.
 
         Safe to call from another thread while ``jog_joint`` is running; it takes
-        no lock. The legacy loop checks it after each step, then sends the
+        only a short internal lock (never held across I/O). The legacy loop checks it after each step, then sends the
         vendor's arm-stop sequence (clear the controller's buffer, then the
         end-of-move commands, all carrying the measured position instead of
         the jog target) and ``jog_joint`` raises ``MotionStopped``. It needs a
@@ -451,7 +453,8 @@ class Scorbot:
         from disassembly and unverified on the arm; the physical stop is
         authoritative.
         """
-        self._stop_event.set()
+        with self._stop_lock:
+            self._stop_event.set()
         stream = self._stream
         if stream is not None:
             stream.request_stop()      # the caller still ends it with stop() or close()
@@ -520,8 +523,7 @@ class Scorbot:
             if not self._enabled or not self._homed or self._home_counts is None:
                 raise ScorbotError("Enable and home before streaming")
             before = self._motion_state()
-            if self._stop_event.is_set():
-                self._stop_event.clear()
+            if self._consume_stop():
                 self._record("stop_before_motion", joint="stream")
                 raise MotionStopped("A stop was requested; the stream was not started",
                                     state=before, started=False)
@@ -622,8 +624,9 @@ class Scorbot:
                         stream.fault_reported = True
                         self._record("stream_fault", error=self._fault)
             self._stream = None
-            too_late = self._stop_event.is_set() and failure is None and result == 0
-            self._stop_event.clear()
+            with self._stop_lock:
+                too_late = self._stop_event.is_set() and failure is None and result == 0
+                self._stop_event.clear()
             if too_late:
                 # As for a jog: the stream had already ended by itself, so the
                 # request cut nothing short. Say so instead of dropping it.
@@ -729,10 +732,32 @@ class Scorbot:
             self._prehome_travel = dict.fromkeys(joint_move.JOINTS, 0.0)
         self._prehome_run = None
 
+    def _consume_stop(self) -> bool:
+        """Whether a stop was asked for, clearing it: one step, so a stop that lands in
+        between is kept for the next check instead of being wiped with this one."""
+        with self._stop_lock:
+            asked = self._stop_event.is_set()
+            self._stop_event.clear()
+        return asked
+
+    @contextlib.contextmanager
+    def _fail_closed(self, kind: str, label: str):
+        """After the last jog of a coupled move: anything unexpected (a log write, a read)
+        switches the motors off and latches a fault. A stop and errors that already
+        latched pass through."""
+        try:
+            yield
+        except (MotionStopped, ScorbotError):
+            raise
+        except BaseException as exc:
+            self._disable_best_effort()
+            self._latch_fault(f"{label}: {exc!r}")
+            self._record(kind, error=self._fault)
+            raise
+
     def _honour_late_stop(self, what: str, state) -> None:
         """A stop that arrived with the last jog of a coupled move ends the move now."""
-        if self._stop_event.is_set():
-            self._stop_event.clear()
+        if self._consume_stop():
             self._record(f"{what}_stopped", state=asdict(state))
             raise MotionStopped(f"A stop was requested during the {what}", state=state)
 
@@ -889,6 +914,17 @@ class Scorbot:
                 self._prehome_run.move(joint, degrees)
                 self._prehome_run.settle()
             except BaseException as exc:
+                if isinstance(exc, KeyboardInterrupt) or (
+                        isinstance(exc, Exception)
+                        and not isinstance(exc, (joint_move.StallError, ValueError, ScorbotError))):
+                    # Motors off and latched first: accounting below does serial reads, and a
+                    # second interrupt landing in them must not find the motors still on.
+                    self._disable_best_effort()
+                    self._latch_fault(
+                        "Python interrupted during a pre-home move"
+                        if isinstance(exc, KeyboardInterrupt)
+                        else f"Pre-home move of the {joint} failed unexpectedly: {exc!r}")
+                    self._record("pre_home_failed", joint=joint, error=self._fault)
                 # Whatever stopped it, count what the joint really moved (not what was asked)
                 # and drop the target: its unmet distance must not be done by the next command.
                 self._account_prehome(joint, before)
@@ -902,10 +938,6 @@ class Scorbot:
                 if isinstance(exc, ScorbotError):
                     self._record("pre_home_failed", joint=joint, error=str(exc))
                     raise
-                if isinstance(exc, KeyboardInterrupt):
-                    self._disable_best_effort()
-                    self._latch_fault("Python interrupted during a pre-home move")
-                    self._record("pre_home_failed", joint=joint, error=self._fault)
                 raise
             self._account_prehome(joint, before)
             after = self._motion_state()
@@ -962,11 +994,19 @@ class Scorbot:
                 raise self._fail_coupled(
                     "park_failed", None, f"Cannot place the arm relative to home: {exc!r}") from exc
             self._record("park_start", state=asdict(before))
+            roll_start = target.roll_error(before.encoder_counts)
             reason = None
             completed = 0                 # park jogs that ran to the end
             try:
                 for _ in range(joint_move.PARK_MAX_PASSES):
-                    owed = target.owed(self._motion_state().encoder_counts)
+                    counts = self._motion_state().encoder_counts
+                    owed = target.owed(counts)
+                    drift = target.roll_error(counts) - roll_start
+                    if abs(drift) > joint_move.ROLL_FAULT_COUNTS:
+                        raise joint_move.StallError(
+                            f"the wrist roll has drifted {drift:+.0f} counts during the park: "
+                            "the wrist jogs keep landing short on one motor and nothing jogs "
+                            "the roll")
                     jogs = joint_move.proportional_jogs(owed, joint_move.STEP_LIMIT_COUNTS)
                     if not jogs:
                         break
@@ -995,23 +1035,29 @@ class Scorbot:
                 self._latch_fault("Python interrupted during the park")
                 self._record("park_failed", error=self._fault)
                 raise
-            after = self._motion_state()
-            self._honour_late_stop("park", after)
-            owed = target.owed(after.encoder_counts)
-            error = target.errors(after.encoder_counts)
-            roll = (error["wrist_motor_1"] + error["wrist_motor_2"]) / 2
-            parked = reason is None and all(abs(v) <= tolerance_counts for v in owed.values())
-            if reason is None and not parked:
-                reason = "the arm stopped short of its home counts"
-            elif parked and abs(roll) > tolerance_counts:
-                parked = False
-                reason = (f"the wrist roll is {round(roll)} counts from home and nothing jogs "
-                          "the roll: set it by hand")
-            errors = {name: round(value) for name, value in owed.items()}
-            errors["wrist_roll"] = round(roll)
-            self._record("parked", parked=parked, reason=reason, errors=errors,
-                         state=asdict(after))
-            return {"parked": parked, "reason": reason, "errors": errors}
+            except Exception as exc:        # anything unexpected leaves the park half done
+                self._disable_best_effort()
+                self._latch_fault(f"Park failed unexpectedly: {exc!r}")
+                self._record("park_failed", error=self._fault)
+                raise
+            with self._fail_closed("park_failed", "Park failed unexpectedly after the last jog"):
+                after = self._motion_state()
+                self._honour_late_stop("park", after)
+                owed = target.owed(after.encoder_counts)
+                error = target.errors(after.encoder_counts)
+                roll = (error["wrist_motor_1"] + error["wrist_motor_2"]) / 2
+                parked = reason is None and all(abs(v) <= tolerance_counts for v in owed.values())
+                if reason is None and not parked:
+                    reason = "the arm stopped short of its home counts"
+                elif parked and abs(roll) > tolerance_counts:
+                    parked = False
+                    reason = (f"the wrist roll is {round(roll)} counts from home and nothing jogs "
+                              "the roll: set it by hand")
+                errors = {name: round(value) for name, value in owed.items()}
+                errors["wrist_roll"] = round(roll)
+                self._record("parked", parked=parked, reason=reason, errors=errors,
+                             state=asdict(after))
+                return {"parked": parked, "reason": reason, "errors": errors}
 
     def home_inch(self, *, operator_at_stop: bool = False,
                   max_search_deg: float | dict | None = None, speed: int = 6):
@@ -1134,28 +1180,34 @@ class Scorbot:
                 self._latch_fault("Python interrupted during homing")
                 self._record("home_failed", method="inch", joint=joint, error=self._fault)
                 raise
-            after = self._motion_state()
-            if self._stop_event.is_set():
-                # A stop that arrived with the last jog: the operator asked to end the
-                # homing, so no home is recorded.
-                self._stop_event.clear()
-                self._record("home_stopped", method="inch", state=asdict(after))
-                raise MotionStopped("A stop was requested during homing; no home was recorded",
-                                    state=after)
-            if self._calibration:
-                try:
-                    for calibration in self._calibration.joints.values():
-                        calibration.validate_home(after.encoder_counts[calibration.encoder])
-                except ValueError as exc:
-                    self._disable_best_effort()
-                    self._latch_fault(f"Home verification failed: {exc}")
-                    self._record("home_failed", error=self._fault, state=asdict(after))
-                    raise ScorbotError(self._fault) from exc
-            self._home_counts = after.encoder_counts.copy()
-            self._homed = True
-            self._reset_prehome()
-            self._record("home_complete", method="inch", wrist_homed=False,
-                         state=asdict(self._motion_state()))
+            except Exception as exc:        # anything unexpected leaves the search half done
+                self._disable_best_effort()
+                self._latch_fault(f"Home search failed unexpectedly on the {joint}: {exc!r}")
+                self._record("home_failed", method="inch", joint=joint, error=self._fault)
+                raise
+            with self._fail_closed("home_failed",
+                                   "Home search failed unexpectedly after the last jog"):
+                after = self._motion_state()
+                if self._consume_stop():
+                    # A stop that arrived with the last jog: the operator asked to end the
+                    # homing, so no home is recorded.
+                    self._record("home_stopped", method="inch", state=asdict(after))
+                    raise MotionStopped("A stop was requested during homing; no home was recorded",
+                                        state=after)
+                if self._calibration:
+                    try:
+                        for calibration in self._calibration.joints.values():
+                            calibration.validate_home(after.encoder_counts[calibration.encoder])
+                    except ValueError as exc:
+                        self._disable_best_effort()
+                        self._latch_fault(f"Home verification failed: {exc}")
+                        self._record("home_failed", error=self._fault, state=asdict(after))
+                        raise ScorbotError(self._fault) from exc
+                self._home_counts = after.encoder_counts.copy()
+                self._homed = True
+                self._reset_prehome()
+                self._record("home_complete", method="inch", wrist_homed=False,
+                             state=asdict(self._motion_state()))
 
     def preview_jog(self, joint: str, delta_degrees: float, *, speed: int = 10,
                     starting_signed_counts: dict[str, int] | None = None) -> dict:
@@ -1233,10 +1285,9 @@ class Scorbot:
                 if (not calibration.soft_min_deg <= current_angle <= calibration.soft_max_deg
                         or not calibration.soft_min_deg <= current_angle + delta_degrees <= calibration.soft_max_deg):
                     raise ValueError("Jog would leave measured soft limits")
-            if self._stop_event.is_set():
+            if self._consume_stop():
                 # Asked to stop while nothing was moving: refuse this jog once,
                 # so a request made just before a jog starts is never lost.
-                self._stop_event.clear()
                 self._record("stop_before_motion", joint=joint,
                              requested_delta_deg=delta_degrees)
                 raise MotionStopped("A stop was requested; the jog was not started",
@@ -1262,12 +1313,13 @@ class Scorbot:
             except MotionStopped:
                 stopped = True
             finally:
-                too_late = self._stop_event.is_set() and not stopped
-                if not ((homing or wrist_ok) and too_late):
-                    # In a coupled move (homing, pre-home, park), a stop that arrives as a
-                    # step closes, or while a wrist jog runs (its loop takes no stop event),
-                    # stays set so the next jog, or the end of the move, honours it.
-                    self._stop_event.clear()
+                with self._stop_lock:      # a stop landing between the check and the clear is kept
+                    too_late = self._stop_event.is_set() and not stopped
+                    if not ((homing or wrist_ok) and too_late):
+                        # In a coupled move (homing, pre-home, park), a stop that arrives as a
+                        # step closes, or while a wrist jog runs (its loop takes no stop event),
+                        # stays set so the next jog, or the end of the move, honours it.
+                        self._stop_event.clear()
                 if too_late:
                     # Asked for while the move was already being closed: nothing
                     # was cut short. Say so instead of dropping it silently.
@@ -1325,8 +1377,7 @@ class Scorbot:
             if not self._enabled:
                 raise ScorbotError("Enable motors before moving the gripper")
             before = self._motion_state()
-            if self._stop_event.is_set():
-                self._stop_event.clear()
+            if self._consume_stop():
                 self._record("stop_before_motion", joint="gripper", direction=direction)
                 raise MotionStopped("A stop was requested; the gripper was not moved",
                                     state=before, started=False)
@@ -1348,8 +1399,9 @@ class Scorbot:
             except MotionStopped:
                 stopped = True
             finally:
-                too_late = self._stop_event.is_set() and not stopped
-                self._stop_event.clear()
+                with self._stop_lock:
+                    too_late = self._stop_event.is_set() and not stopped
+                    self._stop_event.clear()
                 if too_late:
                     self._record("stop_too_late", joint="gripper")
                 if trace is not None:

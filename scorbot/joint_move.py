@@ -53,6 +53,10 @@ PRE_HOME_STEP_DEG = 2.0
 PRE_HOME_CAP_DEG = 60.0
 # Park passes, each of at most one step of the largest motor.
 PARK_MAX_PASSES = 200
+# Nothing jogs the wrist roll (both wrist motors the same way), so a common-mode error left by
+# wrist jogs that keep landing short is never corrected. Past this many counts (about 2 degrees
+# of roll) a move faults instead of letting it build up.
+ROLL_FAULT_COUNTS = 60
 
 
 class StallError(Exception):
@@ -123,6 +127,13 @@ class CoupledTarget:
         return {"base": error["base"], "shoulder": error["shoulder"], "elbow": error["elbow"],
                 "wrist_pitch": (error["wrist_motor_1"] - error["wrist_motor_2"]) / 2}
 
+    def roll_error(self, actual: dict) -> float:
+        """The common-mode error of the two wrist motors, in counts (the roll nothing corrects)."""
+        if not {"wrist_motor_1", "wrist_motor_2"} <= self.active:
+            return 0.0
+        error = self.errors(actual)
+        return (error["wrist_motor_1"] + error["wrist_motor_2"]) / 2
+
     def next_jogs(self, actual: dict, *, primary: str | None = None,
                   final: bool = False) -> list[tuple[str, int]]:
         """The jogs to make now, in order, as ``(name, counts)``.
@@ -155,12 +166,20 @@ def run(target: CoupledTarget, read: Callable[[], dict], jog: Callable[[str, int
     Each pass re-reads the arm, so a jog that landed short is corrected on the next. Returns
     whether nothing was left to do (False: the passes ran out with an error still owed).
     """
+    def check_roll():
+        roll = target.roll_error(read())
+        if abs(roll) > ROLL_FAULT_COUNTS:
+            raise StallError(f"the wrist roll has drifted {roll:+.0f} counts: the wrist jogs keep "
+                             "landing short on one motor and nothing jogs the roll")
+
     for _ in range(max_passes):
+        check_roll()
         jogs = target.next_jogs(read(), primary=primary, final=final)
         if not jogs:
             return True
         for name, counts in jogs:
             jog(name, counts)
+    check_roll()
     return not target.next_jogs(read(), primary=primary, final=final)
 
 

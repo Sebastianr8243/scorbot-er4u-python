@@ -22,7 +22,7 @@ FINISH = ["x", "n", "g"]
 # --inch-home (the vendor routine) asks "bring the arm near home first?" before HOME and
 # "return home before the motors go off?" after the keys; these answer both with no.
 INCH_NO_PRE_HOME = CHECKLIST + ["n", "g", "pose matches photo", "n", "HOME", "y", "g",
-                                "all axes homed", "y"]
+                                "all axes homed", "y", "y"]
 NO_PARK = ["x", "n"]
 MIXED = ["q", "BASE -1"] + OBS + ["q"] + OBS + ["e", "ELBOW -1"] + OBS  # base -2, elbow -1
 JOG_ORDERS = set(range(4, 14))
@@ -211,7 +211,7 @@ class LabSessionTests(unittest.TestCase):
         self.routine_controller()
         answers = (CHECKLIST + ["n", "g", "pose matches photo", "y", "y", "g",
                                 "SHOULDER +1", "elbow -2", "base 1", "",
-                                "HOME", "all axes homed", "y"]
+                                "HOME", "all axes homed", "y", "y"]
                    + ["x", "y", "door", "y", "g", "ARM", "PARK"] + FINISH[1:])
         code = self.run_session(answers, inch_home=True)
         self.assertEqual(code, EXIT_OK)
@@ -232,7 +232,7 @@ class LabSessionTests(unittest.TestCase):
         self.assertGreaterEqual(sum("Home switches now" in s for s in self.op.shown), 4)
 
     PRE_HOME_ONE = (CHECKLIST + ["n", "g", "pose matches photo", "y", "y", "g",
-                                 "SHOULDER +1", "", "HOME", "all axes homed", "y"]
+                                 "SHOULDER +1", "", "HOME", "all axes homed", "y", "y"]
                     + ["x", "n"] + FINISH[1:])
 
     def test_the_pre_home_move_is_single_motor_by_default_and_says_so(self):
@@ -253,12 +253,46 @@ class LabSessionTests(unittest.TestCase):
         self.assertIn("our own", shown)
         self.assertIn("never run on the arm", shown)
 
+    def test_a_wrist_that_is_not_where_home_leaves_it_ends_the_session_before_any_jog(self):
+        # Inch homing moves the wrist pitch relative to the forearm and never homes it, so after
+        # the search its angle at home is only what the search left: the operator must say so.
+        self.routine_controller()
+        answers = CHECKLIST + ["n", "g", "pose matches photo", "n", "HOME", "y", "g",
+                               "all axes homed", "y", "n", "g"]
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_DECLINED)
+        self.assertEqual(self.of("wrist_ok")[0]["answer"], "no")
+        self.assertEqual(self.of("armed"), [])
+        self.assertIn("wrist", " ".join(self.op.shown).lower())
+
+    def test_a_stop_during_the_pre_home_step_ends_that_step(self):
+        # After a stop the operator must start the next phase again, not type another move.
+        from unittest.mock import patch
+        from scorbot import MotionStopped
+        from scorbot.simulated import SimulatedScorbot
+        self.routine_controller()
+        calls = []
+
+        def stopped(robot, *args, **kwargs):
+            calls.append(args)
+            raise MotionStopped("stop requested")
+
+        answers = (CHECKLIST + ["n", "g", "pose matches photo", "y", "y", "g",
+                                "SHOULDER +1", "SHOULDER +1", "HOME", "y", "g", "all axes homed",
+                                "y", "y"] + ["x", "n"] + FINISH[1:])
+        with patch.object(SimulatedScorbot, "pre_home_jog", stopped):
+            self.run_session(answers, inch_home=True)
+        self.assertEqual(len(calls), 1, "no second move was attempted after the stop")
+        self.assertEqual(len(self.of("pre_home_stopped")), 1)
+        done = self.of("pre_home_done")
+        self.assertTrue(done and done[0].get("stopped"))
+
     def test_a_pre_home_command_that_is_not_allowed_moves_nothing_and_asks_again(self):
         self.routine_controller()
         answers = (CHECKLIST + ["n", "g", "pose matches photo", "y", "y", "g",
                                 "WRIST +1", "SHOULDER +9", "SHOULDER", "gripper 1", "base x",
                                 "SHOULDER +1", "",
-                                "HOME", "all axes homed", "y"]
+                                "HOME", "all axes homed", "y", "y"]
                    + ["x", "n"] + FINISH[1:])
         before = len(self.ctrl.commands)
         code = self.run_session(answers, inch_home=True)

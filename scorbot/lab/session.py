@@ -356,6 +356,17 @@ class LabSession:
         self._write("home_ok", answer=answer)
         if answer != "yes":
             raise Declined("stopped after homing; no jog requested")
+        if self.inch_home:
+            # The inch search moves the wrist pitch with the forearm and never homes it, so its
+            # angle at home is only what the search left; the wrist-pitch limit checks assume it
+            # stands where it would at home.
+            self.op.show("The wrist was NOT homed: the search kept its angle to the forearm, so "
+                         "it may not point as it would at home.", "warn")
+            wrist = self.op.choose("Is the gripper pointing as at home (down and forward)? "
+                                   "[y/n] ", {"y": "yes", "n": "no"})
+            self._write("wrist_ok", answer=wrist)
+            if wrist != "yes":
+                raise Declined("the wrist is not at its home alignment; no jog requested")
 
     def _enable_motors(self):
         if self.enabled:
@@ -382,8 +393,10 @@ class LabSession:
                                         coupled=self.coupled_pre_home)
             except MotionStopped:
                 self._write("pre_home_stopped", joint=joint, degrees=degrees)
-                self.op.show("Stopped: the arm is where the last jog left it.", "warn")
-                continue
+                self.op.show("Stopped: the arm is where the last jog left it. The pre-home step "
+                             "ends here; look at the arm before typing HOME.", "warn")
+                self._write("pre_home_done", stopped=True)
+                return
             except ValueError as refused:
                 self.op.show(f"Refused '{text}': {refused}. Nothing moved.", "warn")
                 continue

@@ -172,6 +172,29 @@ class HomeInchTests(SimulatedRobotCase):
     HOMED = False
     EXPECTED = {"shoulder": -100, "elbow": 100, "base": 100}
 
+    def test_an_unexpected_error_during_inch_homing_latches_and_switches_the_motors_off(self):
+        robot = self.inch_robot(shoulder=-300)
+        robot._coupled_jog = lambda *a, **k: (_ for _ in ()).throw(OSError("usb went away"))
+        with self.assertRaises(OSError):
+            robot.home_inch(operator_at_stop=True)
+        self.assertIsNotNone(robot._fault)
+        self.assertIn(16, [c[0] for c in robot.sim.commands if c])
+
+    def test_a_failure_after_the_last_jog_of_inch_homing_still_fails_closed(self):
+        robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)
+        original = robot._record
+
+        def record(kind, **kwargs):
+            if kind == "home_complete":
+                raise OSError("disk full")
+            return original(kind, **kwargs)
+
+        robot._record = record
+        with self.assertRaises(OSError):
+            robot.home_inch(operator_at_stop=True)
+        self.assertIsNotNone(robot._fault)
+        self.assertIn(16, [c[0] for c in robot.sim.commands if c])
+
     def inch_robot(self, **start):
         """A simulated robot with modeled switches. ``elbow`` is the elbow JOINT position, what
         its switch sees (the shoulder's count plus the elbow motor's: the motors are coupled),

@@ -279,6 +279,81 @@ class CoupledMoveTests(SimulatedRobotCase):
         orders = {c[0] for c in robot.sim.commands[sent:] if c} & JOG_ORDERS
         self.assertTrue(orders and orders <= {8, 9}, orders)          # the elbow's orders only
 
+    def test_a_stop_requested_as_a_step_closes_is_not_lost(self):
+        # The check "was a stop asked for" and the clear must be one step: a stop that lands
+        # between them used to be wiped, and a park or homing kept moving.
+        import threading
+        robot = self.robot()
+        racers = []
+
+        class Racy(threading.Event):
+            def clear(inner):
+                thread = threading.Thread(target=robot.request_stop)
+                racers.append(thread)
+                thread.start()
+                thread.join(0.3)             # a stop landing right now
+                super().clear()
+
+        robot._stop_event = Racy()
+        robot._jog_joint("base", 1.0, 6, homing=True)
+        for thread in racers:
+            thread.join(5)
+        self.assertTrue(robot._stop_event.is_set(), "the stop that arrived was wiped")
+
+    def test_checking_for_a_stop_and_clearing_it_is_one_step_everywhere(self):
+        # A stop landing while the old one is consumed must survive (gripper, stream, late stop).
+        import threading
+        robot = self.robot()
+        racers = []
+
+        class Racy(threading.Event):
+            def clear(inner):
+                thread = threading.Thread(target=robot.request_stop)
+                racers.append(thread)
+                thread.start()
+                thread.join(0.3)
+                super().clear()
+
+        robot._stop_event = Racy()
+        robot._stop_event.set()                       # the old request
+        self.assertTrue(robot._consume_stop())
+        for thread in racers:
+            thread.join(5)
+        self.assertTrue(robot._stop_event.is_set(), "the new stop was wiped with the old one")
+
+    def test_an_unexpected_error_in_a_pre_home_move_latches_and_switches_the_motors_off(self):
+        robot = self.robot()
+        calls = []
+
+        def broken(*args, **kwargs):
+            calls.append(args)
+            raise OSError("usb went away")
+
+        robot._coupled_jog = broken
+        with self.assertRaises(OSError):
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
+        self.assertTrue(calls)
+        self.assertIsNotNone(robot._fault)
+        self.assertIn(16, [c[0] for c in robot.sim.commands if c])      # motors off
+        self.assertIn("pre_home_failed", self.events())
+        with self.assertRaises(ScorbotError):                          # nothing more moves
+            robot.pre_home_jog("base", 1.0, operator_at_stop=True)
+
+    def test_a_second_interrupt_while_the_move_is_being_accounted_still_switches_the_motors_off(self):
+        # A panicked double Ctrl-C: the second one lands in the serial reads that count what
+        # the joint moved. The motors must already be off and the session latched by then.
+        robot = self.robot()
+
+        def interrupted(*args, **kwargs):
+            raise KeyboardInterrupt
+
+        robot._coupled_jog = interrupted
+        robot._account_prehome = interrupted
+        with self.assertRaises(KeyboardInterrupt):
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
+        self.assertIsNotNone(robot._fault)
+        self.assertIn(16, [c[0] for c in robot.sim.commands if c])
+
     def test_the_pre_home_record_says_which_mode_ran(self):
         robot = self.robot()
         robot.pre_home_jog("base", 1.0, operator_at_stop=True)
@@ -409,6 +484,57 @@ class ParkTests(SimulatedRobotCase):
 
         robot._command = command
         with self.assertRaisesRegex(ScorbotError, "did not follow"):
+            robot.park_at_home(operator_at_stop=True)
+        self.assertIsNotNone(robot._fault)
+
+    def test_an_unexpected_error_in_the_park_latches_and_switches_the_motors_off(self):
+        robot = self.moved_robot()
+        robot._coupled_jog = lambda *a, **k: (_ for _ in ()).throw(OSError("usb went away"))
+        with self.assertRaises(OSError):
+            robot.park_at_home(operator_at_stop=True)
+        self.assertIsNotNone(robot._fault)
+        self.assertIn(16, [c[0] for c in robot.sim.commands if c])
+        self.assertIn("park_failed", self.events())
+
+    def test_a_failure_after_the_last_park_jog_still_fails_closed(self):
+        # The log write (or any read) after the motion raises something unexpected.
+        robot = self.moved_robot()
+        original = robot._record
+
+        def record(kind, **kwargs):
+            if kind == "parked":
+                raise OSError("disk full")
+            return original(kind, **kwargs)
+
+        robot._record = record
+        with self.assertRaises(OSError):
+            robot.park_at_home(operator_at_stop=True)
+        self.assertIsNotNone(robot._fault)
+        self.assertIn(16, [c[0] for c in robot.sim.commands if c])
+
+    def test_wrist_roll_that_builds_up_during_a_park_faults_it(self):
+        robot = self.robot()
+        with robot.sim._lock:                       # a pitch displacement of 600 counts to undo
+            robot.sim.counts["wrist_motor_1"] = (robot.sim.counts["wrist_motor_1"] + 600) % 65535
+            robot.sim.counts["wrist_motor_2"] = (robot.sim.counts["wrist_motor_2"] - 600) % 65535
+        original = robot._command
+
+        def command(payload, **kwargs):
+            if payload[0] in (10, 11):
+                with robot.sim._lock:
+                    before = robot.sim.counts["wrist_motor_2"]
+                original(payload, **kwargs)
+                with robot.sim._lock:                # motor 2 lands 20 counts short each time
+                    moved = signed_count_delta(robot.sim.counts["wrist_motor_2"], before)
+                    if abs(moved) > 20:
+                        shortfall = 20 if moved > 0 else -20
+                        robot.sim.counts["wrist_motor_2"] = (
+                            robot.sim.counts["wrist_motor_2"] - shortfall) % 65535
+            else:
+                original(payload, **kwargs)
+
+        robot._command = command
+        with self.assertRaisesRegex(ScorbotError, "roll"):
             robot.park_at_home(operator_at_stop=True)
         self.assertIsNotNone(robot._fault)
 

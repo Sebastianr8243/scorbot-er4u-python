@@ -7,6 +7,39 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 The implementation plans this log cites under `docs/superpowers/plans/` were removed from the tree on 2026-10-04; they are in git history (last present at commit `e5ef11e`).
 
+## 2026-10-07
+
+### Pre-hardware review of the arm-facing code, and what it changed
+
+- **Review:** Codex `max` (Astra, xhigh) over the whole branch since `e99cce9`, and Gemini `deep`
+  (3.1 Pro, high) over the same diff in five chunks (its 24k character limit). Earlier rounds used
+  Codex `deep` and `standard`. Every finding was checked against the code; Gemini saw one chunk
+  at a time and several of its findings were about code in another chunk (the step limit, the
+  progress check and the stall error live in `_coupled_jog`; `park_at_home` works in distances
+  from the run's start; the session's 2 degree bound is enforced by `pre_home_jog`), and were
+  rejected on that evidence.
+- **Raised by both reviewers, fixed:** the wrist roll (both wrist motors the same way) is never
+  jogged, so a motor that kept landing short built roll up unseen; `joint_move.run` and the park
+  now fault past `ROLL_FAULT_COUNTS` (60 counts, about 2 degrees). An unexpected exception in a
+  pre-home move, the park or inch homing left the move half done with the motors on; all three now
+  switch the motors off and latch (and the tail after the last jog fails closed through
+  `_fail_closed`). A stop during the pre-home step used to continue the loop; it now ends the step.
+- **Codex only, checked and fixed:** a stop requested between "was one asked for" and the clear was
+  wiped (`_stop_lock`, `_consume_stop`, every check-and-clear site); a second Ctrl-C in the
+  accounting reads could skip the motor-off (the latch now comes first); the inch search keeps the
+  wrist's angle to the forearm, so the wrist is not where home would put it: the session now asks
+  whether the gripper points as at home and ends before any jog if not (model-based, unverified).
+- **A correction to earlier advice:** the legacy `home()` is not wrist-free. It drives the wrist
+  pitch and roll toward their switches (`openScorbot/setHome.py`, BACKLOG 3 and 4). It still has the
+  only record on this arm (2026-09-29), so it stays the first thing to try; `SESSION_PROCESS.md`
+  now says so and puts a bounded coupled direction check before any inch home.
+- **Rejected, with reasons:** keeping the stop set after a raised `MotionStopped` (the raise is the
+  acknowledgement; a latched stop would refuse every later jog); removing the wrist pitch follower
+  (an owner decision, 2026-10-07); declining `ARM` or `PARK` as a failure (an operator choice, the
+  same as answering no to the park question).
+- **Tests:** 1106, lint clean. The simulator and the tests share the vendor formulas, so none of
+  this shows whether the wrist signs are right on the arm.
+
 ## 2026-10-06 (lab PC)
 
 ### Coupled joint moves: the pre-home move, inch homing and the park
