@@ -54,6 +54,7 @@ Start with [`../README.md`](../README.md) for the project summary and [`../START
 |---|---|
 | [`PROTOCOL.md`](protocol/PROTOCOL.md) | Editing packet code, decoding a capture, changing the handshake |
 | [`VENDOR_DLL_PROTOCOL.md`](protocol/VENDOR_DLL_PROTOCOL.md) | Checking what the vendor's `USBC.dll` sends: message format, command letters, sequences, conversion, motion planner. From disassembly, unverified |
+| [`ULPGC_THESIS_FINDINGS.md`](protocol/ULPGC_THESIS_FINDINGS.md) | The 2017 thesis that decoded SCORBASE's USB traffic on our controller: switch bits and polarity, counts format, the collision flag, how motion is streamed, and the requirements that follow |
 
 ## manual/ : facts from the Intelitek manuals
 

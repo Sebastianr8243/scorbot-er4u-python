@@ -343,7 +343,7 @@ This proves equality with the legacy code only. Like the rest of this document, 
 
 ## 12. Evidence from Intelitek's own software stack
 
-Sections 1-11 describe what `openScorbot/` sends. This section collects what third parties and Intelitek's configuration files say about the vendor stack (SCORBASE -> `USBC.dll` -> Intelitek kernel driver -> controller). None of it is a byte-level decode: no public source describes the USB packets. It tells us what the vendor DLL *can ask the controller to do*, which narrows what to look for in the S1 captures. Status labels: **D** = documented by the source named (a DLL-level fact, still unverified at the USB level), **I** = our inference from it.
+Sections 1-11 describe what `openScorbot/` sends. This section collects what third parties and Intelitek's configuration files say about the vendor stack (SCORBASE -> `USBC.dll` -> Intelitek kernel driver -> controller). With one exception (the ULPGC thesis, below) none of it is a byte-level decode. It tells us what the vendor DLL *can ask the controller to do*, which narrows what to look for in the S1 captures. Status labels: **D** = documented by the source named (a DLL-level fact, still unverified at the USB level), **I** = our inference from it.
 
 Sources:
 
@@ -351,6 +351,7 @@ Sources:
 - [MTIS] C. Wick, J. Esposito, K. Knowles, *The MATLAB Toolbox for the Intelitek Scorbot (MTIS)*, USNA (ASEE paper). They reached `USBC.dll` through a C++ shim because its exports are MSVC name-mangled.
 - [Kutzer] M. Kutzer et al., ScorBot Toolbox for MATLAB, `github.com/kutzer/ScorBotToolbox` (successor of MTIS; ASEE paper). `ScorBotToolboxSupport/` ships Intelitek's `USBC.INI` and `ER4CONF.INI`.
 - [RobotDll.h] The USNA C wrapper header around `USBC.dll` (not in this repository).
+- [ULPGC] Y. Miranda Betancor, *Estudio y análisis de las comunicaciones en el robot Scorbot-ER 4u* (final-year project, Universidad de Las Palmas de Gran Canaria, 2017). **The one byte-level decode: captures of SCORBASE on the same `09F1/0007` controller**, checked against SCORBASE's display. Summary, page references and what it settles in [ULPGC_THESIS_FINDINGS.md](ULPGC_THESIS_FINDINGS.md). The PDF is local in `references/`.
 
 ### 12.1 Timing and buffering (`ER4CONF.INI`, `USBC.INI`)
 
