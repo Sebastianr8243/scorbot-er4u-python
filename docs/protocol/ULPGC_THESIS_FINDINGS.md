@@ -38,7 +38,7 @@ flowchart LR
 | `47` and the end sequence (V3) | from disassembly | Matches captures; `47` precedes every move. |
 | `48` Set position (the packet rule) | never sent, needs a capture | A SCORBASE capture exists in a published source (pp. 59 to 60): `4F 40 54`, `48 xx 00`, then `47 00 00`, `4F 40 53`, `73 20 00`, `42 20 00`. Motor codes 12, 16, ... 40 are the slot offsets. **Still not our own capture, so the rule still blocks using it.** |
 | Comms loss (Q1, HZ-16) | stated by the manual, never observed | Qualitative support: no stream means control lost and the LED goes orange. **No timeout number.** |
-| Error bytes (Q7) | unknown meaning | The controller has its own **collision flag at IN offset 59** that our decoder never reads. `MAX_ERROR` in `setHome.py` is a host-side check on the position-error word, not the controller's flag. |
+| Error bytes (Q7) | unknown meaning | The controller has its own **collision flag at IN offset 59** that our decoder never reads. Our DLL reading already listed byte 59 as "impact" (`VENDOR_DLL_PROTOCOL.md` section 6, from disassembly); the thesis adds **capture evidence** (Figures 51 and 52) and the per-motor bit layout. `MAX_ERROR` in `setHome.py` is a host-side check on the position-error word, not the controller's flag. |
 | Home direction from power-on | open | The author says he could not tell which way an axis must turn to find its switch (p. 54). Supports searching both ways (`home_inch`). |
 | Idle drift | simulator guess | Across the 10-06 sessions the shoulder read 12, then 2 at connect. The thesis reports 1 or -1 drift at idle after SCORBASE homing. Our `DRIFT_COUNTS 20` and `STABLE_COUNTS 2` bands look sensible. |
 

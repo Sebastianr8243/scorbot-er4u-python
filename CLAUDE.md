@@ -102,6 +102,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | How the vendor's joint jog, homed flag and `SetHome` work (one motor per jog, no limits before home) | `docs/protocol/VENDOR_MANUAL_MOVE_TRACE.md` |
 | Running a lab session as an agent (rules, pass criteria, inch homing) | `docs/lab/AGENT_RUNBOOK.md` |
 | How to confirm it at the lab, claim by claim | `docs/lab/VENDOR_PROTOCOL_LAB_PLAN.md` |
+| What it takes to move the arm, step by step, and how sure we are of each step | `docs/protocol/BRING_UP_SEQUENCE.md` |
 | Safety argument | `docs/design/SAFETY_CASE.md` |
 | Known bugs and next work | `docs/project/BACKLOG.md` |
 | Every arm number we use and where it comes from | `docs/manual/ER4U_MODEL.md` (code: `scorbot/source_model.py`) |
