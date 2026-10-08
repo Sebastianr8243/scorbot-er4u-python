@@ -30,7 +30,23 @@ Evidence labels: **Arm** = our own real logs (`docs/evidence/`); **Capture** = t
 | How to home (bytes of the vendor's `4D` / mode `H` drive, its units and sign) | We cannot establish a reliable zero without it | A USBPcap capture of SCORBASE Home (`docs/lab/S1_CAPTURE_ADDENDUM.md`). The thesis never describes its own home routine; its source is on the thesis CD (`codigo.7z`), not online. |
 | What a count means physically: jog direction, counts per degree | Every move depends on it | One 1 degree base jog with a physical measurement; the thesis CD code may also have it |
 | What happens when things go wrong: comms-loss timeout, e-stop packets, whether our stop works | Safety | Lab tests with a hand on the stop (`VENDOR_PROTOCOL_LAB_PLAN.md` F2, F3) |
-| Smaller: ID wrap (255 to 0 or 1), unexplained reply bytes 3-4, 15-18, 60-63 and OUT bytes 2-3, the mode SCORBASE passes to `Initialization`, whether the lab's `USBC.dll` build matches ours | Completeness | A capture of more than 256 messages; analysing `SCORBASE.exe` itself (we do not have it in this repo); a hash of the lab DLL |
+| What byte 60 minus byte 0 means (a queue depth would make stops late) | Stop latency | The home and jog traces of the first lab run; a run paced slower |
+| Smaller: OUT bytes 2-3, the mode SCORBASE passes to `Initialization`, whether the lab's `USBC.dll` build matches ours | Completeness | Analysing `SCORBASE.exe` itself (we do not have it in this repo); a hash of the lab DLL |
+
+## Settled or narrowed at the desk (2026-10-08, from data we already had)
+
+Sources: the 10-06 idle packets (`raw_hex`, 20 samples), the legacy code, and the thesis figures. V = read straight from the data, I = inference.
+
+| Unknown | Result |
+|---|---|
+| **ID wrap: 255 to 0 or to 1?** | **Settled in practice.** The legacy counter goes 1 to 255 and back to 1 (`countByte1`, `MAX_COUNT` 256); the thesis's driver went 255 to 0. The controller accepted both: our 10-06 sessions sent more than a thousand messages (several wraps) and never lost control, and the thesis driver ran the same way (p. 27). No need to change the legacy counter. |
+| **Emergency bit baseline** | At idle with the e-stop released, IN byte 2 is `0x08` in all 20 samples and in the thesis's packets (V). Bit 0 is clear. A press should make it `0x09` (I, never seen). |
+| **Unexplained reply bytes at idle** | Bytes 3-4 and 15-18 are 0, bytes 61-63 are `FF FF FF`, and the only bytes that ever change are 0 and 60 (V). |
+| **Reply timing** | In the thesis's SCORBASE capture the reply arrives **15.9 to 17.6 ms after each OUT** (mean 16.9) and the OUT-to-OUT period is about 30 ms (Fig. 18, V). That matches `PCPeriod = 16`. **I: the controller answers on a 16 ms cadence, and our 18.5 ms per message is that cadence plus about 2.5 ms, not Python overhead.** Our 13 ms of write and read sleeps are shorter than 16 ms, so they do not set the pace; shortening them would not speed anything up. |
+| **SCORBASE's own speed** | Its slowest waist jog, speed 1, is 750 counts/s (p. 52), about 23 counts per message at its 30 ms cycle (I). Our SDK's whole speed range (1 to 20 counts per message) is at or below that. |
+| **Unit of the vendor's `4D` drive value** | The thesis's conveyor takes 0x64 at speed 5 and 0xC8 at speed 10 (p. 62): about 20 per speed step, full scale about 200. The vendor's homing velocities are +90 to +110 (arm) and -165 (gripper), so homing drives at about half of full scale and the gripper at about 80 percent (I). |
+
+**New puzzle: byte 60 minus byte 0.** In every idle sample byte 60 is byte 0 plus a constant (47 in our run; 6 in the thesis's), and both bytes follow the ID through the wrap (V). A constant offset that differs per session looks like a queue depth: byte 0 would be the ID the controller is answering and byte 60 the newest ID it has received. **I, unproven:** if so, our 47 is close to the controller's `Buffers = 45` queue, which would mean the controller runs about 45 messages behind the host, so a command, and a software stop, could take effect more than a second late. The thesis's offset of 6 comes from a slower host loop. This matters for stopping safely, and it is checkable: the home and jog traces now hold the OUT ID and both IN bytes for every message, so the first lab run shows whether the offset changes when we pace slower or during a move. Related oddity: in the idle samples the ID advances only about 21 per 27 packets we count, and twice in 10 s it jumped by about 48 extra; not explained.
 
 ## Before step 5 or 6 on the real arm
 
