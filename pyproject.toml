@@ -21,9 +21,6 @@ viz = ["rerun-sdk>=0.38,<0.39"]
 # Ruckig, the jerk-limited trajectory generator behind Scorbot.start_stream
 # (scorbot/streaming.py). Jogs and the guided session work without it.
 planning = ["ruckig>=0.12,<1"]
-# The browser page for the simulated arm (python -m scorbot.ui --simulate).
-# Never needed on the lab PC.
-ui = ["viser>=1.1.1,<2"]
 # Webcam capture (scorbot.camera.OpenCVSource and JPEG encoding).
 camera = ["opencv-python-headless>=4.9,<5"]
 dev = [
@@ -37,13 +34,12 @@ dev = [
     "matplotlib>=3.8,<4",
     "ruckig>=0.12,<1",
     "opencv-python-headless>=4.9,<5",
-    "viser>=1.1.1,<2",  # so CI runs the browser page's tests (tests/test_ui_app.py)
 ]
 # Cross-checks the offline kinematics model against an independent implementation.
 kinematics = ["roboticstoolbox-python>=1.1,<2"]
 
 [tool.setuptools]
-packages = ["scorbot", "scorbot.session", "scorbot.lab", "scorbot.transport", "scorbot.camera", "scorbot.lerobot_export", "scorbot.ui", "openScorbot"]
+packages = ["scorbot", "scorbot.session", "scorbot.lab", "scorbot.transport", "scorbot.camera", "openScorbot"]
 
 [tool.setuptools.package-data]
 openScorbot = ["*.ui", "*.png"]

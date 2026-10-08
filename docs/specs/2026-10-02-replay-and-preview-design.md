@@ -1,5 +1,7 @@
 # Supervised replay, LeRobot robot plugin, and episode preview (M1 finish)
 
+> **Removed 2026-10-08:** the code this document describes was deleted from the repo (see git history before that date). Kept for reference only.
+
 > **Built.** Kept as the record of a decision; the code may have moved on since. The status line below is as written at the time.
 
 Date: 2026-10-02. Status: draft, revised after a Codex adversarial review

@@ -1,5 +1,7 @@
 # Exporting lab sessions to a LeRobot dataset
 
+> **Removed 2026-10-08:** the code this document describes was deleted from the repo (see git history before that date). Kept for reference only.
+
 Turns the episodes you recorded in teleop mode (`python -m scorbot.lab`, keys
 `t` then `r`) into a [LeRobot](https://github.com/huggingface/lerobot)
 dataset on your disk, for training a policy later. Nothing is uploaded.

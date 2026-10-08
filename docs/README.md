@@ -44,7 +44,7 @@ Start with [`../README.md`](../README.md) for the project summary and [`../START
 | [`SAFETY_CASE.md`](design/SAFETY_CASE.md) | Changing a gate, a prompt, a fault path or a limit. Not a certification |
 | [`OPERATOR_UX.md`](design/OPERATOR_UX.md) | Changing a prompt, warning or exit code |
 | [`EXPERIMENT_RECORDING.md`](design/EXPERIMENT_RECORDING.md) | Recording, replaying or comparing runs; rehearsing without hardware |
-| [`LEROBOT_EXPORT.md`](design/LEROBOT_EXPORT.md) | Turning lab sessions into a LeRobot dataset |
+| [`LEROBOT_EXPORT.md`](design/LEROBOT_EXPORT.md) | Turning lab sessions into a LeRobot dataset (removed 2026-10-08) |
 | [`DEPLOYMENT_OPTIONS.md`](design/DEPLOYMENT_OPTIONS.md) | Planning the lab PC and GPU server split, the LeRobot bridge, a front end |
 | [`LAB_PLATFORM_VISION.md`](design/LAB_PLATFORM_VISION.md) | Asking where the project is heading |
 

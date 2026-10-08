@@ -4,7 +4,6 @@ import unittest
 
 from scorbot import follow, limits, streaming
 from scorbot.lab import session as lab_session
-from scorbot.lerobot_export import checks, load, sidecar
 from scorbot.robot import Scorbot
 
 
@@ -20,18 +19,15 @@ class OneHomeTests(unittest.TestCase):
         self.assertEqual(limits.ARM_MOTORS, ("base", "shoulder", "elbow"))
         self.assertEqual(limits.RECORDED_MOTORS,
                          ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2"))
-        for name, value in (("stream", streaming.MOTORS), ("follow", follow.STEP_JOINTS),
-                            ("sidecar", sidecar.STEP_JOINTS)):
+        for name, value in (("stream", streaming.MOTORS), ("follow", follow.STEP_JOINTS)):
             self.assertIs(value, limits.ARM_MOTORS, name)
-        for name, value in (("follow", follow.MOTORS), ("export", load.MOTORS)):
-            self.assertIs(value, limits.RECORDED_MOTORS, name)
+        self.assertIs(follow.MOTORS, limits.RECORDED_MOTORS)
 
     def test_every_module_uses_the_same_count_bands(self):
         self.assertEqual((limits.DRIFT_COUNTS, limits.STABLE_COUNTS), (20, 2))
         for name, value in (("follow drift", follow.DRIFT_COUNTS),
                             ("follow wrist", follow.WRIST_TOLERANCE_COUNTS),
                             ("lab drift", lab_session.DRIFT_COUNTS),
-                            ("export target", checks.TARGET_TOLERANCE_COUNTS),
                             ("gripper arm", Scorbot.GRIPPER_ARM_TOLERANCE_COUNTS)):
             self.assertIs(value, limits.DRIFT_COUNTS, name)
         for name, value in (("lab stable", lab_session.STABLE_COUNTS),

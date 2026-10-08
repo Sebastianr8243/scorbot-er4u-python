@@ -1,5 +1,7 @@
 # Three front doors: teaching API, browser twin, AI interface
 
+> **Removed 2026-10-08:** the code this document describes was deleted from the repo (see git history before that date). Kept for reference only.
+
 Date: 2026-10-05. Status: draft for owner review, revised after a Codex
 adversarial review (six findings, all taken; see the end). The shape was agreed
 with the owner on 2026-10-05 ("teaching tool and research tool for VLA"; "no

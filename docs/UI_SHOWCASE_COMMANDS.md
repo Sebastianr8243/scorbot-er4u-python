@@ -1,5 +1,7 @@
 # Pre-lab simulator showcase: commands
 
+> **Removed 2026-10-08:** the code this document describes was deleted from the repo (see git history before that date). Kept for reference only.
+
 Run these in **PowerShell**. First enter the repository root:
 
 ```powershell

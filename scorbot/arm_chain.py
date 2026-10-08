@@ -85,7 +85,7 @@ MANUAL = ChainGeometry(
 # The vendor's own numbers (ROB_4u.INI: base height 349, links 221, gripper
 # 145) with the legacy 16 mm offset. With the vendor's count formula this
 # reproduces the home position the USNA toolbox publishes to within 0.3 mm
-# (tests/test_arm_view.py), which is evidence about the vendor's model of the
+# (tests/test_source_model.py), which is evidence about the vendor's model of the
 # arm, not about ours.
 VENDOR_INI = ChainGeometry(
     base_to_turret_mm=148.33,

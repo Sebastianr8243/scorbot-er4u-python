@@ -2,7 +2,7 @@
 
 > **Complete in software; never run on the arm.** Kept as the record of the plan. `scorbot/planning.py` (step 0c) was removed on 2026-10-05: the streaming driver took over its role.
 
-Date: 2026-10-01. Progress: steps 0a-0d and 1-5 done, plus replay (lab key p) and preview; M1 complete in software, pending one lab run (step 5: see
+Date: 2026-10-01. Progress: steps 0a-0d and 1-5 done, plus replay (lab key p, removed 2026-10-08) and preview (removed 2026-10-08); M1 complete in software, pending one lab run (step 5: see
 2026-10-02-lerobot-exporter-design.md); steps 3-5 on branches awaiting final review (step 3: see
 2026-10-01-camera-capture-design.md; step 4, keyboard only: see
 2026-10-02-keyboard-teleop-design.md). Status: draft, revised after a Codex review (4 blocking issues fixed: teleop
