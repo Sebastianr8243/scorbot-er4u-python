@@ -44,7 +44,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_limits.py` | Every module's travel cap, motor list and count band is the one in `scorbot/limits.py` |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |
 | `test_vendor_check.py` | The vendor-layout checker |
-| `test_lab_session.py`, `test_lab_terminal.py`, `test_lab_profile.py`, `test_lab_operator.py`, `test_lab_moves.py`, `test_lab_faults.py` | The guided session (`scorbot/lab`): engine through the simulator, terminal front end, profile file, moves, fault guidance |
+| `test_lab_session.py`, `test_lab_terminal.py`, `test_lab_profile.py`, `test_lab_operator.py`, `test_lab_moves.py`, `test_lab_faults.py`, `test_lab_teleop.py` | The guided session (`scorbot/lab`): engine through the simulator, terminal front end, profile file, moves, fault guidance, teleop mode (key `t`) |
 | `test_motion_trace.py`, `test_provenance.py` | Packets copied during jogs and streams and their export; the motion fingerprint |
 | `test_transport_codec.py` | The pure packet codec against the legacy code's bytes (golden tests) |
 | `test_vendor_model.py`, `test_vendor_profile.py` | The vendor's count/angle formula and motion profile, read from the DLL |

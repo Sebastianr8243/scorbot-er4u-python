@@ -47,7 +47,7 @@ flowchart TD
 | `examples/` | Supervised bench procedures (`--simulate` capable), synthetic session, offline preview and kinematics check |
 | `scripts/` | Offline analysis (fit, lab log to calibration CSV, review, live view, USB trace), kit and Windows setup |
 | `tests/` | `unittest` suite, no hardware: the lab-visit gate |
-| `tests_extra/` | Tests for code off the first-trial path (streaming, gripper, teleop, cameras, viewers, offline tools). Same rules, run by CI, not part of the gate |
+| `tests_extra/` | Tests for code off the first-trial path (streaming, gripper, cameras, viewers, offline tools). Same rules, run by CI, not part of the gate |
 | `docs/` | Design, hardware reference, bench and lab checklists, capture and recording guides. `docs/specs/` holds design specs (old implementation plans are in git history) |
 | `models/er4u_meshes/` | Optional community link meshes for the 3D view. Only the README is tracked; never commit the STL files (licence unclear) |
 | `tools/foxglove/` | Foxglove layouts for recorded sessions |
