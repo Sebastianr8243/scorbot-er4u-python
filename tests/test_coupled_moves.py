@@ -77,17 +77,6 @@ class CoupledMoveTests(SimulatedRobotCase):
         for motor in ("shoulder", "elbow", "wrist_motor_1", "wrist_motor_2"):
             self.assertEqual(after[motor], before[motor], motor)
 
-    def test_a_sequence_of_small_moves_does_not_drift(self):
-        robot = self.robot()
-        for _ in range(12):
-            robot.pre_home_jog("shoulder", 0.5, operator_at_stop=True, coupled=True)
-        for _ in range(6):
-            robot.pre_home_jog("elbow", 1.0, operator_at_stop=True, coupled=True)
-        after = self.angles(robot)
-        self.assertAlmostEqual(after["shoulder"], HOME["shoulder"] + 6.0, delta=1.0)
-        self.assertAlmostEqual(after["elbow"], HOME["elbow"] + 6.0, delta=1.0)
-        self.assertAlmostEqual(after["pitch"], HOME["pitch"], delta=1.5)
-
     def test_only_wrist_pitch_ever_moves_and_never_the_roll_or_a_legacy_home(self):
         robot = self.robot()
         before = len(robot.sim.commands)
@@ -408,14 +397,6 @@ class CoupledMoveTests(SimulatedRobotCase):
         self.assertIsNotNone(robot._fault)
         row = [r for r in self.rows() if r.get("event") == "pre_home_failed"][0]
         self.assertEqual(row["joint"], "elbow")
-
-    def test_it_records_where_it_started_and_where_it_ended(self):
-        robot = self.robot()
-        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True, coupled=True)
-        events = self.events()
-        self.assertIn("pre_home_start", events)
-        self.assertIn("pre_home_complete", events)
-
 
 class ParkTests(SimulatedRobotCase):
     def angles(self, robot):

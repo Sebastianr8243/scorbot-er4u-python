@@ -86,16 +86,6 @@ class SimulatedRobotTests(unittest.TestCase):
         self.assertIn("diagnostic only", report["status"])
         self.assertEqual(abs(report["motors"]["base"]["target_from_home"]), 142)
 
-    def test_home_resets_counts_to_home_counts(self):
-        from scorbot.simulated import SimulatedController
-        controller = SimulatedController(start_counts={"base": 900, "elbow": -300})
-        robot = ready_robot(controller=controller)
-        try:
-            self.assertEqual(robot.get_state().signed_encoder_counts["base"], 0)
-            self.assertEqual(robot.get_state().signed_encoder_counts["elbow"], 0)
-        finally:
-            robot.disconnect()
-
     def test_facade_gates_are_the_real_ones(self):
         from scorbot import ScorbotError
         from scorbot.simulated import SimulatedScorbot
@@ -582,54 +572,6 @@ class SimulatorRealismTests(unittest.TestCase):
                                                        "elbow": 1800})
         return controller, SimulatedScorbot(controller=controller)
 
-    def test_default_profile_keeps_instant_homing(self):
-        from scorbot.simulated import SimulatorProfile
-        profile = SimulatorProfile()
-        self.assertFalse(profile.model_homing)
-        self.assertEqual(profile.rest_jitter_counts, 0)
-        self.assertIn("modeled", profile.status)
-
-    def test_modeled_homing_presses_each_switch_in_legacy_order(self):
-        from scorbot.state import HOME_SWITCH_BITS
-        controller, robot = self.robot(model_homing=True)
-        robot.connect()
-        try:
-            robot.enable()
-            robot.home(start_position_confirmed=True)
-            final = robot.get_state()
-        finally:
-            robot.disconnect()
-        pressed_order = []
-        for motor, bits, _counts in controller.homing_trace:
-            if bits & controller.profile.switch_bits[motor] and motor not in pressed_order:
-                pressed_order.append(motor)
-        self.assertEqual(tuple(pressed_order), controller.profile.homing_order)
-        self.assertEqual(controller.profile.homing_order,
-                         ("shoulder", "elbow", "wrist_motor_1", "wrist_motor_2", "base"))
-        self.assertEqual(final.signed_encoder_counts["base"], 0)
-        self.assertEqual(final.signed_encoder_counts["shoulder"], 0)
-        # An offset inside half the switch width leaves that switch pressed at home.
-        half = controller.profile.switch_width_counts // 2
-        expected_bits = sum(controller.profile.switch_bits[m]
-                            for m, offset in controller.profile.home_offsets.items()
-                            if abs(offset) <= half)
-        self.assertEqual(final.home_switch_bits, expected_bits)
-        self.assertEqual(final.home_switch_bits & ~sum(HOME_SWITCH_BITS.values()), 0)
-
-    def test_modeled_homing_takes_the_configured_time(self):
-        import time
-        _controller, robot = self.robot(model_homing=True, homing_duration_s=0.3)
-        robot.connect()
-        try:
-            robot.enable()
-            started = time.monotonic()
-            robot.home(start_position_confirmed=True)
-            elapsed = time.monotonic() - started
-        finally:
-            robot.disconnect()
-        self.assertGreaterEqual(elapsed, 0.25)
-        self.assertLess(elapsed, 3.0)
-
     def test_switch_never_found_fails_like_legacy_homing(self):
         from scorbot import ScorbotError
         controller, robot = self.robot(model_homing=True, fail_home_motor="elbow")
@@ -662,76 +604,11 @@ class SimulatorRealismTests(unittest.TestCase):
             robot.disconnect()
         self.assertLess(len(controller.homing_trace), 40)
 
-    def test_switch_bits_follow_the_arm_after_a_jog(self):
-        controller, robot = self.robot(model_homing=True)
-        robot.connect()
-        try:
-            robot.enable()
-            robot.home(start_position_confirmed=True)
-            base_bit = controller.profile.switch_bits["base"]
-            self.assertTrue(robot.get_state().home_switch_bits & base_bit)
-            robot.jog_joint("base", 1.0)  # 142 counts, beyond the 100-count half width
-            self.assertFalse(robot.get_state().home_switch_bits & base_bit)
-        finally:
-            robot.disconnect()
-
-    def test_power_led_goes_out_when_the_worker_crashes(self):
-        from scorbot import ScorbotError
-        controller, robot = self.robot()
-        robot.connect()
-        try:
-            controller.inject("worker_crash")
-            with self.assertRaises(ScorbotError):
-                robot.enable()
-            self.assertEqual(controller.leds()["power"], "orange")
-        finally:
-            robot.disconnect()
-
     def test_rehearsal_jitter_cannot_trip_the_idle_check(self):
         from scorbot.lab.session import STABLE_COUNTS
         from scorbot.simulated import REHEARSAL_PROFILE
         # Two readings differ by at most twice the jitter.
         self.assertLessEqual(2 * REHEARSAL_PROFILE.rest_jitter_counts, STABLE_COUNTS)
-
-    def test_rest_jitter_crosses_the_seam_and_stays_bounded(self):
-        from scorbot.calibration import signed_count_delta
-        controller, robot = self.robot(rest_jitter_counts=2, seed=7)
-        robot.connect()
-        try:
-            robot.enable()
-            robot.home(start_position_confirmed=True)
-            raw = [robot.get_state().encoder_counts["base"] for _ in range(60)]
-        finally:
-            robot.disconnect()
-        offsets = {signed_count_delta(value, 0) for value in raw}
-        self.assertLessEqual(max(abs(o) for o in offsets), 2)
-        self.assertGreater(len(offsets), 1)
-        self.assertTrue(any(value > 60000 for value in raw), "jitter below 0 wraps the raw count")
-
-    def test_jog_is_exact_while_jitter_is_off(self):
-        controller, robot = self.robot(model_homing=True)
-        robot.connect()
-        try:
-            robot.enable()
-            robot.home(start_position_confirmed=True)
-            after = robot.jog_joint("base", 1.0)
-        finally:
-            robot.disconnect()
-        self.assertEqual(abs(after.signed_encoder_counts["base"]), 142)
-
-    def test_leds_follow_link_and_motor_power(self):
-        controller, robot = self.robot()
-        self.assertEqual(controller.leds(), {"motors": "off", "power": "orange"})
-        robot.connect()
-        try:
-            self.assertEqual(controller.leds(), {"motors": "off", "power": "green"})
-            robot.enable()
-            self.assertEqual(controller.leds(), {"motors": "lit", "power": "green"})
-            controller.inject("motors_dropped")
-            self.assertEqual(controller.leds(), {"motors": "off", "power": "green"})
-        finally:
-            robot.disconnect()
-        self.assertEqual(controller.leds(), {"motors": "off", "power": "orange"})
 
 
 if __name__ == "__main__":

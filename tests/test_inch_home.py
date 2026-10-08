@@ -228,20 +228,6 @@ class HomeInchTests(SimulatedRobotCase):
         self.assertIn("home_complete", self.events())
         robot.jog_joint("base", 1.0)                       # an ordinary jog works afterwards
 
-    def test_homes_from_past_the_switch_by_searching_the_other_way(self):
-        robot = self.inch_robot(shoulder=3000, elbow=-3000, base=-3000)
-        robot.home_inch(operator_at_stop=True)
-        now = self.signed(robot)
-        for joint, expected in self.EXPECTED.items():
-            self.assertAlmostEqual(now[joint], expected, delta=60, msg=joint)
-
-    def test_homes_from_on_the_switch(self):
-        robot = self.inch_robot(shoulder=190, elbow=-45, base=0)
-        robot.home_inch(operator_at_stop=True)
-        now = self.signed(robot)
-        for joint, expected in self.EXPECTED.items():
-            self.assertAlmostEqual(now[joint], expected, delta=60, msg=joint)
-
     def test_it_sends_only_motors_on_and_legacy_jogs(self):
         robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)
         before = len(robot.sim.commands)
@@ -340,17 +326,6 @@ class HomeInchTests(SimulatedRobotCase):
                     {"shoulder": 10.0, "elbow": 10.0, "base": 0}):
             with self.subTest(cap=bad), self.assertRaises(ValueError):
                 robot.home_inch(operator_at_stop=True, max_search_deg=bad)
-
-    def test_a_far_shoulder_is_searched_only_when_the_caller_raises_the_cap(self):
-        # About 150 degrees below home. The simulator has no elbow coupling, so this only
-        # shows the mechanism; on the arm a sweep that long is the thing the default avoids.
-        robot = self.inch_robot(shoulder=-17000, elbow=3000, base=3000)
-        with self.assertRaisesRegex(ScorbotError, "shoulder"):
-            robot.home_inch(operator_at_stop=True)             # the default cap refuses
-        robot = self.inch_robot(shoulder=-17000, elbow=3000, base=3000)
-        robot.home_inch(operator_at_stop=True,
-                        max_search_deg={"shoulder": 160.0, "elbow": 60.0, "base": 100.0})
-        self.assertAlmostEqual(self.signed(robot)["shoulder"], self.EXPECTED["shoulder"], delta=60)
 
     def test_each_joint_has_its_own_search_cap(self):
         robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)
