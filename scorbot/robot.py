@@ -7,12 +7,13 @@ import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 import queue
 import sys
 import threading
 import traceback
 
-from . import inch_home, limits, source_model
+from . import inch_home, joint_move, limits, source_model
 from .calibration import load_calibration, signed_count_delta
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
@@ -132,6 +133,8 @@ class Scorbot:
         self._trace = None
         self._last_state_index = 0
         self._home_counts = None
+        self._prehome_travel = dict.fromkeys(joint_move.JOINTS, 0.0)
+        self._prehome_run = None
         self._motion_lock = threading.RLock()
         self._state_lock = threading.Lock()
         self._device = None
@@ -269,6 +272,7 @@ class Scorbot:
         self._enabled = None
         self._homed = False
         self._home_counts = None
+        self._reset_prehome()
 
     def _sync_dead(self) -> bool:
         return self._sync_thread is not None and not self._sync_thread.is_alive()
@@ -672,6 +676,7 @@ class Scorbot:
             self._enabled = False
             self._homed = False
             self._home_counts = None
+            self._reset_prehome()
 
     def home(self, *, start_position_confirmed: bool = False):
         """Search switches from the confirmed legacy start pose; never Go Home."""
@@ -706,6 +711,7 @@ class Scorbot:
                     raise ScorbotError(self._fault) from exc
             self._home_counts = counts.copy()
             self._homed = True
+            self._reset_prehome()
             self._record("home_complete", state=asdict(self._motion_state()))
 
     def _disable_best_effort(self) -> None:
@@ -715,28 +721,236 @@ class Scorbot:
         except ScorbotError:
             pass
 
+    def _reset_prehome(self) -> None:
+        """Forget the pre-home phase: its travel and its cumulative target."""
+        self._prehome_travel = dict.fromkeys(joint_move.JOINTS, 0.0)
+        self._prehome_run = None
+
+    def _coupled_jog(self, name: str, counts: int, speed: int, *, homing: bool) -> None:
+        """Jog motor ``name`` by ``counts``, or the wrist pitch (``"wrist_pitch"``, in the counts
+        of wrist motor 1; motor 2 moves the opposite way). Part of a coupled joint move.
+
+        Split into steps of about a degree (``joint_move.STEP_LIMIT_COUNTS``), each one a legacy
+        bounded jog and each checked: a step that moved under 40 percent of what was asked
+        raises ``joint_move.StallError`` before the next jog. The wrist pitch jog is the only
+        wrist jog the SDK ever sends, and only from here. The legacy wrist loop takes no stop
+        event, so ``request_stop`` cannot cut a wrist jog short: each is small, and the stop is
+        checked before the next one by ``_jog_joint``.
+        """
+        key = "wrist_motor_1" if name == "wrist_pitch" else name
+        step = joint_move.STEP_LIMIT_COUNTS[name]
+        remaining = int(counts)
+        while remaining:
+            chunk = max(-step, min(step, remaining))
+            remaining -= chunk
+            one = self.preview_jog(name, 1.0)["motor_count_deltas"][key]     # counts per degree
+            degrees = chunk / one                                            # signed as the jog is
+            expected = self.preview_jog(name, degrees, speed=speed)["motor_count_deltas"][key]
+            count_before = self._motion_state().encoder_counts[key]
+            after = self._jog_joint(name, degrees, speed, homing=homing, wrist_ok=True)
+            moved = signed_count_delta(after.encoder_counts[key], count_before)
+            if (abs(expected) >= joint_move.PROGRESS_CHECK_COUNTS
+                    and moved * expected < 0.4 * expected * expected):
+                raise joint_move.StallError(
+                    f"the {name} did not follow: asked {expected:+d} counts, moved {moved:+d}")
+
+    def _coupled_run(self, speed: int, *, homing: bool):
+        """One run of coupled joint moves with one cumulative target: ``run.move(joint, degrees)``
+        moves one joint with the coupled motors following, as the vendor's joint mode does;
+        ``run.settle()`` flushes what the coupled motors still owe; ``run.speed`` may be changed
+        between moves. What a small move owes the coupled motors (a quarter of a degree of the
+        shoulder owes the wrist 7 counts) stays in the target until it is worth a jog, so it
+        is not lost between moves: keep one run for a whole phase, never one per move.
+        Counts come from ``_motion_state``, so a stale reading latches a fault like any other.
+        """
+        target = joint_move.CoupledTarget(self._motion_state().encoder_counts)
+        run = SimpleNamespace(speed=speed)
+
+        def read():
+            return self._motion_state().encoder_counts
+
+        def jog(name, counts):
+            self._coupled_jog(name, counts, run.speed, homing=homing)
+
+        def move(joint, degrees):
+            target.add(joint, degrees)
+            joint_move.run(target, read, jog, primary=joint)
+
+        def settle():
+            joint_move.run(target, read, jog, primary=None, final=True)
+
+        run.move, run.settle = move, settle
+        return run
+
+    def _fail_coupled(self, kind: str, joint, message: str) -> ScorbotError:
+        """A coupled move failed for a reason that is a fault: motors off, latch, record."""
+        self._disable_best_effort()
+        self._latch_fault(message)
+        self._record(kind, joint=joint, error=message)
+        return ScorbotError(message)
+
+    def pre_home_jog(self, joint, degrees, *, operator_at_stop: bool = False, speed: int = 6):
+        """Bring the arm toward its home pose before homing: one joint, a few degrees.
+
+        The vendor's routine is "bring the robot to a position near home, and activate the
+        homing procedure" (arm manual p. 15), and SCORBASE allows a joint-mode move before
+        homing for exactly that (its manual p. 31). This is a joint move: the elbow and the
+        wrist pitch follow the shoulder, and the wrist pitch follows the elbow, so the
+        other joints keep their angles (``joint_move``). Base, shoulder and elbow only,
+        at most 2 degrees a call and 60 degrees in all from where the session found each,
+        and only while the arm is not homed (afterwards use ``jog_joint``). No joint limit
+        is checked: there is no home to measure them from. From the vendor formulas, never
+        run on the arm. ``request_stop`` ends it between jogs (``MotionStopped``, no fault);
+        a joint that does not follow, or an interrupt, latches a fault and switches the
+        motors off. Not an emergency stop: the physical stop is authoritative.
+        """
+        with self._motion_lock:
+            self._refuse_if_streaming()
+            if not operator_at_stop:
+                raise ValueError("Confirm an operator is at the physical stop and the "
+                                 "arm's path is clear first")
+            if joint not in joint_move.JOINTS:
+                raise ValueError(f"A pre-home move names one of {joint_move.JOINTS}, "
+                                 f"not {joint!r}")
+            if (isinstance(degrees, bool) or not isinstance(degrees, (int, float))
+                    or not math.isfinite(degrees)
+                    or not 0 < abs(degrees) <= joint_move.PRE_HOME_STEP_DEG):
+                raise ValueError(f"A pre-home move is finite, nonzero and at most "
+                                 f"{joint_move.PRE_HOME_STEP_DEG:g} degrees")
+            if isinstance(speed, bool) or not isinstance(speed, int) or not 1 <= speed <= 20:
+                raise ValueError("Legacy speed must be an integer from 1 to 20")
+            if self._device is None:
+                raise ScorbotError("Not connected")
+            if not self._enabled:
+                raise ScorbotError("Enable motors before moving the arm")
+            if self._homed:
+                raise ScorbotError("The arm is homed: use jog_joint, not a pre-home move")
+            if abs(self._prehome_travel[joint] + degrees) > joint_move.PRE_HOME_CAP_DEG + 1e-9:
+                raise ValueError(f"The {joint} would pass the {joint_move.PRE_HOME_CAP_DEG:g} "
+                                 "degree pre-home cap from where this session found it")
+            before = self._motion_state()
+            self._record("pre_home_start", joint=joint, degrees=degrees, speed=speed,
+                         travel=dict(self._prehome_travel), wrist_homed=False,
+                         state=asdict(before))
+            try:
+                if self._prehome_run is None:           # one target for the whole phase
+                    self._prehome_run = self._coupled_run(speed, homing=True)
+                self._prehome_run.speed = speed
+                self._prehome_run.move(joint, degrees)
+                self._prehome_run.settle()
+            except joint_move.StallError as exc:
+                raise self._fail_coupled(
+                    "pre_home_failed", joint,
+                    f"Pre-home move of the {joint} failed: {exc}") from exc
+            except MotionStopped:
+                raise                    # not a fault: the arm is where the last jog left it
+            except ScorbotError as exc:
+                self._record("pre_home_failed", joint=joint, error=str(exc))
+                raise
+            except KeyboardInterrupt:
+                self._disable_best_effort()
+                self._latch_fault("Python interrupted during a pre-home move")
+                self._record("pre_home_failed", joint=joint, error=self._fault)
+                raise
+            self._prehome_travel[joint] += degrees
+            after = self._motion_state()
+            self._record("pre_home_complete", joint=joint, degrees=degrees,
+                         travel=dict(self._prehome_travel), state=asdict(after))
+            return after
+
+    def park_at_home(self, *, operator_at_stop: bool = False, speed: int = 6,
+                     tolerance_counts: int = 45) -> dict:
+        """Send the arm back to the home it was homed at: the vendor's "Go Home".
+
+        Every motor goes back to its home count, base, shoulder and elbow with the wrist pitch
+        following, in steps of about a degree kept in proportion (``joint_move``), so the next
+        session starts near home. Runs through the homed jog path, so the whole-pose joint-limit
+        check applies to every step. Returns ``{"parked": bool, "reason": str | None,
+        "errors": {...}}``: not being parked, because a step was refused or the passes ran out,
+        is a result, not a fault. ``request_stop`` ends it between jogs (``MotionStopped``); a
+        joint that does not follow latches a fault and switches the motors off. From the vendor
+        formulas, never run on the arm; the physical stop is authoritative.
+        """
+        with self._motion_lock:
+            self._refuse_if_streaming()
+            if not operator_at_stop:
+                raise ValueError("Confirm an operator is at the physical stop and the "
+                                 "arm's path is clear first")
+            if isinstance(speed, bool) or not isinstance(speed, int) or not 1 <= speed <= 20:
+                raise ValueError("Legacy speed must be an integer from 1 to 20")
+            if self._device is None:
+                raise ScorbotError("Not connected")
+            if not self._enabled:
+                raise ScorbotError("Enable motors before moving the arm")
+            if not self._homed or self._home_counts is None:
+                raise ScorbotError("Home first: there is no home to return to")
+            before = self._motion_state()
+            try:
+                target = joint_move.CoupledTarget(before.encoder_counts)
+                target.desired = {m: float(signed_count_delta(self._home_counts[m],
+                                                              before.encoder_counts[m]))
+                                  for m in source_model.MOTORS}
+            except (KeyError, ValueError) as exc:
+                raise self._fail_coupled(
+                    "park_failed", None, f"Cannot place the arm relative to home: {exc!r}") from exc
+            self._record("park_start", state=asdict(before))
+            reason = None
+            try:
+                for _ in range(joint_move.PARK_MAX_PASSES):
+                    owed = target.owed(self._motion_state().encoder_counts)
+                    jogs = joint_move.proportional_jogs(owed, joint_move.STEP_LIMIT_COUNTS)
+                    if not jogs:
+                        break
+                    for name, counts in jogs:
+                        self._coupled_jog(name, counts, speed, homing=False)
+                else:
+                    reason = "the park ran out of passes"
+            except ValueError as exc:     # a gate refused the next step; nothing was sent for it
+                reason = str(exc)
+            except joint_move.StallError as exc:
+                raise self._fail_coupled(
+                    "park_failed", None, f"Park failed: {exc}") from exc
+            except MotionStopped:
+                raise
+            except ScorbotError as exc:
+                self._record("park_failed", error=str(exc))
+                raise
+            except KeyboardInterrupt:
+                self._disable_best_effort()
+                self._latch_fault("Python interrupted during the park")
+                self._record("park_failed", error=self._fault)
+                raise
+            after = self._motion_state()
+            owed = target.owed(after.encoder_counts)
+            parked = reason is None and all(abs(v) <= tolerance_counts for v in owed.values())
+            if not parked and reason is None:
+                reason = "the arm stopped short of its home counts"
+            errors = {name: round(value) for name, value in owed.items()}
+            self._record("parked", parked=parked, reason=reason, errors=errors,
+                         state=asdict(after))
+            return {"parked": parked, "reason": reason, "errors": errors}
+
     def home_inch(self, *, operator_at_stop: bool = False,
                   max_search_deg: float | dict | None = None, speed: int = 6):
         """Home shoulder, elbow and base by inching each to its switch; no start pose needed.
 
         Unlike ``home``, this tolerates any starting pose: it finds each joint's
-        switch by small legacy jogs (each way from where the joint started, up to
-        ``max_search_deg``: a number for all three or a dict per joint; the default is
-        about each joint's own range), reading the switch bit after every step,
-        then moves the vendor's offset from the switch edge and records the counts
-        as the session home. It sends nothing the legacy code does not send: no
-        order 18, no ``48``. Directions, order, polarity and offsets are from the
-        vendor DLL's homing, from disassembly and **unverified on the arm**
-        (``docs/protocol/VENDOR_HOMING_TRACE.md``). Supervised: a joint whose
-        switch never reads on is driven toward its stop until the progress check
-        or the controller's error word stops it. During the search the source
-        model's joint limits are not checked (there is no home to measure them
-        from), and the elbow moves without the vendor's coupled wrist drive. The
-        wrist is not homed: its counts stay unknown, wrist jogs stay disabled, and
-        the pose checks assume it already stands where it would at home.
-        ``request_stop`` ends the search (``MotionStopped``, no fault, no home); a
-        joint that cannot be homed, or an interrupt, latches a fault and switches
-        the motors off. Not an emergency stop: the physical stop is authoritative.
+        switch by small joint moves (each way from where the joint started, up to
+        ``max_search_deg``: a number for all three or a dict per joint), reading the switch
+        bit after every step, then moves the vendor's offset from the switch edge and records
+        the counts as the session home. Each step is a coupled joint move (``joint_move``):
+        the elbow and wrist pitch follow the shoulder, and the wrist pitch follows the elbow,
+        so the other joints keep their angles, as in the vendor's own homing. It sends nothing
+        the legacy code does not send: no order 18, no ``48``, no wrist roll. Directions, order,
+        polarity and offsets are from the vendor DLL's homing, from disassembly and
+        **unverified on the arm** (``docs/protocol/VENDOR_HOMING_TRACE.md``). Supervised: a
+        joint whose switch never reads on is driven toward its stop until the progress check
+        or the controller's error word stops it. During the search the source model's joint
+        limits are not checked (there is no home to measure them from). The wrist roll and the
+        gripper are not homed, and the pose checks assume the wrist already stands where it
+        would at home. ``request_stop`` ends the search (``MotionStopped``, no fault, no
+        home); a joint that cannot be homed, or an interrupt, latches a fault and switches the
+        motors off. Not an emergency stop: the physical stop is authoritative.
         """
         with self._motion_lock:
             self._refuse_if_streaming()
@@ -772,16 +986,17 @@ class Scorbot:
             self._record("home_start", method="inch", max_search_deg=caps, speed=speed,
                          wrist_homed=False, state=asdict(before))
             joint = None
-            jogs, travel = [0], [0.0]      # on this joint: jogs started, degrees moved toward its switch
+            jogs, travel = [0], [0.0]      # on this joint: steps started, degrees moved toward its switch
             try:
+                run = self._coupled_run(speed, homing=True)
+                move_joint, settle = run.move, run.settle
                 for joint in inch_home.ORDER:
                     jogs[0], travel[0] = 0, 0.0
-                    # Which jog sign moves the counts toward the switch: the inherited
-                    # sign convention decides, not an assumption here. Counts per degree
-                    # come from the same plan, so the offset is the jog's own scale.
-                    one_degree = self.preview_jog(joint, 1.0)["motor_count_deltas"][joint]
-                    plus = 1 if one_degree > 0 else -1
-                    approach = inch_home.APPROACH_COUNTS[joint] * plus
+                    # Joint degrees that raise this joint's own motor count, and the sign of the
+                    # approach to its switch in counts: the vendor's sign convention decides
+                    # (vendor_model, through joint_move), not an assumption here.
+                    per_degree = joint_move.vector(joint)[joint]
+                    approach = inch_home.APPROACH_COUNTS[joint] * (1 if per_degree > 0 else -1)
                     bit = HOME_SWITCH_BITS[joint]
 
                     def read_once(bit=bit):
@@ -797,22 +1012,9 @@ class Scorbot:
                         return first if first == second else read_once()
 
                     def move(delta, joint=joint, approach=approach):
-                        jog = approach * delta
-                        expected = self.preview_jog(joint, jog, speed=speed)[
-                            "motor_count_deltas"][joint]
-                        count_before = self._motion_state().encoder_counts[joint]
                         jogs[0] += 1
-                        after = self._jog_joint(joint, jog, speed, homing=True)
+                        move_joint(joint, approach * delta)
                         travel[0] += delta
-                        moved = signed_count_delta(after.encoder_counts[joint], count_before)
-                        # A jog ends within 20 counts of its target, so a coarse step that
-                        # moved less than 40 percent of what was asked is a joint that is
-                        # not following (a hard stop, no power): stop before the next jog.
-                        if (abs(expected) >= inch_home.PROGRESS_CHECK_COUNTS
-                                and moved * expected < 0.4 * expected * expected):
-                            raise inch_home.InchHomeError(
-                                f"the joint did not follow: asked {expected:+d} counts, "
-                                f"moved {moved:+d}")
 
                     start = self._motion_state()
                     net = inch_home.inch_to_edge(
@@ -821,14 +1023,13 @@ class Scorbot:
                         now=time.monotonic)
                     offset_counts = inch_home.OFFSET_COUNTS[joint]
                     if offset_counts:
-                        offset_deg = abs(offset_counts) / abs(one_degree)
-                        self._jog_joint(joint, math.copysign(offset_deg, offset_counts) * plus,
-                                        speed, homing=True)
+                        move_joint(joint, offset_counts / per_degree)
+                    settle()
                     edge = self._motion_state()
                     self._record("home_axis_complete", joint=joint, method="inch",
                                  travel_toward_switch_deg=net, offset_counts=offset_counts,
                                  start=asdict(start), state=asdict(edge))
-            except inch_home.InchHomeError as exc:
+            except (inch_home.InchHomeError, joint_move.StallError) as exc:
                 message = (f"Home search failed on the {joint} on jog {jogs[0]} "
                            f"({travel[0]:+.1f} degrees toward its switch before it): {exc}")
                 self._disable_best_effort()
@@ -869,6 +1070,7 @@ class Scorbot:
                     raise ScorbotError(self._fault) from exc
             self._home_counts = after.encoder_counts.copy()
             self._homed = True
+            self._reset_prehome()
             self._record("home_complete", method="inch", wrist_homed=False,
                          state=asdict(self._motion_state()))
 
@@ -908,15 +1110,18 @@ class Scorbot:
         """Move one joint by a bounded legacy relative jog; read back raw state."""
         return self._jog_joint(joint, delta_degrees, speed)
 
-    def _jog_joint(self, joint: str, delta_degrees: float, speed: int, *, homing: bool = False):
+    def _jog_joint(self, joint: str, delta_degrees: float, speed: int, *, homing: bool = False,
+                   wrist_ok: bool = False):
         """``jog_joint``. ``homing`` is for ``home_inch`` only: it lets a jog run before any
         home exists, so no check that needs a home (calibrated soft limits, the source
-        model's joint limits) applies. Every other check, and the stop, are unchanged."""
+        model's joint limits) applies. ``wrist_ok`` is for the coupled joint moves only (pre-home,
+        homing, park): it lets the wrist pitch jog through, never the roll. Every other check,
+        and the stop, are unchanged."""
         with self._motion_lock:
             self._refuse_if_streaming()
             if joint not in self._JOG_CODES:
                 raise ValueError(f"Unknown joint: {joint}")
-            if joint.startswith("wrist_"):
+            if joint.startswith("wrist_") and not (wrist_ok and joint == "wrist_pitch"):
                 raise ScorbotError("Wrist jogs are disabled until two-motor bench verification")
             if (isinstance(delta_degrees, bool)
                     or not isinstance(delta_degrees, (int, float))

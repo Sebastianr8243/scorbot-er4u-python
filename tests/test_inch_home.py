@@ -173,15 +173,23 @@ class HomeInchTests(SimulatedRobotCase):
     EXPECTED = {"shoulder": -100, "elbow": 100, "base": 100}
 
     def inch_robot(self, **start):
+        """A simulated robot with modeled switches. ``elbow`` is the elbow JOINT position, what
+        its switch sees (the shoulder's count plus the elbow motor's: the motors are coupled),
+        not the elbow motor's count."""
         from scorbot.simulated import SimulatorProfile
         profile = SimulatorProfile(model_homing=True, fail_home_motor=start.pop("fail", None))
+        if "elbow" in start:
+            start["elbow"] -= start.get("shoulder", 0)
         robot = self.robot(profile=profile, start_counts=start)
         with robot.sim._lock:
             robot.sim.switch_bits = robot.sim._pressed_switches()
         return robot
 
     def signed(self, robot):
-        return robot.get_state().signed_encoder_counts
+        """Counts by joint: the elbow as its joint position (shoulder count plus elbow count)."""
+        counts = dict(robot.get_state().signed_encoder_counts)
+        counts["elbow"] += counts["shoulder"]
+        return counts
 
     def test_homes_from_before_the_switches_and_records_the_vendor_home(self):
         robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)
@@ -190,7 +198,9 @@ class HomeInchTests(SimulatedRobotCase):
         now = self.signed(robot)
         for joint, expected in self.EXPECTED.items():
             self.assertAlmostEqual(now[joint], expected, delta=60, msg=joint)
-        self.assertEqual((now["wrist_motor_1"], now["wrist_motor_2"]), (0, 0))
+        # The wrist followed the shoulder and elbow as a pure pitch: equal and opposite, no roll.
+        self.assertNotEqual(now["wrist_motor_1"], 0)
+        self.assertAlmostEqual(now["wrist_motor_1"] + now["wrist_motor_2"], 0, delta=3)
         self.assertIsNotNone(robot._home_counts)
         self.assertIn("home_complete", self.events())
         robot.jog_joint("base", 1.0)                       # an ordinary jog works afterwards
@@ -214,9 +224,10 @@ class HomeInchTests(SimulatedRobotCase):
         before = len(robot.sim.commands)
         robot.home_inch(operator_at_stop=True)
         orders = {c[0] for c in robot.sim.commands[before:] if c}
-        # Only the base, shoulder and elbow jogs (4 to 9): no wrist jog, no order 18, no
-        # stream, no gripper.
-        self.assertTrue(orders <= set(range(4, 10)), orders)
+        # The base, shoulder and elbow jogs (4 to 9) and the wrist pitch that follows them
+        # (10 and 11): never the roll (12 and 13), a legacy home (18), a stream or the gripper.
+        self.assertTrue(orders <= set(range(4, 12)), orders)
+        self.assertTrue(orders & {10, 11}, "the wrist pitch followed the shoulder and elbow")
 
     def test_it_refuses_without_the_operators_word_and_queues_nothing(self):
         robot = self.inch_robot(shoulder=-3000)
@@ -279,7 +290,7 @@ class HomeInchTests(SimulatedRobotCase):
         original, jogs = robot._command, [0]
 
         def command(payload, **kwargs):
-            if payload[0] in JOG_ORDERS:
+            if payload[0] in (6, 7):          # the shoulder's own jogs, not the coupled ones
                 jogs[0] += 1
                 if jogs[0] == 3:
                     raise ScorbotError("Legacy controller returned error code 1")

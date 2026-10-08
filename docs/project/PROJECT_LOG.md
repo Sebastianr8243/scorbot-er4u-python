@@ -9,6 +9,30 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
 
 ## 2026-10-06 (lab PC)
 
+### Coupled joint moves: the pre-home move, inch homing and the park
+
+- **Why:** the vendor's routine is "bring the robot near home, then home" and to
+  end a session at home; SCORBASE's joint mode moves every motor a joint needs
+  together. Ours moved one motor at a time, so a long shoulder sweep forced the
+  elbow into its stop (the likely cause of the 2026-10-06 failures). The owner
+  allowed wrist moves in these three phases only (2026-10-07).
+- **What:** `scorbot/joint_move.py` holds the count vectors for moving one joint
+  with all others fixed (from the vendor formulas; the vendor's own coupled
+  vectors overshoot the wrist 2x, see `VENDOR_COUPLING_TRACE.md`) and a cumulative
+  target with a closed loop on measured counts. `Scorbot.pre_home_jog` (2 degrees
+  a call, 60 in all per joint, only while not homed), `Scorbot.home_inch` (its
+  steps and offset are now coupled joint moves) and `Scorbot.park_at_home` (back to
+  the home counts, the whole-pose check applying) use it. Only the wrist pitch
+  (orders 10 and 11) is ever jogged for the coupling, never the roll; `jog_joint`
+  still refuses every wrist joint. The simulator's elbow switch now follows the
+  elbow joint (shoulder plus elbow counts). A bug the tests found: a fresh target
+  per pre-home command lost the small coupled amounts and the wrist never moved
+  (12 degrees of pitch drift); the target now lives for the whole phase.
+- **Not proven:** the signs and sizes on the arm. A wrong wrist sign doubles the
+  pitch swing. The first trial must be a visual direction check: an elbow move of
+  2 degrees should leave the gripper aligned with the forearm, then a shoulder move
+  of 2 degrees should leave the elbow angle unchanged, before any homing.
+
 ### Keyboard session: `--inch-home`, and a failed inch home names the joint
 
 - **Why:** on the next arm run the owner used the keyboard session

@@ -375,14 +375,26 @@ class SimulatedController:
         finally:
             self._moving = False
 
+    def _switch_position(self, motor: str) -> int:
+        """Where a joint's switch sees the joint, in counts (call with ``_lock`` held).
+
+        The elbow joint's angle follows the shoulder's motor as well as its own (the motors are
+        coupled: source model, modeled not measured), so a coupled move that keeps the elbow
+        joint still keeps its switch where it was.
+        """
+        position = self.counts[motor]
+        if motor == "elbow":
+            position += self.counts["shoulder"] - self.home_counts["shoulder"]
+        return position
+
     def _pressed_switches(self) -> int:
         """Switch byte for the current counts (call with ``_lock`` held)."""
         profile = self.profile
         half = profile.switch_width_counts // 2
         return sum(bit for motor, bit in profile.switch_bits.items()
                    if motor != profile.fail_home_motor
-                   and abs(self.counts[motor] - (self.home_counts[motor]
-                                                 - profile.home_offsets[motor])) <= half)
+                   and abs(self._switch_position(motor) - (self.home_counts[motor]
+                                                           - profile.home_offsets[motor])) <= half)
 
     def _model_homing(self) -> int:
         """Drive each motor onto its switch, then back off to home, in the legacy order.
