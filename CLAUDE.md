@@ -46,7 +46,8 @@ flowchart TD
 | `openScorbot/` | Original GPL OpenScorbot protocol code plus `motion_profile.py`; frozen legacy backend, PyQt GUI kept as reference |
 | `examples/` | Supervised bench procedures (`--simulate` capable), synthetic session, offline preview and kinematics check |
 | `scripts/` | Offline analysis (fit, lab log to calibration CSV, review, live view, USB trace), kit and Windows setup |
-| `tests/` | `unittest` suite, no hardware |
+| `tests/` | `unittest` suite, no hardware: the lab-visit gate |
+| `tests_extra/` | Tests for code off the first-trial path (streaming, gripper, teleop, cameras, viewers, offline tools). Same rules, run by CI, not part of the gate |
 | `docs/` | Design, hardware reference, bench and lab checklists, capture and recording guides. `docs/specs/` holds design specs (old implementation plans are in git history) |
 | `models/er4u_meshes/` | Optional community link meshes for the 3D view. Only the README is tracked; never commit the STL files (licence unclear) |
 | `tools/foxglove/` | Foxglove layouts for recorded sessions |
@@ -60,7 +61,9 @@ flowchart TD
 python -m pip install -e ".[dev]"              # add ,kinematics for the Robotics Toolbox cross-check; windows extra adds libusb-package; gui adds PyQt5
 uv sync --locked --extra windows --extra test --extra planning  # lab PC: Python 3.13 + exact versions from uv.lock (planning = Ruckig, needed by start_stream); after editing deps run `uv lock` (CI checks it)
 python -m compileall -q scorbot openScorbot scripts examples tests
-python -m unittest discover -s tests -v        # about 940 tests, 2 to 3 min on a laptop (about 30 s with pytest -n auto), no expected failures (the two legacy bugs were fixed 2026-10-06)
+python -m pytest -n 2 tests                    # the lab-visit gate: about 645 tests, under 2 min, no expected failures
+python -m pytest -n 2 tests tests_extra        # everything: about 930 tests (tests_extra = code off the first-trial path; CI runs both)
+python -m unittest discover -s tests -v        # the gate with plain unittest
 python examples/make_synthetic_session.py --root <tmpdir>   # CI smoke test
 ruff check .                                   # CI rules incl. bugbear (openScorbot/ excluded); `pre-commit install` runs it on every commit
 ```

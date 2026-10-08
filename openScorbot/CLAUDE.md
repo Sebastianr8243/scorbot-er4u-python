@@ -39,7 +39,7 @@ Original OpenScorbot code (University of La Laguna, GPL-3.0) that builds and sen
 
 ## Testing changes
 
-Pure functions: `python -m unittest tests.test_legacy_properties tests.test_motion_profile tests.test_python_api tests.test_kinematics`. Anything that would send bytes must be exercised through `SimulatedController` or fake endpoints, never a device. `ruff check --select F openScorbot` reports legacy issues (star imports, unused imports); leave them unless you are touching those lines.
+Pure functions: `python -m unittest tests.test_legacy_properties tests.test_motion_profile tests.test_python_api tests_extra.test_kinematics`. Anything that would send bytes must be exercised through `SimulatedController` or fake endpoints, never a device. `ruff check --select F openScorbot` reports legacy issues (star imports, unused imports); leave them unless you are touching those lines.
 
 ## Do not
 

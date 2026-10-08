@@ -3,10 +3,14 @@
 `unittest` suite. It must never open USB, enumerate a real device, or move the arm. Root rules in [../CLAUDE.md](../CLAUDE.md) apply.
 
 ```powershell
-python -m unittest discover -s tests -v                      # full suite, about 940 tests in 2 to 3 min (about 30 s with pytest -n auto), no expected failures
+python -m pytest -n 2 tests                                  # the lab-visit gate: about 645 tests, under 2 min
+python -m pytest -n 2 tests tests_extra                      # everything: about 930 tests, 2 to 3 min
+python -m unittest discover -s tests -v                      # the gate with plain unittest
 python -m unittest tests.test_simulated -v                   # one module
 python -m unittest tests.test_python_api.CommandTests -v     # one class
 ```
+
+`tests/` is the gate: connect, state, home, jog, the safety invariants, the packet pins, the lab session and the evidence path. `tests_extra/` (see [../tests_extra/CLAUDE.md](../tests_extra/CLAUDE.md)) holds tests for code that is off the first-trial path; CI runs both, the lab-visit check is `tests/` only.
 
 Run from the repo root. Tests import `scripts.<name>` and `examples.<name>` as namespace packages, and `scorbot` from the editable install or the current directory. CI runs the same command on Windows and Linux, Python 3.10 and 3.13, with `.[dev]` (Hypothesis) and, on Linux only, `.[kinematics]`. Optional dependencies skip cleanly (`hypothesis`, `roboticstoolbox`, `usb`); a skipped test is not a pass, so install them locally before trusting a green run.
 
@@ -32,21 +36,15 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_arm_control.py` | Fresh-packet tracking, fit/load calibration, vendor-display refusal, wrap, calibrated move, soft limits, wrist gate, jog ceiling, stale feedback |
 | `test_simulated.py` | Simulator fidelity to the facade, every fault kind latches, full G1 rehearsal, LED mismatch, recorder failure, interrupts |
 | `test_session.py`, `test_schemas.py`, `test_analysis.py` | Recorder, replay integrity and crash tails, schemas, source mixing, list/export/compare |
-| `test_bench_joint.py`, `test_calibration_capture.py`, `test_bench_stream.py`, `test_bench_gripper.py` | Prompt gates and exit codes of the lab scripts; the stream trial rehearsed end to end through the simulator |
+| `test_bench_joint.py`, `test_calibration_capture.py` | Prompt gates and exit codes of the lab scripts |
 | `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | Offline analysis scripts |
-| `test_nominal.py`, `test_kinematics.py`, `test_motion_profile.py` | Manual values and span bound, offline kinematics and legacy `cIn` findings, jog planning |
-| `test_arm_chain.py` | The viewer's link chain: zero pose, sign conventions, agreement with the manual's lengths and reach, and with the DH model in `kinematics.py` |
+| `test_nominal.py`, `test_motion_profile.py` | Manual values and span bound, jog planning |
 | `test_legacy_properties.py` | Hypothesis properties of encoder and packet arithmetic; known bugs are pinned as `test_known_bug_*` with `expectedFailure`; none is open since 2026-10-06 (the two for `suma`/`resta` were fixed and flipped), and an equivalence test pins that real steps are unchanged |
-| `test_streaming_core.py`, `test_streaming.py` | The streaming driver: the USB-free core against a small arm model (one or more tests per requirement R1-R12), the legacy loop against fake endpoints (exact messages), and `Scorbot.start_stream` through the simulator |
 | `test_source_model.py` | The source-based joint model: it reproduces the USNA toolbox's home position, uses the vendor's scales, round-trips, couples shoulder and elbow as the vendor does, and stays inside the travel cap |
 | `test_limits.py` | Every module's travel cap, motor list and count band is the one in `scorbot/limits.py` |
-| `test_gripper.py` | The gripper: the legacy `clamp` loop against fake endpoints (exact messages, a grasp, a stop), the pure ramp against the legacy one, `move_gripper` through the simulator |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |
-| `test_vendor_check.py`, `test_usbc_query.py`, `test_usbc_peread.py` | The vendor-layout checker and the two tools for reading the decompiled DLL dumps |
+| `test_vendor_check.py` | The vendor-layout checker |
 | `test_lab_session.py`, `test_lab_terminal.py`, `test_lab_profile.py`, `test_lab_operator.py`, `test_lab_moves.py`, `test_lab_faults.py` | The guided session (`scorbot/lab`): engine through the simulator, terminal front end, profile file, moves, fault guidance |
-| `test_lab_teleop.py`, `test_follow.py` | Teleop mode and episodes, the one-jog-per-action follower |
-| `test_camera_source.py`, `test_camera_stream.py`, `test_camera_recorder.py`, `test_camera_cli.py` | Webcam capture: sources with a fake cv2, stream files, recorder threads and their bounded stop, the `check` command |
-| `test_notes.py`, `test_plot.py`, `test_rerun_view.py` | Session notes sheet, plots, the Rerun mapping of a recorded session |
 | `test_motion_trace.py`, `test_provenance.py` | Packets copied during jogs and streams and their export; the motion fingerprint |
 | `test_transport_codec.py` | The pure packet codec against the legacy code's bytes (golden tests) |
 | `test_vendor_model.py`, `test_vendor_profile.py` | The vendor's count/angle formula and motion profile, read from the DLL |
