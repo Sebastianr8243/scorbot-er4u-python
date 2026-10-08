@@ -103,6 +103,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | Packet layout, command codes | `docs/protocol/PROTOCOL.md`, `openScorbot/libhex.py`, `scorbot/state.py` |
 | What the vendor DLL sends (from disassembly, unverified) | `docs/protocol/VENDOR_DLL_PROTOCOL.md`; method in `tools/usbc_analysis/README.md` |
 | How the vendor homes (order, directions, switch polarity, offsets, `48`) and the elbow and wrist coupling | `docs/protocol/VENDOR_HOMING_TRACE.md`, `docs/protocol/VENDOR_COUPLING_TRACE.md` (from disassembly; the lab arm's own parameter files agree with the values) |
+| How the vendor's joint jog, homed flag and `SetHome` work (one motor per jog, no limits before home) | `docs/protocol/VENDOR_MANUAL_MOVE_TRACE.md` |
 | Running a lab session as an agent (rules, pass criteria, inch homing) | `docs/lab/AGENT_RUNBOOK.md` |
 | How to confirm it at the lab, claim by claim | `docs/lab/VENDOR_PROTOCOL_LAB_PLAN.md` |
 | Safety argument | `docs/design/SAFETY_CASE.md` |
