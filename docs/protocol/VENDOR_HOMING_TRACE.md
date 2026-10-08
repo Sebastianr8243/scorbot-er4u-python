@@ -342,14 +342,30 @@ The end-of-group sweep (`0x100234ba`) decompiles to a different switch shape, bu
 | | Legacy (`setHome.py`, PROTOCOL.md section 9) | Vendor |
 |---|---|---|
 | Order | shoulder, elbow, pitch, roll, base | ER-4u pre-pass (shoulder, elbow, gripper close, roll, pitch, pitch +1050), then shoulder, elbow, roll, pitch, base, gripper |
-| Already on the switch | skip the axis | type 16 drives off it first; types 14 and 15 carry on and wait for off |
+| Already on the switch | skip the axis (the wrist's offset phase is skipped with it) | type 16 drives off it first; types 14 and 15 carry on and wait for off |
 | Direction, counts | base -, shoulder +, elbow -, pitch m1 +/m2 -, roll both - | the same for the final approach (I, section 3) |
 | Speed | 0D setpoint ramp: shoulder and wrists 10 counts per message, base and elbow 20; about 500 and 1000 counts/s at 20 ms per message | controller-driven `4D` with `Velocity` 90-110, units unknown |
 | Edge | runs 12 messages past the switch; never sees the release | back off in coarse steps until off, creep 1-2 counts until on |
-| Offset | none | -190, +45, +850, -690 counts, with coupled motors |
+| Offset | none for the shoulder, elbow and base; the wrist runs 720 counts per motor past the first contact (comparison below) | -190, +45, +850, -690 counts, with coupled motors |
 | Counter | never set | `48` value 0 per axis, and again for all six at the end |
 | Limits | 30 s per axis, error word 40, cancel | `MaxTime` 55-110 s per axis, emergency, impact, stall or distance reversal |
 | End | `closeMov` per axis (`4F 3F 53`, `73 20`, `42 20`) | `4F FF 53` per axis; at the end per-axis Mode S, then `73 20`, `42 20` |
+
+### Wrist: legacy against vendor, compared line by line (2026-10-08)
+
+Read from `openScorbot/setHome.py` (pitch at lines 272-370, roll at 413-505) and `openScorbot/conf.py` (wrist `h_vel` 10), against the table at the top of this page. Step sizes use the legacy `libdef.incremento`; nothing was run on the arm.
+
+| | Legacy | Vendor | Verdict |
+|---|---|---|---|
+| Pitch direction | m1 `suma` (+), m2 `resta` (-): the direction of jog order 11 | final approach m1 +, m2 - (I: the sign of the `4D` value against the counts was not seen) | **Match.** This resolves BACKLOG 4: "opposite of jog order 10" only says homing uses order 11's direction, which is also the vendor's |
+| Roll direction | both `resta` (-,-) | both - (I) | **Match** |
+| Order | pitch, then roll | roll, then pitch (after the ER-4u pre-pass) | Differs; only matters for which wrist switch is crossed first |
+| Travel past the first switch contact | 60 offset messages + 12 braking messages, each 10 counts (the step does not ramp: `cont_vel` is held at 87, then 88), so **720 counts per wrist motor** | offset from the edge: pitch +850, roll -690 | Same direction. Against the vendor offset the legacy pitch ends **130 counts (4.7 degrees) short** (25.8 against 30.5 degrees) and the roll **30 counts (1.1 degrees) long** (25.8 against 24.7). The two homes are not the same pose, even before the switch width and the contact edge differ |
+| Wrist switch already pressed at the start | the whole axis is skipped, offset included | drives off it first, then approaches | **Differs, and matters:** a legacy home that starts with a wrist switch pressed leaves that wrist wherever it was. Start with both wrist switches off |
+| Other joints | 12 braking messages only (no offset phase) | offsets -190, +45 | The shoulder, elbow and base have no legacy offset at all |
+| Count scale | homing is in raw counts | raw counts | The legacy pitch scale (33.8 counts per degree against the vendor 27.9) does not enter homing. It only mislabels legacy pitch jog degrees by 21 percent; the coupled moves work in the vendor's counts and are unaffected |
+
+What this does not settle: the sign of `4D` against the counts (vendor side), the switch width, and which edge the legacy first contact is. Those need the arm or a capture. Before this comparison the table above said the legacy code has no offset; it does, for the wrist only.
 
 Only the vendor sends:
 

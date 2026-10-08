@@ -63,7 +63,7 @@ End the session at the HOME prompt (decline) if you are not going on.
 
 ### B. Homing: the legacy home first
 
-With the arm placed near home by hand, motors off and supported, run the session without `--inch-home`. It is the home that has a record on this arm. If it works, you have a home and the rest is optional.
+With the arm placed near home by hand, motors off and supported, run the session without `--inch-home`. It is the home that has a record on this arm. If it works, you have a home and the rest is optional. Two cautions from the wrist comparison (`VENDOR_HOMING_TRACE.md`): start with both wrist switches **off** (the legacy home skips a wrist axis whose switch is already pressed, offset included), and expect the wrist pitch to end about 5 degrees short of the vendor's home pose, because the legacy code runs 720 counts past the switch where the vendor runs 850.
 
 ### C. The coupled direction check, before any inch home
 
