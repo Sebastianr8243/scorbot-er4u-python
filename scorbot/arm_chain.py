@@ -23,7 +23,7 @@ This is the layout of the community ER-4U CAD model (github.com/baijuch/sboter4u
 as described by github.com/talos-rit/scorbot_ros2), chosen so that model's
 link meshes can be placed on these frames with fixed offsets. It is **not**
 the convention of ``kinematics.py``: there wrist pitch is measured from 90
-degrees below the forearm (``tests/test_arm_chain.py`` checks the two agree
+degrees below the forearm (``tests_extra/test_arm_chain.py`` checks the two agree
 once that is allowed for). Zero here is a drawing convention, not the pose
 after homing.
 """
