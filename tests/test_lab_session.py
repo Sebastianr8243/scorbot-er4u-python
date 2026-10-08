@@ -314,6 +314,22 @@ class LabSessionTests(unittest.TestCase):
         self.assertGreaterEqual(summary["problems"], 1)
         self.assertTrue(summary["unparked"])
 
+    def test_counts_that_move_while_the_park_prompt_is_open_stop_the_park(self):
+        self.routine_controller()
+
+        def displace_then_park():
+            with self.ctrl._lock:
+                self.ctrl.counts["wrist_motor_1"] += 200
+                self.ctrl.counts["wrist_motor_2"] += 200
+            return "PARK"
+
+        answers = (INCH_NO_PRE_HOME + ["x", "y", "door", "y", "g", "ARM", displace_then_park]
+                   + FINISH[1:])
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_FAILED)
+        self.assertEqual(self.of("park"), [], "the park never ran")
+        self.assertEqual(len(self.of("counts_drift")), 1)
+
     def test_the_log_review_flags_a_park_that_did_not_complete(self):
         from scorbot.lab.review import review_session_rows
         base = [{"type": "session"}]

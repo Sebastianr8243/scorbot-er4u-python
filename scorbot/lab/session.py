@@ -401,16 +401,17 @@ class LabSession:
         if not self.armed:
             self.op.show("Not armed: the arm stays where it is.")
             return
+        self.op.show("Path clear, hand on the physical stop?")
+        if not self.op.confirm("Type PARK to return the arm to home: ", "PARK"):
+            self.op.show("Not parking.")
+            return
+        # Checked after the confirmation: counts can move while the prompt is open.
         try:
             now = self.robot.get_state()
         except Exception as error:
             raise SessionFailed(str(error)) from error
         if not self._drift_ok(now):
             self.unparked = "the counts moved with nothing commanded; the park did not run"
-            return
-        self.op.show("Path clear, hand on the physical stop?")
-        if not self.op.confirm("Type PARK to return the arm to home: ", "PARK"):
-            self.op.show("Not parking.")
             return
         try:
             result = self.robot.park_at_home(operator_at_stop=True)

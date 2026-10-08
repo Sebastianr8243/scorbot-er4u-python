@@ -390,6 +390,14 @@ class ParkTests(SimulatedRobotCase):
         self.assertIn("park_failed", self.events())
         self.assertIn(16, [c[0] for c in robot.sim.commands if c])     # motors off
 
+    def test_a_refusal_after_any_completed_park_jog_is_a_fault_even_if_the_net_move_is_tiny(self):
+        robot = self.moved_robot()
+        self.refuse_after(robot, 1)
+        robot._moved_since = lambda before, threshold_counts=10: False   # net change under 10
+        with self.assertRaisesRegex(ScorbotError, "part-way"):
+            robot.park_at_home(operator_at_stop=True)
+        self.assertIsNotNone(robot._fault)
+
     def test_a_jog_ceiling_too_small_for_a_wrist_step_is_refused_up_front(self):
         robot = self.robot()
         robot.max_jog_degrees = 1.5

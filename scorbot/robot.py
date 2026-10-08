@@ -954,6 +954,7 @@ class Scorbot:
                     "park_failed", None, f"Cannot place the arm relative to home: {exc!r}") from exc
             self._record("park_start", state=asdict(before))
             reason = None
+            completed = 0                 # park jogs that ran to the end
             try:
                 for _ in range(joint_move.PARK_MAX_PASSES):
                     owed = target.owed(self._motion_state().encoder_counts)
@@ -962,10 +963,11 @@ class Scorbot:
                         break
                     for name, counts in jogs:
                         self._coupled_jog(name, counts, speed, homing=False)
+                        completed += 1
                 else:
                     reason = "the park ran out of passes"
             except ValueError as exc:     # a gate refused the next step; nothing was sent for it
-                if self._moved_since(before):
+                if completed or self._moved_since(before):
                     # Part of the park already ran: motor and home state are no longer what the
                     # session believes, so this is a fault, not a polite "not parked".
                     raise self._fail_coupled(
