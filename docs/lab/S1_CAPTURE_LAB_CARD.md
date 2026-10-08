@@ -20,6 +20,8 @@ extra items for step 0 from that plan: copy `USBC.dll` itself (never commit
 it) and write down the SCORBASE version. Start capture A **before** SCORBASE
 connects.
 
+**Added 2026-10-07:** four more SCORBASE captures (the pre-home joint jog, Go Home, Set Home if the menus have it, homing from a pose a few degrees off) are in [S1_CAPTURE_ADDENDUM.md](S1_CAPTURE_ADDENDUM.md). The first one tells us whether SCORBASE's joint jog moves one motor or the coupled motors.
+
 **Before SCORBASE starts:** with the controller just powered on, photograph the
 POWER and MOTORS LEDs (the manuals disagree on the start-up state).
 

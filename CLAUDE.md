@@ -116,7 +116,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | Guided session, first-visit procedure, PC setup | `docs/lab/LAB_SESSION.md`, `docs/lab/G1_LAB_CHECKLIST.md`, `docs/lab/ARM_CONTROL_BENCH.md`, `docs/lab/WINDOWS_BENCH_RUN.md` |
 | Prompt and warning design | `docs/design/OPERATOR_UX.md` |
 | Recording, session format, viewers | `docs/design/EXPERIMENT_RECORDING.md` |
-| Wireshark/USBPcap comparison | `docs/lab/USB_CAPTURE.md` |
+| Wireshark/USBPcap comparison | `docs/lab/USB_CAPTURE.md`, and for the open vendor questions `docs/lab/S1_CAPTURE_ADDENDUM.md` |
 | Measuring joint angles, CSV format | `docs/lab/PHYSICAL_CALIBRATION.md` |
 
 ## Before you change X, read Y
