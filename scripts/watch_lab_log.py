@@ -25,7 +25,8 @@ ALARM_EVENTS = {"command_timeout", "command_error", "command_interrupted", "feed
                 "home_failed", "following_error", "calibration_fault", "connect_failed",
                 "session_failed", "disable_skipped_worker_crashed",
                 "led_gate_failed", "jog_refused", "jog_failed", "disable_failed",
-                "counts_drift", "stop_settle_failed", "stream_fault", "stream_failed", "gripper_fault"}
+                "counts_drift", "stop_settle_failed", "stream_fault", "stream_failed", "gripper_fault",
+                "pre_home_failed", "park_failed"}
 # Every SDK command logs these around it; they bury the events worth reading.
 QUIET_EVENTS = {"command_start", "command_complete"}
 KNOWN_SWITCH_MASK = sum(HOME_SWITCH_BITS.values())

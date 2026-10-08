@@ -27,10 +27,10 @@ The arm is used to a routine: **every working session starts with the robot near
 | Step of the routine | Our tools | Status |
 |---|---|---|
 | Pre-power and post-power checks | `scripts/windows_usb_check.ps1`, the LED prompts in the lab session and bench scripts | The checks exist as prompts; the "no people, no obstacles" and noise/vibration items are on the operator |
-| Bring the arm near home before homing | None. `Scorbot.jog_joint` requires a home first. `home_inch` jogs before a home, but only inside its own search and only 30, 30 and 100 degrees | **Gap.** The vendor has a joint-mode manual move before homing; we do not. Today the arm has to be put near home by hand with the motors off |
+| Bring the arm near home before homing | `Scorbot.pre_home_jog` and the keyboard session's pre-home step (`python -m scorbot.lab --inch-home`): typed joint moves of at most 2 degrees, the coupled motors following | Built 2026-10-07, **never run on the arm**. Until it has been, put the arm near home by hand with the motors off |
 | Home | Legacy `home()` (needs a start pose near home); `home_inch` (any pose within a few tens of degrees; the elbow and wrist are coupled to the shoulder and are not moved with it) | Both unproven on the arm since 2026-09-29 |
 | Check movement, noise, "reaches home in every axis" | The operator's `HOME_OK` prompt and the home log | Exists |
-| End of session: Go Home, then control off | The lab session has `b` (back to start), which returns the joints to where they were right after homing, one 1 degree step at a time while armed; finishing the session just switches the motors off (`_finish`), and nothing suggests going back first | **Gap.** Without it the arm is left wherever the last move ended |
+| End of session: Go Home, then control off | `Scorbot.park_at_home` and the exit prompt of `--inch-home` ("return the arm to its home pose before the motors go off?"); `b` still returns to the session's home while armed | Built 2026-10-07, **never run on the arm** |
 
 ## The process to follow until the gaps are closed
 
@@ -42,5 +42,16 @@ The arm is used to a routine: **every working session starts with the robot near
 
 ## Open
 
-- Whether the pre-home joint move and the Go-Home-at-exit should be built into the lab session (they are what the vendor's routine assumes).
-- Whether homing from a folded pose can ever work without moving the coupled elbow and wrist motors with the shoulder (`docs/protocol/VENDOR_COUPLING_TRACE.md`). The vendor's own routine does not try: it starts near home.
+- Whether the coupled moves are right on the arm. The vectors and signs come from the vendor's own joint formulas and the simulator and the tests are built on the same formulas, so they cannot show a wrong wrist sign: only the trial below can.
+- The wrist roll and the gripper are not homed; nothing jogs the roll.
+
+## First trial of the coupled moves (before any homing)
+
+Supervised, hand at the physical stop, arm supported near its home pose, wrist set by eye. `python -m scorbot.lab --inch-home`, answer `y` to "Bring the arm near home first?", and:
+
+1. **Elbow direction check.** Type `ELBOW +2` five times, watching the gripper against the forearm: with the coupling right, the gripper turns with the forearm and the angle between them does not change (a phone level on each link helps). Then `ELBOW -2` five times. If the gripper tilts relative to the forearm, about twice as far as the elbow moved, the wrist sign is wrong: press the stop, end the session, send the log.
+2. **Shoulder check.** `SHOULDER +2` three times: the whole arm should lift with the angle at the elbow unchanged. If the elbow bends, the elbow sign is wrong: stop.
+3. **Base check.** `BASE +2` twice and back.
+4. Only then `HOME`, then at the end `PARK`.
+
+Any unusual noise, strain or motion: stop, do not retry in the same session, and keep the log (`logs\`).

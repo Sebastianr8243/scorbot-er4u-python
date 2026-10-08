@@ -12,10 +12,12 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import json
+import re
 import time
 
 from ..calibration import signed_count_delta
 from ..provenance import motion_source_sha256
+from ..robot import MotionStopped, ScorbotError
 from ..session import BestEffortRecorder, SessionWriter
 from ..state import JOINTS, switch_summary
 from .operator import ENTER, StatusLine
@@ -58,6 +60,27 @@ _MISMATCH_TEXT = {
 }
 
 
+PRE_HOME_JOINTS = {"base": "base", "b": "base", "shoulder": "shoulder", "s": "shoulder",
+                   "elbow": "elbow", "e": "elbow"}
+PRE_HOME_HELP = ("Pre-home move. Type a joint and degrees, for example SHOULDER +1, elbow -2 or "
+                 "base 1 (BASE, SHOULDER or ELBOW; at most 2 degrees a time). The elbow and "
+                 "the wrist pitch follow the shoulder, and the wrist pitch follows the elbow, as "
+                 "in SCORBASE's joint mode. There are no joint limits before home: watch the "
+                 "arm and keep your hand at the physical stop. Never run on the arm. Press "
+                 "Enter when the arm is near home.")
+
+
+def _parse_pre_home(text):
+    """``(joint, degrees)`` for a typed pre-home move, or a sentence saying what is wrong."""
+    match = re.fullmatch(r"\s*([A-Za-z]+)\s*([+-]?\d+(?:\.\d+)?)\s*", text)
+    if match is None:
+        return "Type a joint and degrees, for example SHOULDER +1."
+    joint = PRE_HOME_JOINTS.get(match.group(1).lower())
+    if joint is None:
+        return f"{match.group(1)!r} is not a joint to move here (BASE, SHOULDER or ELBOW)."
+    return joint, float(match.group(2))
+
+
 class Declined(Exception):
     """The operator chose not to continue; nothing further moves."""
 
@@ -80,6 +103,7 @@ class LabSession:
         self.rows: list[dict] = []
         self.robot = self.rec = self.fault = self.landmark = None
         self.homed = self.armed = self.enabled = False
+        self.unparked = None             # why a park the operator asked for did not complete
         self.joint, self.step = "base", STEPS[0]
         self.confirmed: set = set()
         self.travel = {"base": 0.0, "shoulder": 0.0, "elbow": 0.0}
@@ -121,7 +145,8 @@ class LabSession:
                         robot_id=self.profile.robot_id, data_source=self.data_source,
                         profile=asdict(self.profile), software_commit=self.software_commit,
                         motion_source_sha256=motion_source_sha256(),
-                        controller_event_log=self.events_path.name, led_prompts=True)
+                        controller_event_log=self.events_path.name, led_prompts=True,
+                        home_method="inch" if self.inch_home else "legacy")
             self._write("profile", **asdict(self.profile))
             writer = SessionWriter.create(
                 self.session_root, data_source=self.data_source,
@@ -173,6 +198,7 @@ class LabSession:
                 try:
                     self._home()
                     self._jog_loop()
+                    self._park()
                 except KeyboardInterrupt:
                     # Stop asking questions, but still request motors off.
                     if self.enabled:
@@ -186,7 +212,7 @@ class LabSession:
                 self._finish()
         finally:
             self._stop_camera()
-        return EXIT_FAILED if self.fault else EXIT_OK
+        return EXIT_FAILED if self.fault or self.unparked else EXIT_OK
 
     # -- camera ---------------------------------------------------------------
 
@@ -287,12 +313,15 @@ class LabSession:
         self.op.show(switch_summary(self.robot.get_state().home_switch_bits))
         self._write("start_pose", text=self.op.text("Start pose: does it match the photo? "
                                                     "Describe: ") or "not recorded")
+        if self.inch_home and self.op.choose(
+                "Bring the arm near home first? [y/n] ", {"y": "yes", "n": "no"}) == "yes":
+            # The vendor's routine: "bring the robot to a position near home, and activate the
+            # homing procedure" (arm manual p. 15). The motors must be on to move it.
+            self._enable_motors()
+            self._pre_home_loop()
         if not self.op.confirm("Type HOME to enable motors and search home: ", "HOME"):
             raise Declined("declined before homing")
-        self.enabled = True          # set first: a failed enable still gets a disable
-        self.robot.enable()
-        self._write("enabled")
-        self._led("after_enable", motors="lit", power="green", required=True)
+        self._enable_motors()
         if self.inch_home:
             command = self.rec.log_command("home", {"method": "inch", "operator_at_stop": True})
             self.robot.home_inch(operator_at_stop=True)
@@ -315,6 +344,86 @@ class LabSession:
         self._write("home_ok", answer=answer)
         if answer != "yes":
             raise Declined("stopped after homing; no jog requested")
+
+    def _enable_motors(self):
+        if self.enabled:
+            return
+        self.enabled = True          # set first: a failed enable still gets a disable
+        self.robot.enable()
+        self._write("enabled")
+        self._led("after_enable", motors="lit", power="green", required=True)
+
+    def _pre_home_loop(self):
+        """Typed joint moves before homing: ``SHOULDER +1``, ``elbow -2``, Enter when done."""
+        self.op.show(PRE_HOME_HELP)
+        while True:
+            text = self.op.text("pre-home move (Enter when the arm is near home): ").strip()
+            if not text:
+                break
+            parsed = _parse_pre_home(text)
+            if isinstance(parsed, str):
+                self.op.show(f"Cannot use '{text}': {parsed} Nothing moved.", "warn")
+                continue
+            joint, degrees = parsed
+            try:
+                self.robot.pre_home_jog(joint, degrees, operator_at_stop=True)
+            except MotionStopped:
+                self._write("pre_home_stopped", joint=joint, degrees=degrees)
+                self.op.show("Stopped: the arm is where the last jog left it.", "warn")
+                continue
+            except ValueError as refused:
+                self.op.show(f"Refused '{text}': {refused}. Nothing moved.", "warn")
+                continue
+            except ScorbotError as error:
+                self._write("pre_home_failed", joint=joint, degrees=degrees, error=str(error))
+                raise SessionFailed(str(error)) from error
+            state = self._state("pre_home_move", joint=joint, degrees=degrees)
+            self.op.show(f"Moved the {joint} {degrees:+g} degrees.")
+            self.op.show(switch_summary(state.home_switch_bits))
+        self._write("pre_home_done")
+
+    def _park(self):
+        """The vendor's "Go Home": offer to return the arm to its home pose before motors off."""
+        if not (self.inch_home and self.homed and self.enabled and self.fault is None):
+            return
+        if self.op.choose("Return the arm to its home pose before the motors go off? [y/n] ",
+                          {"y": "yes", "n": "no"}) != "yes":
+            self._write("park_declined")
+            self.op.show("The arm stays where it is: start the next session near home.")
+            return
+        if not self.armed:
+            # A disarm (idle, counts drift, a refused plan) is a safety decision: parking
+            # asks for the same LED check and ARM that a jog would.
+            self.op.show("The session is disarmed: parking needs the LED check and ARM again.")
+            self._arm()
+            if not self.armed:
+                self.op.show("Not armed: the arm stays where it is.")
+                return
+        self.op.show("Path clear, hand on the physical stop?")
+        if not self.op.confirm("Type PARK to return the arm to home: ", "PARK"):
+            self.op.show("Not parking.")
+            return
+        try:
+            result = self.robot.park_at_home(operator_at_stop=True)
+        except MotionStopped:
+            self.unparked = "the park was stopped"
+            self._write("park_stopped")
+            self.op.show("Park stopped: the arm is NOT at home.", "alarm")
+            return
+        except ScorbotError as error:
+            self._write("park_failed", error=str(error))
+            raise SessionFailed(str(error)) from error
+        self._state("park", parked=result["parked"], reason=result["reason"],
+                    errors=result["errors"])
+        if result["parked"]:
+            # Back at this session's recorded home counts. The wrist was not homed, so whether
+            # that is the vendor's home pose for the wrist is not verified.
+            self.op.show("Parked: back at this session's home pose; the wrist alignment is not "
+                         "verified.")
+        else:
+            self.unparked = result["reason"] or "the arm stopped short of its home counts"
+            self.op.show(f"NOT parked: {result['reason']}. Start the next session by moving "
+                         "the arm near home by hand.", "alarm")
 
     # -- jog loop -------------------------------------------------------------
 
@@ -697,5 +806,6 @@ class LabSession:
         self._disable()
         self._led("after_disable", motors="off")
         report = review_session_rows(self.rows)
-        self._write("summary", jogs=self.jogs, fault=self.fault, problems=len(report["problems"]))
+        self._write("summary", jogs=self.jogs, fault=self.fault, problems=len(report["problems"]),
+                    unparked=self.unparked)
         self.op.show(format_session_review(report))

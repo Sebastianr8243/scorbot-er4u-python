@@ -36,6 +36,10 @@ def review_session_rows(rows: list[dict]) -> dict:
                                 f"{row.get('count_differences')}")
         elif row.get("type") == "counts_drift":
             problems.append(f"counts drift before a step: {row.get('differences')}")
+        elif row.get("type") == "park" and not row.get("parked"):
+            problems.append(f"the arm was not parked: {row.get('reason')}")
+        elif row.get("type") == "park_stopped":
+            problems.append("the park was stopped: the arm is not at home")
     seen_leds = {r.get("step") for r in rows if r.get("type") == "led_observation"}
     problems += [f"LED observation missing {step}" for step in LAB_LED_STEPS
                  if step not in seen_leds]

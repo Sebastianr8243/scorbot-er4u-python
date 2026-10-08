@@ -19,6 +19,11 @@ OBS = ["t", "n", ""]                    # toward, no other joint, no note
 ARM = ["a", "door", "y", "g", "ARM"]  # first arming names the landmark; LEDs every time
 REARM = ["a", "y", "g", "ARM"]
 FINISH = ["x", "n", "g"]
+# --inch-home (the vendor routine) asks "bring the arm near home first?" before HOME and
+# "return home before the motors go off?" after the keys; these answer both with no.
+INCH_NO_PRE_HOME = CHECKLIST + ["n", "g", "pose matches photo", "n", "HOME", "y", "g",
+                                "all axes homed", "y"]
+NO_PARK = ["x", "n"]
 MIXED = ["q", "BASE -1"] + OBS + ["q"] + OBS + ["e", "ELBOW -1"] + OBS  # base -2, elbow -1
 JOG_ORDERS = set(range(4, 14))
 
@@ -186,13 +191,128 @@ class LabSessionTests(unittest.TestCase):
         self.ctrl = SimulatedController(profile=SimulatorProfile(model_homing=True),
                                         start_counts={"base": 2000, "shoulder": -1500,
                                                       "elbow": 1200})
-        code = self.run_session(TO_LOOP + FINISH, inch_home=True)
+        code = self.run_session(INCH_NO_PRE_HOME + NO_PARK + FINISH[1:], inch_home=True)
         self.assertEqual(code, EXIT_OK)
         self.assertEqual([row.get("method") for row in self.of("home_complete")], ["inch"])
         orders = {c[0] for c in self.ctrl.commands if c}
         self.assertFalse(orders & {18}, "no legacy home order was sent")
         self.assertTrue(orders & set(range(4, 10)), "the joints were inched with legacy jogs")
         self.assertIn("Inch homing", " ".join(self.op.shown))
+
+    def routine_controller(self):
+        from scorbot.simulated import SimulatorProfile
+        self.ctrl = SimulatedController(profile=SimulatorProfile(model_homing=True),
+                                        start_counts={"base": 600, "shoulder": -500,
+                                                      "elbow": 200})
+
+    def test_pre_home_moves_then_home_then_park_follow_the_vendor_routine(self):
+        # Pose, "bring it near home first" yes, enable and LED check, two typed moves, Enter,
+        # then HOME, the home observation, home ok; at the end "return home" yes and PARK.
+        self.routine_controller()
+        answers = (CHECKLIST + ["n", "g", "pose matches photo", "y", "y", "g",
+                                "SHOULDER +1", "elbow -2", "base 1", "",
+                                "HOME", "all axes homed", "y"]
+                   + ["x", "y", "door", "y", "g", "ARM", "PARK"] + FINISH[1:])
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_OK)
+        self.assertIn("wrist alignment is not verified", " ".join(self.op.shown))
+        moves = self.of("pre_home_move")
+        self.assertEqual([(m["joint"], m["degrees"]) for m in moves],
+                         [("shoulder", 1.0), ("elbow", -2.0), ("base", 1.0)])
+        self.assertEqual(len(self.of("enabled")), 1, "the motors were enabled once")
+        self.assertEqual([r.get("method") for r in self.of("home_complete")], ["inch"])
+        parked = self.of("park")
+        self.assertEqual(len(parked), 1)
+        self.assertTrue(parked[0]["parked"], parked[0])
+        orders = [c[0] for c in self.ctrl.commands if c]
+        self.assertNotIn(18, orders)
+        self.assertTrue(set(orders) & {10, 11}, "the wrist pitch followed")
+        self.assertFalse(set(orders) & {12, 13}, "never a wrist roll")
+        # the switch line is shown after every move
+        self.assertGreaterEqual(sum("Home switches now" in s for s in self.op.shown), 4)
+
+    def test_a_pre_home_command_that_is_not_allowed_moves_nothing_and_asks_again(self):
+        self.routine_controller()
+        answers = (CHECKLIST + ["n", "g", "pose matches photo", "y", "y", "g",
+                                "WRIST +1", "SHOULDER +9", "SHOULDER", "gripper 1", "base x",
+                                "SHOULDER +1", "",
+                                "HOME", "all axes homed", "y"]
+                   + ["x", "n"] + FINISH[1:])
+        before = len(self.ctrl.commands)
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(len(self.of("pre_home_move")), 1)       # only the one good command
+        shown = " ".join(self.op.shown)
+        for refused in ("WRIST +1", "SHOULDER +9", "gripper 1"):
+            self.assertIn(refused, shown)
+        self.assertGreater(len(self.ctrl.commands), before)
+
+    def test_park_after_a_disarm_needs_the_arming_checks_again(self):
+        # A disarm (idle, counts drift, a refused plan) is a safety decision: the park must not
+        # move the arm past it. It asks for the LED check and ARM again, like a jog would.
+        self.routine_controller()
+
+        def idle_then_help():
+            self.clock.t += 90.0              # past IDLE_DISARM_S: the next key disarms
+            return "?"
+
+        answers = (INCH_NO_PRE_HOME + ARM + [idle_then_help, "x", "y", "y", "g", "ARM", "PARK"]
+                   + FINISH[1:])
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(len(self.of("armed")), 2, "armed for the keys, and again to park")
+        self.assertEqual(len(self.of("park")), 1)
+        self.assertIn("disarm", " ".join(self.op.shown).lower())
+
+    def test_a_park_the_operator_does_not_rearm_for_moves_nothing(self):
+        self.routine_controller()
+        answers = INCH_NO_PRE_HOME + ["x", "y", "door", "y", "g", "n"] + FINISH[1:]
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(self.of("park"), [])
+
+    def test_a_park_that_did_not_complete_fails_the_session_and_says_so(self):
+        self.routine_controller()
+
+        def displace_the_roll_then_yes():
+            with self.ctrl._lock:             # both wrist motors the same way: a roll
+                self.ctrl.counts["wrist_motor_1"] += 200
+                self.ctrl.counts["wrist_motor_2"] += 200
+            return "y"
+
+        answers = (INCH_NO_PRE_HOME + ["x", displace_the_roll_then_yes, "door", "y", "g", "ARM",
+                                       "PARK"] + FINISH[1:])
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_FAILED)
+        self.assertFalse(self.of("park")[0]["parked"])
+        self.assertIn("NOT parked", " ".join(self.op.shown))
+        summary = self.of("summary")[0]
+        self.assertGreaterEqual(summary["problems"], 1)
+        self.assertTrue(summary["unparked"])
+
+    def test_declining_the_park_leaves_the_arm_where_it_is(self):
+        self.routine_controller()
+        answers = INCH_NO_PRE_HOME + ["x", "n"] + FINISH[1:]
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(self.of("park"), [])
+
+    def test_a_fault_during_a_pre_home_move_ends_the_session_with_the_motors_off(self):
+        self.routine_controller()
+        self.ctrl.inject("controller_error")
+        answers = (CHECKLIST + ["n", "g", "pose matches photo", "y", "y", "g",
+                                "SHOULDER +1"] + FINISH[1:])
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_FAILED)
+        self.assertIn("session_failed", self.types())
+        self.assertIn(16, [c[0] for c in self.ctrl.commands if c])   # motors off
+
+    def test_the_legacy_flow_has_neither_the_pre_home_question_nor_the_park(self):
+        code = self.run_session(TO_LOOP + FINISH)
+        self.assertEqual(code, EXIT_OK)
+        shown = " ".join(self.op.shown)
+        self.assertNotIn("near home first", shown)
+        self.assertNotIn("PARK", shown)
 
     def test_the_legacy_home_is_still_the_default(self):
         code = self.run_session(TO_LOOP + FINISH)

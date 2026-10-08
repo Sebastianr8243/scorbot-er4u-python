@@ -28,6 +28,16 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
   elbow joint (shoulder plus elbow counts). A bug the tests found: a fresh target
   per pre-home command lost the small coupled amounts and the wrist never moved
   (12 degrees of pitch drift); the target now lives for the whole phase.
+- **Keyboard session (`python -m scorbot.lab --inch-home`):** the vendor routine. After
+  the start pose question, "Bring the arm near home first?" enables the motors (same LED
+  check) and takes typed moves (`SHOULDER +1`, `elbow -2`, `base 1`; the SDK refuses a wrist
+  joint or more than 2 degrees), showing the switch line after each; `HOME` then runs the
+  inch home; after the keys "Return the arm to its home pose before the motors go off?"
+  and `PARK` run `park_at_home` and say NOT parked, and why, when it cannot. The default
+  flow is unchanged. Reviewed by Codex and an Opus agent; their findings (a stale pre-home
+  target after a stopped home that drove the shoulder about 9 degrees, a stop lost during
+  a wrist jog or in the park, the travel cap reopening on disable, the park calling a
+  displaced roll parked, a mid-move gate refusal not latching) were fixed with tests.
 - **Not proven:** the signs and sizes on the arm. A wrong wrist sign doubles the
   pitch swing. The first trial must be a visual direction check: an elbow move of
   2 degrees should leave the gripper aligned with the forearm, then a shoulder move
