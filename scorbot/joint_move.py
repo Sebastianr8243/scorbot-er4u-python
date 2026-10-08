@@ -38,8 +38,11 @@ FINAL_MIN_COUNTS = 30
 
 # The most one jog of a coupled move asks of a motor, in counts (about a degree of the joint;
 # the wrist pitch jog moves its two motors by this many counts each, opposite ways). Larger
-# amounts are split, so the motors are never far from the coupled path.
-STEP_LIMIT_COUNTS = {"base": 150, "shoulder": 120, "elbow": 120, "wrist_pitch": 80}
+# amounts are split, so the motors are never far from the coupled path. The wrist step is the
+# smallest: the legacy wrist loop takes no stop event, so a wrist jog cannot be cut short and
+# should end within about two seconds; 60 counts is also the size from which a step is
+# progress-checked, and about 1.8 legacy wrist degrees, under the jog ceiling of 2.
+STEP_LIMIT_COUNTS = {"base": 150, "shoulder": 120, "elbow": 120, "wrist_pitch": 60}
 # A jog this large (in counts) must have moved at least 40 percent of what was asked, or the
 # joint is not following (a hard stop, no power): the move stops before the next jog.
 PROGRESS_CHECK_COUNTS = 60
@@ -135,18 +138,20 @@ class CoupledTarget:
 
 
 def run(target: CoupledTarget, read: Callable[[], dict], jog: Callable[[str, int], None], *,
-        primary: str | None, final: bool = False, max_passes: int = 3) -> None:
+        primary: str | None, final: bool = False, max_passes: int = 3) -> bool:
     """Make the jogs ``target`` asks for until none is left or ``max_passes`` is reached.
 
     ``read()`` returns the current encoder counts; ``jog(name, counts)`` performs one jog.
-    Each pass re-reads the arm, so a jog that landed short is corrected on the next.
+    Each pass re-reads the arm, so a jog that landed short is corrected on the next. Returns
+    whether nothing was left to do (False: the passes ran out with an error still owed).
     """
     for _ in range(max_passes):
         jogs = target.next_jogs(read(), primary=primary, final=final)
         if not jogs:
-            return
+            return True
         for name, counts in jogs:
             jog(name, counts)
+    return not target.next_jogs(read(), primary=primary, final=final)
 
 
 def proportional_jogs(owed: dict[str, float], limits: dict[str, int], *,

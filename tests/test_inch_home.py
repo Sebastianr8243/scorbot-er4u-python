@@ -478,6 +478,21 @@ class HomeInchTests(SimulatedRobotCase):
         self.assertIn("UNEXPECTED BITS 0x20", bench_joint.switch_summary(0b100000))
         self.assertIn("do not home", bench_joint.switch_summary(0b100000))
 
+    def test_a_stopped_home_leaves_no_stale_pre_home_target(self):
+        # The pre-home phase keeps a cumulative target. A home that moved the arm (and was
+        # stopped) must not leave it behind: the next pre-home call would drive the arm back
+        # toward the old target (about 9 degrees of shoulder in the review's repro).
+        robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)
+        robot.pre_home_jog("base", 0.5, operator_at_stop=True)
+        self.stop_after_jog(robot, 25)
+        with self.assertRaises(MotionStopped):
+            robot.home_inch(operator_at_stop=True)
+        shoulder_before = robot.get_state().signed_encoder_counts["shoulder"]
+        self.assertGreater(abs(shoulder_before + 3000), 300, "the search moved the shoulder")
+        robot.pre_home_jog("base", 0.5, operator_at_stop=True)
+        shoulder_after = robot.get_state().signed_encoder_counts["shoulder"]
+        self.assertAlmostEqual(shoulder_after, shoulder_before, delta=40)
+
     def test_it_is_in_the_motion_fingerprint(self):
         from scorbot import provenance
         self.assertIn("scorbot/inch_home.py", provenance._SOURCE_FILES)

@@ -45,6 +45,23 @@ class VectorTests(unittest.TestCase):
         self.assertAlmostEqual(elbow["wrist_motor_1"], -elbow["wrist_motor_2"], delta=0.2)
         self.assertEqual({m for m, c in base.items() if c}, {"base"})
 
+    def test_the_vectors_match_the_numbers_in_the_coupling_trace(self):
+        # docs/protocol/VENDOR_COUPLING_TRACE.md: moving the shoulder by Ds counts holding every
+        # other joint angle is (shoulder Ds, elbow -Ds, m1 -0.246 Ds, m2 +0.246 Ds); the elbow
+        # joint moves its motor and the same wrist pair. Counts per degree here. A flipped sign
+        # in any of them would double a swing instead of cancelling it.
+        expected = {
+            "base": {"base": -141.8},
+            "shoulder": {"shoulder": 113.5, "elbow": -113.5,
+                         "wrist_motor_1": -27.85, "wrist_motor_2": 27.85},
+            "elbow": {"elbow": -113.5, "wrist_motor_1": -27.85, "wrist_motor_2": 27.85},
+        }
+        for joint, numbers in expected.items():
+            vec = joint_move.vector(joint)
+            for motor in MOTORS:
+                self.assertAlmostEqual(vec[motor], numbers.get(motor, 0.0), delta=0.3,
+                                       msg=(joint, motor))
+
     def test_the_wrist_is_always_a_pure_pitch_never_a_roll(self):
         for joint in joint_move.JOINTS:
             vec = joint_move.vector(joint)
@@ -166,6 +183,14 @@ class LedgerTests(unittest.TestCase):
 
 
 class ConstantsTests(unittest.TestCase):
+    def test_a_wrist_step_is_progress_checked_and_stays_under_the_jog_ceiling(self):
+        # A wrist jog cannot be cut short by a stop (the legacy wrist loop takes no stop event),
+        # so it is small; and it is large enough to be checked for progress.
+        step = joint_move.STEP_LIMIT_COUNTS["wrist_pitch"]
+        self.assertGreaterEqual(step, joint_move.PROGRESS_CHECK_COUNTS)
+        self.assertLessEqual(step, 60)
+        self.assertLessEqual(step / 33.8, 2.0)                  # legacy pitch scale, ceiling 2
+
     def test_the_thresholds_sit_around_the_legacy_settle_band(self):
         # The legacy jog ends within 20 counts of its target (libcomm settle loop).
         self.assertGreaterEqual(joint_move.PRIMARY_MIN_COUNTS, 20)

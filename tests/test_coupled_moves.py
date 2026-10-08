@@ -148,7 +148,10 @@ class CoupledMoveTests(SimulatedRobotCase):
         robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)       # another joint is open
         robot.disable()
         robot.enable()
-        robot.pre_home_jog("base", 1.0, operator_at_stop=True)           # disable resets the cap
+        # The cap bounds the whole session, not one enable: cycling the motors does not reopen it.
+        robot.pre_home_jog("base", 2.0, operator_at_stop=True)           # back at 60 degrees
+        with self.assertRaisesRegex(ValueError, "cap"):
+            robot.pre_home_jog("base", 1.0, operator_at_stop=True)
 
     def test_a_stop_request_ends_it_without_a_fault(self):
         robot = self.robot()
@@ -157,6 +160,54 @@ class CoupledMoveTests(SimulatedRobotCase):
             robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
         self.assertIsNone(robot._fault)
         robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)       # the next one runs
+
+    def test_an_interrupted_move_leaves_nothing_owed_for_the_next_one(self):
+        # A move that was stopped must not leave its unmet distance in the target: the next
+        # command would do both, while the travel cap counted only the second.
+        robot = self.robot()
+        robot.request_stop()
+        with self.assertRaises(MotionStopped):
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)
+        self.assertAlmostEqual(self.angles(robot)["shoulder"], HOME["shoulder"] + 1.0, delta=0.5)
+        self.assertAlmostEqual(robot._prehome_travel["shoulder"], 1.0, delta=0.3)
+
+    def test_the_travel_cap_counts_what_the_arm_moved_not_what_was_asked(self):
+        robot = self.robot()
+        original, jogs = robot._command, [0]
+
+        def command(payload, **kwargs):
+            original(payload, **kwargs)
+            if payload[0] in (6, 7):                 # after the first shoulder jog, a stop
+                jogs[0] += 1
+                robot._stop_event.set()
+
+        robot._command = command
+        with self.assertRaises(MotionStopped):
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+        moved = (self.angles(robot)["shoulder"] - HOME["shoulder"])
+        self.assertGreater(moved, 0.5)
+        self.assertAlmostEqual(robot._prehome_travel["shoulder"], moved, delta=0.3)
+
+    def test_a_stop_that_arrives_with_a_wrist_jog_is_not_lost(self):
+        # The legacy wrist loop takes no stop event, so a request made while it runs can only
+        # be honoured afterwards: before the next jog, or at the end of the move.
+        robot = self.robot()
+        original = robot._command
+        seen = []
+
+        def command(payload, **kwargs):
+            original(payload, **kwargs)
+            seen.append(payload[0])
+            if payload[0] in (10, 11):
+                robot._stop_event.set()
+
+        robot._command = command
+        with self.assertRaises(MotionStopped):
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+        self.assertEqual(seen[-1] in (10, 11), True, "nothing was sent after the wrist jog")
+        self.assertIsNone(robot._fault)
+        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)       # the stop was spent
 
     def test_a_joint_that_does_not_follow_faults_before_the_next_jog(self):
         robot = self.robot()
@@ -237,6 +288,72 @@ class ParkTests(SimulatedRobotCase):
             robot.park_at_home(operator_at_stop=True)
         self.assertIsNone(robot._fault)
         self.assertTrue(robot._homed)
+
+    def test_a_stop_that_arrives_with_a_wrist_jog_ends_the_park(self):
+        robot = self.moved_robot()
+        with robot.sim._lock:                      # the wrist pitch is off home: a wrist jog is due
+            robot.sim.counts["wrist_motor_1"] += 300
+            robot.sim.counts["wrist_motor_2"] -= 300
+        original, seen = robot._command, []
+
+        def command(payload, **kwargs):
+            original(payload, **kwargs)
+            seen.append(payload[0])
+            if payload[0] in (10, 11):
+                robot._stop_event.set()
+
+        robot._command = command
+        with self.assertRaises(MotionStopped):
+            robot.park_at_home(operator_at_stop=True)
+        self.assertIn(seen[-1], (10, 11), "nothing was sent after the wrist jog")
+        self.assertIsNone(robot._fault)
+        self.assertTrue(robot._homed)
+
+    def test_a_wrist_roll_the_park_cannot_correct_is_reported_not_hidden(self):
+        # Both wrist motors off in the same direction is a roll. Nothing may jog a roll, so
+        # the park cannot fix it; it must not call the arm parked.
+        robot = self.robot()
+        with robot.sim._lock:
+            robot.sim.counts["wrist_motor_1"] += 200
+            robot.sim.counts["wrist_motor_2"] += 200
+        before = len(robot.sim.commands)
+        result = robot.park_at_home(operator_at_stop=True)
+        self.assertFalse(result["parked"], result)
+        self.assertIn("roll", result["reason"])
+        self.assertTrue({c[0] for c in robot.sim.commands[before:] if c} <= ALLOWED_ORDERS)
+
+    def test_a_wrist_motor_that_does_not_follow_faults_the_park(self):
+        # The pitch jog moves two motors; a lag on the second one must not hide behind the first.
+        robot = self.robot()
+        with robot.sim._lock:
+            robot.sim.counts["wrist_motor_1"] += 300
+            robot.sim.counts["wrist_motor_2"] -= 300
+        original = robot._command
+
+        def command(payload, **kwargs):
+            if payload[0] in (10, 11):
+                with robot.sim._lock:
+                    kept = robot.sim.counts["wrist_motor_2"]
+                original(payload, **kwargs)
+                with robot.sim._lock:
+                    robot.sim.counts["wrist_motor_2"] = kept        # motor 2 did not move
+            else:
+                original(payload, **kwargs)
+
+        robot._command = command
+        with self.assertRaisesRegex(ScorbotError, "did not follow"):
+            robot.park_at_home(operator_at_stop=True)
+        self.assertIsNotNone(robot._fault)
+
+    def test_a_jog_ceiling_too_small_for_a_wrist_step_is_refused_up_front(self):
+        robot = self.robot()
+        robot.max_jog_degrees = 1.5
+        queued = list(robot.sim.commands)
+        with self.assertRaises(ValueError):
+            robot.pre_home_jog("base", 1.0, operator_at_stop=True)
+        with self.assertRaises(ValueError):
+            robot.park_at_home(operator_at_stop=True)
+        self.assertEqual(robot.sim.commands, queued)
 
     def test_a_joint_that_does_not_follow_faults_the_park(self):
         robot = self.moved_robot()
