@@ -264,6 +264,29 @@ class LabSessionTests(unittest.TestCase):
         self.assertEqual(len(self.of("park")), 1)
         self.assertIn("disarm", " ".join(self.op.shown).lower())
 
+    def test_x_after_a_long_idle_still_needs_a_fresh_arming_to_park(self):
+        # Pressing x leaves the key loop before the idle check runs, so the session still
+        # believes it is armed. The park must not trust that.
+        self.routine_controller()
+
+        def idle_then_x():
+            self.clock.t += 90.0
+            return "x"
+
+        answers = (INCH_NO_PRE_HOME + ARM + [idle_then_x, "y", "y", "g", "ARM", "PARK"]
+                   + FINISH[1:])
+        code = self.run_session(answers, inch_home=True)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(len(self.of("armed")), 2, "armed for the keys, and again to park")
+        self.assertEqual(len(self.of("park")), 1)
+
+    def test_the_inch_home_warning_does_not_claim_the_coupled_motors_are_held(self):
+        self.routine_controller()
+        self.run_session(INCH_NO_PRE_HOME + NO_PARK + FINISH[1:], inch_home=True)
+        shown = " ".join(self.op.shown)
+        self.assertNotIn("motors held", shown)
+        self.assertIn("follow", shown)
+
     def test_a_park_the_operator_does_not_rearm_for_moves_nothing(self):
         self.routine_controller()
         answers = INCH_NO_PRE_HOME + ["x", "y", "door", "y", "g", "n"] + FINISH[1:]
@@ -283,12 +306,24 @@ class LabSessionTests(unittest.TestCase):
         answers = (INCH_NO_PRE_HOME + ["x", displace_the_roll_then_yes, "door", "y", "g", "ARM",
                                        "PARK"] + FINISH[1:])
         code = self.run_session(answers, inch_home=True)
+        # The wrist drifted with nothing commanded: the fresh drift check refuses to park.
         self.assertEqual(code, EXIT_FAILED)
-        self.assertFalse(self.of("park")[0]["parked"])
-        self.assertIn("NOT parked", " ".join(self.op.shown))
+        self.assertEqual(self.of("park"), [], "the park never ran")
+        self.assertEqual(len(self.of("counts_drift")), 1)
         summary = self.of("summary")[0]
         self.assertGreaterEqual(summary["problems"], 1)
         self.assertTrue(summary["unparked"])
+
+    def test_the_log_review_flags_a_park_that_did_not_complete(self):
+        from scorbot.lab.review import review_session_rows
+        base = [{"type": "session"}]
+        baseline = len(review_session_rows(base)["problems"])   # a bare session has its own
+        clean = review_session_rows(base + [{"type": "park", "parked": True, "reason": None}])
+        self.assertEqual(len(clean["problems"]), baseline)
+        for row in ({"type": "park", "parked": False, "reason": "stopped short"},
+                    {"type": "park_stopped"}):
+            with self.subTest(row=row["type"]):
+                self.assertEqual(len(review_session_rows(base + [row])["problems"]), baseline + 1)
 
     def test_declining_the_park_leaves_the_arm_where_it_is(self):
         self.routine_controller()

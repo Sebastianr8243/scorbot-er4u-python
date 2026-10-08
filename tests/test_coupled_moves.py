@@ -219,6 +219,23 @@ class CoupledMoveTests(SimulatedRobotCase):
         self.assertIsNotNone(robot._fault)
         self.assertIn("pre_home_failed", self.events())
 
+    def test_coupled_motors_that_stay_short_after_the_final_settle_fault_the_move(self):
+        # A wrist that ignores small jogs is not progress-checked (under 60 counts), but the
+        # move must not report success while the elbow angle is no longer held.
+        robot = self.robot()
+        original = robot._command
+
+        def command(payload, **kwargs):
+            if payload[0] not in (10, 11):           # the wrist pitch jogs are dropped
+                original(payload, **kwargs)
+
+        robot._command = command
+        with self.assertRaisesRegex(ScorbotError, "did not settle"):
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+        self.assertIsNotNone(robot._fault)
+        self.assertIn("pre_home_failed", self.events())
+        self.assertIn("coupled_unsettled", self.events())
+
     def test_a_controller_error_latches_and_names_the_joint(self):
         robot = self.robot()
         robot.sim.inject("controller_error")
@@ -344,6 +361,34 @@ class ParkTests(SimulatedRobotCase):
         with self.assertRaisesRegex(ScorbotError, "did not follow"):
             robot.park_at_home(operator_at_stop=True)
         self.assertIsNotNone(robot._fault)
+
+    def refuse_after(self, robot, allowed):
+        original, calls = robot._jog_joint, [0]
+
+        def jog(*args, **kwargs):
+            calls[0] += 1
+            if calls[0] > allowed:
+                raise ValueError("a gate refused the next step")
+            return original(*args, **kwargs)
+
+        robot._jog_joint = jog
+
+    def test_a_park_refused_before_it_moved_anything_is_not_a_fault(self):
+        robot = self.moved_robot()
+        self.refuse_after(robot, 0)
+        result = robot.park_at_home(operator_at_stop=True)
+        self.assertFalse(result["parked"])
+        self.assertIn("gate refused", result["reason"])
+        self.assertIsNone(robot._fault)
+
+    def test_a_park_refused_part_way_latches_a_fault_and_switches_the_motors_off(self):
+        robot = self.moved_robot()
+        self.refuse_after(robot, 1)
+        with self.assertRaisesRegex(ScorbotError, "part-way"):
+            robot.park_at_home(operator_at_stop=True)
+        self.assertIsNotNone(robot._fault)
+        self.assertIn("park_failed", self.events())
+        self.assertIn(16, [c[0] for c in robot.sim.commands if c])     # motors off
 
     def test_a_jog_ceiling_too_small_for_a_wrist_step_is_refused_up_front(self):
         robot = self.robot()

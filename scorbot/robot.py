@@ -794,12 +794,27 @@ class Scorbot:
             run.anchor = read()
 
         def settle():
-            if not joint_move.run(target, read, jog, primary=None, final=True):
-                self._record("coupled_unsettled", owed=target.owed(read()))
+            converged = joint_move.run(target, read, jog, primary=None, final=True)
             run.anchor = read()
+            if not converged:
+                # The coupled motors still owe more than a jog can fix: the elbow angle and the
+                # wrist are no longer where the move meant to hold them. Not a success.
+                owed = target.owed(run.anchor)
+                self._record("coupled_unsettled", owed=owed)
+                raise joint_move.StallError(
+                    f"the coupled motors did not settle; still owed (counts): {owed}")
 
         run.move, run.settle = move, settle
         return run
+
+    def _moved_since(self, before, threshold_counts: int = 10) -> bool:
+        """True if any arm motor is now more than a few counts from ``before``; fails closed."""
+        try:
+            now = self._motion_state().encoder_counts
+            return any(abs(signed_count_delta(now[m], before.encoder_counts[m])) > threshold_counts
+                       for m in source_model.MOTORS)
+        except Exception:
+            return True
 
     def _fail_coupled(self, kind: str, joint, message: str) -> ScorbotError:
         """A coupled move failed for a reason that is a fault: motors off, latch, record."""
@@ -950,6 +965,11 @@ class Scorbot:
                 else:
                     reason = "the park ran out of passes"
             except ValueError as exc:     # a gate refused the next step; nothing was sent for it
+                if self._moved_since(before):
+                    # Part of the park already ran: motor and home state are no longer what the
+                    # session believes, so this is a fault, not a polite "not parked".
+                    raise self._fail_coupled(
+                        "park_failed", None, f"Park stopped part-way: {exc}") from exc
                 reason = str(exc)
             except joint_move.StallError as exc:
                 raise self._fail_coupled(

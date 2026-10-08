@@ -302,9 +302,10 @@ class LabSession:
         if self.inch_home:
             self.op.show("HOME NEEDED. Inch homing: shoulder, elbow and base are moved a degree "
                          "at a time to find each switch (up to 30, 30 and 100 degrees each way). "
-                         "Start the arm within a few tens of degrees of its home pose: with the "
-                         "elbow and wrist motors held, a long shoulder sweep forces the elbow into "
-                         "its stop. The wrist is NOT homed: set it by eye (gripper down and "
+                         "Start the arm within a few tens of degrees of its home pose: the elbow and "
+                         "wrist pitch motors follow the shoulder in coupled moves (never run on "
+                         "the arm), and a long sweep can still force a joint into its stop. The "
+                         "wrist is NOT homed: set it by eye (gripper down and "
                          "forward, about 64 degrees below horizontal). A missed switch can drive a "
                          "joint into its stop. Never run on the arm.", "warn")
         else:
@@ -391,14 +392,22 @@ class LabSession:
             self._write("park_declined")
             self.op.show("The arm stays where it is: start the next session near home.")
             return
+        # The park is its own motion phase. Leaving the key loop with x skips the idle check, so
+        # "armed" may be stale; a disarm (idle, counts drift, a refused plan) is a safety
+        # decision. Either way it asks for the same LED check and ARM that a jog would, and for
+        # a fresh drift check.
+        self._disarm("the park needs a fresh arming")
+        self._arm()
         if not self.armed:
-            # A disarm (idle, counts drift, a refused plan) is a safety decision: parking
-            # asks for the same LED check and ARM that a jog would.
-            self.op.show("The session is disarmed: parking needs the LED check and ARM again.")
-            self._arm()
-            if not self.armed:
-                self.op.show("Not armed: the arm stays where it is.")
-                return
+            self.op.show("Not armed: the arm stays where it is.")
+            return
+        try:
+            now = self.robot.get_state()
+        except Exception as error:
+            raise SessionFailed(str(error)) from error
+        if not self._drift_ok(now):
+            self.unparked = "the counts moved with nothing commanded; the park did not run"
+            return
         self.op.show("Path clear, hand on the physical stop?")
         if not self.op.confirm("Type PARK to return the arm to home: ", "PARK"):
             self.op.show("Not parking.")
