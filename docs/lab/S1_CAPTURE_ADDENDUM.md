@@ -2,7 +2,27 @@
 
 Written 2026-10-07. Do these in the same session as the [S1 card](S1_CAPTURE_LAB_CARD.md), with the same setup (Intelitek driver back, USBPcap on, one program connected, someone at the physical stop, the arm near home). They are SCORBASE captures only: nothing here runs our code on the arm. Analysis is offline, as in [USB_CAPTURE.md](USB_CAPTURE.md).
 
-Why these four: the desk traces ([VENDOR_MANUAL_MOVE_TRACE.md](../protocol/VENDOR_MANUAL_MOVE_TRACE.md), [VENDOR_HOMING_TRACE.md](../protocol/VENDOR_HOMING_TRACE.md)) say what the DLL would send. They cannot say what SCORBASE's front end asks of the DLL, or what the controller does with it. The first trial's biggest unknown, whether the wrist moves the way our coupled move assumes, is also the thing a capture of SCORBASE's own joint jog can show without moving the arm ourselves.
+## What the desk work already settled (2026-10-08), so these captures are optional
+
+Before taking any of these, note that reading the DLL and doing the arithmetic answers most of them. In order of how much the capture would still add:
+
+| Question | Answer from the desk | Tag | What a capture would add |
+|---|---|---|---|
+| **J.** Is Go Home one controller command? | **No.** None of the DLL's exported functions is a Go Home (the list was checked in the 2018 build). At the end of `Home` it stores the position named `0` (`Here`, [VENDOR_HOMING_TRACE.md](../protocol/VENDOR_HOMING_TRACE.md) step 6), and all motion in this DLL is a PC-streamed `0D` setpoint move ([VENDOR_DLL_PROTOCOL.md](../protocol/VENDOR_DLL_PROTOCOL.md)). So Go Home is an ordinary move to stored point 0. BACKLOG 38's "if it is a single command" is answered: it is not. `park_at_home` is the right shape. | V for the exports, I for how SCORBASE calls it | Only the speed profile of the move |
+| **K.** What does `SetHome` do? | The code ORs the homed mask and sends `48` value 0 per axis. `Home` itself uses `48` right after the switch edge to zero the counter at that point, so `48` is "zero the counter here". `PROTOCOL.md` line 381 ("only stores a position, does not mark homed") is contradicted by the code. | V for the calls, I for the effect, high confidence | Confirms `48`'s payload; needed before it goes into our code (the project rule) |
+| **L.** Does the vendor home tolerate a slightly-off start? | **Yes, by design.** Each homing type handles a start on the switch (drive off first), and `home_inch` and its tests follow the trace ([VENDOR_HOMING_TRACE.md](../protocol/VENDOR_HOMING_TRACE.md) section 3 and the table at section 7). The limit is the per-axis `MaxDistance` in the summary table at the top of that trace, not a rule that the start must be exact. | V | The axis order on this controller |
+| **I.** Does SCORBASE's joint jog move one motor? | The only manual-move API in the DLL (`MoveManual`) drives one motor (V). What the SCORBASE front end sends is not in the DLL. | V for the API | The front end's behavior, for the wrist buttons especially |
+
+**The wrist sign is a smaller risk than earlier notes said.** Two reasons, both checkable:
+
+1. *Structure agrees from two independent sources.* The legacy jog table (written by the OpenScorbot authors for a real arm) has pitch as wrist motors 1 and 2 moving **opposite** ways (orders 10 and 11) and roll as both the **same** way (12 and 13). The vendor DLL's own conversion has the same structure: pitch depends on `(e3 - e4) / 2`, roll on `(e3 + e4) / 2`. The scales differ (legacy 33.8 counts per degree of pitch, vendor 27.9), but our coupled moves work in the vendor's counts and ask the legacy plan for the matching jog, so the scale difference cancels.
+2. *A wrong sign is caught by the readback, and it is cheap.* Every jog is read back and the next step is checked. `tests/test_coupled_moves.py::test_a_wrist_that_physically_moves_the_wrong_way_is_caught_within_a_few_degrees` flips the simulated wrist's physical response: the move faults after two wrist jogs, with about 4 degrees of wrist pitch swing, no roll, motors off. That bound holds only if the real encoders report truthfully, which is what the first supervised trial still checks.
+
+What thinking cannot settle: whether the real order table and the encoders behave like the model, switch polarity, and the hard stops. Those are the lab's.
+
+## The captures, if you want them
+
+Why these four: the desk traces say what the DLL would send. They cannot say what SCORBASE's front end asks of the DLL, or what the controller does with it. Capture I is the most useful of the four because it shows the front end's wrist behavior from the vendor's own traffic.
 
 | Save as | Steps in SCORBASE | Write down | Settles |
 |---|---|---|---|

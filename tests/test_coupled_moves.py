@@ -354,6 +354,45 @@ class CoupledMoveTests(SimulatedRobotCase):
         self.assertIsNotNone(robot._fault)
         self.assertIn(16, [c[0] for c in robot.sim.commands if c])
 
+    @staticmethod
+    def reverse_the_wrist(robot):
+        """Make the simulated wrist physically do the opposite of every pitch jog."""
+        original = robot._command
+
+        def reversed_wrist(payload, **kwargs):
+            if payload[0] not in (10, 11):
+                return original(payload, **kwargs)
+            with robot.sim._lock:
+                before = {m: robot.sim.counts[m] for m in ("wrist_motor_1", "wrist_motor_2")}
+            original(payload, **kwargs)
+            with robot.sim._lock:
+                for motor, was in before.items():
+                    robot.sim.counts[motor] = was - (robot.sim.counts[motor] - was)
+
+        robot._command = reversed_wrist
+
+    def test_a_wrist_that_physically_moves_the_wrong_way_is_caught_within_a_few_degrees(self):
+        # The tests share the vendor formulas, so they cannot say whether the wrist order table
+        # matches the arm. What they can show is the cost of that being wrong: the counts are
+        # read back after every jog, so a wrist that moves the opposite way faults after two
+        # small jogs. Measured here against the vendor's 27.9 wrist counts per degree.
+        for joint, degrees in (("shoulder", 2.0), ("shoulder", -2.0),
+                               ("elbow", 2.0), ("elbow", -2.0)):
+            with self.subTest(joint=joint, degrees=degrees):
+                robot = self.robot()
+                start = dict(robot.get_state().encoder_counts)
+                self.reverse_the_wrist(robot)
+                with self.assertRaisesRegex(ScorbotError, "did not follow"):
+                    robot.pre_home_jog(joint, degrees, operator_at_stop=True, coupled=True)
+                self.assertIsNotNone(robot._fault)
+                self.assertIn(16, [c[0] for c in robot.sim.commands if c])      # motors off
+                end = robot.get_state().encoder_counts
+                d1 = signed_count_delta(end["wrist_motor_1"], start["wrist_motor_1"])
+                d2 = signed_count_delta(end["wrist_motor_2"], start["wrist_motor_2"])
+                per_degree = 2511 / 90.0
+                self.assertLess(abs((d1 - d2) / 2) / per_degree, 5.0, "pitch swing before the fault")
+                self.assertLess(abs((d1 + d2) / 2) / per_degree, 1.0, "no roll was built up")
+
     def test_the_pre_home_record_says_which_mode_ran(self):
         robot = self.robot()
         robot.pre_home_jog("base", 1.0, operator_at_stop=True)

@@ -58,7 +58,7 @@ Streaming (2026-10-04): `Scorbot.start_stream` follows a stream of base, shoulde
 | # | Item |
 |---|---|
 | 37 | Verify against real files: the USBPcap header layout and direction inference in `scripts/usb_trace.py`, the Foxglove layout keys, the PlotJuggler path syntax in `docs/design/EXPERIMENT_RECORDING.md` |
-| 38 | Capture SCORBASE "Go Home", control on/off and e-stop with USBPcap; if Go Home is a single controller command, use it instead of building one. Go Home, the pre-home joint jog, Set Home and an off-home start are card `docs/lab/S1_CAPTURE_ADDENDUM.md` (2026-10-07) |
+| 38 | Capture SCORBASE "Go Home", control on/off and e-stop with USBPcap; if Go Home is a single controller command, use it instead of building one. Go Home, the pre-home joint jog, Set Home and an off-home start are card `docs/lab/S1_CAPTURE_ADDENDUM.md` (2026-10-07). Answered at the desk 2026-10-08: the DLL exports no Go Home, so it is a move to stored point 0, not a single controller command |
 | 39 | `return_to_home()`: count-based, bounded jogs, retract first and base last, typed plan confirmation; simulator only until G2 |
 | 40 | Simulator: sync-worker crash injection; replay of recorded lab data. (Done 2026-10-01: modeled homing with switch bits and offsets, rest jitter across the 0/65535 seam, simulated LED panel; see `SimulatorProfile`) |
 | 41 | Kinematics: model reach is 601 mm against the manual's 610 mm; measure the tool length and home pose, then fix `cIn` (item 10) |
