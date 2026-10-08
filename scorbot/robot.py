@@ -770,7 +770,7 @@ class Scorbot:
                         f"the {name} did not follow ({motor}): asked {asked:+d} counts, "
                         f"moved {moved:+d}")
 
-    def _coupled_run(self, speed: int, *, homing: bool):
+    def _coupled_run(self, speed: int, *, homing: bool, coupled: bool = True):
         """One run of coupled joint moves with one cumulative target: ``run.move(joint, degrees)``
         moves one joint with the coupled motors following, as the vendor's joint mode does;
         ``run.settle()`` flushes what the coupled motors still owe; ``run.speed`` may be changed
@@ -779,8 +779,8 @@ class Scorbot:
         is not lost between moves: keep one run for a whole phase, never one per move.
         Counts come from ``_motion_state``, so a stale reading latches a fault like any other.
         """
-        target = joint_move.CoupledTarget(self._motion_state().encoder_counts)
-        run = SimpleNamespace(speed=speed, anchor=dict(target.start))
+        target = joint_move.CoupledTarget(self._motion_state().encoder_counts, coupled=coupled)
+        run = SimpleNamespace(speed=speed, anchor=dict(target.start), coupled=coupled)
 
         def read():
             return self._motion_state().encoder_counts
@@ -823,14 +823,19 @@ class Scorbot:
         self._record(kind, joint=joint, error=message)
         return ScorbotError(message)
 
-    def pre_home_jog(self, joint, degrees, *, operator_at_stop: bool = False, speed: int = 6):
+    def pre_home_jog(self, joint, degrees, *, operator_at_stop: bool = False, speed: int = 6,
+                     coupled: bool = False):
         """Bring the arm toward its home pose before homing: one joint, a few degrees.
 
         The vendor's routine is "bring the robot to a position near home, and activate the
         homing procedure" (arm manual p. 15), and SCORBASE allows a joint-mode move before
-        homing for exactly that (its manual p. 31). This is a joint move: the elbow and the
-        wrist pitch follow the shoulder, and the wrist pitch follows the elbow, so the
-        other joints keep their angles (``joint_move``). Base, shoulder and elbow only,
+        homing for exactly that (its manual p. 31). By default this drives only the motor of
+        the joint asked for, which is what the vendor DLL's manual jog does
+        (``docs/protocol/VENDOR_MANUAL_MOVE_TRACE.md``): no wrist command is sent, and the
+        elbow and wrist pitch change with the mechanics. ``coupled=True`` is this SDK's own
+        option, never run on the arm: the elbow and the wrist pitch follow the shoulder, and
+        the wrist pitch follows the elbow, so the other joints keep their angles
+        (``joint_move``). Base, shoulder and elbow only,
         at most 2 degrees a call and 60 degrees in all from where the session found each,
         and only while the arm is not homed (afterwards use ``jog_joint``). No joint limit
         is checked: there is no home to measure them from. From the vendor formulas, never
@@ -866,16 +871,20 @@ class Scorbot:
                                  "degree pre-home cap from where this session found it")
             before = self._motion_state()
             self._record("pre_home_start", joint=joint, degrees=degrees, speed=speed,
+                         coupled=bool(coupled),
                          travel=dict(self._prehome_travel), wrist_homed=False,
                          state=asdict(before))
             try:
                 run = self._prehome_run
-                if run is not None and any(
+                if run is not None and (not coupled or not run.coupled or any(
                         abs(signed_count_delta(before.encoder_counts[m], run.anchor[m])) > 60
-                        for m in source_model.MOTORS):
+                        for m in source_model.MOTORS)):
                     run = None       # the arm was moved some other way since: start from where it is
-                if run is None:                         # one target for the whole phase
-                    self._prehome_run = self._coupled_run(speed, homing=True)
+                # A single-motor move starts a fresh target every time, so it can only ever
+                # command the motor it was asked for, never "correct" an earlier move's motor.
+                if run is None:                         # one target for the whole coupled phase
+                    self._prehome_run = self._coupled_run(speed, homing=True,
+                                                          coupled=bool(coupled))
                 self._prehome_run.speed = speed
                 self._prehome_run.move(joint, degrees)
                 self._prehome_run.settle()

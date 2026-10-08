@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from scorbot import MotionStopped, ScorbotError, joint_move, source_model
+from scorbot.calibration import signed_count_delta
 
 try:
     from tests.sim_support import SimulatedRobotCase
@@ -59,18 +60,18 @@ class CoupledMoveTests(SimulatedRobotCase):
 
     def test_a_shoulder_move_keeps_the_elbow_and_the_wrist_pitch_where_they_were(self):
         robot = self.robot()
-        robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+        robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
         self.assert_only(robot, "shoulder", 2.0)
 
     def test_an_elbow_move_keeps_the_wrist_pitch_where_it_was(self):
         robot = self.robot()
-        robot.pre_home_jog("elbow", -1.5, operator_at_stop=True)
+        robot.pre_home_jog("elbow", -1.5, operator_at_stop=True, coupled=True)
         self.assert_only(robot, "elbow", -1.5)
 
     def test_a_base_move_moves_only_the_base(self):
         robot = self.robot()
         before = robot.get_state().signed_encoder_counts
-        robot.pre_home_jog("base", 2.0, operator_at_stop=True)
+        robot.pre_home_jog("base", 2.0, operator_at_stop=True, coupled=True)
         after = robot.get_state().signed_encoder_counts
         self.assertGreater(abs(after["base"] - before["base"]), 200)
         for motor in ("shoulder", "elbow", "wrist_motor_1", "wrist_motor_2"):
@@ -79,9 +80,9 @@ class CoupledMoveTests(SimulatedRobotCase):
     def test_a_sequence_of_small_moves_does_not_drift(self):
         robot = self.robot()
         for _ in range(12):
-            robot.pre_home_jog("shoulder", 0.5, operator_at_stop=True)
+            robot.pre_home_jog("shoulder", 0.5, operator_at_stop=True, coupled=True)
         for _ in range(6):
-            robot.pre_home_jog("elbow", 1.0, operator_at_stop=True)
+            robot.pre_home_jog("elbow", 1.0, operator_at_stop=True, coupled=True)
         after = self.angles(robot)
         self.assertAlmostEqual(after["shoulder"], HOME["shoulder"] + 6.0, delta=1.0)
         self.assertAlmostEqual(after["elbow"], HOME["elbow"] + 6.0, delta=1.0)
@@ -90,8 +91,8 @@ class CoupledMoveTests(SimulatedRobotCase):
     def test_only_wrist_pitch_ever_moves_and_never_the_roll_or_a_legacy_home(self):
         robot = self.robot()
         before = len(robot.sim.commands)
-        robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
-        robot.pre_home_jog("elbow", 2.0, operator_at_stop=True)
+        robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
+        robot.pre_home_jog("elbow", 2.0, operator_at_stop=True, coupled=True)
         orders = {c[0] for c in robot.sim.commands[before:] if c}
         self.assertTrue(orders & {10, 11}, "the wrist pitch followed")
         self.assertTrue(orders <= ALLOWED_ORDERS, orders)        # no 12 or 13 (roll), no 18
@@ -132,34 +133,34 @@ class CoupledMoveTests(SimulatedRobotCase):
         robot = self.robot()
         robot.disable()
         with self.assertRaises(ScorbotError):
-            robot.pre_home_jog("base", 1.0, operator_at_stop=True)
+            robot.pre_home_jog("base", 1.0, operator_at_stop=True, coupled=True)
         robot.enable()
         robot.home(start_position_confirmed=True)
         with self.assertRaisesRegex(ScorbotError, "homed"):
-            robot.pre_home_jog("base", 1.0, operator_at_stop=True)
+            robot.pre_home_jog("base", 1.0, operator_at_stop=True, coupled=True)
 
     def test_each_joint_has_a_cumulative_travel_cap_and_the_other_way_is_open(self):
         robot = self.robot()
         for _ in range(30):
-            robot.pre_home_jog("base", 2.0, operator_at_stop=True)       # 60 degrees
+            robot.pre_home_jog("base", 2.0, operator_at_stop=True, coupled=True)       # 60 degrees
         with self.assertRaisesRegex(ValueError, "cap"):
-            robot.pre_home_jog("base", 1.0, operator_at_stop=True)
-        robot.pre_home_jog("base", -2.0, operator_at_stop=True)          # back toward the start
-        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)       # another joint is open
+            robot.pre_home_jog("base", 1.0, operator_at_stop=True, coupled=True)
+        robot.pre_home_jog("base", -2.0, operator_at_stop=True, coupled=True)          # back toward the start
+        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True, coupled=True)       # another joint is open
         robot.disable()
         robot.enable()
         # The cap bounds the whole session, not one enable: cycling the motors does not reopen it.
-        robot.pre_home_jog("base", 2.0, operator_at_stop=True)           # back at 60 degrees
+        robot.pre_home_jog("base", 2.0, operator_at_stop=True, coupled=True)           # back at 60 degrees
         with self.assertRaisesRegex(ValueError, "cap"):
-            robot.pre_home_jog("base", 1.0, operator_at_stop=True)
+            robot.pre_home_jog("base", 1.0, operator_at_stop=True, coupled=True)
 
     def test_a_stop_request_ends_it_without_a_fault(self):
         robot = self.robot()
         robot.request_stop()
         with self.assertRaises(MotionStopped):
-            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
         self.assertIsNone(robot._fault)
-        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)       # the next one runs
+        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True, coupled=True)       # the next one runs
 
     def test_an_interrupted_move_leaves_nothing_owed_for_the_next_one(self):
         # A move that was stopped must not leave its unmet distance in the target: the next
@@ -167,8 +168,8 @@ class CoupledMoveTests(SimulatedRobotCase):
         robot = self.robot()
         robot.request_stop()
         with self.assertRaises(MotionStopped):
-            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
-        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
+        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True, coupled=True)
         self.assertAlmostEqual(self.angles(robot)["shoulder"], HOME["shoulder"] + 1.0, delta=0.5)
         self.assertAlmostEqual(robot._prehome_travel["shoulder"], 1.0, delta=0.3)
 
@@ -184,7 +185,7 @@ class CoupledMoveTests(SimulatedRobotCase):
 
         robot._command = command
         with self.assertRaises(MotionStopped):
-            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
         moved = (self.angles(robot)["shoulder"] - HOME["shoulder"])
         self.assertGreater(moved, 0.5)
         self.assertAlmostEqual(robot._prehome_travel["shoulder"], moved, delta=0.3)
@@ -204,16 +205,16 @@ class CoupledMoveTests(SimulatedRobotCase):
 
         robot._command = command
         with self.assertRaises(MotionStopped):
-            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
         self.assertEqual(seen[-1] in (10, 11), True, "nothing was sent after the wrist jog")
         self.assertIsNone(robot._fault)
-        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)       # the stop was spent
+        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True, coupled=True)       # the stop was spent
 
     def test_a_joint_that_does_not_follow_faults_before_the_next_jog(self):
         robot = self.robot()
         with patch.object(robot, "_command") as command:
             with self.assertRaisesRegex(ScorbotError, "did not follow"):
-                robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+                robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
         jogs = [c for c in command.call_args_list if c.args[0][0] in JOG_ORDERS]
         self.assertEqual(len(jogs), 1)
         self.assertIsNotNone(robot._fault)
@@ -231,23 +232,72 @@ class CoupledMoveTests(SimulatedRobotCase):
 
         robot._command = command
         with self.assertRaisesRegex(ScorbotError, "did not settle"):
-            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True)
+            robot.pre_home_jog("shoulder", 2.0, operator_at_stop=True, coupled=True)
         self.assertIsNotNone(robot._fault)
         self.assertIn("pre_home_failed", self.events())
         self.assertIn("coupled_unsettled", self.events())
+
+    def test_the_default_pre_home_move_moves_only_the_motor_asked_for(self):
+        # Option A: the vendor's own joint jog drives one motor. No wrist order is ever sent,
+        # the elbow and wrist motors stay where they were, and the usual gates still apply.
+        for joint in ("base", "shoulder", "elbow"):
+            with self.subTest(joint=joint):
+                robot = self.robot()
+                before = dict(robot.get_state().encoder_counts)
+                sent = len(robot.sim.commands)
+                robot.pre_home_jog(joint, 2.0, operator_at_stop=True)
+                after = robot.get_state().encoder_counts
+                orders = {c[0] for c in robot.sim.commands[sent:] if c}
+                self.assertFalse(orders & {10, 11, 12, 13}, orders)
+                for motor in MOTORS:
+                    delta = signed_count_delta(after[motor], before[motor])
+                    if motor == joint:
+                        self.assertGreater(abs(delta), 100, motor)
+                    else:
+                        self.assertEqual(delta, 0, motor)
+                self.assertIsNone(robot._fault)
+
+    def test_a_motor_that_drifts_is_not_chased_by_a_single_motor_move(self):
+        # Nothing but the requested motor is ever commanded, even if another reading moves.
+        robot = self.robot()
+        with robot.sim._lock:
+            robot.sim.counts["wrist_motor_1"] += 300
+            robot.sim.counts["wrist_motor_2"] -= 300
+        sent = len(robot.sim.commands)
+        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)
+        orders = {c[0] for c in robot.sim.commands[sent:] if c}
+        self.assertFalse(orders & {10, 11, 12, 13}, orders)
+
+    def test_a_single_motor_move_never_corrects_a_motor_an_earlier_move_used(self):
+        # A shoulder drift left over from a shoulder move must not be "fixed" during an elbow move.
+        robot = self.robot()
+        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)
+        with robot.sim._lock:
+            robot.sim.counts["shoulder"] += 40
+        sent = len(robot.sim.commands)
+        robot.pre_home_jog("elbow", 1.0, operator_at_stop=True)
+        orders = {c[0] for c in robot.sim.commands[sent:] if c} & JOG_ORDERS
+        self.assertTrue(orders and orders <= {8, 9}, orders)          # the elbow's orders only
+
+    def test_the_pre_home_record_says_which_mode_ran(self):
+        robot = self.robot()
+        robot.pre_home_jog("base", 1.0, operator_at_stop=True)
+        robot.pre_home_jog("base", 1.0, operator_at_stop=True, coupled=True)
+        starts = [r for r in self.rows() if r.get("event") == "pre_home_start"]
+        self.assertEqual([r["coupled"] for r in starts], [False, True])
 
     def test_a_controller_error_latches_and_names_the_joint(self):
         robot = self.robot()
         robot.sim.inject("controller_error")
         with self.assertRaises(ScorbotError):
-            robot.pre_home_jog("elbow", 2.0, operator_at_stop=True)
+            robot.pre_home_jog("elbow", 2.0, operator_at_stop=True, coupled=True)
         self.assertIsNotNone(robot._fault)
         row = [r for r in self.rows() if r.get("event") == "pre_home_failed"][0]
         self.assertEqual(row["joint"], "elbow")
 
     def test_it_records_where_it_started_and_where_it_ended(self):
         robot = self.robot()
-        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True)
+        robot.pre_home_jog("shoulder", 1.0, operator_at_stop=True, coupled=True)
         events = self.events()
         self.assertIn("pre_home_start", events)
         self.assertIn("pre_home_complete", events)
@@ -403,7 +453,7 @@ class ParkTests(SimulatedRobotCase):
         robot.max_jog_degrees = 1.5
         queued = list(robot.sim.commands)
         with self.assertRaises(ValueError):
-            robot.pre_home_jog("base", 1.0, operator_at_stop=True)
+            robot.pre_home_jog("base", 1.0, operator_at_stop=True, coupled=True)
         with self.assertRaises(ValueError):
             robot.park_at_home(operator_at_stop=True)
         self.assertEqual(robot.sim.commands, queued)

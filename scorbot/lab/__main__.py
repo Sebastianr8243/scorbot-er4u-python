@@ -53,6 +53,10 @@ def main(argv=None) -> int:
     parser.add_argument("--inch-home", action="store_true",
                         help="Home by inching (shoulder, elbow, base) instead of the legacy "
                              "search; start within a few tens of degrees of the home pose")
+    parser.add_argument("--coupled-pre-home", action="store_true",
+                        help="With --inch-home, make the pre-home moves drive the elbow and "
+                             "wrist motors too (our own option, never run on the arm); the "
+                             "default drives only the motor asked for, like the vendor's jog")
     parser.add_argument("--logs", type=Path, default=None,
                         help="Log folder (default: logs, or rehearsal with --simulate)")
     args = parser.parse_args(argv)
@@ -111,6 +115,7 @@ def main(argv=None) -> int:
                           data_source=source, log_path=log_path,
                           session_root=folder / "sessions", preflight=preflight,
                           software_commit=_software_commit(), inch_home=args.inch_home,
+                          coupled_pre_home=args.coupled_pre_home,
                           camera_factory=camera_factory).run()
 
 

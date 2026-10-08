@@ -483,13 +483,13 @@ class HomeInchTests(SimulatedRobotCase):
         # stopped) must not leave it behind: the next pre-home call would drive the arm back
         # toward the old target (about 9 degrees of shoulder in the review's repro).
         robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)
-        robot.pre_home_jog("base", 0.5, operator_at_stop=True)
+        robot.pre_home_jog("base", 0.5, operator_at_stop=True, coupled=True)
         self.stop_after_jog(robot, 25)
         with self.assertRaises(MotionStopped):
             robot.home_inch(operator_at_stop=True)
         shoulder_before = robot.get_state().signed_encoder_counts["shoulder"]
         self.assertGreater(abs(shoulder_before + 3000), 300, "the search moved the shoulder")
-        robot.pre_home_jog("base", 0.5, operator_at_stop=True)
+        robot.pre_home_jog("base", 0.5, operator_at_stop=True, coupled=True)
         shoulder_after = robot.get_state().signed_encoder_counts["shoulder"]
         self.assertAlmostEqual(shoulder_after, shoulder_before, delta=40)
 

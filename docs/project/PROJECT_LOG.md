@@ -12,8 +12,8 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
 ### Coupled joint moves: the pre-home move, inch homing and the park
 
 - **Why:** the vendor's routine is "bring the robot near home, then home" and to
-  end a session at home; SCORBASE's joint mode moves every motor a joint needs
-  together. Ours moved one motor at a time, so a long shoulder sweep forced the
+  end a session at home; the vendor's homing moves every motor a joint needs
+  together (its manual jog drives one motor, VENDOR_MANUAL_MOVE_TRACE.md). Ours moved one motor at a time, so a long shoulder sweep forced the
   elbow into its stop (the likely cause of the 2026-10-06 failures). The owner
   allowed wrist moves in these three phases only (2026-10-07).
 - **What:** `scorbot/joint_move.py` holds the count vectors for moving one joint

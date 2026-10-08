@@ -27,8 +27,8 @@ The arm is used to a routine: **every working session starts with the robot near
 | Step of the routine | Our tools | Status |
 |---|---|---|
 | Pre-power and post-power checks | `scripts/windows_usb_check.ps1`, the LED prompts in the lab session and bench scripts | The checks exist as prompts; the "no people, no obstacles" and noise/vibration items are on the operator |
-| Bring the arm near home before homing | `Scorbot.pre_home_jog` and the keyboard session's pre-home step (`python -m scorbot.lab --inch-home`): typed joint moves of at most 2 degrees, the coupled motors following | Built 2026-10-07, **never run on the arm**. Until it has been, put the arm near home by hand with the motors off |
-| Home | Legacy `home()` (needs a start pose near home); `home_inch` (any pose within a few tens of degrees; the elbow and wrist are coupled to the shoulder and are not moved with it) | Both unproven on the arm since 2026-09-29 |
+| Bring the arm near home before homing | `Scorbot.pre_home_jog` and the keyboard session's pre-home step (`python -m scorbot.lab --inch-home`): typed joint moves of at most 2 degrees, one motor each like the vendor's manual jog (`--coupled-pre-home` adds the coupled motors, our own option) | Built 2026-10-07, **never run on the arm**. Until it has been, put the arm near home by hand with the motors off |
+| Home | Legacy `home()` (needs a start pose near home); `home_inch` (any pose within a few tens of degrees; its steps are coupled joint moves, the elbow and wrist pitch following the shoulder) | Both unproven on the arm since 2026-09-29 |
 | Check movement, noise, "reaches home in every axis" | The operator's `HOME_OK` prompt and the home log | Exists |
 | End of session: Go Home, then control off | `Scorbot.park_at_home` and the exit prompt of `--inch-home` ("return the arm to its home pose before the motors go off?"); `b` still returns to the session's home while armed | Built 2026-10-07, **never run on the arm** |
 
@@ -42,16 +42,24 @@ The arm is used to a routine: **every working session starts with the robot near
 
 ## Open
 
-- Whether the coupled moves are right on the arm. The vectors and signs come from the vendor's own joint formulas and the simulator and the tests are built on the same formulas, so they cannot show a wrong wrist sign: only the trial below can.
+- Whether the coupled moves (inch home, the park, and the opt-in `--coupled-pre-home`) are right on the arm. The vectors and signs come from the vendor's own joint formulas and the simulator and the tests are built on the same formulas, so they cannot show a wrong wrist sign: only a trial can.
 - The wrist roll and the gripper are not homed; nothing jogs the roll.
 
-## First trial of the coupled moves (before any homing)
+## First trial of the pre-home moves (before any homing)
 
-Supervised, hand at the physical stop, arm supported near its home pose, wrist set by eye. `python -m scorbot.lab --inch-home`, answer `y` to "Bring the arm near home first?", and:
+Supervised, hand at the physical stop, arm supported near its home pose, wrist set by eye. `python -m scorbot.lab --inch-home`, answer `y` to "Bring the arm near home first?". The default moves only the motor you name, like the vendor's manual jog, and sends no wrist command:
+
+1. **Base.** `BASE +2` twice and back: the base turns the expected way and returns.
+2. **Shoulder.** `SHOULDER +2` three times, then `-2` three times. The upper arm rotates. The vendor model (`VENDOR_COUPLING_TRACE.md`) predicts the forearm and gripper keep their direction in space while the elbow angle changes by the opposite amount: this is a prediction, unverified. A forearm that swings the same way as the upper arm, anything much bigger than the commanded angle, or a noise: stop and send the log.
+3. **Elbow.** `ELBOW +2` then `-2`, a few times: the forearm rotates. The model predicts the gripper keeps its direction in space (unverified). If the gripper swings with the forearm, treat it as a finding and stop.
+4. Only then `HOME`, then at the end `PARK`. Note that the inch home and the park still use the coupled moves, including the wrist pitch, which have never run on the arm. If you would rather not send any wrist command on the first visit, put the arm near home by hand and run the legacy `home` without `--inch-home`.
+
+### Trial of the coupled pre-home move (a later visit, after the above)
+
+Only after the default trial went well: `python -m scorbot.lab --inch-home --coupled-pre-home`.
 
 1. **Elbow direction check.** Type `ELBOW +2` five times, watching the gripper against the forearm: with the coupling right, the gripper turns with the forearm and the angle between them does not change (a phone level on each link helps). Then `ELBOW -2` five times. If the gripper tilts relative to the forearm, about twice as far as the elbow moved, the wrist sign is wrong: press the stop, end the session, send the log.
 2. **Shoulder check.** `SHOULDER +2` three times: the whole arm should lift with the angle at the elbow unchanged. If the elbow bends, the elbow sign is wrong: stop.
 3. **Base check.** `BASE +2` twice and back.
-4. Only then `HOME`, then at the end `PARK`.
 
 Any unusual noise, strain or motion: stop, do not retry in the same session, and keep the log (`logs\`).

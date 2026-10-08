@@ -1,10 +1,11 @@
 """Coupled joint moves: move one joint and let the coupled motors follow.
 
 On the ER-4U the elbow and wrist motors are mechanically coupled to the shoulder, and the
-wrist pair to the elbow. SCORBASE's joint mode, and the vendor's homing, move all the motors
-a joint needs together, so the other joints keep their angles. This SDK's jogs move one
-motor at a time, so a long shoulder sweep forces the elbow into its stop. This module holds
-the arithmetic that fixes that: the motor counts per degree of each joint, taken from the
+wrist pair to the elbow. The vendor's homing moves all the motors a joint needs together, so
+the other joints keep their angles; its manual joint jog drives one motor
+(``docs/protocol/VENDOR_MANUAL_MOVE_TRACE.md``). This SDK's jogs move one motor at a time, so a
+long shoulder sweep forces the elbow into its stop. This module holds the arithmetic that
+fixes that: the motor counts per degree of each joint, taken from the
 vendor DLL's own counts-to-angles function (``source_model``), and a ledger that tracks a
 cumulative target for a whole run and says which motors to jog next.
 
@@ -86,11 +87,17 @@ class CoupledTarget:
     jog, is not lost: it stays in the error until it is worth correcting.
     """
 
-    def __init__(self, start_counts: dict):
+    def __init__(self, start_counts: dict, *, coupled: bool = True):
+        """``coupled=False`` asks only for the motor of the joint being moved, as the vendor's
+        manual joint jog does (``docs/protocol/VENDOR_MANUAL_MOVE_TRACE.md``): the other joints
+        then change with the mechanics, and no motor that was not asked for is ever commanded,
+        the wrist included, whatever its reading does."""
         if not isinstance(start_counts, dict) or set(MOTORS) - set(start_counts):
             raise ValueError(f"start_counts needs a count for each of {MOTORS}")
         self.start = {m: start_counts[m] for m in MOTORS}
         self.desired = dict.fromkeys(MOTORS, 0.0)
+        self.coupled = bool(coupled)
+        self.active = set(MOTORS) if self.coupled else set()    # motors a move has asked for
 
     def add(self, joint, degrees) -> None:
         """Add ``degrees`` of ``joint`` to the target."""
@@ -98,11 +105,14 @@ class CoupledTarget:
                 or not math.isfinite(degrees):
             raise ValueError("degrees must be a finite number")
         for motor, per_degree in vector(joint).items():
-            self.desired[motor] += per_degree * degrees
+            if self.coupled or motor == joint:
+                self.desired[motor] += per_degree * degrees
+                self.active.add(motor)
 
     def errors(self, actual: dict) -> dict[str, float]:
         """Counts still owed to each motor: target minus where the arm is now."""
-        return {m: self.desired[m] - signed_count_delta(actual[m], self.start[m])
+        return {m: (self.desired[m] - signed_count_delta(actual[m], self.start[m])
+                    if m in self.active else 0.0)
                 for m in MOTORS}
 
     def owed(self, actual: dict) -> dict[str, float]:

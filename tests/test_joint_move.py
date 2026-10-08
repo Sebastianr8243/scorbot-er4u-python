@@ -99,6 +99,45 @@ def run_move(arm, target, joint, degrees, *, primary):
         arm.jog(jog_motor, counts)
 
 
+class SingleMotorTargetTests(unittest.TestCase):
+    """coupled=False: a move asks for the requested motor only (the vendor's joint jog)."""
+
+    def test_a_single_motor_move_owes_nothing_to_the_other_motors(self):
+        arm = FakeArm()
+        target = joint_move.CoupledTarget(arm.counts, coupled=False)
+        target.add("shoulder", 2.0)
+        errors = target.errors(arm.counts)
+        self.assertAlmostEqual(errors["shoulder"], 2.0 * joint_move.vector("shoulder")["shoulder"])
+        for motor in MOTORS:
+            if motor != "shoulder":
+                self.assertEqual(errors[motor], 0.0, motor)
+        self.assertEqual([m for m, _ in target.next_jogs(arm.counts, primary="shoulder",
+                                                         final=True)], ["shoulder"])
+
+    def test_a_motor_that_drifts_is_ignored_unless_it_was_asked_for(self):
+        arm = FakeArm()
+        arm.counts["wrist_motor_1"] += 300
+        arm.counts["wrist_motor_2"] -= 300
+        single = joint_move.CoupledTarget(dict.fromkeys(MOTORS, 0), coupled=False)
+        single.add("base", 1.0)
+        self.assertNotIn("wrist_pitch",
+                         dict(single.next_jogs(arm.counts, primary="base", final=True)))
+        coupled = joint_move.CoupledTarget(dict.fromkeys(MOTORS, 0))
+        coupled.add("base", 1.0)
+        self.assertIn("wrist_pitch", dict(coupled.next_jogs(arm.counts, primary="base",
+                                                            final=True)))
+
+    def test_every_motor_asked_for_over_a_run_stays_tracked(self):
+        arm = FakeArm()
+        target = joint_move.CoupledTarget(arm.counts, coupled=False)
+        target.add("shoulder", 1.0)
+        target.add("elbow", 1.0)
+        errors = target.errors(arm.counts)
+        self.assertNotEqual(errors["shoulder"], 0.0)
+        self.assertNotEqual(errors["elbow"], 0.0)
+        self.assertEqual(errors["base"], 0.0)
+
+
 class LedgerTests(unittest.TestCase):
     def test_the_target_is_cumulative_and_measured_from_the_run_start(self):
         arm = FakeArm()

@@ -62,12 +62,21 @@ _MISMATCH_TEXT = {
 
 PRE_HOME_JOINTS = {"base": "base", "b": "base", "shoulder": "shoulder", "s": "shoulder",
                    "elbow": "elbow", "e": "elbow"}
-PRE_HOME_HELP = ("Pre-home move. Type a joint and degrees, for example SHOULDER +1, elbow -2 or "
-                 "base 1 (BASE, SHOULDER or ELBOW; at most 2 degrees a time). The elbow and "
-                 "the wrist pitch follow the shoulder, and the wrist pitch follows the elbow, as "
-                 "in SCORBASE's joint mode. There are no joint limits before home: watch the "
-                 "arm and keep your hand at the physical stop. Never run on the arm. Press "
-                 "Enter when the arm is near home.")
+_PRE_HOME_COMMON = ("Pre-home move. Type a joint and degrees, for example SHOULDER +1, elbow -2 "
+                    "or base 1 (BASE, SHOULDER or ELBOW; at most 2 degrees a time). ")
+_PRE_HOME_END = (" There are no joint limits before home: watch the arm and keep your hand at "
+                 "the physical stop. Never run on the arm. Press Enter when the arm is near "
+                 "home.")
+# Default: one motor, like the vendor DLL's manual jog (VENDOR_MANUAL_MOVE_TRACE.md).
+PRE_HOME_HELP = (_PRE_HOME_COMMON + "Only the motor of that joint is driven, like the vendor's "
+                 "manual jog, so the elbow and wrist pitch angles change with the mechanics (the "
+                 "vendor model predicts the forearm and gripper keep their direction in space; "
+                 "unverified): keep the steps small." + _PRE_HOME_END)
+# --coupled-pre-home: this SDK's own option, not a copy of the vendor's jog.
+PRE_HOME_HELP_COUPLED = (_PRE_HOME_COMMON + "This is our own coupled move (--coupled-pre-home): "
+                         "the elbow and the wrist pitch follow the shoulder, and the wrist pitch "
+                         "follows the elbow, to keep their angles. It sends wrist commands that "
+                         "have never run on the arm." + _PRE_HOME_END)
 
 
 def _parse_pre_home(text):
@@ -92,8 +101,10 @@ class SessionFailed(RuntimeError):
 class LabSession:
     def __init__(self, *, profile, operator, robot_factory, data_source, log_path,
                  session_root, preflight=None, clock=time.monotonic, sleep=time.sleep,
-                 software_commit="unknown", camera_factory=None, inch_home=False):
+                 software_commit="unknown", camera_factory=None, inch_home=False,
+                 coupled_pre_home=False):
         self.inch_home = inch_home       # home with Scorbot.home_inch, not the legacy search
+        self.coupled_pre_home = coupled_pre_home   # pre-home moves drive the coupled motors too
         self.profile, self.op = profile, operator
         self.robot_factory, self.data_source = robot_factory, data_source
         self.log_path, self.session_root = log_path, session_root
@@ -356,7 +367,7 @@ class LabSession:
 
     def _pre_home_loop(self):
         """Typed joint moves before homing: ``SHOULDER +1``, ``elbow -2``, Enter when done."""
-        self.op.show(PRE_HOME_HELP)
+        self.op.show(PRE_HOME_HELP_COUPLED if self.coupled_pre_home else PRE_HOME_HELP)
         while True:
             text = self.op.text("pre-home move (Enter when the arm is near home): ").strip()
             if not text:
@@ -367,7 +378,8 @@ class LabSession:
                 continue
             joint, degrees = parsed
             try:
-                self.robot.pre_home_jog(joint, degrees, operator_at_stop=True)
+                self.robot.pre_home_jog(joint, degrees, operator_at_stop=True,
+                                        coupled=self.coupled_pre_home)
             except MotionStopped:
                 self._write("pre_home_stopped", joint=joint, degrees=degrees)
                 self.op.show("Stopped: the arm is where the last jog left it.", "warn")
@@ -378,7 +390,8 @@ class LabSession:
             except ScorbotError as error:
                 self._write("pre_home_failed", joint=joint, degrees=degrees, error=str(error))
                 raise SessionFailed(str(error)) from error
-            state = self._state("pre_home_move", joint=joint, degrees=degrees)
+            state = self._state("pre_home_move", joint=joint, degrees=degrees,
+                                coupled=self.coupled_pre_home)
             self.op.show(f"Moved the {joint} {degrees:+g} degrees.")
             self.op.show(switch_summary(state.home_switch_bits))
         self._write("pre_home_done")

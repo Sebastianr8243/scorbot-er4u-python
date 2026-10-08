@@ -231,6 +231,28 @@ class LabSessionTests(unittest.TestCase):
         # the switch line is shown after every move
         self.assertGreaterEqual(sum("Home switches now" in s for s in self.op.shown), 4)
 
+    PRE_HOME_ONE = (CHECKLIST + ["n", "g", "pose matches photo", "y", "y", "g",
+                                 "SHOULDER +1", "", "HOME", "all axes homed", "y"]
+                    + ["x", "n"] + FINISH[1:])
+
+    def test_the_pre_home_move_is_single_motor_by_default_and_says_so(self):
+        self.routine_controller()
+        code = self.run_session(self.PRE_HOME_ONE, inch_home=True)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual([m["coupled"] for m in self.of("pre_home_move")], [False])
+        shown = " ".join(self.op.shown)
+        self.assertIn("only the motor", shown.lower())
+        self.assertNotIn("as in SCORBASE", shown)
+
+    def test_the_coupled_pre_home_move_is_opt_in_and_labelled_as_ours(self):
+        self.routine_controller()
+        code = self.run_session(self.PRE_HOME_ONE, inch_home=True, coupled_pre_home=True)
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual([m["coupled"] for m in self.of("pre_home_move")], [True])
+        shown = " ".join(self.op.shown)
+        self.assertIn("our own", shown)
+        self.assertIn("never run on the arm", shown)
+
     def test_a_pre_home_command_that_is_not_allowed_moves_nothing_and_asks_again(self):
         self.routine_controller()
         answers = (CHECKLIST + ["n", "g", "pose matches photo", "y", "y", "g",
