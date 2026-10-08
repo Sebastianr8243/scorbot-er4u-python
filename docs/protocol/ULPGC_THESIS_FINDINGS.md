@@ -57,6 +57,8 @@ flowchart LR
 | T9 | Counts always use `signed_count_delta`; encode and decode with 16-bit + sign pair. | everywhere |
 | T10 | A capture of SCORBASE Home plus a 1 degree waist jog is short and decodable (the thesis did it on a lab PC with a filter driver and USBTrace). Make it the first capture. | `docs/lab/USB_CAPTURE.md`, S1 addendum |
 
+Status (2026-10-08): the recording half of T3 and T4 is built (`collision_motors`, `RobotState.collision_bits`, a `motion_trace` row for the legacy home, `scripts/home_trace_report.py`), never run on the arm. Latching a fault on the flag waits until it has been seen on the arm.
+
 ## What it changes about the 10-06 failure
 
 See `docs/evidence/2026-10-06-lab-logs/ANALYSIS.md` ("Revised reading"). In short: polarity is now confirmed, which removes the "switch was never seen" explanation, and the 4.2 s duration fits the legacy search lagging the shoulder, not a start next to the upper stop.

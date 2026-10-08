@@ -99,6 +99,9 @@ PROPERTIES = {
             "0/65535 seam, so take differences from encoder_counts"),
                                   "type": ["object", "null"]},
         "simulated": _t("boolean"),
+        "collision_bits": _t("integer", description=(
+            "Controller collision flag, IN byte 59, one bit per motor (0x01 motor 1, "
+            "0x18 motors 4 and 5, 0x20 gripper); absent in sessions recorded before 2026-10-08")),
         "raw_packet_hex": _t("string"),
     },
     "scorbot.Command": {

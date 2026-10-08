@@ -9,8 +9,23 @@ ENCODER_OFFSETS = (19, 24, 29, 34, 39, 44)
 ERROR_OFFSETS = (22, 27, 32, 37, 42, 47)
 # The last field decoded is the gripper error pair at bytes 47-48.
 PACKET_MIN_LENGTH = ERROR_OFFSETS[-1] + 2
-# Legacy home-switch bits in packet byte 5 (libdef.get_switch); polarity unverified.
+# Legacy home-switch bits in packet byte 5 (libdef.get_switch). A pressed switch sets its
+# bit and this order matches the arm (ULPGC thesis pp. 55-56, docs/protocol/ULPGC_THESIS_FINDINGS.md).
 HOME_SWITCH_BITS = {"base": 1, "shoulder": 2, "elbow": 4, "wrist_pitch": 8, "wrist_roll": 16}
+# The controller's own collision flag: IN byte 59, one bit per motor (0x01 motor 1, 0x18 motors
+# 4 and 5, 0x20 gripper; bits 6 and 7 are the external motors 7 and 8). It is nonzero when an
+# axis hits its mechanical limit; ULPGC thesis p. 57. The legacy code never reads it, and this
+# SDK only records it for now: nothing latches a fault on it until it has been seen on the arm.
+COLLISION_OFFSET = 59
+COLLISION_MOTORS = JOINTS + ("motor7", "motor8")
+
+
+def collision_motors(packet: bytes) -> list[str]:
+    """The motors whose bit is set in the collision flag; empty for a packet too short to hold it."""
+    if len(packet) <= COLLISION_OFFSET:
+        return []
+    flag = packet[COLLISION_OFFSET]
+    return [name for bit, name in enumerate(COLLISION_MOTORS) if flag & (1 << bit)]
 
 
 def switch_summary(bits: int) -> str:
@@ -51,6 +66,7 @@ class RobotState:
     encoder_sign_bytes: dict[str, int] | None = None
     signed_encoder_counts: dict[str, int] | None = None
     simulated: bool = False
+    collision_bits: int = 0       # IN byte 59, see ``collision_motors``
 
 
 def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
@@ -87,4 +103,5 @@ def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
         host_monotonic_ns=host_monotonic_ns,
         encoder_sign_bytes=signs,
         signed_encoder_counts=signed,
+        collision_bits=packet[COLLISION_OFFSET] if len(packet) > COLLISION_OFFSET else 0,
     )

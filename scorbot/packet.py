@@ -1,5 +1,6 @@
 """Timestamp complete USB responses without changing legacy packet construction."""
 
+from collections import deque
 from dataclasses import dataclass
 import threading
 import time
@@ -21,25 +22,31 @@ class PacketTrace:
     """Copies of USB packets in both directions, kept only while started.
 
     Recording copies bytes the legacy code already built or read; it never
-    changes a packet or the legacy sleeps. Bounded: packets past ``limit`` are
-    counted as dropped, not stored.
+    changes a packet or the legacy sleeps. Bounded: past ``limit`` packets, by
+    default the newer ones are counted as dropped (``keep="first"``, right for a
+    jog); ``keep="last"`` instead evicts the oldest, right for a home search whose
+    failure is at the end.
     """
 
     def __init__(self, limit: int = MAX_TRACE_PACKETS):
         self.limit = limit
         self._lock = threading.Lock()
         self._packets = None
+        self._keep = "first"
         self._dropped = 0
 
-    def start(self) -> None:
+    def start(self, keep: str = "first") -> None:
+        if keep not in ("first", "last"):
+            raise ValueError(f"keep must be 'first' or 'last', not {keep!r}")
         with self._lock:
-            self._packets = []
+            self._keep = keep
+            self._packets = deque(maxlen=self.limit) if keep == "last" else []
             self._dropped = 0
 
     def stop(self) -> tuple[list[dict], int]:
         """Stop recording; return the packets and how many were dropped."""
         with self._lock:
-            packets, dropped = self._packets or [], self._dropped
+            packets, dropped = list(self._packets or []), self._dropped
             self._packets = None
             return packets, dropped
 
@@ -48,8 +55,9 @@ class PacketTrace:
             if self._packets is None:
                 return
             if len(self._packets) >= self.limit:
-                self._dropped += 1
-                return
+                self._dropped += 1          # keep="last": the deque evicts its oldest
+                if self._keep == "first":
+                    return
             self._packets.append({
                 "direction": direction,
                 "host_monotonic_ns": host_monotonic_ns or time.monotonic_ns(),

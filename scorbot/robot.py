@@ -701,7 +701,21 @@ class Scorbot:
             self._homed = False
             self._home_counts = None
             self._record("home_start", state=asdict(before))
-            self._command([18, 1, 1], timeout=180.0)
+            # The legacy search logs nothing between its first and last message. Copy its
+            # packets (counts, error words, switch bits, collision flag) so a failed home
+            # can be read back; the trace never changes a packet or a sleep.
+            trace = self._trace
+            if trace is not None:
+                trace.start(keep="last")     # a failure is at the end of the search
+            try:
+                self._command([18, 1, 1], timeout=180.0)
+            except BaseException:
+                # The home's own error wins: a log failure here must not replace it.
+                if trace is not None:
+                    self._record_home_trace(trace, failing=True)
+                raise
+            if trace is not None:
+                self._record_home_trace(trace, failing=False)
             after = self._motion_state(after_index=before.packet_index)
             counts = after.encoder_counts
             if self._calibration:
@@ -716,6 +730,17 @@ class Scorbot:
             self._homed = True
             self._reset_prehome()
             self._record("home_complete", state=asdict(self._motion_state()))
+
+    def _record_home_trace(self, trace, *, failing: bool) -> None:
+        """Write the home's packets. After a failed home a log error is swallowed so the
+        home's own error reaches the caller; after a good home it raises like any log write."""
+        packets, dropped = trace.stop()
+        try:
+            self._record("motion_trace", joint="home", kept="last", packets=packets,
+                         dropped_packets=dropped)
+        except Exception:
+            if not failing:
+                raise
 
     def _disable_best_effort(self) -> None:
         """Queue a motor-disable before a fault is latched (``_command`` refuses afterwards)."""

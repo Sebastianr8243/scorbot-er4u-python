@@ -62,14 +62,50 @@ class PacketTraceTests(unittest.TestCase):
         self.assertEqual((len(packets), dropped), (2, 3))
 
 
+class KeepLastTests(unittest.TestCase):
+    def test_keep_last_holds_the_newest_packets_and_counts_the_evicted(self):
+        trace = PacketTrace(limit=3)
+        trace.start(keep="last")
+        for k in range(8):
+            trace.add("in", bytes([k]))
+        packets, dropped = trace.stop()
+        self.assertEqual([p["hex"] for p in packets], ["05", "06", "07"])
+        self.assertEqual(dropped, 5)
+
+    def test_keep_last_under_the_limit_drops_nothing(self):
+        trace = PacketTrace(limit=10)
+        trace.start(keep="last")
+        for k in range(4):
+            trace.add("out", bytes([k]))
+        packets, dropped = trace.stop()
+        self.assertEqual((len(packets), dropped), (4, 0))
+
+    def test_the_default_still_keeps_the_first_packets(self):
+        trace = PacketTrace(limit=3)
+        trace.start()
+        for k in range(8):
+            trace.add("in", bytes([k]))
+        packets, dropped = trace.stop()
+        self.assertEqual([p["hex"] for p in packets], ["00", "01", "02"])
+        self.assertEqual(dropped, 5)
+
+    def test_an_unknown_keep_mode_is_refused(self):
+        with self.assertRaises(ValueError):
+            PacketTrace().start(keep="middle")
+
+
 class _TracingController(SimulatedController):
-    """Adds one OUT and one IN packet per jog to the robot's trace, like the real proxies."""
+    """Adds one OUT and one IN packet per jog to the robot's trace, like the real proxies.
+
+    ``traced`` is the set of command codes that add packets; add 18 to trace the home.
+    """
 
     trace = None
+    traced = range(4, 14)
 
     def _apply(self, payload):
         code = super()._apply(payload)
-        if self.trace is not None and payload[0] in range(4, 14):
+        if self.trace is not None and payload[0] in self.traced:
             self.trace.add("out", bytes(64))
             self.trace.add("in", encode_packet(self.counts))
         return code
@@ -101,11 +137,14 @@ class JogTraceTests(unittest.TestCase):
             robot.jog_joint("base", 1.0)
         finally:
             robot.disconnect()
-        traces = self.events("motion_trace")
+        traces = self.jog_traces()
         self.assertEqual(len(traces), 1)
         self.assertEqual(traces[0]["joint"], "base")
         self.assertEqual([p["direction"] for p in traces[0]["packets"]], ["out", "in"])
         self.assertEqual(traces[0]["dropped_packets"], 0)
+
+    def jog_traces(self):
+        return [row for row in self.events("motion_trace") if row["joint"] != "home"]
 
     def test_failed_jog_still_logs_its_trace(self):
         from scorbot import ScorbotError
@@ -116,7 +155,88 @@ class JogTraceTests(unittest.TestCase):
                 robot.jog_joint("base", 1.0)
         finally:
             robot.disconnect()
-        self.assertEqual(len(self.events("motion_trace")), 1)
+        self.assertEqual(len(self.jog_traces()), 1)
+
+    def test_home_logs_the_packets_it_exchanged(self):
+        controller = _TracingController()
+        controller.traced = (18,)
+        robot = SimulatedScorbot(controller=controller, log_path=self.log).connect()
+        robot._trace = controller.trace = PacketTrace()
+        try:
+            robot.enable()
+            robot.home(start_position_confirmed=True)
+        finally:
+            robot.disconnect()
+        home = [row for row in self.events("motion_trace") if row["joint"] == "home"]
+        self.assertEqual(len(home), 1)
+        self.assertEqual([p["direction"] for p in home[0]["packets"]], ["out", "in"])
+        self.assertEqual(home[0]["dropped_packets"], 0)
+        self.assertEqual(home[0]["kept"], "last")       # a failure is at the end of the search
+        order =[row["event"] for row in map(json.loads, self.log.read_text(
+            encoding="utf-8").splitlines())]
+        self.assertLess(order.index("home_start"), order.index("motion_trace"))
+        self.assertLess(order.index("motion_trace"), order.index("home_complete"))
+
+    def test_failed_home_still_logs_its_trace(self):
+        from scorbot import ScorbotError
+        controller = _TracingController()
+        controller.traced = (18,)
+        robot = SimulatedScorbot(controller=controller, log_path=self.log).connect()
+        robot._trace = controller.trace = PacketTrace()
+        try:
+            robot.enable()
+            robot.sim.inject("controller_error")
+            with self.assertRaises(ScorbotError):
+                robot.home(start_position_confirmed=True)
+        finally:
+            robot.disconnect()
+        home = [row for row in self.events("motion_trace") if row["joint"] == "home"]
+        self.assertEqual(len(home), 1)
+
+    def failing_trace_write(self, robot):
+        original = robot._record
+
+        def record(event, **fields):
+            if event == "motion_trace":
+                raise OSError("disk full")
+            return original(event, **fields)
+
+        robot._record = record
+
+    def test_a_log_failure_cannot_replace_the_error_of_a_failed_home(self):
+        from scorbot import ScorbotError
+        controller = _TracingController()
+        robot = SimulatedScorbot(controller=controller, log_path=self.log).connect()
+        robot._trace = controller.trace = PacketTrace()
+        try:
+            robot.enable()
+            robot.sim.inject("controller_error")
+            self.failing_trace_write(robot)
+            with self.assertRaises(ScorbotError):         # not the OSError from the log write
+                robot.home(start_position_confirmed=True)
+        finally:
+            robot.disconnect()
+
+    def test_a_log_failure_after_a_good_home_still_raises_like_any_other_log_write(self):
+        controller = _TracingController()
+        robot = SimulatedScorbot(controller=controller, log_path=self.log).connect()
+        robot._trace = controller.trace = PacketTrace()
+        try:
+            robot.enable()
+            self.failing_trace_write(robot)
+            with self.assertRaises(OSError):
+                robot.home(start_position_confirmed=True)
+        finally:
+            robot.disconnect()
+
+    def test_home_without_a_trace_logs_none(self):
+        robot = SimulatedScorbot(log_path=self.log).connect()
+        try:
+            robot.enable()
+            robot.home(start_position_confirmed=True)
+        finally:
+            robot.disconnect()
+        self.assertEqual(self.events("motion_trace"), [])
 
     def test_simulator_without_trace_logs_none(self):
         robot = SimulatedScorbot(log_path=self.log).connect()
