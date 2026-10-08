@@ -24,7 +24,7 @@ So the vendor's "shoulder" jog in this mode is the shoulder **motor** alone. By 
 What the DLL cannot say: which SCORBASE button calls what. The front end (`SCORBASE.exe`) is not in the DLL, so "joint mode jogs one motor" is an inference from the only manual-move API the DLL has (I).
 
 **What this changes for us.**
-- `PRE_HOME_HELP` in `scorbot/lab/session.py` and `docs/lab/SESSION_PROCESS.md` say the elbow and wrist follow "as in SCORBASE's joint mode". By this trace that is wrong: our coupled move is a deliberate improvement on the vendor's, not a copy of it.
+- These say the elbow and wrist follow the shoulder "as in SCORBASE's joint mode": `PRE_HOME_HELP` in `scorbot/lab/session.py`, `docs/lab/LAB_SESSION.md`, `docs/project/PROJECT_LOG.md` and the docstring of `scorbot/joint_move.py`. That conflicts with the manual-move path read here. Because the SCORBASE front end is not in the DLL (above), treat it as unproven rather than disproved: our coupled move is probably a deliberate improvement on the vendor's jog, not a copy of it. None of those four was changed.
 - The single-motor move needs no wrist jog at all (the legacy `_jog_joint(..., homing=True)` already does it for base, shoulder and elbow). The coupled move keeps the elbow angle fixed but sends the wrist pitch jog for the first time, with unverified signs. Which one to use for the first trial is a decision for the owner; no code was changed.
 
 ## 2. The homed mask
@@ -40,14 +40,14 @@ Link word at `+0x83e`, one bit per axis. (V in both builds.)
 | `0x1002407f` | the sweep; ORs in all robot bits | `0x100234ba` |
 
 Consequences:
-- The mask is PC memory. A new SCORBASE process starts un-homed; nothing in the controller records homing, which fits the encoder counters reading about zero at power-on.
+- The mask the DLL reads is PC memory, and a new process starts it clear. Whether the controller keeps any homing state of its own is not shown by this trace (unverified); the encoder counters reading about zero at power-on is consistent with it keeping none.
 - The joint-window check (`0x38b`) and the predicted-position check use the mask as their gate, so **before homing the vendor applies no window at all**; only the speed check (`0x391`) and the target-already-moving checks apply. Our own pre-home move has no window either, which matches the vendor, and the source model's window is no reason to trust it.
 
 ## 3. `SetHome`
 
 `SetHome(group)` (`0x1001ca1e`, 2008: `0x1001c2c5`) accepts `'&'`, `'A'`, `'B'` or an axis number. It refuses (error `0x38f`) while control is off or the link is busy, then calls the sweep. The sweep sends `48` value 0 for each axis (through `0x1003f845`), waits for the queue, and sets the mask. In the simulation mode the same function is called by `Initialization` with `'&'` so everything starts homed.
 
-This is the vendor's own "take the current pose as home". It is the call a parked `adopt_home` would copy (`docs/specs/2026-10-06-adopt-home-design.md`). It needs `48`, a byte the legacy code never sends, so by the project rule it needs a USB capture first, and it needs the arm to actually be at its home pose or the zero is wrong for every later move.
+This disagrees with `docs/protocol/PROTOCOL.md`, which says `SetHome` only stores a position and does not mark the arm homed; the code read here ORs the mask, so that line should be corrected after a capture settles it. What `48` does on the controller is an inference from the legacy name ("set position"). If it is right, this is the vendor's own "take the current pose as home", the call a parked `adopt_home` would copy (`docs/specs/2026-10-06-adopt-home-design.md`). It needs `48`, a byte the legacy code never sends, so by the project rule it needs a USB capture first, and it needs the arm to actually be at its home pose or the zero is wrong for every later move.
 
 ## Not found or not answerable
 
