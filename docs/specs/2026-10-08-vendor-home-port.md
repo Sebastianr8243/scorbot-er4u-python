@@ -1,0 +1,55 @@
+# The vendor's home in our own code: port and plan
+
+Date: 2026-10-08. Status: step 1 built and tested against a recording; **not wired into `Scorbot`, never run on the arm**. Nothing here is hardware-validated.
+
+## Owner decisions (2026-10-08)
+
+1. **Scope: the full vendor sequence**, wrist roll, wrist pitch as an axis of its own and the gripper included, in the vendor's order (pre-pass: shoulder, elbow, gripper close, wrist roll, wrist pitch, pitch +1050 counts; then shoulder, elbow, roll, pitch, base, gripper; then the end sweep). This lifts three rules in `CLAUDE.md`, but only inside `scorbot/vendor_home.py`: `jog_joint` and `move_gripper` are unchanged.
+2. **Capture rule: accepted.** A recording of Intelitek's own `USBC.dll` running `Home('A')` against a fake controller on a named pipe counts as the capture for the new bytes (`4D`, `48`, `4F <mask> 48`, single-axis `4F`, `4C`). What it proves: the OUT bytes are the vendor DLL's. What it does not: the replies were a model, so the real controller's acceptance is unverified.
+
+## What was built (step 1)
+
+| Piece | File |
+|---|---|
+| The home, a pure generator (`Out` in, `Reply` out, `HomeResult` or `HomeError`) and the 64-byte codec | `scorbot/vendor_home.py` |
+| The arm model the recording was made with, in-process | `tests/vendor_home_plant.py` |
+| The recording, reduced to commands (327 steps, 204 in the recipe tier) | `tests/fixtures/vendor_home_trace04.json`, made by `scripts/make_vendor_home_fixture.py` |
+| 24 tests | `tests/test_vendor_home.py` |
+| In the motion fingerprint | `scorbot/provenance.py` |
+
+**How it was verified.** The port, run against the same model, sends the same 327 non-`0D` commands as the vendor DLL, in the same order. The first version matched the 204-step recipe at once; the stricter list needed five fixes read out of the recording (no stop after the second phase of a type 14 search; the stop after a "drive off the switch" has no `47`; a planner move ends with `47`; `4F FF 53` again after the back-off; the gripper's motor-on, drive, off cycle and the repeated gripper-off after the sweep). The `0D` setpoint stream is not compared (its length depends on how many cycles a wait took).
+
+## Where it differs from the vendor, on purpose
+
+- **Planner moves** (fine back-off, offsets, the 1050-count pitch move) are straight ramps of at most `RAMP_COUNTS_PER_CYCLE` (6) per cycle, not the vendor's jerk-limited profile. Slower and gentler; the final positions are the same.
+- **Every drive also ends on a stall** (`STALL_CYCLES` cycles without moving 2 counts) and every axis on its `max_time`. The vendor's shoulder and wrist-roll searches have no stall check.
+- **The gripper** ends each drive on a stall, the impact flag (byte 59 bit `0x20`), a count limit or `GRIPPER_MAX_CYCLES`. The vendor's rule was not traced (`0x10023e7e` is a flag poller, not a sensor).
+- **No parameter download.** The vendor's 2018 build rewrites the servo parameters at the start of `Home`; the connect handshake already sends the same values (checked against the legacy tables).
+- **Added after the Codex and Gemini review of 2026-10-11** (`deep`, both reviewers; run ids 20261011-151932-8672-codex and -gemini): the type 16 searches (shoulder, wrist roll) now also end on a stalled tick (`TICK_STALL_LIMIT`, about a second) instead of only the 150-cycle window; a setpoint ramp or creep ends with `ERR_FOLLOW` (576) when a motor falls more than `MAX_LEAD_COUNTS` (400) behind its setpoint; the base search is bounded at 45,000 counts (the manual's 310 degrees at 141.89 counts a degree, not the vendor file's 99,999); a USB error mid-home asks the source for its abort messages (`ERR_USB` 577), tries to send them, tries the motors-off and then re-raises the first error; an unreadable reply during an abort reuses the last good reply instead of cutting the abort short; a stop request that lands after the last message latches a fault and switches the motors off. **Second review round (same day, run 20261011-155759-9607, seven findings, each confirmed by the other model, all fixed):** every `Out` now carries `aborting`, so the source never throws a second error (an unreadable reply, a stop, the deadline) into an abort the home started itself, not only into one it was asked for; before a search ends in a zeroing, every motor driven with the axis must have covered a quarter of what its drive ratio predicts (`check_coupled_progress`: the 150-cycle window never ran in a short search, and a frozen wrist motor was zeroed in 45 messages in the model); a USB error is now reported as a failed home (result 1) instead of being raised, because raising killed the command worker and skipped the sequence hand-back that keeps the sync thread alive; if the link is too dead to send the abort messages the source says so (`abandoned`); a log-write failure after the last message now goes through the fail-closed block; the failure text no longer claims the motors were switched off (the motors-off messages may not have got through: check the MOTORS LED); `usbc_home` bounds its control-off call (`CONTROL_OFF_CALL_S`) and does not close under a call that never returned. **Third review round (same day, run 20261011-162200-660):** the stall ticks of every search now start only after `TICK_GRACE_CYCLES` (60), because the controller may answer about 47 messages late and a healthy drive can show no motion that long; `reach` (the pass that must find its switch) no longer uses the vendor's forward-pass reversal rule, whose 2-cycle tick for the wrist read a slow start as a missed switch; `check_coupled_progress` uses the signed change along the drive (a motor moving the wrong way no longer passes) and judges only searches where the axis moved 60 counts or more (gear backlash hides the slow wrist motors in a shorter one); the settle loop of a ramp checks the lead too (a runaway motor was left running for 400 replies); `usbc_home` bounds `Control(on)` (`CONTROL_ON_CALL_S`) and returns 8 without calling `Home` or `CloseUSBC` if it never returns.
+- Errors (`HomeError` 300 emergency, 201 impact, 561 timeout, 570 stall) end the generator. The caller must treat each as a fault and switch the motors off. None of them is an emergency stop.
+
+## What the model cannot tell us
+
+The switch bands, the drive speed and the reply timing in the recording are the model's (`tests/vendor_home_plant.py`). Open until the arm: whether a positive `4D` lowers the counts (supported by three checks in `VENDOR_HOMING_TRACE.md`, never seen on the arm), the real switch positions and widths, how fast the arm really moves for a given drive, what the real controller's version is (the `72` reply; below 9 selects the extra mode messages), and whether the gripper stalls where the count limits say.
+
+## Step 1b: wire it into `Scorbot` (not done)
+
+1. **A worker path.** A new order code in `libcomm.execute` (the legacy code's rule requires evidence, which now exists, and a gate in `Scorbot`) that runs the generator: per message `encode_out`, write, the `WRITE` sleep, read, the `READ` sleep, `decode_reply`, `send`. The legacy sleeps stay as they are.
+2. **A gate** `Scorbot.vendor_home(...)` mirroring `home_inch`: `operator_at_stop=True`, motors enabled, switch bits below 32, not homing, no stream, **empty jaws and a clear wrist path confirmed**, the arm within a few tens of degrees of home. Every `HomeError` goes through `_latch_fault`, with a queued motors-off.
+3. **A stop.** `request_stop()` must end the generator and send the vendor's stop (`47`, `4D 0` to every motor, `4F FF 53`, `73 20`, `42 20`); it is not an emergency stop.
+4. **The session home.** Record the counts at the end as the session home, as `home()` does; after a vendor home the controller's counts are zero at home.
+5. **Simulator.** Make `SimulatedScorbot` run the port against `tests/vendor_home_plant.py`'s model, so the gate's fault paths run in tests. Add the log event names to `scripts/watch_lab_log.py:ALARM_EVENTS`.
+6. **Lab flow.** `python -m scorbot.lab --vendor-home`, rehearsed with `--simulate`; first arm run: empty jaws, clear wrist path, hand on the physical stop, then a 1 degree jog to check direction before anything else.
+7. **Review.** Both reviewers at `deep` (or `max`) before the first arm run.
+
+## Review of step 1
+
+Two rounds of Codex and Gemini at `deep`. Triage is logged (`review-log.mjs`).
+
+**Round 1 (both ran).** Accepted and fixed, each with a test: a gripper drive that ended on its cycle cap now raises; a move that does not settle raises (it used to carry on to the `48` zeroing); an impact during a search is a fault (types 14 and 15 treat it as a hard stop and reverse); the shoulder and wrist-roll searches (type 16) get a travel bound; every driven motor, coupled ones included, gets a stall check; a phase that must find its switch raises 563 instead of zeroing; on any `HomeError` the generator first yields the stop (`47`, `4D 0` to all six motors, hold, `4F FF 53`) and only then raises; a property test checks that every motor's drive is zero at each `48` and at the end. Added by me from the same finding: a **direction check** on every driven motor, because the sign of `4D` against the counts has never been seen on the arm (a wrong sign now stops the home within about 150 counts, a few degrees).
+
+**Rejected, with reasons.** Zero the master before the coupled motors (the vendor's recorded order is the other way); add `0x7FFFFF` to setpoints (refuted by Codex: setpoints are plain counts, as the recording shows); stop before the elbow/base search changes mode T to H to T (the vendor does not, and the port is pinned to the recording; whether the controller tolerates it is the same open question as everything else).
+
+**Round 2 (Codex only; Gemini was auto-denied a shell command by `agy` headless mode, an intermittent failure, so it is not a two-reviewer pass).** Four more, all accepted: the abort now zeroes the drives, waits two cycles and only then holds the setpoints (the hold used to be taken before the motors stopped); every driven motor has its own travel bound; the gripper has a travel bound and a time bound; a gripper impact or stall before `GRIPPER_MIN_TRAVEL` is a fault, except in the pre-pass close, which may meet a gripper that is already closed.
+
+**Known limits.** The tests prove the port against a model; none of the new guards has met a real controller. Their thresholds (`STALL_WINDOW_COUNTS`, `DIRECTION_FAULT_COUNTS`, `SETTLE_COUNTS`, the gripper's minimum travel and stall window) are guesses chosen to fail safe, so the first arm run may fault where the vendor would carry on. A fault there is information, not a defect.
