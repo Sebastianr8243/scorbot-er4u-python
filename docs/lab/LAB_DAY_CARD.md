@@ -51,6 +51,24 @@ Optional, if SCORBASE is installed on this PC: copy its `USBC.dll` to the USB st
 - [ ] LED prompts answered from the controller front panel (MOTORS off, POWER green expected).
 - [ ] The review reports no problem and `home_switch_bits` is below 32. Otherwise stop before homing.
 
+## A2. Hand sweep (motors off, nothing commanded): where the switches are and which way the counts go
+
+Added 2026-10-11 from the ER-4u manual's own troubleshooting (Control Off, move the axis by hand, the encoder reading must rise one way and fall the other). It is the safest measurement we can make: the recorder only reads. It gives, per joint, the direction of the counts, the travel in counts, counts per degree (with a phone level) and **where each microswitch turns on and off in counts**, which the home needs.
+
+**With the motors off the arm can sag under its own weight (shoulder and elbow especially).** Hold the arm through the whole step, hands clear of pinch points, and answer the LED prompt (MOTORS off) before you start moving it. The connect handshake switches the motors on for a moment and then off: have the arm resting where it will not fall during that moment.
+
+One joint per run, 30 seconds, moved slowly (about 1 to 2 degrees per second: the recorder takes 10 samples a second, and each switch edge is only known to within the counts moved between two samples). Read the phone-level angle at the first and last sample.
+
+```powershell
+& $py examples\record_raw_state.py --output logs\sweep-shoulder-01.jsonl @id --pose-note "motors off, shoulder moved by hand" --seconds 30 --hz 10 --acknowledge-connect-handshake
+& $py scripts\hand_sweep_report.py logs\sweep-shoulder-01.jsonl --angles shoulder=<angle at start>:<angle at end>
+```
+
+- [ ] Repeat for `base`, `elbow`, the wrist pitch and the wrist roll (the report lists both wrist motors against a wrist switch), with a new `--output` name each time. The gripper has no switch.
+- [ ] Write down, for each joint, which physical direction made the counts rise.
+- [ ] The report prints a WARNING line if the motors were on, if it lost samples, or if you moved too fast; repeat that joint slower.
+- [ ] Optional: press each microswitch with a screwdriver tip while the arm is still (manual p. 17), recording, to see which bit it sets.
+
 ## B. One base jog (the known-good baseline)
 
 Type `HOME`, `HOME_OK`, `MOVE` at the prompts.

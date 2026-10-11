@@ -41,7 +41,7 @@ Everything already specified in `docs/specs/2026-10-08-vendor-dll-home-plan.md` 
 2. **Intelitek driver stays bound for the whole vendor block** (one swap, not several). No code of ours runs in this block: our connect sends `5A` and energises the motors, which would contaminate the vendor capture.
 3. Capture: `usbc_home --online --no-home` (connect, control on/off).
 4. Capture: `usbc_home --online` with `HOME` (arm near home, jaws empty, wrist path clear, hand on the stop). Optionally SCORBASE capture A (same bytes from the vendor's own program), a 1 degree SCORBASE base jog, and e-stop capture E with the arm at rest.
-5. **Then, once, swap to WinUSB.** Idle recording and a no-motion switch check (press each microswitch, see the right bit). `record_raw_state.py`: did the home survive our connect and Reset?
+5. **Then, once, swap to WinUSB.** Idle recording; `record_raw_state.py`: did the home survive our connect and Reset? Then the **hand sweep** (`LAB_DAY_CARD.md` A2, `scripts/hand_sweep_report.py`): motors off, each joint moved by hand while recording. It gives the direction of the counts, travel, counts per degree and the switch bands in counts, and it doubles as the no-motion switch check (press each microswitch, see the right bit). It only reads, so it is the safest measurement of the visit. Do it before any run of our own motion code.
 
 Stop conditions (any one ends the visit, logs kept): arm moves unexpectedly, MOTORS LED disagrees with the software, any fault, emergency bit, a joint near a hard stop. The physical stop is the only emergency stop.
 
