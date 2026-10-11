@@ -15,14 +15,24 @@ import threading
 import traceback
 
 from . import inch_home, joint_move, limits, source_model
+from . import vendor_home as vendor_home_port
 from .calibration import load_calibration, signed_count_delta
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
 from .state import HOME_SWITCH_BITS, JOINTS, RobotState, decode_state
 from .streaming import MOTORS as STREAM_MOTORS
+from .vendor_home_source import TOTAL_SECONDS as VENDOR_HOME_SECONDS
+from .vendor_home_source import VENDOR_HOME_ORDER, VendorHomeSource
 from .streaming import (DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, DEFAULT_SPEED_FRACTION,
                         HOLD_TIMEOUT_RANGE_S, PERIOD_RANGE_S, STREAM_ORDER, Stream, StreamCore,
                         prior_limits)
+
+
+def _loggable(payload):
+    """A queued command for the JSON log: numbers and text as they are, anything else (the stream's and
+    the vendor home's ``source``) by its type name, so a callable never reaches ``json.dumps``."""
+    return [item if isinstance(item, (int, float, str, bool)) or item is None else type(item).__name__
+            for item in payload]
 
 
 def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int | None]:
@@ -338,7 +348,7 @@ class Scorbot:
             raise ScorbotError("A stream is active; close or stop it first")
         wait_timeout = self.command_timeout if timeout is None else timeout
         with self._lock:
-            self._record("command_start", payload=payload)
+            self._record("command_start", payload=_loggable(payload))
             self._commands.put(payload)
             try:
                 result = self._next_result(wait_timeout)
@@ -346,7 +356,7 @@ class Scorbot:
                     while self._next_result(wait_timeout) != 0:
                         pass
                     if result == self._STOPPED_CODE:
-                        self._record("command_stopped", payload=payload)
+                        self._record("command_stopped", payload=_loggable(payload))
                         raise MotionStopped("The jog ended early on a stop request")
                     raise ScorbotError(f"Legacy controller returned error code {result}")
             except MotionStopped:
@@ -355,7 +365,7 @@ class Scorbot:
                 self._latch_fault("Command timed out; physical stop may be required")
                 self._cancel_event.set()
                 self._commands.put([16, 1, 1])  # Best effort if worker recovers.
-                self._record("command_timeout", payload=payload)
+                self._record("command_timeout", payload=_loggable(payload))
                 raise ScorbotError(self._fault) from exc
             except ScorbotError as exc:
                 self._latch_fault(str(exc))
@@ -371,15 +381,15 @@ class Scorbot:
                     self._record("disable_after_error", result=disable_result)
                 elif isinstance(exc, _WorkerCrashed):
                     self._record("disable_skipped_worker_crashed")
-                self._record("command_error", payload=payload, error=self._fault)
+                self._record("command_error", payload=_loggable(payload), error=self._fault)
                 raise
             except (KeyboardInterrupt, SystemExit):
                 self._latch_fault("Python interrupted during a controller command")
                 self._cancel_event.set()
                 self._commands.put([16, 1, 1])
-                self._record("command_interrupted", payload=payload)
+                self._record("command_interrupted", payload=_loggable(payload))
                 raise
-            self._record("command_complete", payload=payload)
+            self._record("command_complete", payload=_loggable(payload))
 
     def get_state(self, *, after_index: int | None = None) -> RobotState:
         """Return a copied, recent USB response; optionally wait for a newer one."""
@@ -731,12 +741,12 @@ class Scorbot:
             self._reset_prehome()
             self._record("home_complete", state=asdict(self._motion_state()))
 
-    def _record_home_trace(self, trace, *, failing: bool) -> None:
+    def _record_home_trace(self, trace, *, failing: bool, joint: str = "home") -> None:
         """Write the home's packets. After a failed home a log error is swallowed so the
         home's own error reaches the caller; after a good home it raises like any log write."""
         packets, dropped = trace.stop()
         try:
-            self._record("motion_trace", joint="home", kept="last", packets=packets,
+            self._record("motion_trace", joint=joint, kept="last", packets=packets,
                          dropped_packets=dropped)
         except Exception:
             if not failing:
@@ -1233,6 +1243,124 @@ class Scorbot:
                 self._reset_prehome()
                 self._record("home_complete", method="inch", wrist_homed=False,
                              state=asdict(self._motion_state()))
+
+    def vendor_home(self, *, operator_at_stop: bool = False, jaws_empty: bool = False,
+                    wrist_clear: bool = False, controller_version: int = 0):
+        """Home every axis the way the vendor's software does, from any pose near home.
+
+        Runs ``scorbot.vendor_home``: the ER-4u pre-pass (shoulder, elbow, **close the gripper**,
+        wrist roll, wrist pitch, then a wrist pitch move of about 37 degrees), then shoulder,
+        elbow, roll, pitch, base and gripper, each found by a controller-side drive onto its
+        switch, a fine search and the vendor's offset, then ``48`` zeroes the counters. So the
+        wrist roll, the wrist pitch as an axis and the gripper all move here (owner decision
+        2026-10-08, and only here: ``jog_joint`` and ``move_gripper`` are unchanged). The command
+        bytes are the vendor DLL's own, recorded against a fake controller; the replies in that
+        recording were a model, so **the controller's acceptance is unverified**. Every driven
+        motor is checked for stalls, travel and a wrong drive sign, which stops the home within
+        a few degrees; the thresholds are guesses chosen to fail safe.
+
+        Needs: an operator at the physical stop, empty jaws, a clear wrist path, motors enabled,
+        no stream, and switch bits below 32. Any error, a stop request or an interrupt first
+        sends the vendor's stop (``47``, ``4D 0`` to every motor, hold the setpoints, ``4F FF
+        53``), then switches the motors off and latches a fault: the counters may be partly
+        zeroed, so build a new ``Scorbot`` before going on. ``request_stop`` ends it that way.
+        Not an emergency stop: it needs a live USB link and a responsive worker, and the arm
+        coasts; the physical stop is authoritative. Never run on the arm.
+        """
+        with self._motion_lock:
+            self._refuse_if_streaming()
+            if not (operator_at_stop and jaws_empty and wrist_clear):
+                raise ValueError("Confirm an operator is at the physical stop, the gripper jaws are "
+                                 "empty and the wrist's path is clear first")
+            if self._device is None:
+                raise ScorbotError("Not connected")
+            if not self._enabled:
+                raise ScorbotError("Enable motors before homing")
+            before = self._motion_state()
+            known_bits = sum(HOME_SWITCH_BITS.values())
+            if before.home_switch_bits & ~known_bits:
+                self._record("home_refused", state=asdict(before))
+                raise ScorbotError(f"Home switch byte {before.home_switch_bits} has unexpected "
+                                   f"bits {before.home_switch_bits & ~known_bits:#x}")
+            if self._consume_stop():
+                # An old request must not abort the home the moment it starts: refuse once, like a jog.
+                self._record("home_stopped", method="vendor", state=asdict(before))
+                raise MotionStopped("A stop was requested before the vendor home started; "
+                                    "nothing was sent", state=before, started=False)
+            self._homed = False
+            self._home_counts = None
+            source = VendorHomeSource(version=controller_version, stop_event=self._stop_event,
+                                      cancel_event=self._cancel_event)
+            self._record("home_start", method="vendor", controller_version=controller_version,
+                         wrist_homed=True, gripper_homed=True, state=asdict(before))
+            trace = self._trace
+            if trace is not None:
+                trace.start(keep="last")     # a failure is at the end; also the evidence for the first run
+            try:
+                self._command([VENDOR_HOME_ORDER, source, 0], timeout=VENDOR_HOME_SECONDS + 60.0)
+            except ScorbotError as exc:
+                if trace is not None:
+                    self._record_home_trace(trace, failing=True, joint="vendor_home")
+                self._consume_stop()         # the stop that ended it must not stay set
+                message = self._vendor_home_failure(source, exc)
+                self._latch_fault(message)
+                error = source.error
+                self._record("home_failed", method="vendor", error=message,
+                             code=getattr(error, "code", None), axis=getattr(error, "axis", None),
+                             messages=source.messages)
+                raise ScorbotError(message) from exc
+            except BaseException:
+                if trace is not None:
+                    self._record_home_trace(trace, failing=True, joint="vendor_home")
+                raise
+            with self._fail_closed("home_failed", "Vendor home failed unexpectedly after the last message"):
+                if trace is not None:     # a log write that fails here must still switch the motors off
+                    self._record_home_trace(trace, failing=False, joint="vendor_home")
+                after = self._motion_state(after_index=before.packet_index)
+                if self._consume_stop():
+                    # The last message has been sent, so 48 has already re-zeroed the controller's
+                    # counters: "stopped, still homed and enabled" would be false either way. Treat it
+                    # like any other failed vendor home (review 2026-10-11).
+                    self._disable_best_effort()
+                    self._latch_fault("A stop was requested as the vendor home ended. The controller's "
+                                      "counters were already zeroed and motors-off was sent (check the MOTORS "
+                                      "LED): create a new Scorbot before continuing")
+                    self._record("home_failed", method="vendor", error=self._fault, code=vendor_home_port.ERR_STOPPED,
+                                 axis=None, messages=source.messages, state=asdict(after))
+                    raise ScorbotError(self._fault)
+                if self._calibration:
+                    try:
+                        for calibration in self._calibration.joints.values():
+                            calibration.validate_home(after.encoder_counts[calibration.encoder])
+                    except ValueError as exc:
+                        self._disable_best_effort()
+                        self._latch_fault(f"Home verification failed: {exc}")
+                        self._record("home_failed", method="vendor", error=self._fault, state=asdict(after))
+                        raise ScorbotError(self._fault) from exc
+                self._home_counts = after.encoder_counts.copy()
+                self._homed = True
+                self._reset_prehome()
+                result = source.result
+                self._record("home_complete", method="vendor", wrist_homed=True, gripper_homed=True,
+                             axes=[vendor_home_port.NAMES[a] for a in result.axes_done],
+                             cycles=result.cycles, seconds=round(result.seconds, 1),
+                             state=asdict(self._motion_state()))
+
+    @staticmethod
+    def _vendor_home_failure(source, exc) -> str:
+        """The message for a failed vendor home: which axis, what error, what state it leaves."""
+        error = source.error
+        tail = ("Motors-off was sent but is not confirmed (it needs a live USB link): check the MOTORS "
+                "LED. The counters may be partly zeroed: create a new Scorbot before continuing, "
+                "and use the physical stop if the arm is moving")
+        if getattr(source, "abandoned", False):
+            tail = ("The USB link was dead, so the stop messages could not be sent. " + tail)
+        if isinstance(error, vendor_home_port.HomeError):
+            axis = (f" on the {vendor_home_port.NAMES[error.axis]}" if error.axis is not None else "")
+            return f"Vendor home failed{axis} (error {error.code}): {error}. {tail}"
+        if error is not None:
+            return f"Vendor home failed unexpectedly: {error!r}. {tail}"
+        return f"{exc}. {tail}"
 
     def preview_jog(self, joint: str, delta_degrees: float, *, speed: int = 10,
                     starting_signed_counts: dict[str, int] | None = None) -> dict:

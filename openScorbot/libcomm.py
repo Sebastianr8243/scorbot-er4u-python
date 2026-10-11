@@ -42,6 +42,8 @@ MAX_ERROR = conf.readData("general", "MAX_ERROR")
 STOPPED   = 14
 # Order for following a stream of base/shoulder/elbow setpoints (SDK only)
 STREAM    = 21
+# Order for the vendor-style home (SDK only): scorbot/vendor_home.py decides every message
+VENDOR_HOME = 22
 
 #------------------------------ARGUMENTOS USADOS-------------------------------#
 # b_1		-> Byte de secuencia
@@ -564,6 +566,74 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 	cola_read.put(media)
 	return b_1
 
+# Positions of every encoder as libsync.msg_start reads them, from the last reply. The smoothed
+# `media` the other orders carry (and the idle packets and motors_off build their setpoint region
+# from) is stale once the vendor home has re-zeroed the counters with `48`: it would command the
+# old positions. So the vendor home ends with a media rebuilt from the final reply.
+def fresh_media(buffer):
+	return [libdef.transform([buffer[pos], buffer[pos + 1]]) for pos in VEC_POS]
+
+# Runs the vendor-style home. This function only does I/O: every message, every wait and every
+# decision comes from `source` (scorbot/vendor_home_source.py), which is asked for the next message
+# with the latest reply and the sequence byte to use:
+#   ("send", packet)  a 64-byte OUT packet, sent with the legacy write/read delays
+#   ("end",)          the home finished
+#   ("stop",)         it failed; the stop messages have already been sent
+# On a failure the motors are switched off the way order 18 does after a failed home, and result 1
+# is reported (not STOPPED: a half-finished home leaves some counters zeroed, so it is a failure).
+# `source` must not raise. The sleeps are the idle pair that ran on the arm; no new timing.
+# From the vendor disassembly and a recording of the vendor DLL; never run on the arm.
+# A USB error part-way must not end the worker with a motor still driving: `set_msg` raises on any
+# failed write or read, so the error is caught here, the source is asked for its abort messages (47, 4D 0
+# to every motor, hold, 4F FF 53) and they are sent if the link still answers, then the motors are
+# switched off, and the home is reported as failed (result 1, the error is on the source). The error is
+# NOT raised again: that would kill this worker and skip the sequence hand-back at the end of `execute`,
+# stranding the sync thread. After IO_ABORT_TRIES more failures the link is treated as dead and the
+# abort is given up (the controller's own communication time-out, which the manual says switches the
+# motors off, is then the only thing left; unverified).
+IO_ABORT_TRIES = 3
+VENDOR_USB_ERROR = 577    # scorbot.vendor_home.ERR_USB; this legacy module does not import it
+def vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_orden, source):
+	cola_read.get()
+	failed = False
+	io_error = None
+	io_failures = 0
+	while True:
+		following = libdef.countByte1(b_1)
+		step = source(bytes(buffer), following)
+		if step[0] == "end":
+			break
+		if step[0] != "send":
+			failed = True
+			break
+		b_1 = following
+		try:
+			libdef.set_msg(step[1].hex(), epout, epin, buffer, WRITE, READ)
+		except Exception as exc:
+			io_failures += 1
+			if io_error is None:
+				io_error = exc
+				logging.warning("USB error during the vendor-style home (%s); trying to stop the motors", exc)
+				interrupt = getattr(source, "interrupt", None)
+				if interrupt is not None:
+					interrupt(VENDOR_USB_ERROR, f"USB error: {exc}")
+			if io_failures > IO_ABORT_TRIES:
+				abandon = getattr(source, "abandon", None)
+				if abandon is not None:
+					abandon()
+				failed = True
+				break
+	cola_read.put(fresh_media(buffer))
+	if failed or io_error is not None:
+		logging.warning("The vendor-style home failed; switching the motors off")
+		try:
+			b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
+		except Exception as exc:
+			logging.warning("Could not switch the motors off after the failed home: %s", exc)
+			cola_read.put(fresh_media(buffer))	# motors_off took the media out of the queue and did not put it back
+		cola_orden.put(1)
+	return b_1
+
 #################################################################################
 # Segundo hilo de programa.
 # Gestiona las ordenes enviadas por el usuario desde la interfaz gráfica y
@@ -606,6 +676,8 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read, cola_result, stop_event)
 				elif orden == STREAM:
 					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
+				elif orden == VENDOR_HOME:
+					b_1 = vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:
 					b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
 				elif orden == 17:

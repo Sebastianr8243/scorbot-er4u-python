@@ -102,8 +102,11 @@ class LabSession:
     def __init__(self, *, profile, operator, robot_factory, data_source, log_path,
                  session_root, preflight=None, clock=time.monotonic, sleep=time.sleep,
                  software_commit="unknown", camera_factory=None, inch_home=False,
-                 coupled_pre_home=False):
+                 coupled_pre_home=False, vendor_home=False):
+        if inch_home and vendor_home:
+            raise ValueError("Choose one home: inch_home or vendor_home")
         self.inch_home = inch_home       # home with Scorbot.home_inch, not the legacy search
+        self.vendor_home = vendor_home   # home with Scorbot.vendor_home (roll, pitch and gripper too)
         self.coupled_pre_home = coupled_pre_home   # pre-home moves drive the coupled motors too
         self.profile, self.op = profile, operator
         self.robot_factory, self.data_source = robot_factory, data_source
@@ -157,7 +160,8 @@ class LabSession:
                         profile=asdict(self.profile), software_commit=self.software_commit,
                         motion_source_sha256=motion_source_sha256(),
                         controller_event_log=self.events_path.name, led_prompts=True,
-                        home_method="inch" if self.inch_home else "legacy")
+                        home_method=("vendor" if self.vendor_home else "inch" if self.inch_home
+                                     else "legacy"))
             self._write("profile", **asdict(self.profile))
             writer = SessionWriter.create(
                 self.session_root, data_source=self.data_source,
@@ -309,7 +313,53 @@ class LabSession:
         else:
             self.op.show("Counts stable while idle.")
 
+    def _vendor_home_prompts(self):
+        """What the vendor home will do, and the confirmations it needs before any motor is on."""
+        self.op.show("HOME NEEDED. Vendor home: the whole arm is homed the way Intelitek's software "
+                     "does it, and it MOVES MORE THAN THE OTHER HOMES: it CLOSES THE GRIPPER, "
+                     "turns the wrist roll, homes the wrist pitch as an axis and swings it about "
+                     "37 degrees, and drives the shoulder, elbow and base onto their switches. "
+                     "Start the arm within a few tens of degrees of its home pose. The bytes are "
+                     "the vendor's own, but the real controller has never been seen to accept them "
+                     "and the drive direction is unverified: every motor is watched and the home "
+                     "stops itself within a few degrees if one moves the wrong way. Hand on the "
+                     "physical stop; the software stop is not an emergency stop. A failure "
+                     "switches the motors off and ends the session. Never run on the arm.", "warn")
+        self.op.show(switch_summary(self.robot.get_state().home_switch_bits))
+        self._write("start_pose", text=self.op.text("Start pose: does it match the photo? "
+                                                    "Describe: ") or "not recorded")
+        if not self.op.confirm("Type EMPTY to confirm the gripper jaws are empty: ", "EMPTY"):
+            raise Declined("declined before homing: jaws not confirmed empty")
+        if not self.op.confirm("Type CLEAR to confirm the wrist and gripper have room to swing: ", "CLEAR"):
+            raise Declined("declined before homing: wrist path not confirmed clear")
+        if not self.op.confirm("Type HOME to enable motors and run the vendor home: ", "HOME"):
+            raise Declined("declined before homing")
+
+    def _vendor_home_run(self):
+        self._enable_motors()
+        confirmed = {"operator_at_stop": True, "jaws_empty": True, "wrist_clear": True}
+        command = self.rec.log_command("home", {"method": "vendor", **confirmed})
+        self.robot.vendor_home(**confirmed)
+        self.rec.log_command_result(command, "completed", completion_source="vendor_home() returned")
+        state = self._state("home_complete", method="vendor")
+        self.home_counts = dict(state.encoder_counts)
+        self.last_counts = dict(state.encoder_counts)
+        self.homed = True
+        self._write("home_observation", text=self.op.text(
+            "Describe what moved during homing and the final pose: ") or "not recorded")
+        answer = self.op.choose("Did home look right, and is the travel path clear? [y/n] ",
+                                {"y": "yes", "n": "no"})
+        self._write("home_ok", answer=answer)
+        if answer != "yes":
+            raise Declined("stopped after homing; no jog requested")
+        self.op.show("First move after this home: a 1 degree jog on one joint, and check which way "
+                     "it went before anything else.", "warn")
+
     def _home(self):
+        if self.vendor_home:
+            self._vendor_home_prompts()
+            self._vendor_home_run()
+            return
         if self.inch_home:
             self.op.show("HOME NEEDED. Inch homing: shoulder, elbow and base are moved a degree "
                          "at a time to find each switch (up to 30, 30 and 100 degrees each way). "

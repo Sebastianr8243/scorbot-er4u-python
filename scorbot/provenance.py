@@ -15,6 +15,8 @@ _SOURCE_FILES = (
     "scorbot/robot.py",
     "scorbot/state.py",
     "scorbot/streaming.py",
+    "scorbot/vendor_home.py",
+    "scorbot/vendor_home_source.py",
     "scorbot/vendor_profile.py",
 )
 

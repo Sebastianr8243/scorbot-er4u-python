@@ -53,6 +53,10 @@ def main(argv=None) -> int:
     parser.add_argument("--inch-home", action="store_true",
                         help="Home by inching (shoulder, elbow, base) instead of the legacy "
                              "search; start within a few tens of degrees of the home pose")
+    parser.add_argument("--vendor-home", action="store_true",
+                        help="Home the whole arm the vendor's way (gripper, wrist roll and pitch "
+                             "included; never run on the arm). Asks for empty jaws and a clear "
+                             "wrist path first")
     parser.add_argument("--coupled-pre-home", action="store_true",
                         help="With --inch-home, make the pre-home moves drive the elbow and "
                              "wrist motors too (our own option, never run on the arm); the "
@@ -62,6 +66,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.rehearse_motors_dropped and not args.simulate:
         parser.error("--rehearse-motors-dropped needs --simulate")
+    if args.vendor_home and (args.inch_home or args.coupled_pre_home):
+        parser.error("--vendor-home replaces --inch-home; do not combine them")
     camera_factory = None
     if args.camera is not None:
         if args.camera == "fake":
@@ -115,7 +121,7 @@ def main(argv=None) -> int:
                           data_source=source, log_path=log_path,
                           session_root=folder / "sessions", preflight=preflight,
                           software_commit=_software_commit(), inch_home=args.inch_home,
-                          coupled_pre_home=args.coupled_pre_home,
+                          coupled_pre_home=args.coupled_pre_home, vendor_home=args.vendor_home,
                           camera_factory=camera_factory).run()
 
 

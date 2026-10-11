@@ -37,11 +37,14 @@ import threading
 import time
 from types import MappingProxyType
 
+from . import vendor_home as vendor_home_port
 from .packet import PacketSnapshot
 from .robot import Scorbot, ScorbotError
 from .state import ENCODER_OFFSETS, ERROR_OFFSETS, JOINTS
 from .streaming import MOTORS as STREAM_MOTORS
 from .streaming import STREAM_ORDER
+from .vendor_home_model import Plant
+from .vendor_home_source import VENDOR_HOME_ORDER
 
 FAULT_KINDS = ("timeout", "late_answer", "controller_error", "worker_crash",
                "stale_feedback", "corrupt_packet", "motors_dropped")
@@ -171,6 +174,14 @@ class SimulatedController:
         self.stream_error_word = 0
         self.stream_emergency = False
         self.stream_sent: list[tuple] = []
+        # Vendor-home model (modeled, not measured): the home runs scorbot.vendor_home against
+        # scorbot.vendor_home_model.Plant, packet by packet, as libcomm.vendor_home_run would.
+        # ``vendor_plant`` replaces the default arm; ``vendor_hook(n, plant)`` runs before message n
+        # so a test can inject an emergency, an impact or a stuck axis; ``vendor_packets`` keeps the
+        # OUT packets of the last home.
+        self.vendor_plant: Plant | None = None
+        self.vendor_hook = None
+        self.vendor_packets: list[bytes] = []
 
     def inject(self, kind: str) -> None:
         """Arm a one-shot fault for the next command or feedback read.
@@ -286,6 +297,10 @@ class SimulatedController:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
             return self._stream(payload[1])
+        elif order == VENDOR_HOME_ORDER:
+            if not self.motors_on:
+                return _ERROR_MOTORS_OFF
+            return self._vendor_home(payload[1])
         elif order in (_GRIPPER_OPEN, _GRIPPER_CLOSE):
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
@@ -321,6 +336,46 @@ class SimulatedController:
         else:
             return _ERROR_UNKNOWN_ORDER
         return 0
+
+    def _vendor_home_plant(self) -> Plant:
+        """The default arm for a vendor home: where the controller is now, switches around that pose."""
+        with self._lock:
+            start = [self.counts[name] for name in JOINTS]
+        shift = Plant(start=start).joints()
+        bands = {n: (lo + shift[n], hi + shift[n]) for n, (lo, hi) in Plant().bands.items()}
+        return Plant(bands=bands, start=start)
+
+    def _vendor_home(self, source) -> int:
+        """Run the vendor home against the arm model, the way ``libcomm.vendor_home_run`` does.
+
+        Success leaves the counts where the model ends (zero at home after the ``48`` sweep) and the
+        new home pose; a failure switches the motors off and answers 1, like the legacy home.
+        """
+        plant = self.vendor_plant or self._vendor_home_plant()
+        self.vendor_packets = []
+        reply = plant.exchange(vendor_home_port.encode_out(vendor_home_port.Out(vendor_home_port.NOP), 1))
+        sequence, count, succeeded = 1, 0, True
+        while True:
+            sequence = sequence % 255 + 1
+            step = source(reply, sequence)
+            if step[0] == "end":
+                break
+            if step[0] != "send":
+                succeeded = False
+                break
+            count += 1
+            self.vendor_packets.append(step[1])
+            if self.vendor_hook is not None:
+                self.vendor_hook(count, plant)
+            reply = plant.exchange(step[1])
+        with self._lock:
+            self.counts = {name: plant.reported(index) for index, name in enumerate(JOINTS)}
+            self.switch_bits = plant.switch_bits()
+            if succeeded:
+                self.home_counts = dict(self.counts)
+            else:
+                self.motors_on = False
+        return 0 if succeeded else 1
 
     def _gripper(self, sign: int) -> int:
         """Ramp the gripper count like openScorbot/libcomm.py:clamp, with an object model."""
