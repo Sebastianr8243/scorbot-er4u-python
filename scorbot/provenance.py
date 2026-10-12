@@ -17,6 +17,7 @@ _SOURCE_FILES = (
     "scorbot/limits.py",
     "scorbot/robot.py",
     "scorbot/state.py",
+    "scorbot/stream_control.py",
     "scorbot/streaming.py",
     "scorbot/vendor_home.py",
     "scorbot/vendor_home_source.py",

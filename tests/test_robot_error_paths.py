@@ -192,7 +192,7 @@ class StreamErrorPaths(SimulatedRobotCase):
     def test_a_missing_planning_extra_refuses_the_stream_without_sending(self):
         robot = self.robot()
         before = len(robot.sim.commands)
-        with mock.patch("scorbot.robot.StreamCore", side_effect=ImportError("no ruckig")):
+        with mock.patch("scorbot.stream_control.StreamCore", side_effect=ImportError("no ruckig")):
             with self.assertRaisesRegex(ScorbotError, "planning extra"):
                 robot.start_stream()
         self.assertEqual(len(robot.sim.commands), before)
