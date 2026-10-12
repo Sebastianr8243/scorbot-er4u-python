@@ -125,7 +125,8 @@ def _roll_notes(bands):
     return notes
 
 
-def analyse(rows, *, angles=None):
+def _recorded_states(rows, angles):
+    """The sample states of a recording, refusing one that cannot be a real hand sweep."""
     states = [r["state"] for r in rows if r.get("type") == "sample" and isinstance(r.get("state"), dict)]
     if any(r.get("data_source") == "simulated" for r in rows) or any(s.get("simulated") for s in states):
         raise ValueError("this recording is simulated; a hand sweep needs the real arm")
@@ -134,8 +135,11 @@ def analyse(rows, *, angles=None):
     for joint in (angles or {}):
         if joint not in JOINTS:
             raise ValueError(f"unknown joint {joint!r}; use one of {', '.join(JOINTS)}")
+    return states
 
-    warnings = []
+
+def _unwrap_counts(states):
+    """Each joint's counts relative to the first sample, the largest step per joint and the jumps skipped."""
     relative = {j: [0] for j in JOINTS}
     steps = {j: 0 for j in JOINTS}
     jumps = 0
@@ -147,6 +151,11 @@ def analyse(rows, *, angles=None):
                 delta = 0
             steps[joint] = max(steps[joint], abs(delta))
             relative[joint].append(relative[joint][-1] + delta)
+    return relative, steps, jumps
+
+
+def _recording_warnings(states, steps, jumps):
+    warnings = []
     if jumps:
         warnings.append(f"{jumps} jump(s) over {JUMP_COUNTS} counts between samples were skipped: "
                         "a sample was lost or a count glitched; read the neighbours")
@@ -164,7 +173,10 @@ def analyse(rows, *, angles=None):
         unknown |= int(s.get("home_switch_bits", 0)) & ~known
     if unknown:
         warnings.append(f"unexpected switch bits {unknown:#x} were set; do not home until they are explained")
+    return warnings
 
+
+def _joint_sweeps(relative, steps, angles):
     joints = {}
     for joint in JOINTS:
         end = relative[joint][-1]
@@ -175,8 +187,12 @@ def analyse(rows, *, angles=None):
                 raise ValueError(f"{joint}: the two angles must differ")
             cpd = end / (last - first)
         joints[joint] = JointSweep(min(relative[joint]), max(relative[joint]), end, steps[joint], cpd)
+    return joints
 
-    relative[ROLL_AXIS] = [(a + b) / 2 for a, b in zip(relative["wrist_motor_1"], relative["wrist_motor_2"])]
+
+def _switch_bands(states, relative):
+    """Where each home switch turned on and off, against each joint it can be read on (roll axis included)."""
+    relative = {**relative, ROLL_AXIS: [(a + b) / 2 for a, b in zip(relative["wrist_motor_1"], relative["wrist_motor_2"])]}
     bands = []
     last_index = len(states) - 1
     for name, bit in HOME_SWITCH_BITS.items():
@@ -188,12 +204,29 @@ def analyse(rows, *, angles=None):
                 off_edge = None if last == last_index else (rel[last], rel[last + 1])
                 bands.append(Band(name, joint, on_edge, off_edge,
                                   (first > 0) + (last < last_index), last - first + 1))
-    notes = _roll_notes(bands)
+    return bands
+
+
+def _roll_motors_note(bands, relative):
+    """A note when the wrist motors ended far apart, so the recorded roll was not a pure roll."""
     if any(b.switch == "wrist_roll" for b in bands):
         end_1, end_2 = relative["wrist_motor_1"][-1], relative["wrist_motor_2"][-1]
         if abs(end_1 - end_2) > 0.2 * max(abs(end_1), abs(end_2), 1):
-            notes.append("the two wrist motors did not move together (motor 1 ended at "
-                         f"{end_1}, motor 2 at {end_2}): this was not a pure roll, so the roll width above may be wrong")
+            return ("the two wrist motors did not move together (motor 1 ended at "
+                    f"{end_1}, motor 2 at {end_2}): this was not a pure roll, so the roll width above may be wrong")
+    return None
+
+
+def analyse(rows, *, angles=None):
+    states = _recorded_states(rows, angles)
+    relative, steps, jumps = _unwrap_counts(states)
+    warnings = _recording_warnings(states, steps, jumps)
+    joints = _joint_sweeps(relative, steps, angles)
+    bands = _switch_bands(states, relative)
+    notes = _roll_notes(bands)
+    motors_note = _roll_motors_note(bands, relative)
+    if motors_note:
+        notes.append(motors_note)
     return Report(joints, bands, len(states), warnings, notes)
 
 
