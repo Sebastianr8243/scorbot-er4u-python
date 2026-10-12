@@ -366,7 +366,10 @@ class SdkStreamTests(SimulatedRobotCase):
         stamps = [step["host_monotonic_ns"] for step in stream.steps]
         gaps = [(b - a) / 1e9 for a, b in zip(stamps, stamps[1:])]
         self.assertGreater(len(gaps), 5)
-        self.assertGreaterEqual(min(gaps), 0.019)
+        # a clock that ticks every 15.6 ms (Windows before Python 3.13) reads a true gap as little as one tick
+        # short; the simulated loop alone runs at about 1 ms, which reads as 0 and still fails this floor
+        tick = time.get_clock_info("monotonic").resolution
+        self.assertGreaterEqual(min(gaps), 0.019 - tick)
 
     def assert_latched(self, robot):
         self.assertIsNotNone(robot._fault)

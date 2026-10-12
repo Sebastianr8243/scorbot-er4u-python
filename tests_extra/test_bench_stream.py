@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -119,7 +120,10 @@ class BenchStreamTests(unittest.TestCase):
         self.assertIn("Trial result: PASSED", self.printed.getvalue())
         self.assertEqual(result["furthest_counts_from_home"], 142)
         self.assertEqual(result["other_motors_max_counts"], 0)
-        self.assertGreaterEqual(result["step_gap_ms"]["min"], 23.0)
+        # a clock that ticks every 15.6 ms (Windows before Python 3.13) reads a true 24 ms gap as little as one tick
+        # short; an unpaced loop would still read about 0, far under this floor
+        tick_ms = time.get_clock_info("monotonic").resolution * 1000
+        self.assertGreaterEqual(result["step_gap_ms"]["min"], 23.0 - tick_ms)
         self.assertLessEqual(result["max_lead_counts"], 2 * 142)
         self.assertEqual([r["step"] for r in rows if r["type"] == "led_observation"],
                          ["after_connect", "after_enable", "after_stream", "after_disable"])
