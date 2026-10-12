@@ -12,9 +12,9 @@ LAB_LED_STEPS = ("after_connect", "after_enable")
 UNJOGGED_TOLERANCE = 20   # counts a non-jogged motor may drift before it is flagged
 
 
-def review_session_rows(rows: list[dict]) -> dict:
-    session = next((r for r in rows if r.get("type") == "session"), None)
-    problems = [] if session else ["missing session row"]
+def _row_problems(rows: list[dict]):
+    """Problems one row can show by itself, and the rows grouped by jog number."""
+    problems = []
     by_n: dict[int, dict[str, dict]] = {}
     for row in rows:
         if isinstance(row.get("n"), int):
@@ -40,41 +40,61 @@ def review_session_rows(rows: list[dict]) -> dict:
             problems.append(f"the arm was not parked: {row.get('reason')}")
         elif row.get("type") == "park_stopped":
             problems.append("the park was stopped: the arm is not at home")
+    return problems, by_n
+
+
+def _missing_led_problems(rows: list[dict]) -> list[str]:
     seen_leds = {r.get("step") for r in rows if r.get("type") == "led_observation"}
-    problems += [f"LED observation missing {step}" for step in LAB_LED_STEPS
-                 if step not in seen_leds]
+    return [f"LED observation missing {step}" for step in LAB_LED_STEPS
+            if step not in seen_leds]
+
+
+def _review_jog(n: int, rows_n: dict[str, dict]):
+    """One jog's problems and its table row (no row when the jog never started)."""
+    problems = []
+    confirmed = rows_n.get("jog_confirmed")
+    if confirmed is None:
+        failed = rows_n.get("jog_failed")
+        if failed:
+            problems.append(f"jog {n}: failed before motion: {failed.get('error')}")
+        return problems, None
+    if "after_jog" not in rows_n:
+        reason = rows_n.get("jog_failed", {}).get("error")
+        problems.append(f"jog {n}: failed: {reason}" if reason
+                        else f"jog {n}: started but has no after_jog")
+    result = rows_n.get("jog_result", {})
+    planned = result.get("planned") or {}
+    measured = result.get("measured") or {}
+    for motor in JOINTS:
+        value = measured.get(motor)
+        if motor not in measured:
+            continue
+        if value is None:
+            problems.append(f"jog {n}: {motor} count change is ambiguous")
+        elif motor in planned:
+            if planned[motor] * value < 0:
+                problems.append(f"jog {n}: {motor} moved opposite to the plan")
+        elif abs(value) > UNJOGGED_TOLERANCE:
+            problems.append(f"jog {n}: {motor} moved {value} counts but was not jogged")
+    observation = rows_n.get("jog_observation", {})
+    return problems, {"n": n, "move": confirmed.get("move"), "how": confirmed.get("how"),
+                      "planned": planned, "measured": measured,
+                      "direction": observation.get("direction"),
+                      "other_joint_moved": observation.get("other_joint_moved")}
+
+
+def review_session_rows(rows: list[dict]) -> dict:
+    session = next((r for r in rows if r.get("type") == "session"), None)
+    problems = [] if session else ["missing session row"]
+    row_problems, by_n = _row_problems(rows)
+    problems += row_problems
+    problems += _missing_led_problems(rows)
     jogs = []
     for n in sorted(by_n):
-        rows_n = by_n[n]
-        confirmed = rows_n.get("jog_confirmed")
-        if confirmed is None:
-            failed = rows_n.get("jog_failed")
-            if failed:
-                problems.append(f"jog {n}: failed before motion: {failed.get('error')}")
-            continue
-        if "after_jog" not in rows_n:
-            reason = rows_n.get("jog_failed", {}).get("error")
-            problems.append(f"jog {n}: failed: {reason}" if reason
-                            else f"jog {n}: started but has no after_jog")
-        result = rows_n.get("jog_result", {})
-        planned = result.get("planned") or {}
-        measured = result.get("measured") or {}
-        for motor in JOINTS:
-            value = measured.get(motor)
-            if motor not in measured:
-                continue
-            if value is None:
-                problems.append(f"jog {n}: {motor} count change is ambiguous")
-            elif motor in planned:
-                if planned[motor] * value < 0:
-                    problems.append(f"jog {n}: {motor} moved opposite to the plan")
-            elif abs(value) > UNJOGGED_TOLERANCE:
-                problems.append(f"jog {n}: {motor} moved {value} counts but was not jogged")
-        observation = rows_n.get("jog_observation", {})
-        jogs.append({"n": n, "move": confirmed.get("move"), "how": confirmed.get("how"),
-                     "planned": planned, "measured": measured,
-                     "direction": observation.get("direction"),
-                     "other_joint_moved": observation.get("other_joint_moved")})
+        jog_problems, jog = _review_jog(n, by_n[n])
+        problems += jog_problems
+        if jog:
+            jogs.append(jog)
     declined = next((r.get("text") for r in rows if r.get("type") == "operator_declined"), None)
     return {"data_source": (session or {}).get("data_source", "unknown"),
             "robot_id": (session or {}).get("robot_id"),
