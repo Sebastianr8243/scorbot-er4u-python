@@ -123,7 +123,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 
 | Change | Read first |
 |---|---|
-| `scorbot/robot.py` gates, faults, threading | `tests/test_python_api.py`, `tests/test_simulated.py`, `docs/design/ARCHITECTURE.md` sections 8, 11 |
+| `scorbot/robot.py` and `scorbot/homing.py` gates, faults, threading, homing | `tests/test_python_api.py`, `tests/test_simulated.py`, `docs/design/ARCHITECTURE.md` sections 8, 11 |
 | `openScorbot/*` | `openScorbot/CLAUDE.md`, `docs/lab/USB_CAPTURE.md` |
 | Session schema or topics | `scorbot/session/schemas.py`, `docs/design/EXPERIMENT_RECORDING.md`; bump `SCHEMA_VERSION` only with a reader migration |
 | Prompts in `examples/bench_joint.py` | `docs/design/OPERATOR_UX.md`, `docs/lab/G1_LAB_CHECKLIST.md`; rehearse with `--simulate` |
