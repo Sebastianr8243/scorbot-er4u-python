@@ -92,6 +92,10 @@ class SettleErrorPaths(SimulatedRobotCase):
         robot.STOP_SETTLE_TIMEOUT_S = 0.08
         robot.STOP_SETTLE_INTERVAL_S = 0.01
         index = {"n": 0}
+        clock = {"t": 1000.0}                           # a virtual clock: no real waiting, no race with a slow runner
+        fake_time = types.SimpleNamespace(
+            monotonic=lambda: clock["t"], monotonic_ns=lambda: int(clock["t"] * 1e9),
+            sleep=lambda seconds: clock.__setitem__("t", clock["t"] + seconds))
 
         def state(after_index=None):
             # each reading is half the counter range from the last: signed_count_delta refuses to guess
@@ -104,9 +108,11 @@ class SettleErrorPaths(SimulatedRobotCase):
             return decode_state(bytes(packet), connected=True, enabled=True, homed=True, fault=None,
                                 packet_index=index["n"])
 
-        with mock.patch.object(robot, "_motion_state", side_effect=state):
+        with mock.patch.object(robot, "_motion_state", side_effect=state), \
+                mock.patch("scorbot.robot.time", fake_time):
             with self.assertRaisesRegex(ScorbotError, "still moving"):
                 robot._settled_after_stop(state())
+        self.assertGreaterEqual(index["n"], 8)          # eight 10 ms comparisons fit in the 80 ms window, all ambiguous
         self.assertIsNotNone(robot._fault)
         self.assertIn("stop_settle_failed", self.events())
 
@@ -193,12 +199,10 @@ class StreamErrorPaths(SimulatedRobotCase):
 
     def test_a_log_failure_while_reporting_a_stream_fault_does_not_escape(self):
         robot = self.robot()
-        stream = robot.start_stream()
-        stream.core.fail("test fault")
+        stream = types.SimpleNamespace(core=types.SimpleNamespace(fault="test fault"))   # no live worker to race with
         with mock.patch.object(robot, "_record", side_effect=OSError("disk full")):
             robot._stream_faulted(stream)               # runs on the worker: it must never raise
         self.assertIn("test fault", robot._fault)
-        robot._abandon_stream()                         # the session is latched; leave the stream cleanly
 
 
 if __name__ == "__main__":

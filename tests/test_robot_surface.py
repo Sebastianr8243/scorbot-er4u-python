@@ -15,14 +15,21 @@ SIMPLE = (int, float, str, bool, tuple, type(None))
 MODULE_PATH = re.compile(r"\bscorbot(\.[a-z_]+)+\.")   # a class that moves modules keeps its public name
 
 
+PRIVATE_PATH = re.compile(r"\bpathlib\._local\.")      # Python 3.13 spells pathlib.Path this way; 3.12 does not
+
+
 def surface():
-    """Every attribute of Scorbot (inherited ones included) with its signature or simple value."""
+    """Every public attribute of Scorbot (inherited ones included) with its signature or simple value.
+
+    Names with a leading underscore are implementation, free to move between modules; the full suite
+    still catches a private method that a caller or a test needs.
+    """
     out = {}
     for name, member in inspect.getmembers(Scorbot):
-        if name.startswith("__") and name != "__init__":
+        if name.startswith("_") and name != "__init__":
             continue
         if inspect.isfunction(member):
-            out[name] = "def" + MODULE_PATH.sub("", str(inspect.signature(member)))
+            out[name] = "def" + MODULE_PATH.sub("", PRIVATE_PATH.sub("pathlib.", str(inspect.signature(member))))
         elif isinstance(member, SIMPLE):
             out[name] = "value " + repr(member)
         elif isinstance(member, (dict, frozenset, set, list)):

@@ -43,7 +43,8 @@ class LoadTests(unittest.TestCase):
             "bool": copy(soft_min_deg=True), "range": copy(soft_min_deg=5, soft_max_deg=-5),
             "error too big": copy(validation_max_error_deg=3), "few points": copy(fit_points=3),
             "motion error too big": copy(motion_max_error_deg=3),
-            "zero span": copy(soft_min_deg=0, soft_max_deg=0),     # only the span check rejects this one
+            "zero span": copy(soft_min_deg=0, soft_max_deg=0),     # only the span-order check rejects this one
+            "span beyond the manual's travel": copy(soft_min_deg=-200, soft_max_deg=200),   # reaches check_soft_limit_span
             "few home points": copy(home_points=2),
         }
         for label, data in bad.items():

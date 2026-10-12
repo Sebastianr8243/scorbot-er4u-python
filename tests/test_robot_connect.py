@@ -1,5 +1,6 @@
 """Scorbot.connect and disconnect with a fake usb package, fake legacy modules and no worker threads."""
 
+import json
 import sys
 import tempfile
 import types
@@ -107,6 +108,7 @@ class ConnectTests(unittest.TestCase):
             with self.assertRaisesRegex(ScorbotError, "09F1:0007 was not found.*unverified"):
                 robot.connect()
         self.assertIsNotNone(robot._fault)
+        self.assertTrue(robot._cancel_event.is_set())     # disconnect() returns early with no device, so connect must set it
         with self.assertRaisesRegex(ScorbotError, "new Scorbot instance"):
             robot.connect()
 
@@ -118,6 +120,30 @@ class ConnectTests(unittest.TestCase):
                     with self.assertRaisesRegex(ScorbotError, "endpoints were not found"):
                         robot.connect()
                 self.assertIsNotNone(robot._fault)
+
+    def test_a_failed_disable_after_the_handshake_latches_cleans_up_and_refuses_a_retry(self):
+        # The handshake energises the motors; if the disable that follows fails, the session must say so.
+        robot, device = self.robot(), FakeDevice()
+        robot._command.side_effect = ScorbotError("disable failed")
+        with mock.patch.dict(sys.modules, fake_usb(device)):
+            with self.assertRaisesRegex(ScorbotError, "Connection failed: disable failed.*unverified"):
+                robot.connect()
+        self.assertIn("disable failed", robot._fault)
+        self.assertTrue(robot._cancel_event.is_set())
+        self.assertIsNone(robot._device)                  # the cleanup disconnect released it
+        events = [json.loads(line)["event"] for line in robot.log_path.read_text(encoding="utf-8").splitlines()]
+        self.assertIn("connect_failed", events)
+        self.assertNotIn("connect", events)
+        with self.assertRaisesRegex(ScorbotError, "new Scorbot instance"):
+            robot.connect()
+
+    def test_on_windows_the_controller_is_found_through_libusb_package(self):
+        robot, device = self.robot(), FakeDevice()
+        modules = fake_usb(None)                          # usb.core.find would find nothing
+        modules["libusb_package"] = types.SimpleNamespace(find=lambda **kw: device)
+        with mock.patch.dict(sys.modules, modules), mock.patch("scorbot.robot.sys.platform", "win32"):
+            robot.connect()
+        self.assertIs(robot._device, device)
 
     def test_a_second_connect_is_refused_without_touching_the_device(self):
         robot, device = self.robot(), FakeDevice()
