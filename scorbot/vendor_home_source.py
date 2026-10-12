@@ -115,8 +115,8 @@ class VendorHomeSource:
                                                       "lag cannot be known; nothing was sent")
                 return ("stop",)
             if lag is not None and lag > vh.MAX_LAG:
-                self.error = vh.HomeError(vh.ERR_LAG, f"the controller is {lag} messages behind; a stop would land "
-                                                      f"far too late, so nothing was sent")
+                self.error = vh.HomeError(vh.ERR_LAG, f"the controller is {lag} messages behind; its replies are too "
+                                                      f"stale to trust, so nothing was sent")
                 return ("stop",)
             first = self.last_reply = self._decode(reply_bytes, now)
             self.generator = vh.vendor_home(first, version=self.version, axes=self.axes)

@@ -99,7 +99,7 @@ ERR_FOLLOW = 576
 ERR_USB = 577
 """The USB link failed part-way (raised by the worker through ``VendorHomeSource.interrupt``)."""
 ERR_LAG = 578
-"""The controller is more than ``MAX_LAG`` messages behind, so a stop would land far too late."""
+"""The controller is more than ``MAX_LAG`` messages behind: its replies are too stale to trust, and a stop may land late."""
 
 
 class HomeError(Exception):
