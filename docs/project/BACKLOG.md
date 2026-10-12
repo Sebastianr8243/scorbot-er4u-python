@@ -9,6 +9,8 @@ Priority:
 
 Hazard IDs (HZ-nn) refer to [SAFETY_CASE.md](../design/SAFETY_CASE.md). Protocol details are in [PROTOCOL.md](../protocol/PROTOCOL.md).
 
+**Code health, 2026-10-12** (`docs/specs/2026-10-12-code-health-design.md`, branch `code-health`, not pushed): characterisation tests for `robot.py` (84% to 99% covered), `preflight.py` and `calibration.py`; `robot.py` split into `errors.py`, `homing.py`, `gripper.py` and `stream_control.py` with no change to any method body; item 15 fixed. Left on purpose, not forgotten: **19** (`from numpy import *` in `libdef.py`, which holds the packet codec: a changed `abs` or `round` could change bytes), **20** (needs an owner decision on `enabled` after a calibration fault; revisit after the first lab visit), **21, 22, 23** (need lab data or an owner decision). **Open, pre-existing flaky test:** `tests_extra/test_gripper.py::SdkGripperTests::test_an_arm_joint_moving_during_a_gripper_move_faults_the_session` (`assert_latched`) fails about 1 run in 100: it counts `robot.sim.commands`, makes two refused calls and counts again, but the fault path has queued a best-effort disable that the simulator's worker thread appends in between (`4 != 3`). It failed 3 times in 400 at the commit before this work and 4 in 400 after, so the refactor did not cause it. Fix: let the queue and the simulator worker drain before taking the baseline count.
+
 ## P0: before any motion beyond G1
 
 | # | Item | Where | Evidence | Next step |

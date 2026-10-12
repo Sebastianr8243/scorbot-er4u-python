@@ -1,6 +1,6 @@
 # Code health: design (2026-10-12)
 
-Status: approved by the owner on 2026-10-12 (approach C, decisions at the end). Nothing here changes how the arm is driven.
+Status: approved by the owner on 2026-10-12 (approach C, decisions at the end). **Done 2026-10-12 on branch `code-health`, not pushed:** 1206 tests pass (1 skipped), up from 1160; coverage of the safety modules 97% (`robot.py` 84% to 99%); `robot.py` 1718 to 742 lines, split into `errors.py` (36), `homing.py` (682), `gripper.py` (148) and `stream_control.py` (209), each body proven identical by comparing syntax trees; BACKLOG 15 fixed. Left on purpose: items 19 to 23 and a pre-existing flaky test (see BACKLOG). Nothing here changes how the arm is driven.
 
 ## Goal
 
