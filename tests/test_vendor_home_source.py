@@ -109,6 +109,113 @@ class NaturalAbortTests(unittest.TestCase):
         self.assertEqual(source.error.code, vh.ERR_STALL)
 
 
+def reply_with_echo(plant, echo):
+    """The controller's answer with byte 0 (the ID of the message it is answering) set to ``echo``."""
+    packet = bytearray(plant.exchange(vh.encode_out(vh.Out(vh.NOP), 1)))
+    packet[0] = echo
+    return bytes(packet)
+
+
+def ring_back(sent, lag):
+    """The echo of a controller that is ``lag`` messages behind, on the legacy 1..255 ID ring."""
+    return (sent - lag - 1) % 255 + 1
+
+
+class LagTests(unittest.TestCase):
+    def test_the_lag_is_the_last_id_sent_minus_the_id_the_reply_echoes(self):
+        source = VendorHomeSource()
+        source(reply_with_echo(Plant(), 5), 52)                  # the last message sent was 51, answered: 5
+        self.assertEqual((source.lag_first, source.lag_max), (46, 46))
+
+    def test_the_lag_wraps_on_the_1_to_255_ring(self):
+        source = VendorHomeSource()
+        source(reply_with_echo(Plant(), 250), 3)                 # sent 2, echo 250: 7 messages behind across the wrap
+        self.assertEqual(source.lag_first, 7)
+
+    def test_a_first_reply_that_echoes_no_id_is_refused_before_anything_is_sent(self):
+        # Our IDs run 1 to 255, so an echo of 0 answers nothing we sent: the lag cannot be known.
+        source = VendorHomeSource()
+        step = source(reply_with_echo(Plant(), 0), 52)
+        self.assertEqual(step, ("stop",))
+        self.assertEqual(source.error.code, vh.ERR_LAG)
+        self.assertIsNone(source.generator)
+        self.assertIsNone(source.lag_first)
+
+    def test_a_reply_that_stops_echoing_an_id_mid_home_aborts_with_the_stop_messages(self):
+        plant, source = Plant(), VendorHomeSource()
+        reply = plant.exchange(vh.encode_out(vh.Out(vh.NOP), 1))
+        sequence, sent = 1, []
+        for _ in range(100000):
+            sequence = sequence % 255 + 1
+            echoless = len(sent) == 200
+            step = source(reply_with_echo_from(reply, 0) if echoless else reply, sequence)
+            if step[0] != "send":
+                break
+            sent.append(step[1])
+            reply = plant.exchange(step[1])
+        self.assertEqual(step, ("stop",))
+        self.assertEqual(source.error.code, vh.ERR_LAG)
+        after = sent[200:]
+        self.assertTrue(any(p[4] == vh.CLEAR for p in after))
+        self.assertGreaterEqual(sum(1 for p in after if p[4] == vh.MOVE and p[8:12] == bytes(4)), 6)
+
+    def test_the_largest_lag_seen_is_kept(self):
+        plant, source = Plant(), VendorHomeSource()
+        step = source(reply_with_echo(plant, ring_back(10, 3)), 11)
+        for sent, lag in ((11, 40), (12, 12), (13, 25)):
+            step = source(reply_with_echo(plant, ring_back(sent, lag)), sent + 1)
+            self.assertEqual(step[0], "send")
+        self.assertEqual((source.lag_first, source.lag_max), (3, 40))
+
+    def test_a_controller_far_behind_at_the_start_is_refused_before_anything_is_sent(self):
+        source = VendorHomeSource()
+        step = source(reply_with_echo(Plant(), ring_back(50, vh.MAX_LAG + 1)), 51)
+        self.assertEqual(step, ("stop",))
+        self.assertEqual(source.error.code, vh.ERR_LAG)
+        self.assertIsNone(source.generator)                      # no motion message was ever built
+
+    def test_a_lag_that_grows_during_the_home_aborts_it_with_the_stop_messages(self):
+        plant = Plant()
+        source = VendorHomeSource()
+        reply = plant.exchange(vh.encode_out(vh.Out(vh.NOP), 1))
+        sequence, sent = 1, []
+        for _ in range(100000):
+            sequence = sequence % 255 + 1
+            prev = sequence - 1 if sequence > 1 else 255
+            behind = 0 if len(sent) < 200 else 150               # the controller falls far behind after 200 messages
+            step = source(reply_with_echo_from(reply, ring_back(prev, behind)), sequence)
+            if step[0] != "send":
+                break
+            sent.append(step[1])
+            reply = plant.exchange(step[1])
+        self.assertEqual(step, ("stop",))
+        self.assertEqual(source.error.code, vh.ERR_LAG)
+        after = sent[200:]
+        self.assertTrue(any(p[4] == vh.CLEAR for p in after))
+        self.assertGreaterEqual(sum(1 for p in after if p[4] == vh.MOVE and p[8:12] == bytes(4)), 6)
+
+    def test_a_modest_lag_is_just_measured_and_the_home_completes(self):
+        plant, source = Plant(), VendorHomeSource()
+        reply = plant.exchange(vh.encode_out(vh.Out(vh.NOP), 1))
+        sequence, count = 1, 0
+        for _ in range(100000):
+            sequence = sequence % 255 + 1
+            prev = sequence - 1 if sequence > 1 else 255
+            step = source(reply_with_echo_from(reply, ring_back(prev, 47)), sequence)
+            if step[0] != "send":
+                break
+            count += 1
+            reply = plant.exchange(step[1])
+        self.assertEqual(step, ("end",))
+        self.assertEqual((source.lag_first, source.lag_max), (47, 47))
+
+
+def reply_with_echo_from(reply, echo):
+    packet = bytearray(reply)
+    packet[0] = echo
+    return bytes(packet)
+
+
 class AbortFromOutsideTests(unittest.TestCase):
     def test_an_outside_interrupt_runs_the_abort_messages_then_stops_with_that_error(self):
         source = VendorHomeSource()

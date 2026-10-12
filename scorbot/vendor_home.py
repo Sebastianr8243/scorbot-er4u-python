@@ -70,7 +70,15 @@ transition (the arm was already on its switch) predicts only a few counts for th
 gear backlash can hide. A motor that is never judged here is caught later by the offset ramp's settle check."""
 TICK_GRACE_CYCLES = 60
 """Cycles after a search starts before its stall ticks count. The controller may run about 47 messages
-behind (docs/protocol/BRING_UP_SEQUENCE.md), so a healthy drive can show no motion in the replies for that long."""
+behind (docs/protocol/BRING_UP_SEQUENCE.md), so a healthy drive can show no motion in the replies for that long.
+When the caller measures the lag (``Reply.lag``) the grace is the larger of this and the lag plus ``TICK_GRACE_MARGIN``."""
+TICK_GRACE_MARGIN = 15
+MAX_LAG = 60
+"""A controller further behind than this is not homed: the vendor never lets more than 45 messages be in
+flight (its queue limits are 4 to 45, 20 while homing), the thesis saw 6 and this arm showed 47. It is also
+the most credit the measured lag can earn: the stall grace is at most 75 cycles and the setpoint lead limit
+at most 400 + 6 x 60 = 760 counts, so an unverified lag cannot let a stuck motor take most of the 1050-count
+pre-pass move."""
 COUPLED_FOLLOW_FRACTION = 0.25
 """A coupled motor must have covered this fraction of what its drive ratio to the axis predicts."""
 TICK_STALL_LIMIT = 4
@@ -90,6 +98,8 @@ ERR_FOLLOW = 576
 """A motor did not follow its setpoint (the lead passed ``MAX_LEAD_COUNTS``)."""
 ERR_USB = 577
 """The USB link failed part-way (raised by the worker through ``VendorHomeSource.interrupt``)."""
+ERR_LAG = 578
+"""The controller is more than ``MAX_LAG`` messages behind, so a stop would land far too late."""
 
 
 class HomeError(Exception):
@@ -181,6 +191,8 @@ class Reply:
     now: float
     impact: int = 0
     emergency: bool = False
+    lag: int = 0
+    """How many messages the controller is behind (sent ID minus the ID this reply echoes), measured by the caller."""
 
 
 @dataclass(frozen=True)
@@ -202,6 +214,10 @@ def encode_out(out, sequence):
     for index, value in enumerate(slots[:8]):
         packet[12 + 4 * index:16 + 4 * index] = int(value).to_bytes(4, "little", signed=True)
     return bytes(packet)
+
+
+REPLY_MIN_LENGTH = 60
+"""An IN packet shorter than this cannot be decoded at all (``decode_reply`` raises)."""
 
 
 def decode_reply(packet, now):
@@ -260,8 +276,9 @@ class _Run:
 
     def check_lead(self, motors, axis):
         """Raise if any of ``motors`` has fallen further behind its setpoint than ``MAX_LEAD_COUNTS``."""
+        limit = MAX_LEAD_COUNTS + RAMP_COUNTS_PER_CYCLE * self.reply.lag    # a queue of N messages holds N ramp steps
         for motor in motors:
-            if abs(self.setp[motor] - self.reply.counts[motor]) > MAX_LEAD_COUNTS:
+            if abs(self.setp[motor] - self.reply.counts[motor]) > limit:
                 raise HomeError(ERR_FOLLOW, f"{NAMES[motor]} is not following its setpoint", motor)
 
     def check_coupled_progress(self, axis, drive_start):
@@ -358,7 +375,7 @@ class _Run:
                     if abs(counts[motor] - window_start[motor]) < STALL_WINDOW_COUNTS:
                         raise HomeError(ERR_STALL, f"{NAMES[motor]} stopped moving while driven", motor)
                 window_start, window_cycles = {m: counts[m] for m in self.driven}, 0
-            if cycles_run <= TICK_GRACE_CYCLES:
+            if cycles_run <= max(TICK_GRACE_CYCLES, self.reply.lag + TICK_GRACE_MARGIN):
                 tick_position, tick_cycles = counts[axis], 0
                 continue
             tick_cycles += 1

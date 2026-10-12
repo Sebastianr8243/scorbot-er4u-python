@@ -252,6 +252,34 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_FOLLOW, vh.SHOULDER))
         self.assertLess(len(caught.exception.outs), 100)
 
+    def test_the_stall_grace_follows_the_measured_lag(self):
+        # 125 cycles of silence after a drive is a stall if the controller answers at once, and not one
+        # if it is measured to answer 55 messages late (the grace is then 70 cycles, not 60).
+        def late(n, plant):
+            plant.frozen = set(range(6)) if n < 125 else set()
+        with self.assertRaises(vh.HomeError) as caught:
+            run(Plant(), on_cycle=late, lag=0)
+        self.assertEqual(caught.exception.code, vh.ERR_STALL)
+        outs, result = run(Plant(), on_cycle=late, lag=55)
+        self.assertEqual(result.axes_done, vh.HOMING_SEQUENCE)
+
+    def test_the_credit_for_a_slow_controller_is_bounded_by_what_the_home_will_accept(self):
+        # A stuck motor must not be allowed most of the 1050-count pre-pass move because of an unverified lag.
+        self.assertLessEqual(vh.MAX_LAG, 60)
+        self.assertLess(vh.MAX_LEAD_COUNTS + vh.RAMP_COUNTS_PER_CYCLE * vh.MAX_LAG, vh.PREPASS_PITCH_COUNTS * 0.75)
+
+    def test_the_setpoint_lead_limit_follows_the_measured_lag(self):
+        def lead_check(lag, lead):
+            first = vh.Reply(counts=(0, 0, 0, 0, 0, 0), switches=0, now=0.0, lag=lag)
+            state = vh._Run(first, 0)
+            state.setp[vh.SHOULDER] = lead
+            state.check_lead([vh.SHOULDER], vh.SHOULDER)
+        with self.assertRaises(vh.HomeError):
+            lead_check(0, vh.MAX_LEAD_COUNTS + 50)                   # no lag: 450 is too far ahead
+        lead_check(47, vh.MAX_LEAD_COUNTS + 47 * vh.RAMP_COUNTS_PER_CYCLE - 10)    # the lead a 47 message queue builds
+        with self.assertRaises(vh.HomeError):
+            lead_check(47, vh.MAX_LEAD_COUNTS + 47 * vh.RAMP_COUNTS_PER_CYCLE + 50)
+
     def test_a_frozen_coupled_motor_is_caught_in_a_short_search_before_it_is_zeroed(self):
         # The shoulder switch is only about 30 cycles away, so the 150-cycle window never ran; the
         # wrist motor that the shoulder drives with it did not move, and the tail zeroed it anyway.

@@ -1307,7 +1307,7 @@ class Scorbot:
                 error = source.error
                 self._record("home_failed", method="vendor", error=message,
                              code=getattr(error, "code", None), axis=getattr(error, "axis", None),
-                             messages=source.messages)
+                             messages=source.messages, lag_first=source.lag_first, lag_max=source.lag_max)
                 raise ScorbotError(message) from exc
             except BaseException:
                 if trace is not None:
@@ -1326,7 +1326,8 @@ class Scorbot:
                                       "counters were already zeroed and motors-off was sent (check the MOTORS "
                                       "LED): create a new Scorbot before continuing")
                     self._record("home_failed", method="vendor", error=self._fault, code=vendor_home_port.ERR_STOPPED,
-                                 axis=None, messages=source.messages, state=asdict(after))
+                                 axis=None, messages=source.messages, lag_first=source.lag_first,
+                                 lag_max=source.lag_max, state=asdict(after))
                     raise ScorbotError(self._fault)
                 if self._calibration:
                     try:
@@ -1335,7 +1336,8 @@ class Scorbot:
                     except ValueError as exc:
                         self._disable_best_effort()
                         self._latch_fault(f"Home verification failed: {exc}")
-                        self._record("home_failed", method="vendor", error=self._fault, state=asdict(after))
+                        self._record("home_failed", method="vendor", error=self._fault, lag_first=source.lag_first,
+                                     lag_max=source.lag_max, state=asdict(after))
                         raise ScorbotError(self._fault) from exc
                 self._home_counts = after.encoder_counts.copy()
                 self._homed = True
@@ -1344,6 +1346,7 @@ class Scorbot:
                 self._record("home_complete", method="vendor", wrist_homed=True, gripper_homed=True,
                              axes=[vendor_home_port.NAMES[a] for a in result.axes_done],
                              cycles=result.cycles, seconds=round(result.seconds, 1),
+                             lag_first=source.lag_first, lag_max=source.lag_max,
                              state=asdict(self._motion_state()))
 
     @staticmethod

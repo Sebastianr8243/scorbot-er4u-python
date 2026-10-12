@@ -39,6 +39,12 @@ MIN_SAMPLES = 2
 JUMP_COUNTS = 5000        # no hand moves a joint this far in one sample; the step is skipped and reported
 COARSE_COUNTS = 50        # a larger step between samples makes each switch edge this uncertain
 WRIST = ("wrist_motor_1", "wrist_motor_2")
+ROLL_AXIS = "wrist_roll_axis"
+"""The name of the synthetic roll coordinate, (wrist motor 1 + wrist motor 2) / 2, in the band list."""
+ROLL_MIN_ON_COUNTS = 800
+"""The vendor home zeroes the wrist roll 690 counts past its switch edge and must find the switch again from
+there, so the roll switch has to stay on at least this far (the offset plus the search's margin). Found by
+running the port on the arm model with narrower switches: ``tests/test_vendor_home_geometry.py``."""
 SWITCH_JOINTS = {"base": ("base",), "shoulder": ("shoulder",), "elbow": ("elbow",),
                  "wrist_pitch": WRIST, "wrist_roll": WRIST}
 
@@ -68,6 +74,7 @@ class Report:
     bands: list
     samples: int
     warnings: list = field(default_factory=list)
+    notes: list = field(default_factory=list)
 
 
 def read_rows(path):
@@ -87,6 +94,35 @@ def _runs(flags):
     if start is not None:
         runs.append((start, len(flags) - 1))
     return runs
+
+
+def _roll_notes(bands):
+    """What the wrist roll switch's width means for the vendor home (a prediction from the arm model).
+
+    The width is taken on the roll coordinate, the mean of the two wrist motors (``ROLL_AXIS``): a pure roll
+    moves both together, and pitch moves them apart."""
+    notes = []
+    for band in bands:
+        if band.switch != "wrist_roll" or band.joint != ROLL_AXIS:
+            continue
+        if band.on_edge is None or band.off_edge is None:
+            notes.append("wrist roll switch: the sweep did not cross both edges of it, so its width is unknown; "
+                         "sweep the roll further in one direction")
+            continue
+        lower = abs(band.off_edge[0] - band.on_edge[1])      # first sample on to last sample on: at least this wide
+        upper = abs(band.off_edge[1] - band.on_edge[0])      # last sample off before to first off after: at most this
+        need = f"the vendor home needs it to stay on at least about {ROLL_MIN_ON_COUNTS} counts"
+        if upper < ROLL_MIN_ON_COUNTS:
+            notes.append(f"wrist roll switch stayed on for at most {upper} counts, narrower than that: {need}. "
+                         "The home pose is zeroed 690 counts past the switch edge; a narrower switch leaves it off "
+                         "the switch, the main pass cannot find it again and the home faults on the travel bound "
+                         "(a safe stop). Tell the owner before running the vendor home")
+        elif lower >= ROLL_MIN_ON_COUNTS:
+            notes.append(f"wrist roll switch stayed on for at least {lower} counts: wide enough ({need})")
+        else:
+            notes.append(f"wrist roll switch stayed on for between {lower} and {upper} counts; {need}: "
+                         "sweep it again more slowly to narrow the range")
+    return notes
 
 
 def analyse(rows, *, angles=None):
@@ -140,18 +176,25 @@ def analyse(rows, *, angles=None):
             cpd = end / (last - first)
         joints[joint] = JointSweep(min(relative[joint]), max(relative[joint]), end, steps[joint], cpd)
 
+    relative[ROLL_AXIS] = [(a + b) / 2 for a, b in zip(relative["wrist_motor_1"], relative["wrist_motor_2"])]
     bands = []
     last_index = len(states) - 1
     for name, bit in HOME_SWITCH_BITS.items():
         flags = [bool(int(s.get("home_switch_bits", 0)) & bit) for s in states]
         for first, last in _runs(flags):
-            for joint in SWITCH_JOINTS[name]:
+            for joint in SWITCH_JOINTS[name] + ((ROLL_AXIS,) if name == "wrist_roll" else ()):
                 rel = relative[joint]
                 on_edge = None if first == 0 else (rel[first - 1], rel[first])
                 off_edge = None if last == last_index else (rel[last], rel[last + 1])
                 bands.append(Band(name, joint, on_edge, off_edge,
                                   (first > 0) + (last < last_index), last - first + 1))
-    return Report(joints, bands, len(states), warnings)
+    notes = _roll_notes(bands)
+    if any(b.switch == "wrist_roll" for b in bands):
+        end_1, end_2 = relative["wrist_motor_1"][-1], relative["wrist_motor_2"][-1]
+        if abs(end_1 - end_2) > 0.2 * max(abs(end_1), abs(end_2), 1):
+            notes.append("the two wrist motors did not move together (motor 1 ended at "
+                         f"{end_1}, motor 2 at {end_2}): this was not a pure roll, so the roll width above may be wrong")
+    return Report(joints, bands, len(states), warnings, notes)
 
 
 def _edge(edge):
@@ -171,6 +214,9 @@ def format_report(report):
         lines.append(f"{b.switch} switch (against {b.joint}), {b.samples} samples on: turned on "
                      f"{_edge(b.on_edge)}; turned off "
                      f"{'still on at the end' if b.off_edge is None else _edge(b.off_edge)}.")
+    if report.notes:
+        lines.append("")
+        lines.extend(f"NOTE: {n}" for n in report.notes)
     if report.warnings:
         lines.append("")
         lines.extend(f"WARNING: {w}" for w in report.warnings)

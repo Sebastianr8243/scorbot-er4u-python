@@ -94,6 +94,53 @@ class SwitchBandTests(unittest.TestCase):
         self.assertTrue(any("0x40" in w for w in hs.analyse(rows).warnings))
 
 
+def roll_sweep(values, band, *, second=None):
+    """A pure roll: both wrist motors walk through ``values`` together (``second`` overrides motor 2's walk)."""
+    rows = [{"type": "session", "data_source": "real"}]
+    for i, v in enumerate(values):
+        w = values[i] if second is None else second[i]
+        rows.append(sample(i, {"wrist_motor_1": v, "wrist_motor_2": w}, 16 if band[0] <= v < band[1] else 0))
+    return rows
+
+
+class RollPredictionTests(unittest.TestCase):
+    """The port needs the wrist roll switch to stay on at least ~800 counts (tests/test_vendor_home_geometry.py)."""
+
+    def notes(self, band):
+        return " ".join(hs.analyse(roll_sweep(list(range(0, 1500, 10)), band)).notes)
+
+    def test_the_roll_width_is_measured_on_both_wrist_motors_not_motor_1_alone(self):
+        values = list(range(0, 1500, 10))
+        # Motor 2 stays put: the roll coordinate (m1 + m2) / 2 only moved half as far, so a 900-count window
+        # of motor 1 is a 450-count roll switch, and the report must not call it wide enough.
+        text = " ".join(hs.analyse(roll_sweep(values, (300, 1200), second=[0] * len(values))).notes)
+        self.assertNotIn("wide enough", text)
+        self.assertIn("did not move together", text)
+
+    def test_a_narrow_roll_switch_says_the_vendor_home_will_not_find_it_again(self):
+        text = self.notes((300, 600))
+        self.assertIn("roll", text)
+        self.assertIn("800", text)
+        self.assertIn("narrower", text)
+
+    def test_a_wide_roll_switch_is_reported_as_wide_enough(self):
+        text = self.notes((300, 1200))
+        self.assertIn("wide enough", text)
+
+    def test_a_roll_switch_whose_edges_were_not_both_crossed_is_not_judged(self):
+        rows = roll_sweep(list(range(0, 600, 10)), (300, 10_000))                            # still on at the end
+        text = " ".join(hs.analyse(rows).notes)
+        self.assertIn("did not cross both", text)
+
+    def test_other_switches_get_no_roll_note(self):
+        rows = sweep("shoulder", list(range(0, 1000, 10)), bit=2, band=(300, 420))
+        self.assertEqual(hs.analyse(rows).notes, [])
+
+    def test_the_notes_are_printed_and_do_not_change_the_exit_code(self):
+        rows = roll_sweep(list(range(0, 1500, 10)), (300, 600))
+        self.assertIn("NOTE", hs.format_report(hs.analyse(rows)))
+
+
 class SafetyOfTheDataTests(unittest.TestCase):
     def test_simulated_data_is_refused(self):
         with self.assertRaises(ValueError):

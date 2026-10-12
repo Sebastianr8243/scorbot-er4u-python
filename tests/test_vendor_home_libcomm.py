@@ -25,10 +25,11 @@ FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "vendor_home_trace04.
 class Wire:
     """Both endpoints of the fake controller: ``write`` feeds the arm model, ``read`` returns its reply."""
 
-    def __init__(self, plant):
+    def __init__(self, plant, first_id=1):
+        """``first_id`` is the ID of the last message before the home: the first reply echoes it, as the real one does."""
         self.plant = plant
         self.sent = []
-        self.reply = plant.exchange(vh.encode_out(vh.Out(vh.NOP), 1))
+        self.reply = plant.exchange(vh.encode_out(vh.Out(vh.NOP), first_id))
 
     def write(self, data, timeout=None):
         self.sent.append(bytes(data))
@@ -48,7 +49,7 @@ class FlakyWire(Wire):
     """Fails the write numbered ``fail_at`` (1-based) and, with ``dead``, every write after that."""
 
     def __init__(self, plant, fail_at, dead=False):
-        super().__init__(plant)
+        super().__init__(plant, 10)
         self.fail_at, self.dead, self.writes = fail_at, dead, 0
 
     def write(self, data, timeout=None):
@@ -86,7 +87,7 @@ class VendorHomeRunTests(unittest.TestCase):
         self.addCleanup(sleeping.stop)
 
     def run_order(self, source, plant=None, b_1=10, stale=999):
-        wire = Wire(plant or Plant())
+        wire = Wire(plant or Plant(), b_1)
         buffer = bytearray(wire.reply)
         reads, results = queue.Queue(), queue.Queue()
         reads.put([stale] * 6)
@@ -196,7 +197,7 @@ class VendorHomeRunTests(unittest.TestCase):
     def test_the_first_call_gets_the_last_reply_from_the_shared_buffer(self):
         source = Scripted(2, ("end",))
         wire, buffer, _, _, _ = self.run_order(source)
-        self.assertEqual(source.calls[0][0], bytes(wire.plant.reply(vh.encode_out(vh.Out(vh.NOP), 1))))
+        self.assertEqual(source.calls[0][0], bytes(wire.plant.reply(vh.encode_out(vh.Out(vh.NOP), 10))))    # echoes b_1, the last ID sent
 
     def test_the_legacy_delays_are_the_idle_pair(self):
         sleeps = []

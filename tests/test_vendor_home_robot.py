@@ -266,11 +266,44 @@ class FailureTests(Case):
         self.assert_latched(robot)
         self.assertIn(16, self.ordered(robot)[self.ordered(robot).index(VENDOR_HOME_ORDER):])
 
+    def test_every_home_failed_row_carries_the_lag(self):
+        late = self.robot()
+        original = late._command
+
+        def command(*args, **kwargs):
+            result = original(*args, **kwargs)
+            late.request_stop()
+            return result
+        with mock.patch.object(late, "_command", command):
+            with self.assertRaises(ScorbotError):
+                late.vendor_home(**CONFIRMED)
+        self.assertIn("lag_max", self.events("home_failed")[-1])
+        refused = self.robot()
+
+        def refuse(_count):
+            raise ValueError("home count is off")
+        refused._calibration = SimpleNamespace(joints={"base": SimpleNamespace(encoder="base", validate_home=refuse)})
+        with self.assertRaises(ScorbotError):
+            refused.vendor_home(**CONFIRMED)
+        self.assertIn("lag_max", self.events("home_failed")[-1])
+
     def test_the_failure_text_does_not_claim_the_motors_are_off(self):
         # The motors-off messages may themselves have failed to get through; only the LED shows it.
         robot, error = self.fail(plant=Plant(frozen={vh.WRIST_M1}))
         self.assertNotIn("were switched off", robot._fault)
         self.assertIn("MOTORS LED", robot._fault)
+
+    def test_the_measured_lag_is_in_the_home_rows(self):
+        robot = self.robot()
+        robot.vendor_home(**CONFIRMED)
+        complete = self.events("home_complete")[0]
+        self.assertIn("lag_first", complete)
+        self.assertIn("lag_max", complete)
+        failing = self.robot()
+        failing.sim.vendor_plant = Plant(frozen={vh.WRIST_M1})
+        with self.assertRaises(ScorbotError):
+            failing.vendor_home(**CONFIRMED)
+        self.assertIn("lag_max", self.events("home_failed")[-1])
 
     def test_a_stop_request_during_the_home_stops_it_and_latches(self):
         robot = self.robot()
