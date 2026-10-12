@@ -9,7 +9,9 @@ from unittest.mock import patch
 from scorbot import preflight
 
 
-def importer(find=None, backend=object(), raise_for=()):
+def importer(find=None, backend=None, raise_for=()):
+    backend = object() if backend is None else backend      # a loaded backend is any non-None object
+
     def fake_import(name):
         if name in raise_for:
             raise ImportError(f"no {name}")
