@@ -48,3 +48,26 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(sorted(set(current) - set(expected)), [], "names added to Scorbot")
         changed = {name for name in expected if name in current and expected[name] != current[name]}
         self.assertEqual(sorted(changed), [], "a signature or constant changed")
+
+
+class MovedClassTests(unittest.TestCase):
+    def test_gripper_move_keeps_its_identity_after_moving_to_gripper_py(self):
+        import pickle
+
+        from scorbot import GripperMove
+        from scorbot.gripper import GripperMove as FromGripper
+        from scorbot.robot import GripperMove as FromRobot
+        from scorbot.state import ENCODER_OFFSETS, decode_state
+
+        self.assertIs(GripperMove, FromRobot)
+        self.assertIs(GripperMove, FromGripper)
+        self.assertEqual(GripperMove.__module__, "scorbot.robot")        # what a pickle will name
+        packet = bytearray(64)
+        for offset in ENCODER_OFFSETS:
+            packet[offset + 2] = 128
+        state = decode_state(bytes(packet), connected=True, enabled=True, homed=True, fault=None)
+        move = GripperMove("open", 2700, 2700, True, state)
+        data = pickle.dumps(move)
+        self.assertIn(b"scorbot.robot", data)
+        self.assertNotIn(b"scorbot.gripper", data)
+        self.assertEqual(pickle.loads(data), move)

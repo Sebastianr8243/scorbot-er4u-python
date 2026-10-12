@@ -31,7 +31,7 @@ class MotionSourceFingerprintTests(unittest.TestCase):
 
     def test_modules_split_out_of_robot_py_stay_in_the_fingerprint(self):
         # robot.py was split on 2026-10-12; code that decides what is sent must not leave the hash
-        for name in ("scorbot/robot.py", "scorbot/errors.py", "scorbot/homing.py"):
+        for name in ("scorbot/robot.py", "scorbot/errors.py", "scorbot/homing.py", "scorbot/gripper.py"):
             with self.subTest(name):
                 self.assertIn(name, provenance._SOURCE_FILES)
                 self.assertTrue((Path(provenance.__file__).resolve().parent.parent / name).is_file())
