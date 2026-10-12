@@ -1,15 +1,11 @@
-"""The exceptions Scorbot raises. A leaf module: it imports nothing at run time, so any module can use it.
+"""The exceptions Scorbot raises.
 
 Moved out of robot.py unchanged (docs/specs/2026-10-12-code-health-design.md); robot.py still exports
-the names, so ``from scorbot.robot import ScorbotError`` keeps working.
+the names, so ``from scorbot.robot import ScorbotError`` keeps working. Only ``state`` (stdlib only) is
+imported, for ``MotionStopped``'s annotation, which must still resolve at run time.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .state import RobotState
+from .state import RobotState
 
 
 class ScorbotError(RuntimeError):
@@ -34,3 +30,8 @@ class MotionStopped(ScorbotError):
         super().__init__(message)
         self.state = state
         self.started = started
+
+
+# These were defined in robot.py. Keep what a caller can observe: tracebacks and pickles name ``scorbot.robot``.
+for _cls in (ScorbotError, _WorkerCrashed, MotionStopped):
+    _cls.__module__ = "scorbot.robot"

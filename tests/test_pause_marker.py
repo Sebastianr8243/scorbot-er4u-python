@@ -50,6 +50,24 @@ class PauseMarkerTests(unittest.TestCase):
         libdef.set_msg.assert_not_called()
         self.assertEqual(cola_read.qsize(), 1)
 
+    def test_the_marker_is_read_from_the_configuration_at_import(self):
+        # Patching syncro's MAX_COUNT (above) cannot tell a configured value from a literal, so load a separate
+        # copy of libsync while the config says 300. The copy is never registered in sys.modules.
+        import importlib.util
+
+        conf = self.sync.conf
+        real = conf.readData
+
+        def read(section, key, *args, **kwargs):
+            return 300 if (section, key) == ("general", "MAX_COUNT") else real(section, key, *args, **kwargs)
+
+        spec = importlib.util.spec_from_file_location("libsync_with_marker_300", self.sync.__file__)
+        copy = importlib.util.module_from_spec(spec)
+        with mock.patch.object(conf, "readData", side_effect=read):
+            spec.loader.exec_module(copy)
+        self.assertEqual(copy.MAX_COUNT, 300)
+        self.assertEqual(self.sync.MAX_COUNT, real("general", "MAX_COUNT"))     # the real module is untouched
+
 
 if __name__ == "__main__":
     unittest.main()

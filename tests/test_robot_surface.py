@@ -50,6 +50,38 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(sorted(changed), [], "a signature or constant changed")
 
 
+class MovedExceptionTests(unittest.TestCase):
+    """The exceptions moved to errors.py, but nothing a caller can observe may change."""
+
+    def test_they_still_say_scorbot_robot_in_tracebacks_and_pickles(self):
+        import pickle
+        import traceback
+
+        from scorbot import errors
+        from scorbot.robot import MotionStopped, ScorbotError, _WorkerCrashed
+
+        for cls in (ScorbotError, MotionStopped, _WorkerCrashed):
+            with self.subTest(cls.__name__):
+                self.assertIs(getattr(errors, cls.__name__), cls)
+                self.assertEqual(cls.__module__, "scorbot.robot")
+                self.assertEqual(traceback.format_exception_only(cls, cls("x")),
+                                 [f"scorbot.robot.{cls.__name__}: x\n"])
+                data = pickle.dumps(cls("x"))
+                self.assertIn(b"scorbot.robot", data)
+                self.assertNotIn(b"scorbot.errors", data)
+                self.assertEqual(pickle.loads(data).args, ("x",))
+
+    def test_the_annotations_of_motion_stopped_resolve_at_run_time(self):
+        import typing
+
+        from scorbot.robot import MotionStopped
+        from scorbot.state import RobotState
+
+        hints = typing.get_type_hints(MotionStopped.__init__)
+        self.assertEqual(hints["state"], typing.Optional[RobotState])
+        self.assertIs(hints["started"], bool)
+
+
 class MovedClassTests(unittest.TestCase):
     def test_gripper_move_keeps_its_identity_after_moving_to_gripper_py(self):
         import pickle
