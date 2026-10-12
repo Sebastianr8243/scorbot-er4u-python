@@ -22,6 +22,10 @@ WRITE = conf.readData("general","WRITE")
 # Delay before starting the next message after a read request
 READ = conf.readData("general","READ")
 
+# Value libcomm puts on the sync queue to pause this thread while the command thread
+# holds the sequence byte (libcomm reads the same setting)
+MAX_COUNT = conf.readData("general","MAX_COUNT")
+
 # Bound each initial controller acknowledgment wait.
 HANDSHAKE_WAIT_TIMEOUT_S = 30.0
 
@@ -41,7 +45,7 @@ def syncro(cola_sync, cola_read, epout, epin, buffer):
 		b_1 = cola_sync.get()
 		if b_1 == conf.readData("general","EXIT"):
 			break
-		if b_1 == 256:
+		if b_1 == MAX_COUNT:
 			time.sleep(READ)
 		else:
 			cadena = libhex.mov_comm(1)
