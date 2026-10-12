@@ -66,6 +66,7 @@ One joint per run, 30 seconds, moved slowly (about 1 to 2 degrees per second: th
 
 - [ ] Repeat for `base`, `elbow`, the wrist pitch and the wrist roll (the report lists both wrist motors against a wrist switch), with a new `--output` name each time. The gripper has no switch.
 - [ ] Write down, for each joint, which physical direction made the counts rise.
+- [ ] **Wrist roll:** the report prints a NOTE saying whether the roll switch stays on for at least about 800 counts. The vendor home needs that (it zeroes the roll 690 counts past the switch and must find the switch again from there). If the NOTE says narrower, stop and tell the owner before running the vendor home.
 - [ ] The report prints a WARNING line if the motors were on, if it lost samples, or if you moved too fast; repeat that joint slower.
 - [ ] Optional: press each microswitch with a screwdriver tip while the arm is still (manual p. 17), recording, to see which bit it sets.
 
