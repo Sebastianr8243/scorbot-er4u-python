@@ -1,6 +1,8 @@
 # Learning from the vendor DLL: design
 
 > **Standing decision:** read the vendor DLL, never run it. The parked bindings it mentions were removed on 2026-10-05.
+>
+> **Changed 2026-10-08 by the owner:** one exception, a lab-only tool that runs the DLL's `Home` and nothing that moves a joint, specified in [2026-10-08-vendor-dll-home-plan.md](2026-10-08-vendor-dll-home-plan.md). Everything else here still holds.
 
 Date: 2026-10-04. Status: direction agreed (do not run the DLL); awaiting review of this text. Nothing here is hardware-validated.
 

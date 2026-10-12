@@ -2,7 +2,7 @@
 
 import unittest
 
-from scorbot import follow, limits, streaming
+from scorbot import limits, streaming
 from scorbot.lab import session as lab_session
 from scorbot.robot import Scorbot
 
@@ -10,8 +10,7 @@ from scorbot.robot import Scorbot
 class OneHomeTests(unittest.TestCase):
     def test_every_module_uses_the_same_travel_cap(self):
         self.assertEqual(limits.TRAVEL_CAP_DEG, 180.0)
-        for name, value in (("follow", follow.TRAVEL_CAP_DEG),
-                            ("lab session", lab_session.TRAVEL_CAP_DEG),
+        for name, value in (("lab session", lab_session.TRAVEL_CAP_DEG),
                             ("stream", Scorbot.STREAM_TRAVEL_CAP_MAX_DEG)):
             self.assertIs(value, limits.TRAVEL_CAP_DEG, name)
 
@@ -19,15 +18,11 @@ class OneHomeTests(unittest.TestCase):
         self.assertEqual(limits.ARM_MOTORS, ("base", "shoulder", "elbow"))
         self.assertEqual(limits.RECORDED_MOTORS,
                          ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2"))
-        for name, value in (("stream", streaming.MOTORS), ("follow", follow.STEP_JOINTS)):
-            self.assertIs(value, limits.ARM_MOTORS, name)
-        self.assertIs(follow.MOTORS, limits.RECORDED_MOTORS)
+        self.assertIs(streaming.MOTORS, limits.ARM_MOTORS)
 
     def test_every_module_uses_the_same_count_bands(self):
         self.assertEqual((limits.DRIFT_COUNTS, limits.STABLE_COUNTS), (20, 2))
-        for name, value in (("follow drift", follow.DRIFT_COUNTS),
-                            ("follow wrist", follow.WRIST_TOLERANCE_COUNTS),
-                            ("lab drift", lab_session.DRIFT_COUNTS),
+        for name, value in (("lab drift", lab_session.DRIFT_COUNTS),
                             ("gripper arm", Scorbot.GRIPPER_ARM_TOLERANCE_COUNTS)):
             self.assertIs(value, limits.DRIFT_COUNTS, name)
         for name, value in (("lab stable", lab_session.STABLE_COUNTS),

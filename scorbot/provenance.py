@@ -9,12 +9,18 @@ _SOURCE_FILES = (
     "openScorbot/libdef.py",
     "openScorbot/motion_profile.py",
     "scorbot/calibration.py",
+    "scorbot/errors.py",
+    "scorbot/gripper.py",
+    "scorbot/homing.py",
     "scorbot/inch_home.py",
     "scorbot/joint_move.py",
     "scorbot/limits.py",
     "scorbot/robot.py",
     "scorbot/state.py",
+    "scorbot/stream_control.py",
     "scorbot/streaming.py",
+    "scorbot/vendor_home.py",
+    "scorbot/vendor_home_source.py",
     "scorbot/vendor_profile.py",
 )
 

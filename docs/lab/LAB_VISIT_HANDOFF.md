@@ -182,7 +182,6 @@ After the visit, record what happened in [PROJECT_LOG.md](../project/PROJECT_LOG
 | Known bugs and open work | [BACKLOG.md](../project/BACKLOG.md) |
 | What was decided, and when | [PROJECT_LOG.md](../project/PROJECT_LOG.md) |
 | The guided session (an alternative to the per-script steps A and B) | [LAB_SESSION.md](LAB_SESSION.md) |
-| A 3D picture of the arm for rehearsals | `python -m scorbot.arm_view --simulate` (simulator only; unvalidated geometry) |
 
 ## 10. Known limits, so nobody is surprised
 

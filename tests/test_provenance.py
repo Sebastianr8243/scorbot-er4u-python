@@ -29,6 +29,14 @@ class MotionSourceFingerprintTests(unittest.TestCase):
             self.assertNotEqual(provenance.motion_source_sha256(Path(first)),
                                 provenance.motion_source_sha256(Path(second)))
 
+    def test_modules_split_out_of_robot_py_stay_in_the_fingerprint(self):
+        # robot.py was split on 2026-10-12; code that decides what is sent must not leave the hash
+        for name in ("scorbot/robot.py", "scorbot/errors.py", "scorbot/homing.py", "scorbot/gripper.py",
+                     "scorbot/stream_control.py"):
+            with self.subTest(name):
+                self.assertIn(name, provenance._SOURCE_FILES)
+                self.assertTrue((Path(provenance.__file__).resolve().parent.parent / name).is_file())
+
     def test_default_root_is_the_repository(self):
         self.assertEqual(len(provenance.motion_source_sha256()), 64)
 

@@ -403,7 +403,7 @@ So the two close the gripper by different means: the vendor pushes with a set dr
 
 ### 12.3 What this means for us
 
-- `Scorbot.move_gripper` uses the **legacy** sequence, fixed (`tests/test_gripper.py`). Every command byte in it is already in `openScorbot/libhex.py`, which the packet rule allows; `4C` has not yet been sent to the arm by this project.
+- `Scorbot.move_gripper` uses the **legacy** sequence, fixed (`tests_extra/test_gripper.py`). Every command byte in it is already in `openScorbot/libhex.py`, which the packet rule allows; `4C` has not yet been sent to the arm by this project.
 - The vendor's sequence needs `4D` and a single-axis mode `T`, which the legacy code never sends. Under the packet rule it needs a capture first (S1 card: one open and one close in SCORBASE).
 - First trials on the arm are with empty jaws, then a soft object (lab day card, step F).
 - Still to read: what ends the vendor's gripper move, the drive value's INI key, and the gripper's count limits in the vendor's terms (section 11.5 lists -200 to 6000).
@@ -421,3 +421,36 @@ Against the legacy code: `openScorbot/setHome.py` never sends `48`. After its ho
 `48` is a byte the legacy code never sends, so under the packet rule using it needs a capture first.
 
 The whole homing routine and the coupled-motor arithmetic are traced in `VENDOR_HOMING_TRACE.md` and `VENDOR_COUPLING_TRACE.md`.
+
+## 14. How the DLL reaches the controller, and the vendor's own SDK (2026-10-11)
+
+**Transport (V, 2008 build, communication thread `FUN_1003bc88`).** The DLL opens the driver's device name (the `DriverLink` entry of `USBC.INI`, `\.\ERUSBDevice0` in the shipped file) with `CreateFileA`: access `0xC0000000` (read and write), share mode **0** (exclusive), `OPEN_EXISTING`, flags **0** (not overlapped). It then calls `WriteFile` with 64 bytes and, after a sleep of half the PC period, `ReadFile` for 64 bytes, both with a NULL `OVERLAPPED`. A write that is not 64 bytes, or a read that is neither 0 nor 64 bytes, is an error; **a zero-byte read is counted and retried, and ten in a row end the attempt.** No `DeviceIoControl`, `CreateEvent`, `GetOverlappedResult` or `CancelIo` appears anywhere in the DLL. The consequences: only one program can hold the device (SCORBASE, `usbc_home` and our own code exclude each other), and a read has no timeout of its own: whatever bounds it lives in Intelitek's driver (`ERUSB.sys`), which we have not read.
+
+`scorbot/transport/device_file.py` does the same in Python (blocking 64-byte `WriteFile`/`ReadFile`, same retry rule, a `CancelSynchronousIo` watchdog for the timeout the pyusb path had). Unit-tested against a fake kernel32 only; never opened a device; whether `ERUSB.sys` honours the cancel is unknown.
+
+**Intelitek's own SDK (V, `scorbase_files/Programming Interface/`, local only, never committed).** The SCORBASE package ships `USBC.h`, `USBCDEF.h`, `USBC.lib` and a C++/MFC demo, `Demo application1/ManualMove` (header date 2003, readme 2001). What it shows:
+
+- `Initialization(INIT_MODE_ONLINE /*1*/, fnInitEnd, fnErrMessage)`; with the two-argument overload the system type is `DEFAULT_SYSTEM_TYPE` (0). `ER4USB_SYSTEM_TYPE` is 41. Modes: 0 last used, 1 online, 2 simulation, 3 offline. `GetMode()` after the init callback says which one took.
+- Then `Control('&', TRUE)`, then per jog tick `EnterManual(MANUAL_TYPE_ENC)` and `MoveManual(axis, speed * 10)` on a timer. **The demo never homes**: a manual jog works from power-on, which agrees with `VENDOR_MANUAL_MOVE_TRACE.md`.
+- `IsOnLineOk()` is declared in the header (our two builds do not export it; the header is newer or older than both).
+- The readme's safety text is the vendor's: the DLL "provides direct access to internal control functions, optionally bypassing software safety features", and the emergency button must be in reach.
+
+## 15. What SCORBASE itself passes to the DLL (2026-10-11, `Scorbase.exe` 5.3.3.5, 3.3 MB, decompiled in Ghidra; 8841 functions, none failed; the exe and its decompile stay outside the repo)
+
+All V, read from the decompile; nothing run.
+
+| Call | What SCORBASE passes | Where |
+|---|---|---|
+| `Initialization` | one wrapper (`FUN_0044d0f9`): `Initialization(mode, systemType, onInitEnd, onError)`. **`systemType` is read from SCORBASE's own config (`+0xa3c`), not fixed**; mode comes from the caller: **1** (go online), **2** (simulation), **3** (offline), or **0** (re-initialise in the current mode). At startup the else-branch calls it with 1; leaving online mode goes to 2 if a config flag (`+0xa3a`) is 1, else 3 | `FUN_0044d1d7`, `FUN_0044d295`, `FUN_0044d248`, `FUN_004518fe` |
+| `Home` | `Home('A', cb)` for the robot (`FUN_0044d4e5`), `Home('&', cb)` for everything (`FUN_0044d472`), `Home('B', cb)` for the second group. All three share one callback | menu actions |
+| `Control` | **`Control('&', 0/1)`**, never `'A'` | `FUN_00445d51`, `FUN_0044d2e2`, `FUN_0044d3ae` |
+| `Stop` | **`Stop('&')`**, never `'A'` | `FUN_0044de39`, `FUN_004741e3`, `FUN_00484e64` |
+| `SetHome` | `SetHome('&')`, or one axis | `FUN_00410810`, `FUN_004850ba` |
+| `IsEmergency` | checked before each Home and before Control on | `FUN_0044d353`, `FUN_0044d3f9`, `FUN_0044d499`, `FUN_0044d50c` |
+| `EnterManual` / `MoveManual` | `EnterManual(0 or 1)` then `MoveManual(axis, velocity)` per jog tick | `FUN_0042c5b3`, `FUN_0042edc7` |
+
+Consequences:
+
+- `tools/usbc_home` already makes the same `Initialization(1, 41)` and `Home('A')` calls as SCORBASE's robot-home action. The system type 41 matches the ER-4u config in the SDK header; SCORBASE reads it from config.
+- **`tools/usbc_home` calls `Control('A', ...)` and `Stop('A')`; SCORBASE and the vendor SDK demo call `Control('&', ...)` and `Stop('&')`.** In the DLL the two take different branches (`Control`: `'&'` runs `FUN_10021aff` over `DAT_10064473` axes and both controller groups, `'A'` runs `FUN_10021e71` over `DAT_10064472` robot axes, then the gripper group `DAT_10064471`). For a robot-only system they probably do the same on the wire, but that is unread, so the lab sequence differs from SCORBASE's in an unmeasured way. **Changed 2026-10-11 (owner approved):** `tools/usbc_home` now passes `'&'` to `Control` and `Stop` like SCORBASE and the SDK demo, and keeps `'A'` for `Home`; its 34 tests were updated. Whether `'A'` and `'&'` differ on the wire is still unread; the lab capture will show the `Control` messages either way.
+- The DLL's `Home('&')` is not what SCORBASE uses for a plain robot home; `'A'` is.

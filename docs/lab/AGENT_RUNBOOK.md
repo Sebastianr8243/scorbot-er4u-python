@@ -30,7 +30,7 @@ It is an option of `bench_joint.py`, `bench_stream.py` and the keyboard session 
 
 ## Homing precondition (why the 2026-10-06 run failed)
 
-`base-first-02`: motors enabled, `home()` ran about 4 s, then `Legacy controller returned error code 1` (a joint error word at or above 40: the search hit resistance before its switch). No jog was sent. The legacy search only works from the homing start pose.
+`base-first-02`: motors enabled, `home()` ran about 4 s, then `Legacy controller returned error code 1` (a joint error word at or above 40: the search hit resistance before its switch). No jog was sent. The legacy search only works from the homing start pose. Since 2026-10-08 `Scorbot.home` records every packet of the search in the run's controller log; after any legacy `HOME`, successful or not, run `python scripts/home_trace_report.py logs/<run>.controller.jsonl` and keep its output with the run (never run on the arm yet).
 
 Before any `HOME`, the agent asks the operator, and writes the answers in the run's notes:
 

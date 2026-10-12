@@ -237,11 +237,29 @@ class SdkGripperTests(SimulatedRobotCase):
         from scorbot import ScorbotError
         self.assertIsNotNone(robot._fault)
         self.assertIsNone(robot._enabled)
-        queued = len(robot.sim.commands)
-        for call in (robot.open_gripper, robot.close_gripper):
-            with self.assertRaises(ScorbotError):
-                call()
-        self.assertEqual(len(robot.sim.commands), queued, "a latched session queues nothing")
+        # The fault path queued a best-effort disable that the simulator's worker thread records some time later,
+        # so counting sim.commands before and after raced with it (4 != 3). Watch put() itself, which runs here.
+        with mock.patch.object(robot._commands, "put", side_effect=robot._commands.put) as put:
+            for call in (robot.open_gripper, robot.close_gripper):
+                with self.assertRaises(ScorbotError):
+                    call()
+        self.assertEqual(put.call_args_list, [], "a latched session queues nothing")
+
+    def test_assert_latched_notices_a_command_that_is_queued_while_latched(self):
+        # guard the guard: a refused call that still queues something must fail the check, however slow the worker is
+        from scorbot import ScorbotError
+        robot = self.robot()
+        robot.sim.gripper_disturbs = {"elbow": 45}
+        with self.assertRaises(ScorbotError):
+            robot.close_gripper()                       # faults the session
+
+        def sneaky():
+            robot._commands.put([17, 1, 1])
+            raise ScorbotError("refused, but queued first")
+
+        with mock.patch.object(robot, "open_gripper", sneaky):
+            with self.assertRaises(AssertionError):
+                self.assert_latched(robot)
 
     def test_open_then_close_moves_only_the_gripper(self):
         robot = self.robot()

@@ -7,6 +7,54 @@ Git history has the diffs; this file has the story. Hardware claims stay
 
 The implementation plans this log cites under `docs/superpowers/plans/` were removed from the tree on 2026-10-04; they are in git history (last present at commit `e5ef11e`).
 
+## 2026-10-08
+
+### A flight recorder for the legacy home, and the collision flag
+
+- **Why:** the 2026-10-06 home failed after 4.2 s with `error code 1` and left no counts, error
+  words or switch bits, so the cause (the shoulder lagging the search ramp, the held elbow and wrist
+  fighting it, or a stop) could not be read back. The ULPGC thesis shows the controller also reports
+  a stall in IN byte 59, which the SDK never decoded (`docs/protocol/ULPGC_THESIS_FINDINGS.md`).
+- **What was built (record and decode only, no behaviour change):** `Scorbot.home` starts the
+  existing `PacketTrace` around the home command and writes a `motion_trace` row with
+  `joint: "home"` in a `finally`, so a failed or interrupted home still leaves its packets.
+  `state.collision_motors` and `RobotState.collision_bits` decode IN byte 59, and the session schema
+  describes the new field. `scripts/home_trace_report.py` prints a per-message table and a summary
+  (position error crossings, travel, collision flag, switch bits) from a controller event log.
+  No file in `openScorbot/` changed; the trace copies bytes and adds no sleep.
+- **Review:** Codex `standard` found four things, all accepted and fixed: a log failure in the
+  `finally` could replace the home's own error (now the home's error wins, `_record_home_trace`);
+  the trace kept the first 4000 packets while a failure is at the end (home now uses
+  `PacketTrace.start(keep="last")` and says which end was dropped); the report claimed "never set"
+  with packets missing (now "not set in the packets kept"); and first-to-last travel hid an out and
+  back (now net and path). Gemini did not run (`agy` is not installed on this PC), so this was a
+  one-reviewer review.
+- **Fingerprint:** `robot.py` and `state.py` are in `motion_source_sha256`, so logs from before this
+  commit carry a different hash. The 2026-10-06 logs (`5ef58dd6...`) are the pre-change code.
+- **Not done on purpose:** nothing latches a fault on the collision flag yet. It has not been seen
+  to move on the arm; the first lab run with this recording decides what the fault should be.
+- **Evidence:** `tests/test_collision_flag.py`, `tests/test_home_trace_report.py`, and the home
+  cases in `tests/test_motion_trace.py`. Never run on the arm.
+
+### The simulator-only front doors were removed, and the tests were split
+
+- **Owner's decision (2026-10-08):** the browser page, 3D view, Mover, teaching toolbox, LeRobot
+  plugin and exporter, lab replay and `follow.py` only ran on the simulator, so they could say
+  nothing about the real arm. They are gone (git history before `d9633d8` has them).
+- **Tests:** `tests/` is the lab-visit gate (connect, state, home, jog, safety invariants, packet
+  pins, the guided session, the evidence path); `tests_extra/` holds tests for streaming, the
+  gripper, cameras, viewers and offline tools. CI runs both; before a visit run both.
+
+### The ULPGC thesis, and a revised reading of the 10-06 failure
+
+- A 2017 thesis decoded SCORBASE's USB traffic on the same `09F1/0007` controller. It confirms the
+  switch polarity and bit order, the 65535 wrap and the `47` / end-of-move sequence, and gives a
+  published capture of the `48` reset. It cannot say how to home reliably or what a degree is.
+- Reading of 10-06 against the search arithmetic (10 counts per message, about 390 counts/s): a
+  start next to the upper stop would have failed in about 1.3 s, not 4.2 s. The shoulder lagging
+  the ramp, or coupling with the held elbow and wrist, fits. Details in
+  `docs/evidence/2026-10-06-lab-logs/ANALYSIS.md`.
+
 ## 2026-10-07
 
 ### Pre-hardware review of the arm-facing code, and what it changed

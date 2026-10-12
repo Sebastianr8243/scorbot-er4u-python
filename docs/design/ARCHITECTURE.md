@@ -284,7 +284,7 @@ Files: bench JSONL (`--output`) plus `<stem>.controller.jsonl` (SDK events: `com
 | Handshake wait deadline, homing cancel and deadline | `test_handshake_acknowledgment_wait_has_deadline`, `test_homing_search_stops_on_cancel_or_deadline` | none yet | 30 s is enough for a real handshake and switch search |
 | Jog gates, wrist block, soft limits, preview matches plan | `tests/test_arm_control.py`, `test_python_api.py` | none yet | Jog direction, degrees per count, speed units |
 | Calibration load, count wrap | `tests/test_arm_control.py` | no measured arm file | Fit method is adequate |
-| Kinematics, nominal spans | `tests/test_kinematics.py`, `test_nominal.py` | none | DH geometry vs arm |
+| Kinematics, nominal spans | `tests_extra/test_kinematics.py`, `test_nominal.py` | none | DH geometry vs arm |
 | MCAP write, replay, review, watch, USBPcap parse | `tests/test_session.py`, `test_analysis.py`, `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | none yet | none |
 | Full G1 sequence, offline | `tests/test_bench_joint.py`, `test_simulated.py` | none yet | Simulator matches controller: it does not model timing, dynamics or backlash |
 | Motors energised by handshake, then off after disable | not testable | none yet | MOTORS LED behaviour, exposure window length |
