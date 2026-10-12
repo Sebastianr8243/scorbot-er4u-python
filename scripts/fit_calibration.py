@@ -10,6 +10,7 @@ import json
 import math
 from pathlib import Path
 from statistics import mean, median
+from typing import NamedTuple
 
 from openScorbot.motion_profile import COUNTS_PER_DEGREE as LEGACY_COUNTS_PER_DEGREE
 from scorbot.calibration import CALIBRATED_JOINTS, signed_count_delta
@@ -22,8 +23,30 @@ COLUMNS = {"robot_id", "joint", "role", "approach", "reference_source",
            "encoder_count", "measured_angle_deg", "requested_target_deg"}
 
 
-def fit(measurements: Path, limits_path: Path, robot_id: str) -> dict:
-    raw = measurements.read_bytes()
+ROLES = ("home", "fit", "verify", "move_verify")
+
+# What a joint's rows must show before a calibration is written (the messages repeat these numbers)
+HOME_SPREAD_COUNTS = 50          # homes may differ from the median home by this many counts...
+HOME_SPREAD_DEG = 2              # ...and by this many degrees
+MIN_FIT_SPAN_COUNTS = 20         # the fit rows must cover at least this many counts...
+MIN_FIT_SPAN_DEG = 2             # ...and this many degrees
+MIN_ANGLE_PER_COUNT = 1 / 32768  # a slope below this means the counts do not map to the angle
+MAX_ERROR_DEG = 2                # holdout error and motion error must stay within this
+LIMIT_MARGIN_DEG = 2.5           # soft limits sit this far inside the measured range
+
+
+class Measurement(NamedTuple):
+    """One validated row of the measurements CSV."""
+
+    joint: str
+    role: str
+    approach: str
+    count: int
+    angle: float
+    requested: float | None      # only move_verify rows carry a requested target
+
+
+def _read_measurement_rows(measurements: Path) -> list[dict]:
     with measurements.open(newline="", encoding="utf-8-sig") as stream:
         reader = csv.DictReader(stream)
         if not reader.fieldnames or not COLUMNS <= set(reader.fieldnames):
@@ -31,95 +54,159 @@ def fit(measurements: Path, limits_path: Path, robot_id: str) -> dict:
         rows = list(reader)
     if not rows:
         raise ValueError("Measurement CSV is empty")
+    return rows
+
+
+def _read_limits(limits_path: Path) -> dict:
     limits = json.loads(limits_path.read_text(encoding="utf-8"))
     if not isinstance(limits, dict) or not limits:
         raise ValueError("Limits JSON must contain at least one joint")
     if set(limits) - set(CALIBRATED_JOINTS):
         raise ValueError("Only base, shoulder and elbow are supported")
-    parsed = []
-    for row in rows:
-        if row["robot_id"] != robot_id or row["reference_source"] != "physical":
-            raise ValueError("All rows must match robot_id and use a physical angle reference")
-        if row["joint"] not in CALIBRATED_JOINTS or row["role"] not in ("home", "fit", "verify", "move_verify"):
-            raise ValueError("Unknown joint or role")
-        if row["role"] != "home" and row["approach"] not in ("+", "-"):
-            raise ValueError("Fit and verify rows need an approach of + or -")
-        count = int(row["encoder_count"])
-        if not 0 <= count <= 65535:
-            raise ValueError("Counts must be unsigned 16-bit")
-        angle = float(row["measured_angle_deg"])
-        requested = (float(row["requested_target_deg"])
-                     if row["role"] == "move_verify" else None)
-        if requested is not None and not math.isfinite(requested):
-            raise ValueError("Requested targets must be finite")
-        if not math.isfinite(angle):
-            raise ValueError("Measured angles must be finite")
-        parsed.append((row["joint"], row["role"], row["approach"], count, angle, requested))
-    if set(limits) != {row[0] for row in parsed}:
+    return limits
+
+
+def _parse_measurement(row: dict, robot_id: str) -> Measurement:
+    if row["robot_id"] != robot_id or row["reference_source"] != "physical":
+        raise ValueError("All rows must match robot_id and use a physical angle reference")
+    if row["joint"] not in CALIBRATED_JOINTS or row["role"] not in ROLES:
+        raise ValueError("Unknown joint or role")
+    if row["role"] != "home" and row["approach"] not in ("+", "-"):
+        raise ValueError("Fit and verify rows need an approach of + or -")
+    count = int(row["encoder_count"])
+    if not 0 <= count <= 65535:
+        raise ValueError("Counts must be unsigned 16-bit")
+    angle = float(row["measured_angle_deg"])
+    requested = (float(row["requested_target_deg"])
+                 if row["role"] == "move_verify" else None)
+    if requested is not None and not math.isfinite(requested):
+        raise ValueError("Requested targets must be finite")
+    if not math.isfinite(angle):
+        raise ValueError("Measured angles must be finite")
+    return Measurement(row["joint"], row["role"], row["approach"], count, angle, requested)
+
+
+def _split_by_role(joint: str, subset: list[Measurement]):
+    """The joint's home, fit, verify and move_verify rows, once there are enough of each."""
+    homes = [m for m in subset if m.role == "home"]
+    training = [m for m in subset if m.role == "fit"]
+    verifying = [m for m in subset if m.role == "verify"]
+    moves = [m for m in subset if m.role == "move_verify"]
+    if len(homes) < 3 or len(training) < 4 or len(verifying) < 3 or len(moves) < 3:
+        raise ValueError(f"{joint}: need 3 homes, 4 fit, 3 verify and 3 move verification rows")
+    for group in (training, verifying, moves):
+        if {m.approach for m in group} != {"+", "-"}:
+            raise ValueError(f"{joint}: both approach directions are required")
+    return homes, training, verifying, moves
+
+
+def _home_reference(joint: str, homes: list[Measurement]):
+    """The home count and angle (medians) and how far the homes stray from the median count."""
+    home_count = int(median(m.count for m in homes))
+    home_angle = median(m.angle for m in homes)
+    home_spread = max(abs(signed_count_delta(m.count, home_count)) for m in homes)
+    if (home_spread > HOME_SPREAD_COUNTS
+            or max(abs(m.angle - home_angle) for m in homes) > HOME_SPREAD_DEG):
+        raise ValueError(f"{joint}: home repeatability is too poor to validate")
+    return home_count, home_angle, home_spread
+
+
+def _counts_per_degree(joint: str, training: list[Measurement], home_count: int, home_angle: float) -> float:
+    """Least-squares fit through the home point of angle against counts, as counts per degree."""
+    xs = [signed_count_delta(m.count, home_count) for m in training]
+    ys = [m.angle - home_angle for m in training]
+    if max(xs) - min(xs) < MIN_FIT_SPAN_COUNTS or max(ys) - min(ys) < MIN_FIT_SPAN_DEG:
+        raise ValueError(f"{joint}: calibration span is too small")
+    denominator = sum(x * x for x in xs)
+    angle_per_count = sum(x * y for x, y in zip(xs, ys)) / denominator
+    if abs(angle_per_count) < MIN_ANGLE_PER_COUNT:
+        raise ValueError(f"{joint}: counts do not map reliably to angle")
+    counts_per_degree = 1 / angle_per_count
+    if abs(counts_per_degree) < 1:
+        raise ValueError(f"{joint}: fitted count scale is implausible")
+    return counts_per_degree
+
+
+def _holdout_residuals(joint: str, verifying: list[Measurement], home_count: int, home_angle: float,
+                       counts_per_degree: float):
+    """Predicted minus measured angle for the verify rows, and the worst of them."""
+    residuals = [home_angle + signed_count_delta(m.count, home_count)
+                 / counts_per_degree - m.angle for m in verifying]
+    worst = max(abs(error) for error in residuals)
+    if worst > MAX_ERROR_DEG:
+        raise ValueError(f"{joint}: holdout error {worst:.2f} degrees exceeds 2 degrees")
+    return residuals, worst
+
+
+def _motion_error(joint: str, moves: list[Measurement]) -> float:
+    """The worst difference between where a move was asked to go and where it was measured to end."""
+    motion_error = max(abs(m.angle - m.requested) for m in moves)
+    if motion_error > MAX_ERROR_DEG:
+        raise ValueError(f"{joint}: measured motion error exceeds 2 degrees")
+    return motion_error
+
+
+def _direction_bias(verifying: list[Measurement], residuals: list[float]) -> dict:
+    """The mean holdout error when approaching from each direction."""
+    return {direction: mean(error for m, error in zip(verifying, residuals) if m.approach == direction)
+            for direction in ("+", "-")}
+
+
+def _soft_limits(joint: str, limit: dict, subset: list[Measurement], home_angle: float):
+    """The operator's soft limits, checked against the measured range and the manual's travel."""
+    lower = float(limit["soft_min_deg"])
+    upper = float(limit["soft_max_deg"])
+    angles = [m.angle for m in subset]
+    if not all(math.isfinite(value) for value in (lower, upper)):
+        raise ValueError(f"{joint}: soft limits must be finite")
+    if not (min(angles) + LIMIT_MARGIN_DEG <= lower < home_angle < upper
+            <= max(angles) - LIMIT_MARGIN_DEG):
+        raise ValueError(f"{joint}: soft limits must lie inside measured range with 2.5 degree margin")
+    # The loader enforces this too; refuse here so no unloadable file is written.
+    check_soft_limit_span(joint, lower, upper)
+    return lower, upper
+
+
+def _fit_joint(joint: str, subset: list[Measurement], limit: dict) -> dict:
+    homes, training, verifying, moves = _split_by_role(joint, subset)
+    home_count, home_angle, home_spread = _home_reference(joint, homes)
+    counts_per_degree = _counts_per_degree(joint, training, home_count, home_angle)
+    residuals, worst = _holdout_residuals(joint, verifying, home_count, home_angle, counts_per_degree)
+    motion_error = _motion_error(joint, moves)
+    approach_error = _direction_bias(verifying, residuals)
+    lower, upper = _soft_limits(joint, limit, subset, home_angle)
+    return {
+        "encoder": joint,
+        "home_count": home_count,
+        "home_angle_deg": home_angle,
+        "counts_per_degree": counts_per_degree,
+        "soft_min_deg": lower,
+        "soft_max_deg": upper,
+        "home_tolerance_counts": home_spread + 5,
+        "validation_max_error_deg": worst,
+        "motion_max_error_deg": motion_error,
+        "direction_bias_deg": approach_error,
+        "fit_points": len(training),
+        "validation_points": len(verifying),
+        "motion_validation_points": len(moves),
+        "home_points": len(homes),
+    }
+
+
+def fit(measurements: Path, limits_path: Path, robot_id: str) -> dict:
+    """Fit each joint's counts per degree from independent physical angle measurements.
+
+    Refuses, with a message naming the problem and the joint, anything the calibration cannot stand on.
+    The checks run in a fixed order, so when two things are wrong the operator sees the first.
+    """
+    raw = measurements.read_bytes()
+    rows = _read_measurement_rows(measurements)
+    limits = _read_limits(limits_path)
+    parsed = [_parse_measurement(row, robot_id) for row in rows]
+    if set(limits) != {m.joint for m in parsed}:
         raise ValueError("Limits and measured joints must match")
-    joints = {}
-    for joint in sorted(limits):
-        subset = [row for row in parsed if row[0] == joint]
-        homes = [row for row in subset if row[1] == "home"]
-        training = [row for row in subset if row[1] == "fit"]
-        verifying = [row for row in subset if row[1] == "verify"]
-        moves = [row for row in subset if row[1] == "move_verify"]
-        if len(homes) < 3 or len(training) < 4 or len(verifying) < 3 or len(moves) < 3:
-            raise ValueError(f"{joint}: need 3 homes, 4 fit, 3 verify and 3 move verification rows")
-        for group in (training, verifying, moves):
-            if {row[2] for row in group} != {"+", "-"}:
-                raise ValueError(f"{joint}: both approach directions are required")
-        home_count = int(median(row[3] for row in homes))
-        home_angle = median(row[4] for row in homes)
-        home_spread = max(abs(signed_count_delta(row[3], home_count)) for row in homes)
-        if home_spread > 50 or max(abs(row[4] - home_angle) for row in homes) > 2:
-            raise ValueError(f"{joint}: home repeatability is too poor to validate")
-        xs = [signed_count_delta(row[3], home_count) for row in training]
-        ys = [row[4] - home_angle for row in training]
-        if max(xs) - min(xs) < 20 or max(ys) - min(ys) < 2:
-            raise ValueError(f"{joint}: calibration span is too small")
-        denominator = sum(x * x for x in xs)
-        angle_per_count = sum(x * y for x, y in zip(xs, ys)) / denominator
-        if abs(angle_per_count) < 1 / 32768:
-            raise ValueError(f"{joint}: counts do not map reliably to angle")
-        counts_per_degree = 1 / angle_per_count
-        if abs(counts_per_degree) < 1:
-            raise ValueError(f"{joint}: fitted count scale is implausible")
-        residuals = [home_angle + signed_count_delta(row[3], home_count)
-                     / counts_per_degree - row[4] for row in verifying]
-        worst = max(abs(error) for error in residuals)
-        if worst > 2:
-            raise ValueError(f"{joint}: holdout error {worst:.2f} degrees exceeds 2 degrees")
-        motion_error = max(abs(row[4] - row[5]) for row in moves)
-        if motion_error > 2:
-            raise ValueError(f"{joint}: measured motion error exceeds 2 degrees")
-        approach_error = {direction: mean(error for row, error in zip(verifying, residuals)
-                                          if row[2] == direction) for direction in ("+", "-")}
-        lower = float(limits[joint]["soft_min_deg"])
-        upper = float(limits[joint]["soft_max_deg"])
-        angles = [row[4] for row in subset]
-        if not all(math.isfinite(value) for value in (lower, upper)):
-            raise ValueError(f"{joint}: soft limits must be finite")
-        if not min(angles) + 2.5 <= lower < home_angle < upper <= max(angles) - 2.5:
-            raise ValueError(f"{joint}: soft limits must lie inside measured range with 2.5 degree margin")
-        # The loader enforces this too; refuse here so no unloadable file is written.
-        check_soft_limit_span(joint, lower, upper)
-        joints[joint] = {
-            "encoder": joint,
-            "home_count": home_count,
-            "home_angle_deg": home_angle,
-            "counts_per_degree": counts_per_degree,
-            "soft_min_deg": lower,
-            "soft_max_deg": upper,
-            "home_tolerance_counts": home_spread + 5,
-            "validation_max_error_deg": worst,
-            "motion_max_error_deg": motion_error,
-            "direction_bias_deg": approach_error,
-            "fit_points": len(training),
-            "validation_points": len(verifying),
-            "motion_validation_points": len(moves),
-            "home_points": len(homes),
-        }
+    joints = {joint: _fit_joint(joint, [m for m in parsed if m.joint == joint], limits[joint])
+              for joint in sorted(limits)}
     return {
         "schema_version": 1,
         "status": "validated",
