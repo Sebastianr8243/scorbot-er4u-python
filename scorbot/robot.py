@@ -17,6 +17,7 @@ import traceback
 from . import inch_home, joint_move, limits, source_model
 from . import vendor_home as vendor_home_port
 from .calibration import load_calibration, signed_count_delta
+from .errors import MotionStopped, ScorbotError, _WorkerCrashed
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
 from .state import HOME_SWITCH_BITS, JOINTS, RobotState, decode_state
@@ -48,30 +49,6 @@ def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int
         except (KeyError, TypeError, ValueError):
             targets[motor] = None
     return targets
-
-
-class ScorbotError(RuntimeError):
-    """A command or controller operation failed."""
-
-
-class _WorkerCrashed(ScorbotError):
-    """The command worker reported an exception and is exiting; it answers nothing more."""
-
-
-class MotionStopped(ScorbotError):
-    """A jog ended early because ``request_stop`` was called. Not a fault.
-
-    ``state`` is the controller state read after the arm settled, or the state
-    before the jog when it was never started (``started`` is then False and
-    nothing was sent). A stop does not promise the arm travelled less than the
-    jog: compare ``state`` with the state before.
-    """
-
-    def __init__(self, message: str, state: RobotState | None = None, *,
-                 started: bool = True):
-        super().__init__(message)
-        self.state = state
-        self.started = started
 
 
 @dataclass(frozen=True)

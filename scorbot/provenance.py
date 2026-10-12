@@ -9,6 +9,7 @@ _SOURCE_FILES = (
     "openScorbot/libdef.py",
     "openScorbot/motion_profile.py",
     "scorbot/calibration.py",
+    "scorbot/errors.py",
     "scorbot/inch_home.py",
     "scorbot/joint_move.py",
     "scorbot/limits.py",
