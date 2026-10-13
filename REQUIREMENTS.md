@@ -23,6 +23,8 @@ Rows are drawn from the safety invariants in `CLAUDE.md` and the hazards in `doc
 | R10 | SHALL NOT | Intelitek manuals, `USBC.dll`, or its decompiled output are committed. | script: `git ls-files references \| grep -i -E "pdf\|dll"` prints nothing; `git ls-files \| grep -i usbc.dll` prints nothing |
 | R11 | SHALL NOT | `USBC.dll` is loaded by any path other than `tools/usbc_home/` (with `--probe` or `--simulate` for agents) or `tools/usbc_fake/`. | review: `grep -rn "USBC" --include=*.py` shows no other loader |
 | R24 | SHALL NOT | `home_inch()` runs without `operator_at_stop=True`, with motors disabled, with a switch byte of 32 or more, or with `max_search_deg` outside 0 to 180; it never homes the wrist and never jogs more than 1 degree per step. | test: `pytest tests/test_inch_home.py` |
+| R25 | SHALL NOT | A stream target leads the arm by more than the jog ceiling (5 degrees) before the session faults. | test: `pytest tests_extra -k stream` (not yet checked that a lead-limit test exists) |
+| R26 | SHALL NOT | `examples/bench_joint.py` accepts a `--delta` above 1 degree. | observable: `python examplesench_joint.py --simulate --delta 2 ...` (arguments as in `CLAUDE.md`) refuses with an error and writes no motion row |
 
 ### Must work
 | ID | Type | Statement | Check |
@@ -65,13 +67,12 @@ Rows are drawn from the safety invariants in `CLAUDE.md` and the hazards in `doc
 - The controller's communication-failure motor shutdown exists as the manual says (never observed, HZ-16).
 
 ## Open questions
-- R12: the gate ran 1011 passed in 67 s on the owner's PC on 2026-10-13 (`CLAUDE.md` still says about 645 tests; that note is stale). Confirm the lab PC is as fast.
-- R17: not run for this draft.
-- R04, R05: should the 5 degree ceiling apply to streams as well, or stay as the separate "lead at most the jog ceiling" rule in `CLAUDE.md`?
-- `examples/bench_joint.py --delta` has a 1 degree ceiling in `CLAUDE.md` with no named test found yet; add a row once a test is named.
-- Visit B: should the "near home" typed confirmation (BACKLOG 1c b) become a SHALL row once the owner decides?
-- Should the shoulder travel bound (BACKLOG 1c e) become a numeric row (for example "no more than 165 degrees")?
+- R12: the gate ran 1011 passed in 67 s on the owner's PC on 2026-10-13 (`CLAUDE.md` says about 645; stale). Confirm the lab PC is as fast.
+- R17, R25, R26: checks not run yet.
+
+Decided 2026-10-13 by the owner: "near home" confirmation stays lab procedure; shoulder bound stays as the vendor has it; stream lead rule is its own row (R25), the 5 degree jog rule stays R05.
 
 ## Change log
 - 2026-10-13 draft written by Claude from `CLAUDE.md`, `SAFETY_CASE.md` and `STATUS.md`; no row approved yet.
 - 2026-10-13 R24 added after the Gemini check (`engineer-check.sh`, run 20261013-012709-12247-engineer, exit 10 = it has questions, which are the Open questions above); not yet a go.
+- 2026-10-13 R25, R26 added; open questions answered by the owner as above. Still draft: the owner has not said baseline.
