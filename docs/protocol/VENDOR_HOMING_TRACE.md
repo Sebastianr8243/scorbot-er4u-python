@@ -424,7 +424,7 @@ The vendor's edge finding and back-off use only legacy bytes: `47`, `4F FF 53` a
 
 Safety points before any of this runs on the arm:
 
-- The vendor's wrist offsets are about 25-38 degrees and the shoulder offset moves three motors. All of them exceed the SDK's travel cap (`limits.TRAVEL_CAP_DEG`, 10 degrees), so the owner must decide on them.
+- The vendor's wrist offsets are about 25-38 degrees and the shoulder offset moves three motors. All of them exceeded the SDK's travel cap (`limits.TRAVEL_CAP_DEG`) when this was written, at 10 degrees. The cap has been 180 degrees since 2026-10-06, so they are now inside it; the owner still decides whether to allow them.
 - The fine search moves the arm with no speed limit other than the planner's step size.
 - The 2018 vendor rewrites servo parameters with the motors on; a Python home should not.
 

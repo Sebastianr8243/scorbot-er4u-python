@@ -33,7 +33,7 @@ Each has the reason and how it will be tested in the simulator. "Prior" marks a 
 | R1 | Accept a new target at any time, including while moving, for base, shoulder and elbow together. The newest target wins | This is the whole point; a policy never waits | Send targets mid-move; the motion bends toward the new one without stopping first |
 | R2 | Change the commanded position smoothly: per-motor limits on speed, acceleration and jerk, enforced every period | No jerks, no steps the motors cannot follow | For random target sequences, every commanded step stays inside the limits |
 | R3 | Never command a position more than a set lead ahead of the measured position | If the arm stalls or hits something, the command must not run away from it | Hold the simulated arm still; the command stops at the lead limit and a fault follows (R6) |
-| R4 | Refuse targets outside the allowed travel from home, before sending anything. The cap starts at 10 degrees and is raised in stages as lab sessions pass (section 5) | Same rule as today's follower; the widening is earned, not assumed | Out-of-range target: refused, nothing queued. The cap is a constructor value with a hard upper bound |
+| R4 | Refuse targets outside the allowed travel from home, before sending anything. The cap started at 10 degrees and was lifted to 180 on 2026-10-06 (section 5) | Same rule as today's follower; the widening is earned, not assumed | Out-of-range target: refused, nothing queued. The cap is a constructor value with a hard upper bound |
 | R5 | Stop on request within one period, using the stop sequence, and hold where the arm is | An operator key and a policy both need it | Request a stop mid-stream; no further target steps are sent, the stop sequence is, and the session stays usable |
 | R6 | Latch a fault and stop streaming on: lead limit reached, stale or missing reply, controller error word over its threshold, emergency bit, worker crash | Same rule as the rest of the SDK: any fault ends motion | One simulator test per cause; each shows the session latched and nothing sent afterwards |
 | R7 | Hold position if no new target arrives within a time limit | A crashed or hung caller must not leave the arm chasing an old target | Stop sending targets; the driver decelerates and holds, and says so in the log |
@@ -87,7 +87,7 @@ flowchart TD
 | R1 new target any time, three motors | Built | `test_streaming_core`, `test_streaming` |
 | R2 speed, acceleration, jerk limits | Built (Ruckig online) | `test_streaming_core` |
 | R3 lead limit | Built; default 2 degrees, at most the jog ceiling. Checked on the setpoint about to be sent, so nothing past the limit goes out | both |
-| R4 travel cap | Built; 10 degrees, and the code refuses more | both |
+| R4 travel cap | Built; 180 degrees since 2026-10-06 (`limits.TRAVEL_CAP_DEG`), and the code refuses more | both |
 | R5 stop | Built; ends with the stop sequence on the measured position | both, plus the exact messages |
 | R6 faults | Built for lead, error word, bad reply, worker crash. The worker latches the session itself, so a caller that never ends the stream still leaves it faulted; a stream that does not end in time is told to stop. **Emergency bit: built, off by default** until the lab confirms reply byte 2 (lab plan V6) | both |
 | R7 hold when targets stop | Built; 0.5 s default | both |
