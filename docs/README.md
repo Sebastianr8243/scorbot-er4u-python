@@ -68,6 +68,14 @@ Start with [`../README.md`](../README.md) for the project summary and [`../START
 | [`SCORBOT_Manual_Verification.md`](manual/SCORBOT_Manual_Verification.md) | Verifying a manual-derived constant or safety claim (the full audit; long) |
 | [`SCORBOT_Numeric_Facts.yaml`](manual/SCORBOT_Numeric_Facts.yaml) | Tracing a number to its manual page. Machine-readable; not calibration or runtime configuration |
 
+## Status and reports
+
+| Doc | Read when |
+|---|---|
+| [`STATUS.md`](STATUS.md) | **Start here to catch up**: what works, how well it is proven (E0 to E5), the critical path to the lab, open owner decisions |
+| [`reports/INDEX.md`](reports/INDEX.md) | Looking up any piece of work since 2026-10-13: one fixed-shape report each ([`TEMPLATE.md`](reports/TEMPLATE.md)) |
+| [`../REQUIREMENTS.md`](../REQUIREMENTS.md) | What the project must and must not do, and how each row is checked |
+
 ## project/, specs/, evidence/
 
 | Doc | Read when |
