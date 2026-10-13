@@ -432,6 +432,7 @@ The whole homing routine and the coupled-motor arithmetic are traced in `VENDOR_
 
 - `Initialization(INIT_MODE_ONLINE /*1*/, fnInitEnd, fnErrMessage)`; with the two-argument overload the system type is `DEFAULT_SYSTEM_TYPE` (0). `ER4USB_SYSTEM_TYPE` is 41. Modes: 0 last used, 1 online, 2 simulation, 3 offline. `GetMode()` after the init callback says which one took.
 - Then `Control('&', TRUE)`, then per jog tick `EnterManual(MANUAL_TYPE_ENC)` and `MoveManual(axis, speed * 10)` on a timer. **The demo never homes**: a manual jog works from power-on, which agrees with `VENDOR_MANUAL_MOVE_TRACE.md`.
+- The Visual Studio 2008 copy of the same demo (`Programming Interface/Manual Movement/Visual Studio 2008/`, checked 2026-10-13) differs on two points: its init button calls `Initialization(INIT_MODE_SIMULAT, ...)` (`ManualMoveDlg.cpp:401`), so it never moves a real arm as shipped, and its jog repeat timer is 300 ms (`TIMER_MANUAL_PERIOD`, `ManualMoveDlg.h:19`). Its `MoveManual(axis, speed * 10)` and `EnterManual(MANUAL_TYPE_ENC)` calls are the same (`ManualMoveDlg.cpp:302-303`). Intelitek's description file gives no unit for the `MoveManual` velocity and no command-rate or streaming figure.
 - `IsOnLineOk()` is declared in the header (our two builds do not export it; the header is newer or older than both).
 - The readme's safety text is the vendor's: the DLL "provides direct access to internal control functions, optionally bypassing software safety features", and the emergency button must be in reach.
 
