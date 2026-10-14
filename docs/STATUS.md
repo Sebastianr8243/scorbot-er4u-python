@@ -69,6 +69,16 @@ flowchart LR
 
 Optional lead, not started: ask the ULPGC thesis tutor for `codigo.7z`, which has the capture folder.
 
+## Specs
+
+Each file in `docs/specs/` states its own status in its first lines. This table is the one-page index. A spec marks a decision made at the time; the code may have moved on, so check the code and the capability table above before trusting one.
+
+| State | Specs |
+|---|---|
+| **Open** (not done, or never run on the arm) | `2026-10-11-first-motion-plan` (proposal), `2026-10-08-vendor-home-port` (step 1b not done), `2026-10-08-vendor-dll-home-plan`, `2026-10-04-vendor-desk-analysis-plan` (question A partly done), `2026-10-01-packet-codec-design` (phase A built, B and C open), `2026-10-04-streaming-driver-requirements` and `2026-10-04-software-stop-design` (built, never run on the arm), `2026-10-01-m1-roadmap-design` (complete in software, pending one lab run) |
+| **Built** (record of a decision) | `2026-09-25-experiment-record-design`, `-session-analysis-design`, `-simulated-robot-design`, `2026-09-26-toolset-upgrades-design`, `2026-09-29-guided-lab-session-design`, `-rerun-viewer-and-ruff-design`, `2026-09-30-lab-positions-and-recovery-design`, `2026-10-01-camera-capture-design`, `2026-10-02-keyboard-teleop-design`, `2026-10-04-vendor-dll-design` (standing decision: read the DLL, run only the owner-approved lab tools), `2026-10-12-code-health-design` |
+| **Archived** in [`archive/specs/`](archive/specs/) (removed, parked or finished; kept for the reasons they record) | `2026-10-02-lerobot-exporter-design` and `2026-10-02-replay-and-preview-design` (code removed 2026-10-08), `2026-10-05-three-front-doors-design` (code removed 2026-10-08), `2026-10-06-adopt-home-design` (parked by the owner as over-engineered), `2026-10-06-travel-cap-widening-plan` (superseded the same day: the cap went to 180 degrees), `2026-10-12-code-health-plan` (executed step list) |
+
 ## Not covered here
 
 Per-bug detail is in [`project/BACKLOG.md`](project/BACKLOG.md), the story of each change is in [`project/PROJECT_LOG.md`](project/PROJECT_LOG.md), and hazards are in [`design/SAFETY_CASE.md`](design/SAFETY_CASE.md).

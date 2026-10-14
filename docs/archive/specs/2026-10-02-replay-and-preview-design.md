@@ -8,7 +8,7 @@ Date: 2026-10-02. Status: draft, revised after a Codex adversarial review
 (1 critical, 4 high: `lerobot-replay` cannot verify which dataset drives the
 arm, the connect order homed before the MOTORS check, connect failures could
 leave motors on, there was no software pause, and the episode start pose was
-never aligned). Parent: [M1 roadmap](2026-10-01-m1-roadmap-design.md): M1 is
+never aligned). Parent: [M1 roadmap](../../specs/2026-10-01-m1-roadmap-design.md): M1 is
 done when "the sessions export as a LeRobot dataset that replays on the arm,
 with logs". User decisions: same safety checks as the lab, arm-paced replay,
 HTML preview, plugin in `plugins/`.
