@@ -79,8 +79,14 @@ flight (its queue limits are 4 to 45, 20 while homing), the thesis saw 6 and thi
 the most credit the measured lag can earn: the stall grace is at most 75 cycles and the setpoint lead limit
 at most 400 + 6 x 60 = 760 counts, so an unverified lag cannot let a stuck motor take most of the 1050-count
 pre-pass move."""
-COUPLED_FOLLOW_FRACTION = 0.25
-"""A coupled motor must have covered this fraction of what its drive ratio to the axis predicts."""
+COUPLED_MIN_PROGRESS = 10
+"""A coupled motor must have moved at least this many counts along its drive. Not a ratio: the type T ``4D``
+values are PWM drive levels, so they cannot predict a count ratio (VENDOR_COUPLING_TRACE.md). On the first
+real run the elbow moved 24 counts (22 net) while the shoulder went 332, and the old 25 percent ratio test
+(29.5 counts) refused it. On a long search the floor grows with the travel (``COUPLED_MIN_PROGRESS_FRACTION``),
+so a jammed motor that only shifts a few counts of backlash cannot pass."""
+COUPLED_MIN_PROGRESS_FRACTION = 0.02
+"""Of the axis's own travel. The recorded motors moved 6.6 percent (elbow) and 3.6 percent (wrist 1) of it."""
 TICK_STALL_LIMIT = 4
 """Stalled ticks in a row that end a type 16 search (the types 14 and 15 use their own, 4 and 1, and reverse)."""
 GRIPPER_MAX_CYCLES = 600
@@ -286,7 +292,8 @@ class _Run:
 
         The 150-cycle window of ``wait_switch`` never runs in a search that is shorter than that, and
         the tick check looks at the axis only, so a coupled motor that is jammed or unplugged would be
-        zeroed. Each motor is compared with what the drive ratio predicts from how far the axis went.
+        zeroed. Each motor must have moved the larger of ``COUPLED_MIN_PROGRESS`` counts and
+        ``COUPLED_MIN_PROGRESS_FRACTION`` of the axis's travel in its drive direction.
         """
         reference = self.driven.get(axis)
         moved_axis = abs(self.reply.counts[axis] - drive_start[axis])
@@ -295,10 +302,9 @@ class _Run:
         for motor, value in self.driven.items():
             if motor == axis:
                 continue
-            expected = abs(value / reference) * moved_axis
             # A positive drive lowers the count, so progress along the drive is the signed change times -sign.
             along = (self.reply.counts[motor] - drive_start[motor]) * (-1 if value > 0 else 1)
-            if along < COUPLED_FOLLOW_FRACTION * expected:
+            if along < max(COUPLED_MIN_PROGRESS, COUPLED_MIN_PROGRESS_FRACTION * moved_axis):
                 raise HomeError(ERR_STALL, f"{NAMES[motor]} did not move with the {NAMES[axis]}", motor)
 
     def check_impact(self, axis):

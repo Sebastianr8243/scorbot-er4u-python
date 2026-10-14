@@ -231,6 +231,38 @@ class SafetyTests(unittest.TestCase):
         run_state.reply = vh.Reply(counts=(0, -900, 400, 0, 0, 0), switches=0, now=1.0)    # right way, near the ratio
         run_state.check_coupled_progress(vh.SHOULDER, start)
 
+    def test_the_counts_recorded_on_the_first_real_run_are_not_a_stall(self):
+        # Elbow 22 -> 0 while the shoulder went 28 -> 360: the old 25 percent ratio test wanted 29.5 elbow counts.
+        first = vh.Reply(counts=(0, 28, 22, -2, 6, 0), switches=0, now=0.0)
+        run_state = vh._Run(first, 0)
+        run_state.driven = vh.drive_values(vh.SHOULDER, -90)      # the values the home really sends
+        start = {vh.SHOULDER: 28, vh.ELBOW: 22, vh.WRIST_M1: -2, vh.WRIST_M2: 6}
+        run_state.reply = vh.Reply(counts=(0, 360, 0, -14, 24, 0), switches=0, now=1.0)
+        run_state.check_coupled_progress(vh.SHOULDER, start)
+
+    def test_a_coupled_motor_that_barely_moves_is_still_a_stall(self):
+        first = vh.Reply(counts=(0, 28, 22, -2, 6, 0), switches=0, now=0.0)
+        run_state = vh._Run(first, 0)
+        run_state.driven = vh.drive_values(vh.SHOULDER, -90)
+        start = {vh.SHOULDER: 28, vh.ELBOW: 22, vh.WRIST_M1: -2, vh.WRIST_M2: 6}
+        run_state.reply = vh.Reply(counts=(0, 360, 14, 0, 0, 0), switches=0, now=1.0)    # 8 counts: under the minimum
+        with self.assertRaises(vh.HomeError) as caught:
+            run_state.check_coupled_progress(vh.SHOULDER, start)
+        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_STALL, vh.ELBOW))
+
+    def test_on_a_long_search_the_floor_grows_with_the_travel(self):
+        first = vh.Reply(counts=(0, 0, 0, 0, 0, 0), switches=0, now=0.0)
+        run_state = vh._Run(first, 0)
+        run_state.driven = vh.drive_values(vh.SHOULDER, -90)
+        start = {vh.SHOULDER: 0, vh.ELBOW: 0, vh.WRIST_M1: 0, vh.WRIST_M2: 0}
+        # Shoulder 2000 counts: 2 percent is 40. The elbow's 12 counts of backlash used to pass at 10.
+        run_state.reply = vh.Reply(counts=(0, 2000, -12, -60, 60, 0), switches=0, now=1.0)
+        with self.assertRaises(vh.HomeError) as caught:
+            run_state.check_coupled_progress(vh.SHOULDER, start)
+        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_STALL, vh.ELBOW))
+        run_state.reply = vh.Reply(counts=(0, 2000, -130, -60, 60, 0), switches=0, now=1.0)   # 6.5 percent: moving
+        run_state.check_coupled_progress(vh.SHOULDER, start)
+
     def test_a_short_switch_transition_is_too_small_to_judge_a_coupled_motor(self):
         first = vh.Reply(counts=(0, 0, 0, 0, 0, 0), switches=0, now=0.0)
         run_state = vh._Run(first, 0)
