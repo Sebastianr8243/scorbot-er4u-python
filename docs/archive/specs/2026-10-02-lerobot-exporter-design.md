@@ -6,7 +6,7 @@
 
 Date: 2026-10-02. Status: draft, revised after a Codex adversarial review
 (2 high, 3 medium findings; Gemini unavailable: its prepaid credits ran out). Parent:
-[M1 roadmap](2026-10-01-m1-roadmap-design.md) section "5. LeRobot exporter"
+[M1 roadmap](../../specs/2026-10-01-m1-roadmap-design.md) section "5. LeRobot exporter"
 and contracts C1-C7. Decisions from 2026-09-29 (official LeRobot writer,
 target-position action, raw counts labelled uncalibrated, never mix real and
 simulated, record provenance) plus 2026-10-02 with the user: LeRobot in its

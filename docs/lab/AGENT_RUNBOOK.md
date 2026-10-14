@@ -63,4 +63,4 @@ One block in the session notes: step, log file name, pass or fail with the numbe
 
 ## When a limit may be changed
 
-At a desk, never in the lab. A limit moves only when the notes hold: direction confirmed, scale within about 5 percent (counts per degree compared with the model's 141.89 base, 113.51 shoulder and elbow), a clean stream trial for that joint, and the reason is written in `docs/project/PROJECT_LOG.md`. The plan for the travel cap is [2026-10-06-travel-cap-widening-plan.md](../specs/2026-10-06-travel-cap-widening-plan.md).
+At a desk, never in the lab. A limit moves only when the notes hold: direction confirmed, scale within about 5 percent (counts per degree compared with the model's 141.89 base, 113.51 shoulder and elbow), a clean stream trial for that joint, and the reason is written in `docs/project/PROJECT_LOG.md`. The plan for the travel cap is [2026-10-06-travel-cap-widening-plan.md](../archive/specs/2026-10-06-travel-cap-widening-plan.md).

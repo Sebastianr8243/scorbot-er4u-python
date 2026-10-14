@@ -235,7 +235,7 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
 - **Why:** the owner wanted real tests and judged the 10 degree cap too tight.
   This skips the staged widening (10, 20, 45, ...) of
   `docs/specs/2026-10-04-streaming-driver-requirements.md` and the evidence
-  gate of `docs/specs/2026-10-06-travel-cap-widening-plan.md`. **The owner's
+  gate of `docs/archive/specs/2026-10-06-travel-cap-widening-plan.md`. **The owner's
   decision; no lab evidence behind it.** Nothing in the logs of that day shows
   a jog: `idle-01` is idle only, `base-first-01` was declined before homing,
   `base-first-02` enabled the motors and `home()` failed after about 4 s with
@@ -295,7 +295,7 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
   model, three ways in: `scorbot.toolbox.Arm` (MATLAB-style names from the USNA
   toolbox), a browser page (`python -m scorbot.ui --simulate`, Viser, `ui`
   extra) and the existing LeRobot plugin. Spec:
-  `docs/specs/2026-10-05-three-front-doors-design.md`.
+  `docs/archive/specs/2026-10-05-three-front-doors-design.md`.
 - **Where:** `scorbot/mover.py` (the one owner of `start_stream`; degree and
   millimetre targets, closes a stream nobody drives), `scorbot/toolbox.py`,
   `scorbot/ui/` (`panel.py` logic with no Viser import, `app.py` the page).
@@ -448,7 +448,7 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
 
 ### Replay and preview (M1 finish)
 
-- Spec `docs/specs/2026-10-02-replay-and-preview-design.md`,
+- Spec `docs/archive/specs/2026-10-02-replay-and-preview-design.md`,
   plan `docs/superpowers/plans/2026-10-02-replay-and-preview.md`. A Codex
   adversarial review of the first design found LeRobot's replay cannot
   verify which dataset drives the arm, connects outside its cleanup and has
@@ -484,7 +484,7 @@ The implementation plans this log cites under `docs/superpowers/plans/` were rem
 
 ### LeRobot exporter (M1 step 5)
 
-- Spec `docs/specs/2026-10-02-lerobot-exporter-design.md`, plan
+- Spec `docs/archive/specs/2026-10-02-lerobot-exporter-design.md`, plan
   `docs/superpowers/plans/2026-10-02-lerobot-exporter.md`, guide
   `docs/design/LEROBOT_EXPORT.md`. Decided with the user: LeRobot 0.6.1 in a
   separate CPU environment `.venv-lerobot`, 10 fps, robot-only datasets only
