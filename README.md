@@ -56,6 +56,22 @@ Python script
 
 The original code remains under `openScorbot/`. The new adapter is under `scorbot/`. See [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md) for the system review, known gaps, and the path toward a research SDK. The old PyQt GUI is retained as reference code; it is not the SDK interface.
 
+## Scripts and examples
+
+Run any of these with `--simulate` first. Per-script detail lives in [scripts/CLAUDE.md](scripts/CLAUDE.md) and [examples/CLAUDE.md](examples/CLAUDE.md); add a row there and here when you add a script.
+
+| Script | Moves the arm? | What it does |
+|---|---|---|
+| `python -m scorbot.lab` | Yes, unless `--simulate` | The guided lab session: the main entry point |
+| `examples/bench_joint.py` | Yes, unless `--simulate` | One home and one jog of at most 1 degree |
+| `examples/bench_stream.py` | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
+| `examples/bench_gripper.py` | Yes, unless `--simulate` | One gripper trial (never run on the arm) |
+| `examples/record_raw_state.py` | Connects, no motion, unless `--simulate` | Idle state recording |
+| `tools/usbc_home/` | `--online` only | Vendor-DLL home; needs a 32-bit Python and the vendor DLL |
+| `examples/preview_jog.py`, `kinematics_check.py`, `make_synthetic_session.py` | No | Offline previews and a synthetic session |
+| `scripts/*.py` (calibration, trace and log readers) | No | Offline analysis of logs and USB captures |
+| `scripts/setup_windows.ps1`, `windows_usb_check.ps1` | No | Windows setup and a read-only USB check |
+
 ## Hardware reference
 
 Specifications, controller safety behaviour and LED meanings from the Intelitek ER-4u and Controller-USB manuals are summarised in [docs/manual/HARDWARE_REFERENCE.md](docs/manual/HARDWARE_REFERENCE.md). The manuals themselves are copyrighted and kept out of this public repository. The [complete visual verification report](docs/manual/SCORBOT_Manual_Verification.md) records exact source pages, transcribed tables, contradictions and unanswered questions; its [numeric YAML appendix](docs/manual/SCORBOT_Numeric_Facts.yaml) preserves units and evidence tags. These are manual transcriptions, not hardware calibration or verified runtime limits.
@@ -77,7 +93,8 @@ The tests use synthetic USB responses and measurements; they do not open USB or 
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"   # once: pytest, coverage, hypothesis, ruff
-.\.venv\Scripts\python.exe -m pytest                     # all tests in parallel (about 20 s)
+.\.venv\Scripts\python.exe -m pytest -n 2 tests          # fast loop while editing: the gate suite (1011 tests, 183 s on one PC on 2026-10-13)
+.\.venv\Scripts\python.exe -m pytest -n 2 tests tests_extra   # everything: run before a push (not timed)
 .\.venv\Scripts\python.exe -m coverage run -m pytest; .\.venv\Scripts\python.exe -m coverage combine; .\.venv\Scripts\python.exe -m coverage report
 .\.venv\Scripts\ruff.exe check .                          # correctness lint
 ```
