@@ -71,10 +71,12 @@ def describe_error(pointer):
 class VendorDll:
     """The allowlisted exports of one loaded library; nothing else is bound."""
 
+    signatures = SIGNATURES     # tools/usbc_jog binds its own list
+
     def __init__(self, lib):
         self._fn = {}
         self._keep = []          # callbacks must outlive the call that registers them
-        for name, (mangled, argtypes, restype) in SIGNATURES.items():
+        for name, (mangled, argtypes, restype) in self.signatures.items():
             try:
                 fn = getattr(lib, mangled)
             except AttributeError:
@@ -238,21 +240,23 @@ class Console:
         return msvcrt.kbhit() and msvcrt.getwch().lower() == "s"
 
 
-def run(dll, log, simulate, console, do_home=True):
+def run(dll, log, simulate, console, do_home=True, action=None, word=None):
     """Confirm, Initialization, control on, Home, control off, close. Returns an exit code.
 
     Online, the typed confirmation comes first: the vendor's connect and control-on
-    energise the motors. If Home is still running when we give up (Stop did not end
+    energise the motors. ``action(dll, log, console, state)`` replaces Home (the jog tool
+    passes its own and the word to type); it must keep ``state["busy"]`` true while a
+    call that may outlive us is running. If Home is still running when we give up (Stop did not end
     it) nothing is switched off or closed: the process exits, the keep-alive stops
     and the controller drops control (unverified); the physical stop is the answer.
     """
-    if not simulate and not console.confirm("HOME" if do_home else "CONNECT"):
+    if not simulate and not console.confirm(word or ("HOME" if do_home else "CONNECT")):
         log.event("home_declined")
         return 5
     state = {"control_attempted": False, "busy": False, "stop_open": 0}
     code = 1
     try:
-        code = _sequence(dll, log, simulate, console, state, do_home)
+        code = _sequence(dll, log, simulate, console, state, do_home, action)
     finally:
         if state["busy"]:
             log.event("shutdown_skipped", reason=state.get("busy_note") or "Home is still running")
@@ -286,7 +290,7 @@ def run(dll, log, simulate, console, do_home=True):
     return code
 
 
-def _sequence(dll, log, simulate, console, state, do_home):
+def _sequence(dll, log, simulate, console, state, do_home, action=None):
     init_done = threading.Event()
     state["busy"] = True    # the call may outlive us if we are interrupted while waiting
     finished, returned, error = bounded(
@@ -324,6 +328,8 @@ def _sequence(dll, log, simulate, console, state, do_home):
     log.event("control_on", ok=ok)
     if not ok:
         return 4
+    if action:
+        return action(dll, log, console, state)
     if not do_home:
         log.event("home_skipped")
         return 0

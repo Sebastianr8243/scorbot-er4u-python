@@ -19,6 +19,6 @@ Run from the repo root: these files import helpers as `tests.<name>`.
 | `test_build_calibration_csv.py`, `test_kinematics.py` | Offline calibration and kinematics tools |
 | `test_usbc_peread.py`, `test_usbc_query.py` | Ghidra dump tools |
 | `test_usbc_fake.py` | `tools/usbc_fake`: the fake arm's switch bands and drives, and the guards that refuse a `DriverLink` that is not the pipe |
-| `test_usbc_home.py` | `tools/usbc_home/usbc_home.py` against a fake library (no DLL, no USB) |
+| `test_usbc_home.py`, `test_usbc_jog.py` | `tools/usbc_home/usbc_home.py` and `tools/usbc_jog/usbc_jog.py` against a fake library (no DLL, no USB) |
 
 Several of these cover code that is still reachable from `robot.py` (streaming and gripper gates). Before any lab visit, run everything (`tests` and `tests_extra`), not only the gate.
