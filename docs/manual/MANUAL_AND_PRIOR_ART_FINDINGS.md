@@ -16,6 +16,7 @@ manuals themselves are copyrighted and are not in this repository.
 | Datasheet | Intelitek ER-4u datasheet 35-1005-8600 Rev K |
 | 4pc manual | `references/manual_scorbot.pdf` (local only, not in the repository; Spanish, ER-4pc, older controller; mechanics likely shared, electronics differ) |
 | Kutzer | USNA ScorBot Toolbox (MATLAB, via Intelitek's USBC DLL): DH table `ScorDHtable.m`, error codes `ScorParseErrorCode.m` |
+| ESPE 2023 | Guilcazo, Nunez, Ortiz and Andaluz, "Robot manipulator applied to bottle filling processes: an approach in the teaching-learning process", Universidad de las Fuerzas Armadas ESPE, Latacunga, 22 Aug 2023 (degree-project article, 18 PDF pages), <https://repositorio.espe.edu.ec/server/api/core/bitstreams/857043ad-c59c-4866-8e12-b8aa33e46481/content>. Page numbers are PDF pages. The PDF itself stays out of the repository. |
 
 ## Calibration priors (S2)
 
@@ -146,6 +147,72 @@ From other tools:
 - Terminal library: standard library only (`input`, `msvcrt.getwch` behind a
   small key-source interface); prompt_toolkit crashes in Git Bash and on
   redirected output; Textual is a candidate for the later student window app.
+
+## Vision-loop control of a real ER-4U (ESPE 2023, read 2026-10-13)
+
+Read in full (18 PDF pages). It is a camera-guided bottle-packing task on a real
+ScorBot-ER-4U. It says nothing about the USB protocol, packets, homing or
+limits, so it adds no constants to the code. Its value is as evidence of what
+loop rate and control style have worked on this arm.
+
+**What they built (PDF pp. 2-5, 15).**
+
+- A fixed stereo camera (ZED 2) looks at the work area beside the arm
+  ("eye-to-hand"; the text calls it "handheld camera" in several places, which
+  is a wording slip, since a handheld camera would sit on the arm).
+- Object detection is an SSD network on a MobileNet backbone, run in Python with
+  the camera's SDK. It gives the bottle and the gripper position in camera
+  coordinates. Those are sent to MATLAB over TCP/IP.
+- The control law runs in MATLAB. A Unity3D scene (a CAD model of the arm from
+  SolidWorks, a conveyor and bottles) shares memory with MATLAB through a DLL, so
+  the same controller drives the simulation first and the real arm after.
+- The arm is described as 5 degrees of freedom plus a gripper, with a Jacobian
+  kinematic model.
+
+**The control law (PDF pp. 9-11).**
+
+- It outputs joint velocity references: a pseudo-inverse of the Jacobian times a
+  saturating (tanh) function of the position error, plus a null-space term that
+  pulls the joints toward a preferred posture without disturbing the end point.
+- The stability proof (Lyapunov) assumes "perfect speed tracking", meaning the
+  joints are taken to follow the velocity reference exactly. The paper does not
+  test or measure that assumption on the arm.
+- Their numbers: error gains 0.8 on x, y and z; saturation gains 0.5; null-space
+  weights 0.95 on all five joints; preferred posture `[0, 1.047, 0.524, 0,
+  0.262]` rad; sampling period `T0 = 0.2 s` (PDF p. 15).
+- Their "HOME" pose is `[0, 0.785, 0.698, 0.873, 0]` rad (PDF p. 15). It is a
+  starting pose in their model, not the controller's homed position, and must
+  not be mixed up with vendor homing or with `nominal.py`.
+
+**How they reached the arm (PDF p. 5).** One sentence: "toolbox libraries for
+movement of each joint". No library is named. (I) It is probably the USNA
+MATLAB toolbox in the Kutzer row above, which goes through Intelitek's USBC DLL,
+but the paper does not say so.
+
+**Results (PDF pp. 12-16).** Plots show the end-point error shrinking toward
+zero in simulation, and photos of a six-bottle packing run at 10 to 65 s on the
+real arm. There is no table of errors, no latency, no measured loop jitter, no
+tracking error of the joints and no mention of faults or stops.
+
+**What it supports for us.**
+
+| Question | What the paper gives | Strength |
+|---|---|---|
+| Can this arm be run in a vision loop at about 5 Hz? | Yes: `T0 = 0.2 s` with a camera, a neural detector and MATLAB in the loop | Moderate. One group, one task, no timing data |
+| Is a velocity-reference style control usable? | They used one; the vendor DLL's `MoveManual(axis, velocity)` is the same kind of call | Weak. They assume the joints track perfectly and never measure it |
+| Does it show the controller follows streamed setpoints at 10-50 Hz? | No. 5 Hz only | None. The streaming risk in `LAB_PLATFORM_VISION.md` stays open |
+| Does it say what a slow policy plus a fast follower needs? | No | None |
+
+**What it does not settle.** Joint tracking error at 5 Hz, controller latency,
+how a stop behaves mid-motion, units of the velocity command, and which software
+sat between MATLAB and the DLL. The Visit A captures and the vendor-DLL jog
+tool are what answer these.
+
+**Quality note.** A degree-project article with a self-described "handheld"
+mislabel and a proof that rests on an unmeasured assumption. Use it as a pointer
+that this has been done, not as a source of numbers. The thesis it cites for the
+kinematic model (Ipiales et al., *Electronics* 2023, 12(4), 974) is the better
+place to look if we need their model details.
 
 ## Contradictions with our docs (verdicts recorded)
 
