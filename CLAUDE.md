@@ -104,6 +104,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | How the vendor's joint jog, homed flag and `SetHome` work (one motor per jog, no limits before home) | `docs/protocol/VENDOR_MANUAL_MOVE_TRACE.md` |
 | Running a lab session as an agent (rules, pass criteria, inch homing) | `docs/lab/AGENT_RUNBOOK.md` |
 | Visit A, the vendor stack recorded on the real arm (ordered steps for an agent) | `docs/lab/VISIT_A_AGENT_CHECKLIST.md` |
+| Get the arm moving through the vendor DLL (agent script and copy-paste commands: probe, connect, jog, home) | `docs/lab/GET_ARM_MOVING.md` |
 | How to confirm it at the lab, claim by claim | `docs/lab/VENDOR_PROTOCOL_LAB_PLAN.md` |
 | What it takes to move the arm, step by step, and how sure we are of each step | `docs/protocol/BRING_UP_SEQUENCE.md` |
 | Safety argument | `docs/design/SAFETY_CASE.md` |
