@@ -119,7 +119,7 @@ def summarize(path, phone):
 
 
 def expand(paths):
-    """PowerShell passes logs\*.jsonl through unexpanded; expand it, and leave out the .controller.jsonl event logs."""
+    """PowerShell passes a *.jsonl pattern through unexpanded; expand it, and leave out the .controller.jsonl event logs."""
     out = []
     for path in paths:
         found = sorted(glob.glob(str(path))) if "*" in str(path) else [str(path)]
