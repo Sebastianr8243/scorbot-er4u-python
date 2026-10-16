@@ -114,6 +114,14 @@ class PolicyRunTests(unittest.TestCase):
         self.assertTrue(after["result"]["passed"], after["result"])
         self.assertIn("Run result: PASSED", self.printed.getvalue())
 
+    def test_a_simulated_run_exports_to_a_dataset_that_reloads_identically(self):
+        from scripts import export_policy_dataset as ex
+        self.assertEqual(self.run_script(TO_POLICY + "POLICY\n" + AFTER), 0, self.printed.getvalue())
+        out = self.folder / "dataset"
+        meta, refused = ex.export([self.output], out)
+        self.assertEqual((meta["frames"], meta["data_source"], refused), (8, "simulated", []))
+        self.assertEqual(ex.verify(out, [self.output]), [])
+
     def test_a_wrong_typed_word_declines_before_any_stream(self):
         self.assertEqual(self.run_script(TO_POLICY + "nope\n"), 3)
         events = [r.get("type") for r in self.rows()]
