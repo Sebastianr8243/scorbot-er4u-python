@@ -66,6 +66,8 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/CL
 | `examples/bench_joint.py` | Yes, unless `--simulate` | One home and one jog of at most 1 degree |
 | `examples/bench_stream.py` | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
 | `examples/bench_gripper.py` | Yes, unless `--simulate` | One gripper trial (never run on the arm) |
+| `examples/policy_loop.py` | Yes, unless `--simulate` | A bounded, clamped multi-joint policy run (never run on the arm); `scripts/export_policy_dataset.py` turns it into a dataset |
+| `scripts/lab_day.ps1` | Yes, unless `-Simulate` or `-DryRun` | Runs the one-arm lab day in order ([card](docs/lab/LAB_DAY_ONE_ARM.md)); `scripts/lab_summary.py` reads the logs back (offline) |
 | `examples/record_raw_state.py` | Connects, no motion, unless `--simulate` | Idle state recording |
 | `tools/usbc_home/` | `--online` only | Vendor-DLL home; needs a 32-bit Python and the vendor DLL |
 | `examples/preview_jog.py`, `kinematics_check.py`, `make_synthetic_session.py` | No | Offline previews and a synthetic session |
