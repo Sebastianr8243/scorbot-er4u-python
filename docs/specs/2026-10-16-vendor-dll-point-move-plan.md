@@ -1,6 +1,6 @@
 # Vendor DLL point move (2026-10-16)
 
-Owner decision, 2026-10-16: take what the USNA ScorBot Toolbox does (it is the only public, working way to move this arm) and bring it into our tools. Status: built and tested against a fake library; the real DLL resolves all four new exports; **never run on the arm, and never run end to end against the DLL on this PC** (see "Desk result").
+Owner decision, 2026-10-16: take what the USNA ScorBot Toolbox does (it is the only public, working way to move this arm) and bring it into our tools. Status: built and tested against a fake library; the real DLL resolves the three new exports; merged to `main` in PR #23; **never run on the arm, and never run end to end against the DLL on this PC** (see "Desk result").
 
 ## What the MATLAB toolbox does (read from `github.com/kutzer/ScorBotToolbox`, 2026-10-16)
 
@@ -22,7 +22,7 @@ Licence: US Government work, public domain, asks for an acknowledgement and a no
 | `RMoveJoint` | `?MoveJoint@@YAHPADF0F@Z` | name, point, NULL, 0 |
 | `RIsMotionDone` | none found | a flag `RobotDll` sets from somewhere not traced; we poll the position until it is still |
 
-Both builds we hold (2008 and 2018) export all four names (`--probe`, 2026-10-16).
+Both builds we hold (2008 and 2018) export `DefineVector`, `Teach` and `MoveJoint`, and every other name the tool binds, nine in all (`--probe`, 2026-10-16).
 
 ## The tool
 
@@ -40,6 +40,10 @@ Open on the arm, in the order they will show up:
 - Tests: `tests_extra/test_usbc_move.py`, 11 pass.
 - `--probe` against both real builds: all nine exports resolve.
 - **`Initialization` is refused on this PC, with the unchanged `usbc_home.py --simulate` and `tools/usbc_fake/fake_home.py` too**, in a freshly built folder (BIN tree, 32-bit Python beside the DLL, pipe-only `USBC.INI`). The DLL never opened the pipe. Cause not found; the lab PC, which has the vendor install, is the place to look. So the fake-pipe run of `tools/usbc_fake/fake_move.py` (home, then one point move) is written but not yet seen to complete.
+
+## Running it
+
+Only on the lab PC, with the owner present and saying go (S1), after a clean home. Order: `--probe`, `--simulate`, then `--online --acknowledge-vendor-move --operator <initials> --axis x --mm 5`. Exit codes: 4 define/teach refused, 6 timeout, 7 move refused or stopped, 8 hang. Not part of `scripts/lab_day.ps1`.
 
 ## Not covered
 
