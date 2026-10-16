@@ -2,6 +2,8 @@
 
 Runnable scripts. Four of them are the supervised lab procedures; the rest are offline. Root rules in [../CLAUDE.md](../CLAUDE.md) apply.
 
+A new script gets a row in the table below and in the README's "Scripts and examples" table, in the same PR.
+
 | Script | Talks to the robot? | Notes |
 |---|---|---|
 | `record_raw_state.py` | Real connect unless `--simulate` | Idle capture, 1-30 s, 0.2-10 Hz. Requires `--acknowledge-connect-handshake`. Each `sample` row carries `raw_hex`, the undecoded reply, for `scripts/vendor_check.py` |

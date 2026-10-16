@@ -2,6 +2,8 @@
 
 Offline analysis tools and Windows setup. None of the Python scripts open USB or command the arm; keep it that way. Root rules in [../CLAUDE.md](../CLAUDE.md) apply.
 
+A new script gets a row in the table below and in the README's "Scripts and examples" table, in the same PR.
+
 | Script | Purpose | Reads | Notes |
 |---|---|---|---|
 | `fit_calibration.py` | Fit per-arm counts/degree from physical angle measurements | measurements CSV, limits JSON | Writes with `open("x")` (refuses to overwrite). Prints scale warnings vs legacy scale; warnings never block |
