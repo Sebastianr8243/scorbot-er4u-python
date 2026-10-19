@@ -42,7 +42,7 @@ $env:SCORBOT_HARDWARE = "1"
 code .
 ```
 
-Every terminal in that VS Code window, including Copilot's, now has the switch on. Check in the VS Code terminal: `echo $env:SCORBOT_HARDWARE` prints `1`. **To turn it off, close VS Code.** It does not stay on after that (it is not saved anywhere). Run step 1 before or after; the tests clear the switch for themselves.
+Every terminal in that VS Code window, including Copilot's, now has the switch on. Check in the VS Code terminal: `echo $env:SCORBOT_HARDWARE` prints `1`. **To turn it off, close VS Code and the PowerShell window you started it from** (that window still has the switch on, and anything run or launched from it would too). It is not saved anywhere, so it does not come back after that. Run step 1 before or after; the tests clear the switch for themselves.
 
 ### Step 1. Desk check (no arm, no power)
 
@@ -114,7 +114,7 @@ Repeat step 5 commands with new log names (`..._02.jsonl`), then a small bounded
 Copy-Item logs <stick>\logs_backup -Recurse
 ```
 
-Then the operator closes VS Code: that turns the hardware switch off.
+Then the operator closes VS Code and the PowerShell window that launched it: that turns the hardware switch off.
 
 Agent: write one notes block per step in `logs\NOTES.md` (step, log file, what the operator saw, the numbers, anything unexpected), no interpretation beyond what the file shows. Then record the axis table result in `docs/specs/2026-10-13-vendor-dll-jog-plan.md` and `docs/protocol/BRING_UP_SEQUENCE.md`.
 
