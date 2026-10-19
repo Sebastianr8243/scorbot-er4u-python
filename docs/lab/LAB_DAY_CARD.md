@@ -39,6 +39,8 @@ $py = '.\.venv\Scripts\python.exe'
 $id = @('--robot-id', 'YOUR-ARM-ID', '--arm-label', 'YOUR-ARM', '--controller-label', 'YOUR-CONTROLLER', '--driver', 'YOUR-DRIVER', '--operator', 'YOUR-INITIALS')
 ```
 
+- [ ] **Hardware switch (operator only, added 2026-10-19).** Every step below that connects to the arm refuses unless the switch is on in this terminal: run `$env:SCORBOT_HARDWARE = "1"`. Check with `echo $env:SCORBOT_HARDWARE` (prints `1`). Close the terminal to turn it off. `-Simulate` and `--simulate` runs never need it.
+
 Optional, if SCORBASE is installed on this PC: copy its `USBC.dll` to the USB stick and note its size and date. Take it home; never commit it.
 
 ## A. Idle recording (connects; no commanded motion)

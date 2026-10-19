@@ -2,12 +2,15 @@
 
 import ctypes
 import importlib.util
+import io
 import json
 import os
 import tempfile
 import threading
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "usbc_home" / "usbc_home.py"
 spec = importlib.util.spec_from_file_location("usbc_home", TOOL)
@@ -419,6 +422,19 @@ class ArgumentTests(unittest.TestCase):
         for extra in ([], ["--acknowledge-vendor-home"], ["--operator", "XX"]):
             with self.assertRaises(SystemExit):
                 tool.main(["--dll-dir", ".", "--online", "--output", "x.jsonl", *extra])
+
+    def test_online_needs_the_hardware_switch(self):
+        argv = ["--dll-dir", ".", "--online", "--acknowledge-vendor-home", "--operator", "XX", "--output", "x.jsonl"]
+        for value in (None, "0", "yes"):
+            env = {} if value is None else {"SCORBOT_HARDWARE": value}
+            with self.subTest(value=value), mock.patch.dict(os.environ, env, clear=True), \
+                    mock.patch.object(tool.ctypes, "CDLL", side_effect=AssertionError("DLL loaded")):
+                err = io.StringIO()
+                with redirect_stderr(err), self.assertRaises(SystemExit) as caught:
+                    tool.main(argv + ["--no-home"] if value == "yes" else argv)
+                self.assertEqual(caught.exception.code, 2)
+                self.assertIn("SCORBOT_HARDWARE", err.getvalue())
+                self.assertFalse(os.path.exists("x.jsonl"))
 
     def test_simulate_needs_an_output_file(self):
         with self.assertRaises(SystemExit):

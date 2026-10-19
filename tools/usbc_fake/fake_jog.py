@@ -26,18 +26,19 @@ home = jog.home
 
 def rate_action(seconds, velocity=1):
     def action(dll, log, console, state):
-        if not jog.call(dll.enter_manual):
+        state["call_open"] = 0      # jog.call's open-call count
+        if not jog.call(dll.enter_manual, state):
             return 4
         durations = []
         end = time.monotonic() + seconds
         try:
-            while time.monotonic() < end and not jog.call(dll.emergency):
+            while time.monotonic() < end and not jog.call(dll.emergency, state):
                 for axis in range(3):
                     began = time.monotonic()
-                    ok = jog.call(lambda a=axis: dll.move_manual(a, velocity))
+                    ok = jog.call(lambda a=axis: dll.move_manual(a, velocity), state)
                     durations.append((axis, ok, round((time.monotonic() - began) * 1000, 2)))
         finally:
-            jog._close(dll, log, [])
+            jog._close(dll, log, state, [])
             home.request_stop(dll, log, state)
         ms = sorted(d[2] for d in durations)
         log.event("rate_summary", calls=len(ms), refused=sum(not d[1] for d in durations),

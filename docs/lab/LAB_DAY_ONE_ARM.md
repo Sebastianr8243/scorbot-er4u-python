@@ -11,6 +11,7 @@ Phone with a level app, tape or marker, a USB stick (copy `logs\` to it first), 
 ```powershell
 git pull                                    # on main
 .\scripts\lab_day.ps1 -DryRun               # prints every command; check the labels
+$env:SCORBOT_HARDWARE = "1"                # operator only: the hardware switch; close this window to turn it off
 .\scripts\lab_day.ps1 -Arm ARM-1 -Operator SR
 ```
 

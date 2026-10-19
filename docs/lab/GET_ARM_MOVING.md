@@ -1,6 +1,6 @@
 # Get the arm moving: agent script and copy-paste commands
 
-Written 2026-10-15. For an AI agent on the lab PC, talking the operator (Sebastian) through it. **Nothing here has been run on the arm.** The agent rules in [AGENT_RUNBOOK.md](AGENT_RUNBOOK.md) apply; capture and hand-sweep detail is in [VISIT_A_AGENT_CHECKLIST.md](VISIT_A_AGENT_CHECKLIST.md).
+Written 2026-10-15, updated 2026-10-19 (hardware switch; the agent may now run the commands). For an AI agent on the lab PC (GitHub Copilot in VS Code reads [.github/copilot-instructions.md](../../.github/copilot-instructions.md) automatically), working with the operator (Sebastian). **Nothing here has been run on the arm.** Capture and hand-sweep detail is in [VISIT_A_AGENT_CHECKLIST.md](VISIT_A_AGENT_CHECKLIST.md); where [AGENT_RUNBOOK.md](AGENT_RUNBOOK.md) says the human runs every motion command, this file's rules replace that for this run.
 
 ## The idea
 
@@ -13,7 +13,8 @@ Both need the 32-bit Python (the DLL is 32-bit). `<bin>` below is the SCORBASE `
 
 ## Agent rules for this run
 
-- **The agent never types `--online`.** The operator runs every `--online` command and types the confirmation word. The agent reads the output and says what to do next.
+- **The agent may run every command here, including `--online`, once the operator has turned on the hardware switch (step 0).** Changed 2026-10-19 by the owner. The agent never sets, changes or unsets `SCORBOT_HARDWARE` itself and never types a confirmation word (`CONNECT`, `JOG`, `HOME`): each `--online` command waits for the operator to type it in the terminal. That typed word is the operator's go for that one move. Before each one the agent says what will move and asks for a hand on the physical stop.
+- If a command says "the real arm is switched off", the switch is not on in this terminal: stop and ask the operator to do step 0.
 - One person's hand stays on the physical stop for every `--online` run. `Stop` and F9 are not emergency stops.
 - Close SCORBASE completely first: only one program may talk to the controller.
 - Go one step at a time. Do not move to the next step until the operator pastes the output and the agent has read it. If an exit code is not 0, an error number appears, or anything moves unexpectedly: stop, keep the log, tell the operator.
@@ -31,13 +32,25 @@ $op  = "SR"
 $py  = "$bin\python.exe"
 ```
 
+### Step 0. Turn on the hardware switch (operator only)
+
+Real arm commands refuse to run unless `SCORBOT_HARDWARE` is `1` in the terminal that runs them. Copilot runs commands in VS Code's own terminals, so the switch has to be on when VS Code starts. The operator closes every VS Code window, then in a normal PowerShell window:
+
+```powershell
+cd <repo>
+$env:SCORBOT_HARDWARE = "1"
+code .
+```
+
+Every terminal in that VS Code window, including Copilot's, now has the switch on. Check in the VS Code terminal: `echo $env:SCORBOT_HARDWARE` prints `1`. **To turn it off, close VS Code and the PowerShell window you started it from** (that window still has the switch on, and anything run or launched from it would too). It is not saved anywhere, so it does not come back after that. Run step 1 before or after; the tests clear the switch for themselves.
+
 ### Step 1. Desk check (no arm, no power)
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -n 2 tests tests_extra -q
 ```
 
-Expect all passed (1327 passed, 1 skipped on 2026-10-15).
+Expect all passed (1339 passed, 1 skipped on 2026-10-19).
 
 ### Step 2. Probe and simulate (no arm needed, controller can be off)
 
@@ -68,7 +81,7 @@ Operator types `CONNECT`. This energises the motors and then turns control off. 
 & $py tools\usbc_jog\usbc_jog.py --dll-dir $bin --online --acknowledge-vendor-jog --operator $op --axis 0 --velocity 1 --seconds 0.5 --output logs\jog_axis0_v1_01.jsonl
 ```
 
-Operator types `JOG`. Agent reads the logged before, after and difference of the three position arrays and tells the operator: which joint moved, which direction, how many counts. Write it down. If nothing moved, raise velocity to 2, then 5, one run each. If the wrong joint moved, the axis table is wrong: stop and tell the owner.
+Operator types `JOG`. Agent reads the logged before, after and difference of the three position arrays and tells the operator: which joint moved, which direction, how many counts. Write it down. If nothing moved, raise velocity to 2, then 5, one run each, but only after a run that exited 0 and logged a `position_delta` (a failed position read exits 4 and logs no delta). If the wrong joint moved, the axis table is wrong: stop and tell the owner.
 
 Then repeat for the other two axes, each starting at velocity 1:
 
@@ -101,7 +114,9 @@ Repeat step 5 commands with new log names (`..._02.jsonl`), then a small bounded
 Copy-Item logs <stick>\logs_backup -Recurse
 ```
 
-Agent: write one notes block per step (step, log file, what the operator saw, the numbers, anything unexpected), no interpretation beyond what the file shows. Then record the axis table result in `docs/specs/2026-10-13-vendor-dll-jog-plan.md` and `docs/protocol/BRING_UP_SEQUENCE.md`.
+Then the operator closes VS Code and the PowerShell window that launched it: that turns the hardware switch off.
+
+Agent: write one notes block per step in `logs\NOTES.md` (step, log file, what the operator saw, the numbers, anything unexpected), no interpretation beyond what the file shows. Then record the axis table result in `docs/specs/2026-10-13-vendor-dll-jog-plan.md` and `docs/protocol/BRING_UP_SEQUENCE.md`.
 
 ## If it goes wrong
 

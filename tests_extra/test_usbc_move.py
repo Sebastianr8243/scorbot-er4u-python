@@ -2,10 +2,12 @@
 
 import importlib.util
 import io
+import os
 import threading
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "usbc_move" / "usbc_move.py"
 spec = importlib.util.spec_from_file_location("usbc_move", TOOL)
@@ -180,6 +182,18 @@ class ArgumentTests(unittest.TestCase):
     def test_online_needs_the_acknowledgement_and_an_operator(self):
         self.refused("--online", "--axis", "x", "--output", "o.jsonl")
         self.refused("--online", "--acknowledge-vendor-move", "--axis", "x", "--output", "o.jsonl")
+
+    def test_online_needs_the_hardware_switch(self):
+        argv = ("--online", "--acknowledge-vendor-move", "--operator", "XX", "--axis", "x", "--output", "o.jsonl")
+        for value in (None, "0", "yes"):
+            env = {} if value is None else {"SCORBOT_HARDWARE": value}
+            with self.subTest(value=value), mock.patch.dict(os.environ, env, clear=True),                     mock.patch.object(move.home, "load_library", side_effect=AssertionError("DLL loaded")):
+                err = io.StringIO()
+                with redirect_stderr(err), self.assertRaises(SystemExit) as caught:
+                    move.main(["--dll-dir", "x", *argv])
+                self.assertEqual(caught.exception.code, 2)
+                self.assertIn("SCORBOT_HARDWARE", err.getvalue())
+                self.assertFalse(os.path.exists("o.jsonl"))
 
     def test_axis_and_step_are_bounded(self):
         for bad in (("--axis", "w"), ("--axis", "x", "--mm", "0"), ("--axis", "x", "--mm", "20.5"),

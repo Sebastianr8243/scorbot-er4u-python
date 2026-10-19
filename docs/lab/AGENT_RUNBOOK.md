@@ -4,7 +4,7 @@ Written 2026-10-06. For an AI agent on the lab laptop that helps a human operato
 
 ## Agent rules
 
-1. **The human runs every motion command.** The agent may run the no-arm checks in P and read logs. It never runs a command that connects or moves the arm without `--simulate`, never types `HOME`, `MOVE` or `STREAM` for the operator, and never retries a faulted command. The operator's hand stays near the physical stop. Ctrl-C and the software stop are not an emergency stop.
+1. **The human runs every motion command.** (For the vendor-DLL run in [GET_ARM_MOVING.md](GET_ARM_MOVING.md), changed 2026-10-19 by the owner: the agent may run the commands once the operator has turned on the hardware switch, `SCORBOT_HARDWARE=1`; the operator still types every confirmation word.) The agent may run the no-arm checks in P and read logs. It never runs a command that connects or moves the arm without `--simulate`, never types `HOME`, `MOVE` or `STREAM` for the operator, and never retries a faulted command. The operator's hand stays near the physical stop. Ctrl-C and the software stop are not an emergency stop.
 2. **Logs are evidence, chat is not.** A claim about the arm ("it moved up", "homing works") counts only if a log from this PC shows it. Cite the file name and the row.
 3. **Stop and report** (do not suggest a workaround) on: any fault, `session_failed`, MOTORS LED disagreeing with the software, motion in a joint that was not commanded, a counts change the model says is wrong, a result outside a pass criterion below.
 4. **New `--output` name every run.** Files are never overwritten. Put real runs in `logs\`, simulated ones in `rehearsal\`.

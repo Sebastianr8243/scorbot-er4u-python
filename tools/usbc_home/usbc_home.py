@@ -10,7 +10,7 @@ DLL is 32-bit). From disassembly and unverified on the arm.
 --probe loads the DLL and checks the exports; it never calls Initialization.
 --simulate uses the DLL's own simulation mode (no USB). --online energises the
 motors on connect and moves the arm in Home: hand on the physical stop. Stop
-here is not an emergency stop. Never run --online from a test or an agent.
+here is not an emergency stop. --online needs SCORBOT_HARDWARE=1, set by the operator; never from a test.
 
 Only the functions in ALLOWED are bound; no joint-move export is reachable.
 """
@@ -394,6 +394,9 @@ def main(argv=None):
         parser.error("--no-home only applies to --online")
     if args.online and not (args.acknowledge_vendor_home and args.operator):
         parser.error("--online needs --acknowledge-vendor-home and --operator")
+    if args.online and os.environ.get("SCORBOT_HARDWARE") != "1":
+        parser.error("the real arm is switched off: the operator sets SCORBOT_HARDWARE=1 in this terminal "
+                     "(PowerShell: $env:SCORBOT_HARDWARE = \"1\") before --online")
     source = {True: "vendor_dll_simulated"}.get(args.simulate, "vendor_dll")
     log = EventLog(args.output, source)
     try:
