@@ -219,6 +219,72 @@ class JogTests(unittest.TestCase):
         self.assertTrue(state["busy"])
         self.assertIn("STOP FAILED", state["busy_note"])
 
+    def test_a_ctrl_c_while_a_move_call_is_still_running_keeps_the_session_busy(self):
+        import threading
+        release, real = threading.Event(), jog.home.bounded
+        lib = FakeLib(MoveManual=lambda axis, velocity: release.wait(5))
+
+        def bounded(fn, seconds):       # Ctrl+C arrives while the MoveManual call is still inside the DLL
+            finished, value, error = real(fn, 0.05)
+            if not finished and lib.calls("MoveManual"):
+                raise KeyboardInterrupt()
+            return finished, value, error
+        log, state = Recorder(), {"busy": False, "stop_open": 0}
+        try:
+            with mock.patch.object(jog.home, "bounded", bounded), self.assertRaises(KeyboardInterrupt):
+                jog.make_action(0, 10, 5)(jog.JogDll(lib), log, FakeConsole(), state)
+        finally:
+            release.set()
+        self.assertEqual((len(lib.calls("CloseManual")), len(lib.calls("Stop"))), (1, 1))
+        self.assertTrue(state["busy"])
+        self.assertIn("PHYSICAL STOP", state["busy_note"])
+
+    def test_a_stop_that_raises_is_reported_and_keeps_the_session_busy(self):
+        lib = FakeLib(Stop=lambda group: (_ for _ in ()).throw(RuntimeError("boom")))
+        code, log, state = self.go(lib)
+        self.assertEqual(code, 8)
+        self.assertTrue(state["busy"])
+        self.assertIn("STOP FAILED", state["busy_note"])
+
+    def test_a_dll_error_in_the_last_move_is_not_reported_as_a_timed_success(self):
+        import time
+        log, state = Recorder(), {"busy": False, "stop_open": 0}
+
+        def move(axis, velocity):       # the error callback fires just as the time runs out
+            time.sleep(0.06)
+            log.event("dll_error_callback", code=1)
+            return 1
+        lib = FakeLib(MoveManual=move)
+        code = jog.make_action(0, 10, 0.05)(jog.JogDll(lib), log, FakeConsole(), state)
+        self.assertEqual((code, log.first("jog_end")["reason"]), (7, "dll_error"))
+
+    def test_a_dll_error_during_the_clean_up_is_not_reported_as_a_success(self):
+        log, state = Recorder(), {"busy": False, "stop_open": 0}
+        lib = FakeLib(CloseManual=lambda: log.event("dll_error_callback", code=1) or 1)
+        code = jog.make_action(0, 10, 0.05)(jog.JogDll(lib), log, FakeConsole(), state)
+        self.assertEqual((code, log.first("jog_end")["reason"]), (7, "time"))
+
+    def test_a_failed_first_position_read_moves_nothing(self):
+        lib = FakeLib(GetCurrentPosition=lambda encoder, joint, xyz: 0)
+        code, log, state = self.go(lib)
+        self.assertEqual((code, log.first("jog_end")["reason"]), (4, "position_read_failed"))
+        self.assertEqual((lib.calls("EnterManual"), lib.calls("MoveManual")), ([], []))
+        self.assertNotIn("position_delta", log.names())
+        self.assertFalse(state["busy"])
+
+    def test_a_failed_last_position_read_logs_no_delta_and_is_not_a_success(self):
+        reads = []
+
+        def position(encoder, joint, xyz):
+            reads.append(1)
+            return 1 if len(reads) == 1 else 0
+        lib = FakeLib(GetCurrentPosition=position)
+        code, log, state = self.go(lib)
+        self.assertEqual(code, 4)
+        self.assertEqual(log.first("jog_end")["reason"], "time")
+        self.assertNotIn("position_delta", log.names())
+        self.assertFalse(state["busy"])
+
     def test_a_position_read_that_hangs_after_the_stop_does_not_block_the_shutdown(self):
         import threading
         release, reads = threading.Event(), []
