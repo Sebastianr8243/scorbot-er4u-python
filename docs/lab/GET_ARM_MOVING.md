@@ -50,7 +50,7 @@ Every terminal in that VS Code window, including Copilot's, now has the switch o
 .venv\Scripts\python.exe -m pytest -n 2 tests tests_extra -q
 ```
 
-Expect all passed (1332 passed, 1 skipped on 2026-10-19).
+Expect all passed (1338 passed, 1 skipped on 2026-10-19).
 
 ### Step 2. Probe and simulate (no arm needed, controller can be off)
 
@@ -81,7 +81,7 @@ Operator types `CONNECT`. This energises the motors and then turns control off. 
 & $py tools\usbc_jog\usbc_jog.py --dll-dir $bin --online --acknowledge-vendor-jog --operator $op --axis 0 --velocity 1 --seconds 0.5 --output logs\jog_axis0_v1_01.jsonl
 ```
 
-Operator types `JOG`. Agent reads the logged before, after and difference of the three position arrays and tells the operator: which joint moved, which direction, how many counts. Write it down. If nothing moved, raise velocity to 2, then 5, one run each. If the wrong joint moved, the axis table is wrong: stop and tell the owner.
+Operator types `JOG`. Agent reads the logged before, after and difference of the three position arrays and tells the operator: which joint moved, which direction, how many counts. Write it down. If nothing moved, raise velocity to 2, then 5, one run each, but only after a run that exited 0 and logged a `position_delta` (a failed position read exits 4 and logs no delta). If the wrong joint moved, the axis table is wrong: stop and tell the owner.
 
 Then repeat for the other two axes, each starting at velocity 1:
 

@@ -68,8 +68,11 @@ class Hung(Exception):
     """A DLL call did not return: leave the session busy and tell the operator."""
 
 
-def call(fn):
+def call(fn, state):
+    state["call_open"] += 1     # counted from launch, so a Ctrl+C while waiting leaves it open (as home.request_stop)
     finished, value, error = home.bounded(fn, CALL_S)
+    if finished:
+        state["call_open"] -= 1
     if not finished:
         raise Hung()
     if error is not None:
@@ -77,7 +80,7 @@ def call(fn):
     return value
 
 
-def _jog_loop(dll, log, console, errors, axis, velocity, seconds):
+def _jog_loop(dll, log, console, state, errors, axis, velocity, seconds):
     """Re-send MoveManual every 300 ms until time is up. Returns (exit code, why it ended)."""
     started = time.monotonic()
     next_move = started
@@ -87,59 +90,67 @@ def _jog_loop(dll, log, console, errors, axis, velocity, seconds):
         if errors:
             return 7, "dll_error"
         if time.monotonic() >= next_move:
-            if call(dll.emergency):
+            if call(dll.emergency, state):
                 return 7, "emergency"
-            moved = call(lambda: dll.move_manual(axis, velocity))
+            moved = call(lambda: dll.move_manual(axis, velocity), state)
             log.event("move_manual", ok=moved)
             if not moved:       # the DLL refuses a move while one runs (911) or with control off (903)
                 return 7, "move_refused"
             next_move = time.monotonic() + MOVE_PERIOD_S
         time.sleep(POLL_S)
+    if errors:      # an error callback during the last move or sleep, after the loop's own check
+        return 7, "dll_error"
     return 0, "time"
 
 
 def make_action(axis, velocity, seconds):
     def action(dll, log, console, state):
         state["busy"] = True        # until every bounded call below is proven finished
+        state["call_open"] = 0
         seen = {"errors": [], "stop_failed": False}
         original = log.event
 
         def watch(name, **fields):      # the DLL's error callback and a Stop that returned False reach us as log events
             if name == "dll_error_callback":
                 seen["errors"].append(name)
-            elif name == "stop_requested" and fields.get("ok") is False:
+            elif name == "stop_requested" and (fields.get("ok") is False or "error" in fields):
                 seen["stop_failed"] = True
             original(name, **fields)
         log.event = watch
         code, reason, before, unsafe_out, cleaned = 8, "aborted", None, [], False   # "aborted" until the loop says otherwise
         try:
             try:
-                before = call(dll.position)
+                before = call(dll.position, state)
                 log.event("position_before", **before)
-                if call(dll.enter_manual):
+                if not before["ok"]:        # zeros from a failed read are not a baseline
+                    code, reason = 4, "position_read_failed"
+                elif call(dll.enter_manual, state):
                     log.event("jog_start", axis=axis, velocity=velocity, seconds=seconds)
-                    code, reason = _jog_loop(dll, log, console, seen["errors"], axis, velocity, seconds)
+                    code, reason = _jog_loop(dll, log, console, state, seen["errors"], axis, velocity, seconds)
                 else:
                     code, reason = 4, "enter_manual_refused"
             finally:    # every end path: CloseManual and Stop (an abort stops first, it discards the queued setpoints)
                 log.event("jog_end", reason=reason)
                 try:
                     if reason == "time":
-                        _close(dll, log, unsafe_out)
+                        _close(dll, log, state, unsafe_out)
                     else:
                         home.request_stop(dll, log, state)
                 finally:
                     if reason == "time":
                         home.request_stop(dll, log, state)
                     else:
-                        _close(dll, log, unsafe_out)
+                        _close(dll, log, state, unsafe_out)
                 cleaned = True      # the arm is told to stop; reading the position again must not block shutdown
-                if before:
+                if before and before["ok"]:
                     try:
-                        after = call(dll.position)
+                        after = call(dll.position, {"call_open": 0})     # a read after the stop: never keeps it busy
                         log.event("position_after", **after)
-                        log.event("position_delta", **{key: [a - b for a, b in zip(after[key], before[key])]
-                                                       for key in ("encoder", "joint", "xyz")})
+                        if after["ok"]:
+                            log.event("position_delta", **{key: [a - b for a, b in zip(after[key], before[key])]
+                                                           for key in ("encoder", "joint", "xyz")})
+                        elif code == 0:     # no measurement: the run cannot say what moved
+                            code = 4
                     except Hung:
                         log.event("position_after_hang", seconds=CALL_S)
         except Hung:
@@ -150,20 +161,25 @@ def make_action(axis, velocity, seconds):
         finally:
             log.event = original
             if cleaned:     # also on Ctrl+C, so the caller can still switch control off
-                if unsafe_out:
+                if state["call_open"] > 0:
+                    state["busy_note"] = "A JOG CALL WAS INTERRUPTED: the arm may still be moving. USE THE PHYSICAL STOP NOW."
+                elif unsafe_out:
                     state["busy_note"] = "CLOSEMANUAL FAILED: the arm may still be moving. USE THE PHYSICAL STOP NOW."
                 elif seen["stop_failed"]:
                     state["busy_note"] = "STOP FAILED: the arm may still be moving. USE THE PHYSICAL STOP NOW."
                 elif state["stop_open"] > 0:
                     state["busy_note"] = "STOP DID NOT RETURN: the arm may still be moving. USE THE PHYSICAL STOP NOW."
-                state["busy"] = bool(unsafe_out) or seen["stop_failed"] or state["stop_open"] > 0
+                state["busy"] = (bool(unsafe_out) or seen["stop_failed"] or state["stop_open"] > 0
+                                 or state["call_open"] > 0)
+        if code == 0 and seen["errors"]:    # an error callback during the clean-up still fails the run
+            code = 7
         return 8 if state["busy"] else code
     return action
 
 
-def _close(dll, log, unsafe_out):
+def _close(dll, log, state, unsafe_out):
     """CloseManual, bounded. A False return is appended to unsafe_out; a hang raises Hung."""
-    closed = call(dll.close_manual)
+    closed = call(dll.close_manual, state)
     log.event("close_manual", ok=closed)
     if not closed:
         unsafe_out.append(1)
