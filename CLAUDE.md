@@ -59,6 +59,8 @@ flowchart TD
 
 ## Commands
 
+**Verify before saying done** (about 4.5 min, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot openScorbot scripts examples tests && python -m pytest -n 2 -q tests`. Last run 2026-10-18: 1011 passed. Read `LESSONS.md` before starting; add one dated line after a non-trivial task.
+
 ```powershell
 python -m pip install -e ".[dev]"              # add ,kinematics for the Robotics Toolbox cross-check; windows extra adds libusb-package; gui adds PyQt5
 uv sync --locked --extra windows --extra test --extra planning  # lab PC: Python 3.13 + exact versions from uv.lock (planning = Ruckig, needed by start_stream); after editing deps run `uv lock` (CI checks it)
