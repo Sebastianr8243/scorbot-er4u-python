@@ -15,7 +15,7 @@ the position before and after; compare them with the request before you raise --
 
 Reuses tools/usbc_home (fingerprint, bounded calls, stop bookkeeping, event log, clean-up). --online
 energises the motors and moves the arm: hand on the physical stop. Stop here is not an emergency stop.
-Never run --online from a test or an agent.
+--online needs SCORBOT_HARDWARE=1, set by the operator. Never run --online from a test or an agent.
 
 Only the functions in SIGNATURES are bound: no Home, SetHome, SetJoint, MoveManual, MoveLinear, torque or
 gripper call.
@@ -88,7 +88,7 @@ def _settle(dll, log):
     """Read the position until it has not changed for SETTLE_POLLS reads. Returns the last reading."""
     last, same, deadline = None, 0, time.monotonic() + SETTLE_TIMEOUT_S
     while time.monotonic() < deadline:
-        now = jog.call(dll.position)
+        now = jog.call(dll.position, {"call_open": 0})     # a read after the move: never keeps it busy
         same = same + 1 if last and now["encoder"] == last["encoder"] else 0
         if same >= SETTLE_POLLS:
             return now
@@ -104,15 +104,16 @@ def make_action(axis, mm):
 
     def action(dll, log, console, state):
         state["busy"] = True        # until every bounded call below is proven finished
+        state["call_open"] = 0
         result = {}
         try:
-            before = jog.call(dll.position)
+            before = jog.call(dll.position, state)
             log.event("position_before", **before)
-            if not jog.call(lambda: dll.define_vector(VECTOR, VECTOR_POINTS)):
+            if not jog.call(lambda: dll.define_vector(VECTOR, VECTOR_POINTS), state):
                 log.event("define_vector_refused")
                 state["busy"] = False
                 return 4
-            if not jog.call(lambda: dll.teach_relative(VECTOR, POINT, delta)):
+            if not jog.call(lambda: dll.teach_relative(VECTOR, POINT, delta), state):
                 log.event("teach_refused", delta_um=delta)
                 state["busy"] = False
                 return 4
@@ -126,7 +127,7 @@ def make_action(axis, mm):
                 log.event("position_after", **after)
                 log.event("position_delta", **{key: [a - b for a, b in zip(after[key], before[key])]
                                                for key in ("encoder", "joint", "xyz")})
-                state["busy"] = state["stop_open"] > 0
+                state["busy"] = state["stop_open"] > 0 or state["call_open"] > 0
             return code
         except jog.Hung:
             log.event("move_call_hang", seconds=jog.CALL_S)
@@ -200,6 +201,9 @@ def main(argv=None):
             parser.error(f"--mm must be above 0 and at most {MAX_MM:g} in size, either sign")
     if args.online and not (args.acknowledge_vendor_move and args.operator):
         parser.error("--online needs --acknowledge-vendor-move and --operator")
+    if args.online and os.environ.get("SCORBOT_HARDWARE") != "1":
+        parser.error("the real arm is switched off: the operator sets SCORBOT_HARDWARE=1 in this terminal "
+                     "(PowerShell: $env:SCORBOT_HARDWARE = \"1\") before --online")
     log = home.EventLog(args.output, "vendor_dll_simulated" if args.simulate else "vendor_dll")
     try:
         log.event("start", mode="probe" if args.probe else "simulate" if args.simulate else "online",

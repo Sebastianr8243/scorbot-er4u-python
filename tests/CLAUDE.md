@@ -67,6 +67,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_robot_guards.py`, `test_robot_connect.py`, `test_robot_error_paths.py` | Characterisation tests of `Scorbot` (2026-10-12, each guarded line mutation-checked): refusals before anything is queued, the real `connect`/`disconnect` against a fake `usb` package (a failed disable after the handshake, no controller, missing endpoints, the Windows `libusb_package` branch), and the command, stream and stop-settle error paths. Patch a name in the module that looks it up: `scorbot.stream_control.StreamCore`, not `scorbot.robot.StreamCore` |
 | `test_preflight_more.py`, `test_calibration_load.py` | The remaining `preflight` branches and every rejection in `load_calibration` |
 | `test_hardware_switch.py` | The hardware switch: real `Scorbot.connect()` refuses before any USB import or legacy setup unless `SCORBOT_HARDWARE=1`, and the suite itself runs with the switch off (`conftest.py` clears it) |
+| `test_gui_hardware_switch.py` | The legacy GUI (`openScorbot/gui.py`) honours the hardware switch: with it off, `set_conection` never looks up the USB device and stays offline; with it on, the lookup runs as before. `gui.py` is loaded with every legacy, USB and Qt module faked |
 | `test_pause_marker.py` | `syncro` pauses on the configured `MAX_COUNT` (BACKLOG 15), including a copy of `libsync` loaded while the config says 300 |
 | `test_vendor_model.py`, `test_vendor_profile.py` | The vendor's count/angle formula and motion profile, read from the DLL |
 

@@ -14,6 +14,7 @@ import threading
 import queue
 import time
 import conf
+import os
 import sys
 from PyQt5 import QtWidgets, uic, QtGui
 
@@ -39,6 +40,12 @@ def main():
 
 def set_conection():
 	global online
+	# Hardware switch (2026-10-19): the real arm only when the operator set SCORBOT_HARDWARE=1 in this terminal
+	if os.environ.get("SCORBOT_HARDWARE") != "1":
+		print("The real arm is switched off: the operator sets SCORBOT_HARDWARE=1 in this terminal to connect")
+		logging.warning("SCORBOT_HARDWARE is not 1: offline")
+		online = False
+		return
 	#########################################################################
 	# Look up the arm using the device identifiers
 	try:
