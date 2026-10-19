@@ -4,6 +4,7 @@ from dataclasses import asdict
 import importlib
 import json
 import math
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +22,10 @@ from .stream_control import StreamMixin
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
 from .state import JOINTS, RobotState, decode_state
+
+# The hardware switch: real connect() refuses unless the operator set this to "1" in the terminal.
+# It stops accidents (a test, a script or an agent reaching the arm), not a deliberate bypass.
+HARDWARE_ENV = "SCORBOT_HARDWARE"
 
 
 def _loggable(payload):
@@ -148,6 +153,9 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
             raise ScorbotError("Already connected")
         if self._fault is not None:
             raise ScorbotError("Create a new Scorbot instance after a fault")
+        if os.environ.get(HARDWARE_ENV) != "1":
+            raise ScorbotError(f"The real arm is switched off: the operator sets {HARDWARE_ENV}=1 in this terminal "
+                               "to connect (PowerShell: $env:SCORBOT_HARDWARE = \"1\"). Use --simulate otherwise")
         self._cancel_event.clear()
         self._stop_event.clear()
         try:
