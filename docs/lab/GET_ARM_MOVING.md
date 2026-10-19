@@ -50,7 +50,7 @@ Every terminal in that VS Code window, including Copilot's, now has the switch o
 .venv\Scripts\python.exe -m pytest -n 2 tests tests_extra -q
 ```
 
-Expect all passed (1338 passed, 1 skipped on 2026-10-19).
+Expect all passed (1339 passed, 1 skipped on 2026-10-19).
 
 ### Step 2. Probe and simulate (no arm needed, controller can be off)
 
