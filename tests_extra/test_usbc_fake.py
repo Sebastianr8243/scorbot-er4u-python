@@ -20,6 +20,7 @@ def load(name):
 
 pipe_server = load("pipe_server")
 fake_home = load("fake_home")
+fake_jog = load("fake_jog")
 
 
 def out_packet(command, mask, *, value=0, letter=0, first=1):
@@ -59,6 +60,28 @@ class PlantTests(unittest.TestCase):
         reply = plant.reply(out_packet(0x0D, 0, first=77))
         self.assertEqual(reply[0], 77)
         self.assertEqual(reply[5] & 16, 16)
+
+
+class RateModeTests(unittest.TestCase):
+    def test_rate_mode_moves_closes_stops_and_logs_a_summary(self):
+        class Dll:
+            def __init__(self):
+                self.calls = []
+
+            def __getattr__(self, name):        # enter_manual, emergency, move_manual, close_manual, stop
+                return lambda *args: self.calls.append(name) or name != "emergency"
+
+        class Log:
+            events = []
+
+            def event(self, name, **fields):
+                self.events.append(name)
+        dll, log = Dll(), Log()
+        code = fake_jog.rate_action(0.02)(dll, log, None, {"busy": False, "stop_open": 0})
+        self.assertEqual(code, 0)
+        self.assertIn("move_manual", dll.calls)
+        self.assertEqual(dll.calls[-2:], ["close_manual", "stop"])
+        self.assertIn("rate_summary", log.events)
 
 
 class GuardTests(unittest.TestCase):
