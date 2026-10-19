@@ -6,7 +6,7 @@ Follow [docs/lab/GET_ARM_MOVING.md](../docs/lab/GET_ARM_MOVING.md) step by step.
 
 ## The hardware switch
 
-- Real arm commands (`--online`, a real `Scorbot.connect()`) refuse to run unless `SCORBOT_HARDWARE` is `1`. That is the operator's key, not yours.
+- Real arm commands (`--online` on usbc_home, usbc_jog and usbc_move, a real `Scorbot.connect()`, the legacy GUI, and `scripts\lab_day.ps1` without `-Simulate`) refuse to run unless `SCORBOT_HARDWARE` is `1`. That is the operator's key, not yours.
 - **Never set, change or unset `SCORBOT_HARDWARE` yourself**, and never prefix a command with it. If a command says "the real arm is switched off", stop and ask the operator to turn the switch on (step 0 of GET_ARM_MOVING.md).
 - Check it with: `echo $env:SCORBOT_HARDWARE` (prints `1` when on).
 
