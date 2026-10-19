@@ -9,7 +9,7 @@ header, the vendor description and the vendor demo; unverified on the arm.
 
 Reuses tools/usbc_home (fingerprint, bounded calls, stop bookkeeping, event log, clean-up). --online
 energises the motors and moves the arm: hand on the physical stop. Stop here is not an emergency
-stop. Never run --online from a test or an agent.
+stop. --online needs SCORBOT_HARDWARE=1, set by the operator; never from a test.
 
 Only the functions in SIGNATURES are bound: no Home, SetHome, SetJoint, Impact, Move*, torque or gripper.
 """
@@ -214,6 +214,9 @@ def main(argv=None):
             parser.error(f"--seconds must be above 0 and at most {MAX_SECONDS:g}")
     if args.online and not (args.acknowledge_vendor_jog and args.operator):
         parser.error("--online needs --acknowledge-vendor-jog and --operator")
+    if args.online and os.environ.get("SCORBOT_HARDWARE") != "1":
+        parser.error("the real arm is switched off: the operator sets SCORBOT_HARDWARE=1 in this terminal "
+                     "(PowerShell: $env:SCORBOT_HARDWARE = \"1\") before --online")
     log = home.EventLog(args.output, "vendor_dll_simulated" if args.simulate else "vendor_dll")
     try:
         log.event("start", mode="probe" if args.probe else "simulate" if args.simulate else "online",
