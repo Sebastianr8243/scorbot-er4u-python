@@ -1,7 +1,6 @@
 """Scorbot.connect and disconnect with a fake usb package, fake legacy modules and no worker threads."""
 
 import json
-import os
 import sys
 import tempfile
 import types
@@ -79,7 +78,6 @@ class ConnectTests(unittest.TestCase):
             mock.patch.object(robot, "_run_command_worker"),
             mock.patch.object(robot, "_command"),
             mock.patch("scorbot.robot.sys.platform", "linux"),
-            mock.patch.dict(os.environ, {"SCORBOT_HARDWARE": "1"}),     # these tests drive the real connect path, with a fake usb
         ]
         for patch in patches:
             patch.start()

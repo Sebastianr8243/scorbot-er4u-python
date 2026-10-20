@@ -2,7 +2,6 @@
 
 import importlib.util
 import io
-import os
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -56,12 +55,8 @@ class Recorder:
 
 
 class FakeConsole:
-    def __init__(self, stop_after=None, typed=True):
-        self.stop_after, self.typed, self.polls = stop_after, typed, 0
-
-    def confirm(self, word):
-        self.asked = word
-        return self.typed
+    def __init__(self, stop_after=None):
+        self.stop_after, self.polls = stop_after, 0
 
     def stop_pressed(self):
         self.polls += 1
@@ -357,20 +352,12 @@ class JogTests(unittest.TestCase):
                       GetCurrentPosition=moving_position())
         log = Recorder()
         code = jog.home.run(jog.JogDll(lib), log, True, FakeConsole(),
-                            action=jog.make_action(1, 10, 0.1), word="JOG")
+                            action=jog.make_action(1, 10, 0.1))
         self.assertEqual(code, 0)
         self.assertEqual(done_calls, [2])
         self.assertEqual([call[1] for call in lib.calls("Control")], [1, 0])
         self.assertEqual(len(lib.calls("CloseUSBC")), 1)
         self.assertEqual(log.names()[-1], "closed")
-
-    def test_online_the_typed_word_is_jog_and_declining_moves_nothing(self):
-        lib = FakeLib()
-        console = FakeConsole(typed=False)
-        code = jog.home.run(jog.JogDll(lib), Recorder(), False, console,
-                            action=jog.make_action(0, 10, 1), word="JOG")
-        self.assertEqual((code, console.asked), (5, "JOG"))
-        self.assertEqual(lib.calls("Initialization"), [])
 
 
 class ArgumentTests(unittest.TestCase):
@@ -379,32 +366,14 @@ class ArgumentTests(unittest.TestCase):
             jog.main(["--dll-dir", "x", *argv])
         self.assertEqual(caught.exception.code, 2)
 
-    def test_online_needs_the_acknowledgement_and_an_operator(self):
-        self.refused("--online", "--axis", "0", "--output", "o.jsonl")
-        self.refused("--online", "--acknowledge-vendor-jog", "--axis", "0", "--output", "o.jsonl")
-
-    def test_online_needs_the_hardware_switch(self):
-        argv = ("--online", "--acknowledge-vendor-jog", "--operator", "XX", "--axis", "0", "--output", "o.jsonl")
-        for value in (None, "0", "yes"):
-            env = {} if value is None else {"SCORBOT_HARDWARE": value}
-            with self.subTest(value=value), mock.patch.dict(os.environ, env, clear=True), \
-                    mock.patch.object(jog.ctypes, "CDLL", side_effect=AssertionError("DLL loaded")):
-                err = io.StringIO()
-                with redirect_stderr(err), self.assertRaises(SystemExit) as caught:
-                    jog.main(["--dll-dir", "x", *argv])
-                self.assertEqual(caught.exception.code, 2)
-                self.assertIn("SCORBOT_HARDWARE", err.getvalue())
-                self.assertFalse(os.path.exists("o.jsonl"))
-
     def test_axis_velocity_and_time_are_bounded(self):
         for bad in (("--axis", "3"), ("--axis", "5"), ("--axis", "0", "--velocity", "0"),
                     ("--axis", "0", "--velocity", "101"), ("--axis", "0", "--seconds", "0"),
                     ("--axis", "0", "--seconds", "5.1")):
             self.refused("--simulate", "--output", "o.jsonl", *bad)
 
-    def test_a_run_needs_an_axis_and_an_output_file(self):
+    def test_a_run_needs_an_axis(self):
         self.refused("--simulate", "--output", "o.jsonl")
-        self.refused("--simulate", "--axis", "0")
 
 
 if __name__ == "__main__":

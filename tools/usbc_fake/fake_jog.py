@@ -63,7 +63,7 @@ def main():
         action = rate_action(float(rest[0]) if rest else 3.0)
     else:
         raise SystemExit("mode is units or rate")
-    code = home.run(jog.JogDll(lib), log, False, fake_home.Auto(), action=action, word="JOG")
+    code = home.run(jog.JogDll(lib), log, False, fake_home.Auto(), action=action)
     log.close()
     print("exit", code)
     return code

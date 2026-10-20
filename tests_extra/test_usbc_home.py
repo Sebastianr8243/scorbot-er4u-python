@@ -8,9 +8,8 @@ import os
 import tempfile
 import threading
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stdout
 from pathlib import Path
-from unittest import mock
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "usbc_home" / "usbc_home.py"
 spec = importlib.util.spec_from_file_location("usbc_home", TOOL)
@@ -39,14 +38,9 @@ class FakeLib:
 
 
 class FakeConsole:
-    def __init__(self, typed_home=True, stop_after=None):
-        self.typed_home = typed_home
+    def __init__(self, stop_after=None):
         self.stop_after = stop_after
         self.polls = 0
-
-    def confirm(self, word):
-        self.asked = word
-        return self.typed_home
 
     def stop_pressed(self):
         self.polls += 1
@@ -151,30 +145,14 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(lib.exports["Control"].calls, [])
         self.assertEqual(lib.exports["Home"].calls, [])
 
-    def test_online_run_needs_the_typed_confirmation_before_any_dll_call(self):
-        lib, dll = make_dll()
-        log = Recorder("vendor_dll")
-        self.assertEqual(tool.run(dll, log, False, FakeConsole(typed_home=False)), 5)
-        self.assertEqual(log.names(), ["home_declined"])
-        for name in ("Initialization", "Control", "Home", "Stop", "CloseUSBC"):
-            self.assertEqual(lib.exports[name].calls, [], name)     # online connect and control-on energise the motors
-
     def test_no_home_connects_and_controls_but_never_calls_home(self):
         lib, dll = make_dll()
-        console = FakeConsole()
         log = Recorder("vendor_dll")
-        self.assertEqual(tool.run(dll, log, False, console, do_home=False), 0)
-        self.assertEqual(console.asked, "CONNECT")
+        self.assertEqual(tool.run(dll, log, False, FakeConsole(), do_home=False), 0)
         self.assertEqual(lib.exports["Home"].calls, [])
         self.assertEqual(lib.exports["Control"].calls, [(ord("&"), 1), (ord("&"), 0)])
         self.assertEqual(log.names(), ["init_done", "init_returned", "emergency", "control_on", "home_skipped",
                                        "control_off", "closed"])
-
-    def test_the_home_run_asks_for_the_word_home(self):
-        _lib, dll = make_dll()
-        console = FakeConsole()
-        tool.run(dll, Recorder("vendor_dll"), False, console)
-        self.assertEqual(console.asked, "HOME")
 
     def test_control_that_will_not_turn_on_still_gets_a_control_off(self):
         def initialization(_mode, _system_type, on_done, _on_error):
@@ -348,17 +326,6 @@ class SequenceTests(unittest.TestCase):
             tool.run(tool.VendorDll(lib), log, True, FakeConsole(), do_home=False)
         self.assertIn("control_off_failed", log.names())
 
-    def test_the_home_prompt_warns_about_the_gripper_and_the_wrist(self):
-        import contextlib
-        import io
-        from unittest import mock
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out), mock.patch("builtins.input", return_value="HOME"):
-            self.assertTrue(tool.Console().confirm("HOME"))
-        text = out.getvalue()
-        self.assertIn("GRIPPER", text)
-        self.assertIn("wrist", text)
-
     def test_a_home_that_will_not_stop_skips_control_off_and_close(self):
         release = threading.Event()
         lib, dll = make_dll(on_home=lambda: release.wait(5))
@@ -390,12 +357,14 @@ class SequenceTests(unittest.TestCase):
 
 
 class FingerprintTests(unittest.TestCase):
-    def test_known_builds_pass_and_unknown_needs_the_flag(self):
-        for sha in tool.KNOWN_DLL_SHA256:
-            tool.check_fingerprint(sha, False)
-        with self.assertRaises(tool.ToolError):
-            tool.check_fingerprint("0" * 64, False)
-        tool.check_fingerprint("0" * 64, True)
+    def test_an_unknown_build_is_logged_and_allowed(self):
+        log = Recorder()
+        with redirect_stdout(io.StringIO()):
+            for sha in tool.KNOWN_DLL_SHA256:
+                tool.check_fingerprint(sha, log)
+            self.assertEqual(log.names(), [])
+            tool.check_fingerprint("0" * 64, log)
+        self.assertEqual(log.names(), ["unknown_dll"])
 
     def test_the_known_builds_are_the_two_we_decompiled(self):
         self.assertEqual(set(tool.KNOWN_DLL_SHA256), {
@@ -426,27 +395,11 @@ class LogTests(unittest.TestCase):
 
 
 class ArgumentTests(unittest.TestCase):
-    def test_online_needs_the_acknowledgement_and_an_operator(self):
-        for extra in ([], ["--acknowledge-vendor-home"], ["--operator", "XX"]):
-            with self.assertRaises(SystemExit):
-                tool.main(["--dll-dir", ".", "--online", "--output", "x.jsonl", *extra])
-
-    def test_online_needs_the_hardware_switch(self):
-        argv = ["--dll-dir", ".", "--online", "--acknowledge-vendor-home", "--operator", "XX", "--output", "x.jsonl"]
-        for value in (None, "0", "yes"):
-            env = {} if value is None else {"SCORBOT_HARDWARE": value}
-            with self.subTest(value=value), mock.patch.dict(os.environ, env, clear=True), \
-                    mock.patch.object(tool.ctypes, "CDLL", side_effect=AssertionError("DLL loaded")):
-                err = io.StringIO()
-                with redirect_stderr(err), self.assertRaises(SystemExit) as caught:
-                    tool.main(argv + ["--no-home"] if value == "yes" else argv)
-                self.assertEqual(caught.exception.code, 2)
-                self.assertIn("SCORBOT_HARDWARE", err.getvalue())
-                self.assertFalse(os.path.exists("x.jsonl"))
-
-    def test_simulate_needs_an_output_file(self):
-        with self.assertRaises(SystemExit):
-            tool.main(["--dll-dir", ".", "--simulate"])
+    def test_the_default_log_goes_to_logs_or_rehearsal_with_a_time_stamp(self):
+        online = tool.default_output("home", False)
+        self.assertEqual(os.path.dirname(online), "logs")
+        self.assertRegex(os.path.basename(online), r"^home-\d{8}-\d{6}\.jsonl$")
+        self.assertEqual(os.path.dirname(tool.default_output("home", True)), "rehearsal")
 
     def test_no_home_needs_online(self):
         with self.assertRaises(SystemExit):

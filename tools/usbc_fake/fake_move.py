@@ -46,7 +46,7 @@ def main():
     pipe_server.refuse_if_arm_present()
     lib, _path = home.load_library(dll_dir)
     log = home.EventLog(out, "vendor_dll_fake_pipe")
-    code = home.run(HomingMoveDll(lib), log, False, fake_home.Auto(), action=homed_then_move(axis, mm), word="MOVE")
+    code = home.run(HomingMoveDll(lib), log, False, fake_home.Auto(), action=homed_then_move(axis, mm))
     log.close()
     print("exit", code)
     return code

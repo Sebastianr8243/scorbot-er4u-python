@@ -5,8 +5,8 @@ USNA ScorBot Toolbox's (Kutzer: RDefineVector, RAddToVecXYZPR, RMoveJoint, then 
 DefineVector, Teach, MoveJoint in USBC.dll (tools/usbc_analysis robotdll.c). Unverified on the arm.
 
     python32 usbc_move.py --dll-dir DIR --probe
-    python32 usbc_move.py --dll-dir DIR --simulate --axis x --mm 5 --output rehearsal\\move-sim.jsonl
-    python32 usbc_move.py --dll-dir DIR --online --acknowledge-vendor-move --operator XX --axis x --mm 5 --output logs\\move-01.jsonl
+    python32 usbc_move.py --dll-dir DIR --simulate --axis x --mm 5
+    python32 usbc_move.py --dll-dir DIR --online --axis x --mm 5
 
 The target is a RELATIVE point (x, y, z in micrometres, as the vendor header says), so a wrong unit makes
 the step smaller or larger by a fixed factor rather than sending the arm to an absolute pose. The log has
@@ -14,8 +14,8 @@ the position before and after; compare them with the request before you raise --
 (the DLL refuses a move before one is a normal outcome; the tool reports it and stops).
 
 Reuses tools/usbc_home (fingerprint, bounded calls, stop bookkeeping, event log, clean-up). --online
-energises the motors and moves the arm: hand on the physical stop. Stop here is not an emergency stop.
---online needs SCORBOT_HARDWARE=1, set by the operator. Never run --online from a test or an agent.
+energises the motors and moves the arm. Stop (s) here is not an emergency stop; the physical stop is.
+The log goes to logs\\ (rehearsal\\ when simulated) unless --output names a file.
 
 Only the functions in SIGNATURES are bound: no Home, SetHome, SetJoint, MoveManual, MoveLinear, torque or
 gripper call.
@@ -162,15 +162,6 @@ def _supervise(dll, log, console, state, worker, result):
     return 0
 
 
-class Console(home.Console):
-    def confirm(self, word):
-        print("Hand on the physical stop and the arm path clear. Connecting energises the motors, then the arm")
-        print("moves by a small RELATIVE step in x, y or z. UNVERIFIED on the arm: the unit (the vendor header says")
-        print("micrometres), the frame, and whether the DLL accepts a move before a home. Start at 5 mm or less")
-        print("and read the position log before any longer step. Press s to stop early; that is not an emergency stop.")
-        return input(f"Type {word} to go on: ").strip() == word
-
-
 def probe(dll_dir, log):
     lib, path = home.load_library(dll_dir)
     log.event("dll", **home.file_facts(path), python=sys.version.split()[0], ini=home.ini_facts(dll_dir))
@@ -186,24 +177,18 @@ def main(argv=None):
     mode.add_argument("--probe", action="store_true")
     mode.add_argument("--simulate", action="store_true")
     mode.add_argument("--online", action="store_true")
-    parser.add_argument("--output", help="JSONL log to create (refuses to overwrite)")
-    parser.add_argument("--operator")
-    parser.add_argument("--acknowledge-vendor-move", action="store_true",
-                        help="I know the connect energises the motors and the move moves the arm")
-    parser.add_argument("--allow-unknown-dll", action="store_true")
+    parser.add_argument("--output", help="JSONL log to create (refuses to overwrite); default logs/move-<time>.jsonl")
+    parser.add_argument("--operator", help="initials, written to the log")
     parser.add_argument("--axis", choices=sorted(AXES), help="x, y or z of the vendor's task frame (unverified)")
     parser.add_argument("--mm", type=float, default=5.0, help=f"signed step in millimetres, 0 to {MAX_MM:g} in size")
     args = parser.parse_args(argv)
     if not args.probe:
-        if args.axis is None or not args.output:
-            parser.error("--axis and --output are required with --simulate and --online")
+        if args.axis is None:
+            parser.error("--axis is required with --simulate and --online")
         if not 0 < abs(args.mm) <= MAX_MM:
             parser.error(f"--mm must be above 0 and at most {MAX_MM:g} in size, either sign")
-    if args.online and not (args.acknowledge_vendor_move and args.operator):
-        parser.error("--online needs --acknowledge-vendor-move and --operator")
-    if args.online and os.environ.get("SCORBOT_HARDWARE") != "1":
-        parser.error("the real arm is switched off: the operator sets SCORBOT_HARDWARE=1 in this terminal "
-                     "(PowerShell: $env:SCORBOT_HARDWARE = \"1\") before --online")
+        if not args.output:
+            args.output = home.default_output(f"move-{args.axis}", args.simulate)
     log = home.EventLog(args.output, "vendor_dll_simulated" if args.simulate else "vendor_dll")
     try:
         log.event("start", mode="probe" if args.probe else "simulate" if args.simulate else "online",
@@ -214,9 +199,9 @@ def main(argv=None):
         facts = home.file_facts(path)
         log.event("dll", **facts, python=sys.version.split()[0], ini=home.ini_facts(args.dll_dir))
         if args.online:
-            home.check_fingerprint(facts["sha256"], args.allow_unknown_dll)
-        return home.run(MoveDll(lib), log, args.simulate, Console(),
-                        action=make_action(args.axis, args.mm), word="MOVE")
+            home.check_fingerprint(facts["sha256"], log)
+        return home.run(MoveDll(lib), log, args.simulate, home.Console(),
+                        action=make_action(args.axis, args.mm))
     except home.ToolError as error:
         log.event("error", message=str(error))
         return 1

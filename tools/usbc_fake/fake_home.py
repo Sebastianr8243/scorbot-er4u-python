@@ -46,9 +46,6 @@ def require_pipe_link(dll_dir, host_dir=None):
 
 
 class Auto:
-    def confirm(self, _word):
-        return True
-
     def stop_pressed(self):
         return False
 

@@ -2,12 +2,10 @@
 
 import importlib.util
 import io
-import os
 import threading
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
-from unittest import mock
 
 TOOL = Path(__file__).resolve().parent.parent / "tools" / "usbc_move" / "usbc_move.py"
 spec = importlib.util.spec_from_file_location("usbc_move", TOOL)
@@ -167,7 +165,7 @@ class MoveTests(unittest.TestCase):
         lib = FakeLib(Initialization=lambda mode, kind, done, error: (done_calls.append(mode), done(None), 1)[2],
                       GetCurrentPosition=position())
         log = Recorder()
-        code = move.home.run(move.MoveDll(lib), log, True, FakeConsole(), action=move.make_action("z", 5), word="MOVE")
+        code = move.home.run(move.MoveDll(lib), log, True, FakeConsole(), action=move.make_action("z", 5))
         self.assertEqual((code, done_calls), (0, [2]))
         self.assertEqual([call[1] for call in lib.calls("Control")], [1, 0])
         self.assertEqual(log.names()[-1], "closed")
@@ -179,30 +177,13 @@ class ArgumentTests(unittest.TestCase):
             move.main(["--dll-dir", "x", *argv])
         self.assertEqual(caught.exception.code, 2)
 
-    def test_online_needs_the_acknowledgement_and_an_operator(self):
-        self.refused("--online", "--axis", "x", "--output", "o.jsonl")
-        self.refused("--online", "--acknowledge-vendor-move", "--axis", "x", "--output", "o.jsonl")
-
-    def test_online_needs_the_hardware_switch(self):
-        argv = ("--online", "--acknowledge-vendor-move", "--operator", "XX", "--axis", "x", "--output", "o.jsonl")
-        for value in (None, "0", "yes"):
-            env = {} if value is None else {"SCORBOT_HARDWARE": value}
-            with self.subTest(value=value), mock.patch.dict(os.environ, env, clear=True),                     mock.patch.object(move.home, "load_library", side_effect=AssertionError("DLL loaded")):
-                err = io.StringIO()
-                with redirect_stderr(err), self.assertRaises(SystemExit) as caught:
-                    move.main(["--dll-dir", "x", *argv])
-                self.assertEqual(caught.exception.code, 2)
-                self.assertIn("SCORBOT_HARDWARE", err.getvalue())
-                self.assertFalse(os.path.exists("o.jsonl"))
-
     def test_axis_and_step_are_bounded(self):
         for bad in (("--axis", "w"), ("--axis", "x", "--mm", "0"), ("--axis", "x", "--mm", "20.5"),
                     ("--axis", "x", "--mm", "-21")):
             self.refused("--simulate", "--output", "o.jsonl", *bad)
 
-    def test_a_run_needs_an_axis_and_an_output_file(self):
+    def test_a_run_needs_an_axis(self):
         self.refused("--simulate", "--output", "o.jsonl")
-        self.refused("--simulate", "--axis", "x")
 
 
 if __name__ == "__main__":

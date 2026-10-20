@@ -4,13 +4,14 @@ Spec: docs/specs/2026-10-08-vendor-dll-home-plan.md. Needs a 32-bit Python (the
 DLL is 32-bit). From disassembly and unverified on the arm.
 
     python32 usbc_home.py --dll-dir DIR --probe
-    python32 usbc_home.py --dll-dir DIR --simulate --output rehearsal\\home-sim.jsonl
-    python32 usbc_home.py --dll-dir DIR --online --acknowledge-vendor-home --operator XX --output logs\\vendor-home.jsonl
+    python32 usbc_home.py --dll-dir DIR --simulate
+    python32 usbc_home.py --dll-dir DIR --online
 
 --probe loads the DLL and checks the exports; it never calls Initialization.
 --simulate uses the DLL's own simulation mode (no USB). --online energises the
-motors on connect and moves the arm in Home: hand on the physical stop. Stop
-here is not an emergency stop. --online needs SCORBOT_HARDWARE=1, set by the operator; never from a test.
+motors on connect and moves the arm in Home. Stop (s) here is not an emergency
+stop; the physical stop is. The log goes to logs\\ (rehearsal\\ when simulated)
+unless --output names a file.
 
 Only the functions in ALLOWED are bound; no joint-move export is reachable.
 """
@@ -166,10 +167,16 @@ KNOWN_DLL_SHA256 = {
 }
 
 
-def check_fingerprint(sha, allow_unknown):
-    if sha not in KNOWN_DLL_SHA256 and not allow_unknown:
-        raise ToolError(f"USBC.dll {sha[:12]}... is not a build we have read; fingerprint and read it "
-                        "first, or pass --allow-unknown-dll")
+def check_fingerprint(sha, log):
+    if sha not in KNOWN_DLL_SHA256:
+        log.event("unknown_dll", sha256=sha)
+        print(f"Warning: USBC.dll {sha[:12]}... is not a build we have read; going on anyway")
+
+
+def default_output(tool, simulate):
+    """logs/<tool>-<time>.jsonl, or rehearsal/ for a simulated run."""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return os.path.join("rehearsal" if simulate else "logs", f"{tool}-{stamp}.jsonl")
 
 
 def load_library(dll_dir):
@@ -222,17 +229,7 @@ def request_stop(dll, log, state):
 
 
 class Console:
-    """Operator input; replaced in tests."""
-
-    def confirm(self, word):
-        print("Hand on the physical stop, arm path clear, arm within a few tens of degrees of home.")
-        if word == "CONNECT":
-            print("Connecting energises the motors.")
-        else:
-            print("Connecting energises the motors. The vendor Home also CLOSES THE GRIPPER (empty jaws!) and")
-            print("homes both wrist motors, including a wrist-pitch move of about 37 degrees (disassembly,")
-            print("unverified): keep the wrist and gripper path clear.")
-        return input(f"Type {word} to go on: ").strip() == word
+    """Keyboard stop key; replaced in tests."""
 
     def stop_pressed(self):
         try:
@@ -242,19 +239,15 @@ class Console:
         return msvcrt.kbhit() and msvcrt.getwch().lower() == "s"
 
 
-def run(dll, log, simulate, console, do_home=True, action=None, word=None):
-    """Confirm, Initialization, control on, Home, control off, close. Returns an exit code.
+def run(dll, log, simulate, console, do_home=True, action=None):
+    """Initialization, control on, Home, control off, close. Returns an exit code.
 
-    Online, the typed confirmation comes first: the vendor's connect and control-on
-    energise the motors. ``action(dll, log, console, state)`` replaces Home (the jog tool
-    passes its own and the word to type); it must keep ``state["busy"]`` true while a
+    ``action(dll, log, console, state)`` replaces Home (the jog tool passes its own);
+    it must keep ``state["busy"]`` true while a
     call that may outlive us is running. If Home is still running when we give up (Stop did not end
     it) nothing is switched off or closed: the process exits, the keep-alive stops
     and the controller drops control (unverified); the physical stop is the answer.
     """
-    if not simulate and not console.confirm(word or ("HOME" if do_home else "CONNECT")):
-        log.event("home_declined")
-        return 5
     state = {"control_attempted": False, "busy": False, "stop_open": 0}
     code = 1
     try:
@@ -381,24 +374,15 @@ def main(argv=None):
     mode.add_argument("--probe", action="store_true")
     mode.add_argument("--simulate", action="store_true")
     mode.add_argument("--online", action="store_true")
-    parser.add_argument("--output", help="JSONL log to create (refuses to overwrite)")
-    parser.add_argument("--operator")
-    parser.add_argument("--acknowledge-vendor-home", action="store_true",
-                        help="I know the connect energises the motors and Home moves the arm")
+    parser.add_argument("--output", help="JSONL log to create (refuses to overwrite); default logs/home-<time>.jsonl")
+    parser.add_argument("--operator", help="initials, written to the log")
     parser.add_argument("--no-home", action="store_true",
                         help="with --online: connect, read emergency, control on then off, close; never call Home")
-    parser.add_argument("--allow-unknown-dll", action="store_true",
-                        help="with --online: accept a USBC.dll whose SHA-256 is not a build we have read")
     args = parser.parse_args(argv)
-    if not args.probe and not args.output:
-        parser.error("--output is required with --simulate and --online")
     if args.no_home and not args.online:
         parser.error("--no-home only applies to --online")
-    if args.online and not (args.acknowledge_vendor_home and args.operator):
-        parser.error("--online needs --acknowledge-vendor-home and --operator")
-    if args.online and os.environ.get("SCORBOT_HARDWARE") != "1":
-        parser.error("the real arm is switched off: the operator sets SCORBOT_HARDWARE=1 in this terminal "
-                     "(PowerShell: $env:SCORBOT_HARDWARE = \"1\") before --online")
+    if not args.probe and not args.output:
+        args.output = default_output("home", args.simulate)
     source = {True: "vendor_dll_simulated"}.get(args.simulate, "vendor_dll")
     log = EventLog(args.output, source)
     try:
@@ -410,7 +394,7 @@ def main(argv=None):
         facts = file_facts(path)
         log.event("dll", **facts, python=sys.version.split()[0], ini=ini_facts(args.dll_dir))
         if args.online:
-            check_fingerprint(facts["sha256"], args.allow_unknown_dll)
+            check_fingerprint(facts["sha256"], log)
         return run(VendorDll(lib), log, args.simulate, Console(), not args.no_home)
     except ToolError as error:
         log.event("error", message=str(error))
