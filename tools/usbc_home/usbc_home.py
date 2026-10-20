@@ -118,6 +118,8 @@ class EventLog:
     def __init__(self, path, source):
         self.source = source
         self._start = time.monotonic()
+        if path and os.path.dirname(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)  # a fresh clone has no logs\ folder
         self._handle = open(path, "x", encoding="utf-8") if path else None
 
     def event(self, name, **fields):

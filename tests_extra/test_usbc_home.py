@@ -416,6 +416,14 @@ class LogTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 tool.EventLog(path, "vendor_dll")
 
+    def test_log_creates_a_missing_folder(self):
+        # A fresh clone on the lab PC has no logs\ folder; the first run used to crash on it.
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "logs", "run.jsonl")
+            log = tool.EventLog(path, "vendor_dll_simulated")
+            log.close()
+            self.assertTrue(os.path.isfile(path))
+
 
 class ArgumentTests(unittest.TestCase):
     def test_online_needs_the_acknowledgement_and_an_operator(self):
