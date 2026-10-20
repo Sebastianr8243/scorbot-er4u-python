@@ -34,4 +34,4 @@ Intelitek's `USBC.dll` talks to its controller through the file named in `USBC.I
 
 ## Results (2026-10-12, 2008 build, one fake arm model)
 
-See `docs/specs/2026-10-08-vendor-home-port.md`, "Desk results of 2026-10-12".
+See `docs/archive/specs/2026-10-08-vendor-home-port.md`, "Desk results of 2026-10-12".

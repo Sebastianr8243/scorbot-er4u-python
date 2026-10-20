@@ -1,4 +1,4 @@
-# Lab-day runner: the steps of docs/lab/LAB_DAY_CARD.md (one arm), one at a time, in order.
+# Lab-day runner: the steps of docs/archive/lab/LAB_DAY_CARD.md (one arm), one at a time, in order.
 # It holds your labels and flags, picks a free log name for each step, and stops at the first failure.
 # It adds no checks of its own: the scripts it starts do their own safety prompts and refusals.
 # Before every step that connects to the arm it waits for you to type GO. Ctrl-C is not an emergency

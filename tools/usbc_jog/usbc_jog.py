@@ -1,15 +1,15 @@
 """Jog ONE axis through the vendor's USBC.dll and nothing else. Lab tool, standard library only.
 
-Spec: docs/specs/2026-10-13-vendor-dll-jog-plan.md. Needs a 32-bit Python. From the SDK
+Spec: docs/archive/specs/2026-10-13-vendor-dll-jog-plan.md. Needs a 32-bit Python. From the SDK
 header, the vendor description and the vendor demo; unverified on the arm.
 
     python32 usbc_jog.py --dll-dir DIR --probe
-    python32 usbc_jog.py --dll-dir DIR --simulate --axis 0 --output rehearsal\\jog-sim.jsonl
-    python32 usbc_jog.py --dll-dir DIR --online --acknowledge-vendor-jog --operator XX --axis 0 --velocity 1 --seconds 0.5 --output logs\\jog-01.jsonl
+    python32 usbc_jog.py --dll-dir DIR --simulate --axis 0
+    python32 usbc_jog.py --dll-dir DIR --online --axis 0 --velocity 5 --seconds 1
 
 Reuses tools/usbc_home (fingerprint, bounded calls, stop bookkeeping, event log, clean-up). --online
-energises the motors and moves the arm: hand on the physical stop. Stop here is not an emergency
-stop. --online needs SCORBOT_HARDWARE=1, set by the operator; never from a test.
+energises the motors and moves the arm. Stop (s) here is not an emergency stop; the physical stop is.
+The log goes to logs\\ (rehearsal\\ when simulated) unless --output names a file.
 
 Only the functions in SIGNATURES are bound: no Home, SetHome, SetJoint, Impact, Move*, torque or gripper.
 """
@@ -185,17 +185,6 @@ def _close(dll, log, state, unsafe_out):
         unsafe_out.append(1)
 
 
-class Console(home.Console):
-    def confirm(self, word):
-        print("Hand on the physical stop and the arm path clear. Connecting energises the motors, then the arm")
-        print("moves. UNVERIFIED on the arm: which joint each axis number is. The velocity is a percent of the")
-        print("axis's top speed. Before Home the DLL does NOT check joint limits, so a jog can run into a hard")
-        print("stop, and a shoulder jog also swings the elbow by the same angle. Start at velocity 1 for 0.5 s (REQUIREMENTS R18: the first motion is 1 degree or less)")
-        print("and read the position log before any longer run.")
-        print("Press s to stop early; that is not an emergency stop.")
-        return input(f"Type {word} to go on: ").strip() == word
-
-
 def probe(dll_dir, log):
     lib, path = home.load_library(dll_dir)
     log.event("dll", **home.file_facts(path), python=sys.version.split()[0], ini=home.ini_facts(dll_dir))
@@ -211,28 +200,22 @@ def main(argv=None):
     mode.add_argument("--probe", action="store_true")
     mode.add_argument("--simulate", action="store_true")
     mode.add_argument("--online", action="store_true")
-    parser.add_argument("--output", help="JSONL log to create (refuses to overwrite)")
-    parser.add_argument("--operator")
-    parser.add_argument("--acknowledge-vendor-jog", action="store_true",
-                        help="I know the connect energises the motors and the jog moves the arm")
-    parser.add_argument("--allow-unknown-dll", action="store_true")
+    parser.add_argument("--output", help="JSONL log to create (refuses to overwrite); default logs/jog-<time>.jsonl")
+    parser.add_argument("--operator", help="initials, written to the log")
     parser.add_argument("--axis", type=int, choices=range(3),
                         help="0 base, 1 shoulder, 2 elbow (the notes' numbering; wrist and gripper are not offered)")
     parser.add_argument("--velocity", type=int, default=10, help=f"signed, 1 to {MAX_VELOCITY} (unit not stated)")
     parser.add_argument("--seconds", type=float, default=1.0, help=f"0 to {MAX_SECONDS:g}")
     args = parser.parse_args(argv)
     if not args.probe:
-        if args.axis is None or not args.output:
-            parser.error("--axis and --output are required with --simulate and --online")
+        if args.axis is None:
+            parser.error("--axis is required with --simulate and --online")
         if not 1 <= abs(args.velocity) <= MAX_VELOCITY:
             parser.error(f"--velocity must be 1 to {MAX_VELOCITY} in size, either sign")
         if not 0 < args.seconds <= MAX_SECONDS:
             parser.error(f"--seconds must be above 0 and at most {MAX_SECONDS:g}")
-    if args.online and not (args.acknowledge_vendor_jog and args.operator):
-        parser.error("--online needs --acknowledge-vendor-jog and --operator")
-    if args.online and os.environ.get("SCORBOT_HARDWARE") != "1":
-        parser.error("the real arm is switched off: the operator sets SCORBOT_HARDWARE=1 in this terminal "
-                     "(PowerShell: $env:SCORBOT_HARDWARE = \"1\") before --online")
+        if not args.output:
+            args.output = home.default_output(f"jog-axis{args.axis}", args.simulate)
     log = home.EventLog(args.output, "vendor_dll_simulated" if args.simulate else "vendor_dll")
     try:
         log.event("start", mode="probe" if args.probe else "simulate" if args.simulate else "online",
@@ -243,9 +226,9 @@ def main(argv=None):
         facts = home.file_facts(path)
         log.event("dll", **facts, python=sys.version.split()[0], ini=home.ini_facts(args.dll_dir))
         if args.online:
-            home.check_fingerprint(facts["sha256"], args.allow_unknown_dll)
-        return home.run(JogDll(lib), log, args.simulate, Console(),
-                        action=make_action(args.axis, args.velocity, args.seconds), word="JOG")
+            home.check_fingerprint(facts["sha256"], log)
+        return home.run(JogDll(lib), log, args.simulate, home.Console(),
+                        action=make_action(args.axis, args.velocity, args.seconds))
     except home.ToolError as error:
         log.event("error", message=str(error))
         return 1

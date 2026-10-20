@@ -1,7 +1,7 @@
 # What the manual verification changes
 
 Status: analysis, 2026-09-30. Inputs: `docs/manual/SCORBOT_Manual_Verification.md` and
-`docs/manual/SCORBOT_Numeric_Facts.yaml` (main, e3ce4c6), `docs/design/DEPLOYMENT_OPTIONS.md`, and a
+`docs/manual/SCORBOT_Numeric_Facts.yaml` (main, e3ce4c6), `docs/archive/design/DEPLOYMENT_OPTIONS.md`, and a
 read-only audit of this repo. "The manual says" means the Intelitek PDFs say it. That
 is still **not** hardware evidence. Nothing here was run on the arm.
 

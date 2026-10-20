@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "session_id": "20261006T222742Z-77e1f3",
+  "data_source": "real",
+  "robot_id": "lab-er4u-1",
+  "controller_id": "er4u-controller",
+  "operator": "XX",
+  "task": "idle capture (idle-01.jsonl)",
+  "start_pose_note": "arm is secured and down; operator confirms known start pose",
+  "camera_ids": [],
+  "calibration": null,
+  "code": {
+    "git_commit": null,
+    "git_dirty": null,
+    "source_fingerprint": "bf6511805bb56ad9ee1cbca1144eabbe46af57697f1202c9413e5be5e4ab6253"
+  },
+  "environment": {
+    "python": "3.12.5",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "packages": {
+      "mcap": "1.5.0",
+      "pyusb": "1.3.1",
+      "numpy": "2.5.3"
+    },
+    "usb_driver": "unknown"
+  },
+  "clock": {
+    "started_monotonic_ns": 4361625000000,
+    "started_epoch_ns": 1791325662941865100,
+    "monotonic_implementation": "GetTickCount64()",
+    "monotonic_resolution_s": 0.015625
+  },
+  "started_utc": "2026-10-06T22:27:42.941865+00:00",
+  "ended_utc": "2026-10-06T22:28:16.258420+00:00",
+  "event_count": 22,
+  "closed_cleanly": true
+}
