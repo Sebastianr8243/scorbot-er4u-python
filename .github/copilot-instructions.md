@@ -12,12 +12,13 @@ Follow [docs/lab/GET_ARM_MOVING.md](../docs/lab/GET_ARM_MOVING.md) step by step.
 
 ## How to work
 
+0. **Fix setup problems yourself (owner, 2026-10-20).** Repo behind GitHub, Python or the DLL not found, a 64-bit Python, a missing folder, a mistyped variable: diagnose, fix, retry, and tell the operator in one line what you fixed. Do the "Setup" section of GET_ARM_MOVING.md before step 2. Keep going until the commands run; do not stop and hand setup back to the operator.
 1. One step at a time. Run the command, read the whole output and the log file, tell the operator in plain words what happened, then propose the next command. Do not chain motion commands.
 2. Commands that move the arm stop and ask for a typed word (`CONNECT`, `JOG`, `HOME`). The **operator** types it in the terminal. Never type it, pipe it, or script it. Before each one, say what will move and ask the operator to put a hand on the physical stop.
 3. Start tiny: the first jog of each axis is `--velocity 1 --seconds 0.5`. Read the position change in the log before raising anything. Never go above velocity 10 or 1 s unless the operator asks.
-4. **Stop and report** (no workaround, no retry) on: a non-zero exit code, an error number, a joint moving that was not commanded, an unexpected noise, or the operator saying stop. Two failed attempts at the same step: stop for the day on that step.
+4. **Stop and report** (no workaround, no retry) on a motion problem: a controller error number, a joint moving that was not commanded, an unexpected noise, or the operator saying stop. Two failed attempts at the same motion step: stop for the day on that step. A failure before the arm connected (traceback, bad path, bad flag) is a setup problem: fix it (rule 0).
 5. A new `--output` file name for every run. Real runs go in `logs\`, simulated ones in `rehearsal\`. Never overwrite or delete a log.
-6. Do not edit code during the session (especially `openScorbot\`, `scorbot\`, `tools\`). If something looks wrong in the code, write it in the notes for a desk fix later.
+6. If a tool in `tools\` crashes before it connects to the arm, you may fix it on a new branch (never `main`), run `python -m pytest -q tests_extra\test_usbc_home.py tests_extra\test_usbc_jog.py`, and tell the operator what you changed. Never change a speed, time, axis or travel limit, the hardware switch check, or the typed-word check without the operator saying yes. Do not edit `openScorbot\` or `scorbot\` during the session; note problems there for a desk fix.
 7. After each step write one notes block in `logs\NOTES.md`: step, command, log file, what the operator saw, the numbers (which joint moved, direction, counts). Facts only.
 
 The physical stop button is the only emergency stop. Ctrl-C, `Stop`, F9 and the software stop are not.
