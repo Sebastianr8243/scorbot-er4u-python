@@ -1,6 +1,6 @@
 """The gripper: ``GripperMove`` and the ``Scorbot`` methods that move it.
 
-Moved out of robot.py unchanged (docs/specs/2026-10-12-code-health-design.md): the class and every method
+Moved out of robot.py unchanged (docs/archive/specs/2026-10-12-code-health-design.md): the class and every method
 body are identical to what was in robot.py. ``Scorbot`` takes the methods from ``GripperMixin``; they use
 the session state, ``_command``, ``_latch_fault``, ``_motion_state``, ``_record`` and the stop events
 through ``self``. ``scorbot.robot`` still exports ``GripperMove``.

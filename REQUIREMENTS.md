@@ -4,7 +4,7 @@ Status: draft (not baselined; the owner approves or edits before it becomes base
 ## Goal
 Supervised Python control of the Intelitek ScorBot ER-4U through its original Controller-USB, for the lab owner and the agents working with them: connect, read state, home and make small joint moves safely, with every claim about the real arm backed by a bench log. Offline tools, simulators and tests never touch the hardware.
 
-Rows are drawn from the safety invariants in `CLAUDE.md` and the hazards in `docs/design/SAFETY_CASE.md`; if a row and `CLAUDE.md` disagree, raise it as a change, do not pick one quietly. `pytest` below means `python -m pytest` in the project environment (`uv sync --locked --extra windows --extra test --extra planning`).
+Rows are drawn from the safety invariants in `CLAUDE.md` and the hazards in `docs/archive/design/SAFETY_CASE.md`; if a row and `CLAUDE.md` disagree, raise it as a change, do not pick one quietly. `pytest` below means `python -m pytest` in the project environment (`uv sync --locked --extra windows --extra test --extra planning`).
 
 ## Requirements
 
@@ -21,7 +21,7 @@ Rows are drawn from the safety invariants in `CLAUDE.md` and the hazards in `doc
 | R08 | SHALL NOT | Calibration is built from vendor-display (SCORBASE) readings. | test: `pytest tests/test_arm_control.py -k test_vendor_display_cannot_validate_calibration` |
 | R09 | SHALL NOT | A packet is built or sent whose bytes or sequence the legacy code never sent without a capture or recorded vendor-DLL evidence (`CLAUDE.md`, second invariant). | review: for any change under `openScorbot/` or the vendor-home bytes, a reviewer compares the hash from `scorbot/provenance.py:motion_source_sha256` before and after and reads the cited evidence |
 | R10 | SHALL NOT | Intelitek manuals, `USBC.dll`, or its decompiled output are committed. | script: `git ls-files references \| grep -i -E "pdf\|dll"` prints nothing; `git ls-files \| grep -i usbc.dll` prints nothing |
-| R11 | SHALL NOT | `USBC.dll` is loaded by any path other than `tools/usbc_home/` (with `--probe` or `--simulate` for agents) or `tools/usbc_fake/`. | review: `grep -rn "USBC" --include=*.py` shows no other loader |
+| R11 | SHALL NOT | `USBC.dll` is loaded by any path other than the tools in `tools/` (`usbc_home`, `usbc_jog`, `usbc_move`, `usbc_fake`). | review: `grep -rn "USBC" --include=*.py` shows no other loader |
 | R24 | SHALL NOT | `home_inch()` runs without `operator_at_stop=True`, with motors disabled, with a switch byte of 32 or more, or with `max_search_deg` outside 0 to 180; it never homes the wrist and never jogs more than 1 degree per step. | test: `pytest tests/test_inch_home.py` |
 | R25 | SHALL NOT | A stream target leads the arm by more than the jog ceiling (5 degrees) before the session faults. | test: `pytest tests_extra -k stream` (not yet checked that a lead-limit test exists) |
 | R26 | SHALL NOT | `examples/bench_joint.py` accepts a `--delta` above 1 degree. | observable: `python examplesench_joint.py --simulate --delta 2 ...` (arguments as in `CLAUDE.md`) refuses with an error and writes no motion row |
@@ -40,14 +40,14 @@ Rows are drawn from the safety invariants in `CLAUDE.md` and the hazards in `doc
 | ID | Type | Statement | Check |
 |---|---|---|---|
 | R18 | SHALL | The first arm motion by our own code is a 1 degree step, with one person's hand on the physical emergency stop and the arm path clear. | observable: visit B log shows the first `motion` row with `delta` of 1 degree or less, and the lab card records the stop operator's initials |
-| R19 | SHALL | The vendor stack is recorded with USBPcap, and the hand-sweep report is read, before our own vendor home runs on the arm. | observable: `docs/lab/VISIT_A_AGENT_CHECKLIST.md` steps all ticked, the capture file and `hand_sweep_report.py` output saved under `docs/evidence/` |
+| R19 | SHALL | The vendor stack is recorded with USBPcap, and the hand-sweep report is read, before our own vendor home runs on the arm. | observable: `docs/archive/lab/VISIT_A_AGENT_CHECKLIST.md` steps all ticked, the capture file and `hand_sweep_report.py` output saved under `docs/archive/evidence/` |
 | R20 | SHALL | If the hand sweep shows the wrist roll switch narrower than about 750 counts, the owner is told before any vendor home. | observable: the report's NOTE line is quoted in the visit record and the owner's reply is noted |
 
 ### Documentation
 | ID | Type | Statement | Check |
 |---|---|---|---|
 | R21 | SHALL | Every claim about the real arm says "unverified" unless a bench log backs it. | review: the owner or reviewer spot-checks 5 hardware claims in `docs/STATUS.md` and the PR |
-| R22 | SHALL | Each piece of work that changes behaviour, evidence, a requirement or a hazard has a report in `docs/reports/`, with its row in `INDEX.md` and `STATUS.md` updated in the same commit. | observable: `git diff --stat origin/main` for the PR lists a new `docs/reports/R-*.md`, `docs/reports/INDEX.md` and `docs/STATUS.md` |
+| R22 | SHALL | Each piece of work that changes behaviour, evidence, a requirement or a hazard has a report in `docs/archive/reports/`, with its row in `INDEX.md` and `STATUS.md` updated in the same commit. | observable: `git diff --stat origin/main` for the PR lists a new `docs/archive/reports/R-*.md`, `docs/archive/reports/INDEX.md` and `docs/STATUS.md` |
 | R23 | SHALL | A report states what was run and printed; a check that was not run is written as "not run". | review: a reviewer re-runs two commands from the report's Verification table and matches the result |
 
 ## Out of scope
@@ -76,3 +76,4 @@ Decided 2026-10-13 by the owner: "near home" confirmation stays lab procedure; s
 - 2026-10-13 draft written by Claude from `CLAUDE.md`, `SAFETY_CASE.md` and `STATUS.md`; no row approved yet.
 - 2026-10-13 R24 added after the Gemini check (`engineer-check.sh`, run 20261013-012709-12247-engineer, exit 10 = it has questions, which are the Open questions above); not yet a go.
 - 2026-10-13 R25, R26 added; open questions answered by the owner as above. Still draft: the owner has not said baseline.
+- 2026-10-20 R11 widened to every `tools/usbc_*` tool, with no agent restriction; the hardware switch, typed words and acknowledge flags were removed (owner: "if i want it to be ran run it"). `docs/archive/requirements/hardware-gate.md` is retired.

@@ -3,7 +3,7 @@
     python scripts/make_vendor_home_fixture.py rehearsal/vendor-trace-04.jsonl tests/fixtures/vendor_home_trace04.json
 
 The recording is the JSONL a named-pipe fake controller wrote while Intelitek's USBC.dll ran its
-``Home('A')`` (see docs/specs/2026-10-08-vendor-dll-home-plan.md). Each row has ``n`` (message
+``Home('A')`` (see docs/archive/specs/2026-10-08-vendor-dll-home-plan.md). Each row has ``n`` (message
 number) and ``out`` (the 64-byte OUT packet as hex). The fixture keeps only the commands, with the
 ``0D`` setpoint stream dropped and consecutive repeats collapsed:
 
