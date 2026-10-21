@@ -76,6 +76,11 @@ Ctrl+C in terminal 2 stops a move that is running (the server calls Stop when it
 
 In a script: `from scorbot.bridge import Arm`, then `with Arm() as arm: arm.move_by(dz=20)`. Absolute moves (`to`, `go`) need a Home in this session and nothing else from us; the DLL's own workspace is the only limit. `teach` and `arm_characterise.py` still record the points they reach in `calibrationrm.json`, as a record only. A script that ends leaves the server homed for the next one.
 
+After changing the server or the Python API, check it offline (no DLL, no arm, about 17 s) from the repo root:
+```powershell
+& $vpy -m pytest -q -n 0 (Get-ChildItem tests_extra\test_usbc_*.py, tests_extra\test_arm_api.py)
+```
+
 ### First run of the Python API (no mat)
 
 Hand on the red stop the whole time. One line at a time; if a line fails, stop and keep `logs\server-*.jsonl`. Terminal 1 is the server line above; wait for `serving`. Terminal 2 from the repo root.

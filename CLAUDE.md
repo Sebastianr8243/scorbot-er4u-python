@@ -67,6 +67,8 @@ flowchart TD
 
 ## Commands
 
+**Daily check for the arm path** (Stack 1: server, bridge, vendor tools, the two example scripts; about 17 s, 119 tests): `python -m pytest -q -n 0 (Get-ChildItem tests_extra\test_usbc_*.py, tests_extra\test_arm_api.py)` in PowerShell; in bash list the files (`tests_extra/test_usbc_*.py tests_extra/test_arm_api.py`). The full command below is for before a merge.
+
 **Verify before saying done** (about 4.5 min, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot openScorbot scripts examples tests && python -m pytest -n 2 -q tests`. Last run 2026-10-18: 1011 passed. Read `LESSONS.md` before starting; add one dated line after a non-trivial task.
 
 ```powershell
