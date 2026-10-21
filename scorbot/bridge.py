@@ -224,7 +224,7 @@ def _save(path, data):
 
 def widen_box(path, points):
     """Grow the box in `path` to hold every point (x, y, z in mm). The box is where the arm has been driven
-    under supervision; the server refuses move_to outside it."""
+    under supervision. A record only: the server does not read it."""
     data = _load(path)
     box = data.get("box_mm", {})
     for point in points:

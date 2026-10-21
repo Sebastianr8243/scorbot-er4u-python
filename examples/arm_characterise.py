@@ -8,7 +8,7 @@ press Enter to skip; the mat is the check that is neither the DLL nor this code.
     python examples/arm_characterise.py [--grid-mm 40] [--repeats 10] [--step-mm 20]
 
 Writes calibration/arm_report-<time>.json (every reading with encoder, joint and xyz arrays) and grows
-calibration/arm.json's box to the points reached, which is what lets move_to run.
+calibration/arm.json's box to the points reached (a record only; the server does not read it).
 """
 
 import argparse
