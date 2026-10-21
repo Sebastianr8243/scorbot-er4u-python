@@ -71,18 +71,15 @@ class Keys:
 class Running:
     """The server's action on a thread, listening on a free port."""
 
-    def __init__(self, lib, do_home=True, box=None):
+    def __init__(self, lib, do_home=True):
         self._saved = (move.SETTLE_S, move.jog.CALL_S, home.STOP_CALL_S, move.MOVE_TIMEOUT_S, server.IDLE_POLL_S)
         move.SETTLE_S, move.jog.CALL_S, home.STOP_CALL_S, move.MOVE_TIMEOUT_S, server.IDLE_POLL_S = 0.002, 0.5, 0.5, 1.0, 0.02
         self.dir = tempfile.TemporaryDirectory()
-        self.box = Path(self.dir.name) / "arm.json"
-        if box:
-            self.box.write_text(json.dumps({"box_mm": box}), encoding="utf-8")
         self.lib, self.log = lib, Log()
         self.state = {"busy": False, "stop_open": 0}
         ready = threading.Event()
         port = {}
-        action = server.make_action(0, str(self.box), do_home, ready=lambda p: (port.update(p=p), ready.set()))
+        action = server.make_action(0, do_home, ready=lambda p: (port.update(p=p), ready.set()))
         self.result = {}
         self.thread = threading.Thread(
             target=lambda: self.result.update(code=action(server.ServerDll(lib), self.log, Keys(), self.state)),
@@ -98,9 +95,6 @@ class Running:
         self.thread.join(5)
         (move.SETTLE_S, move.jog.CALL_S, home.STOP_CALL_S, move.MOVE_TIMEOUT_S, server.IDLE_POLL_S) = self._saved
         self.dir.cleanup()
-
-
-BOX = {"x": [200, 400], "y": [-100, 100], "z": [50, 300]}
 
 
 class ServerTests(unittest.TestCase):
@@ -154,26 +148,18 @@ class ServerTests(unittest.TestCase):
             reader.readline()
         self.assertEqual(running.lib.calls("Teach"), [])
 
-    def test_move_to_needs_a_home_and_a_box_and_stays_inside_it(self):
-        running = self.start(do_home=False, box=BOX)
+    def test_move_to_needs_a_home_and_has_no_box(self):
+        running = self.start(do_home=False)
         with running.arm() as arm:
             with self.assertRaisesRegex(bridge.ArmError, "Home"):
                 arm.move_to(300, 0, 100)
             arm.home()
-            with self.assertRaisesRegex(bridge.ArmError, "outside the box on z"):
-                arm.move_to(300, 0, 10)
             arm.move_to(310, 20, 100)
+            arm.move_to(900, -500, 10)          # no box: only the DLL's own workspace decides
             arm.quit()
-        (_name, _point, array, _count, flag), = running.lib.calls("Teach")
+        (_name, _point, array, _count, flag), _second = running.lib.calls("Teach")
         self.assertEqual(flag, move.ABSOLUTE_FLAG)
         self.assertEqual(list(array.contents), [310000, 20000, 100000, -63000, 0])   # pitch and roll kept
-
-    def test_move_to_without_a_box_file_is_refused(self):
-        running = self.start()
-        with running.arm() as arm:
-            with self.assertRaisesRegex(bridge.ArmError, "no box file"):
-                arm.move_to(300, 0, 100)
-            arm.quit()
 
     def test_a_stop_line_during_a_move_calls_stop(self):
         release = threading.Event()
@@ -198,14 +184,6 @@ class ServerTests(unittest.TestCase):
 
     def test_an_unknown_failure_code_is_still_reported(self):
         self.assertEqual(bridge.describe_failure("move_by", {"code": 99}), "move_by failed (code 99)")
-
-    def test_the_no_box_message_names_the_full_path(self):
-        running = self.start()
-        with running.arm() as arm:
-            with self.assertRaises(bridge.ArmError) as caught:
-                arm.move_to(300, 0, 100)
-            arm.quit()
-        self.assertIn(str(running.box), str(caught.exception))
 
     def test_the_emergency_stop_refuses_moves(self):
         running = self.start(FakeLib(IsEmergency=lambda: 1))
@@ -293,18 +271,6 @@ class ServerTests(unittest.TestCase):
             self.assertFalse(json.loads(reader.readline())["ok"])
             raw.sendall(b'{"op": "quit", "id": 1}\n')
             self.assertTrue(json.loads(reader.readline())["ok"])
-
-
-class BoxTests(unittest.TestCase):
-    def test_load_box_reads_mm_and_rejects_a_broken_file(self):
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "arm.json"
-            self.assertIsNone(server.load_box(str(path)))
-            path.write_text(json.dumps({"box_mm": BOX}), encoding="utf-8")
-            self.assertEqual(server.load_box(str(path))["z"], (50.0, 300.0))
-            path.write_text("{}", encoding="utf-8")
-            with self.assertRaises(server.Refused):
-                server.load_box(str(path))
 
 
 if __name__ == "__main__":
