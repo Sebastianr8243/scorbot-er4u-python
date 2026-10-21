@@ -258,7 +258,7 @@ class Server:
             raise Refused("move_to needs a Home in this session first")
         box = load_box(self.box_path)
         if box is None:
-            raise Refused(f"no box file at {self.box_path}: run examples/arm_characterise.py first")
+            raise Refused(f"no box file at {os.path.abspath(self.box_path)}: run examples/arm_characterise.py first (the server and the script must start in the same folder)")
         target = {axis: _number(command, axis) for axis in "xyz"}
         outside = [axis for axis in "xyz" if not box[axis][0] <= target[axis] <= box[axis][1]]
         if outside:
