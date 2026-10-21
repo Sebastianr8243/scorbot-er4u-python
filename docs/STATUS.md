@@ -47,7 +47,7 @@
 ```mermaid
 flowchart LR
     M["Review and merge arm-api"] --> L["Lab: server, where, by 10, gripper"]
-    L --> C["Characterise on the grid mat (box, scale, repeatability)"]
+    L --> C["Characterise on the grid mat (scale, repeatability)"]
     C --> P["Pick-and-place x10, filmed"]
     P --> V["Later: cameras feed Arm.move_to"]
 ```
