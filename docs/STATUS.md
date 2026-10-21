@@ -26,7 +26,7 @@
 | Vendor Home (`tools/usbc_home`) | E4 | no | 2026-10-20 run log, private repo; lab Par files match `protocol/VENDOR_HOMING_TRACE.md` | Ran once |
 | Arm server + Python API (`tools/usbc_server`, `scorbot/bridge.py`) | E3 | no | `tests_extra/test_usbc_server.py`; desk run on the lab DLL build against `tools/usbc_fake`, 2026-10-20 ([`requirements/arm-api.md`](requirements/arm-api.md)) | First lab run; suggest `/codex:review` before merge |
 | Relative point move (`move_by`, `tools/usbc_move`) | E3 | no | Desk run above (a 10 mm move read back as 9,996 units) | Physical mm scale unmeasured (`examples/arm_characterise.py`) |
-| Absolute move (`move_to`) inside the measured box | E3 | no | Desk run above | Absolute Teach never ran on the arm |
+| Absolute move (`move_to`) after a Home | E3 | no | Desk run above | Absolute Teach never ran on the arm |
 | Gripper, speed (`OpenGripper`, `CloseGripper`, `Speed`) | E3 | no | Desk run above; names from the lab DLL's export table | Never ran on the arm |
 | Joint jog (`tools/usbc_jog`) | E2 | no (Codex only) | `tests_extra/` | Axis numbers not confirmed on the arm |
 | Characterise, pick-and-place (`examples/`) | E2 | no | `tests_extra/test_arm_api.py` | Needs the arm and a printed mm grid mat |
@@ -47,7 +47,7 @@
 ```mermaid
 flowchart LR
     M["Review and merge arm-api"] --> L["Lab: server, where, by 10, gripper"]
-    L --> C["Characterise on the grid mat (box, scale, repeatability)"]
+    L --> C["Characterise on the grid mat (scale, repeatability)"]
     C --> P["Pick-and-place x10, filmed"]
     P --> V["Later: cameras feed Arm.move_to"]
 ```

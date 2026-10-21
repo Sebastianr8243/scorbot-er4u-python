@@ -67,14 +67,37 @@ $vpy = ".\.venv\Scripts\python.exe"
 & $vpy -m scorbot.bridge by 10 0 0        # relative move in mm (x y z), at most 50 per axis
 & $vpy -m scorbot.bridge close            # gripper (open / close)
 & $vpy -m scorbot.bridge teach above_a    # save this spot by name
-& $vpy -m scorbot.bridge go above_a       # move back to it (needs the box, below)
+& $vpy -m scorbot.bridge go above_a       # move back to it (needs a Home in this session)
 & $vpy examples\arm_characterise.py       # measure frame, scale, repeatability, grid (mat under the arm)
 & $vpy examples\pick_place.py --runs 10   # needs above_a, at_a, above_b, at_b taught
 ```
 
 Ctrl+C in terminal 2 stops a move that is running (the server calls Stop when its client goes away).
 
-In a script: `from scorbot.bridge import Arm`, then `with Arm() as arm: arm.move_by(dz=20)`. Absolute moves (`to`, `go`) are refused until `calibration\arm.json` has a box: `arm_characterise.py` writes it from the points it reached, and `teach` grows it to every taught spot. A script that ends leaves the server homed for the next one.
+In a script: `from scorbot.bridge import Arm`, then `with Arm() as arm: arm.move_by(dz=20)`. Absolute moves (`to`, `go`) need a Home in this session and nothing else from us; the DLL's own workspace is the only limit. `teach` and `arm_characterise.py` still record the points they reach in `calibrationrm.json`, as a record only. A script that ends leaves the server homed for the next one.
+
+After changing the server or the Python API, check it offline (no DLL, no arm, about 17 s) from the repo root:
+```powershell
+& $vpy -m pytest -q -n 0 (Get-ChildItem tests_extra\test_usbc_*.py, tests_extra\test_arm_api.py)
+```
+
+### First run of the Python API (no mat)
+
+Hand on the red stop the whole time. One line at a time; if a line fails, stop and keep `logs\server-*.jsonl`. Terminal 1 is the server line above; wait for `serving`. Terminal 2 from the repo root.
+
+| # | Command | Pass looks like |
+|---|---|---|
+| 1 | `& $vpy -m scorbot.bridge where` | x y z mm printed; note them |
+| 2 | `& $vpy -m scorbot.bridge speed 20` | `ok` |
+| 3 | `& $vpy -m scorbot.bridge by 0 0 5` | arm moves about 5 mm; write down which way (up or down) |
+| 4 | `& $vpy -m scorbot.bridge by 0 0 -5` | back where it was; `where` agrees within about 0.1 mm |
+| 5 | `& $vpy -m scorbot.bridge by 5 0 0`, then `by -5 0 0` | write down forward or back; repeat for y |
+| 6 | `& $vpy -m scorbot.bridge open`, then `close` | jaws open, then close |
+| 7 | `& $vpy -m scorbot.bridge by 0 0 20`, Ctrl+C during the move | arm stops; the server says it called Stop |
+| 8 | `& $vpy -m scorbot.bridge teach above_a` | saves the spot to `calibration\positions.json` |
+| 9 | `by 10 0 0`, then `go above_a` | returns to the taught spot (a small move_to, the first one on the arm) |
+
+The 5 mm steps are only so the first look at each direction is easy to read. A refused move prints the reason; a code like `(code 7)` now says what it means. With a ruler or phone camera in step 3 and 5, note how far the tip really moved for each 5 mm: that is a first look at the scale until the mat is ready.
 
 ## If it goes wrong
 
@@ -88,6 +111,6 @@ In a script: `from scorbot.bridge import Arm`, then `with Arm() as arm: arm.move
 | Another program has the controller | Close SCORBASE, power-cycle the controller, retry |
 | The DLL cannot find the controller after Zadig was used | Zadig swapped the Intelitek `ERUSB` driver for WinUSB. Device Manager: uninstall the device with "remove the driver", replug; if needed, Update driver → Have Disk → `ERUSB.inf` from the Intelitek driver folder. Do not run Zadig again |
 | `no arm server on 127.0.0.1:8765` | Start terminal 1 first and wait for its `serving` line |
-| `move_to needs a Home` or `no box file` | Home in this session (`python -m scorbot.bridge home`), run `arm_characterise.py` |
+| `move_to needs a Home` | Home in this session (`python -m scorbot.bridge home`) |
 
 Never commit `USBC.dll`, the ini files, manuals or captures: the repo is public.

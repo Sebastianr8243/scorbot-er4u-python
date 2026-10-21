@@ -8,7 +8,7 @@ press Enter to skip; the mat is the check that is neither the DLL nor this code.
     python examples/arm_characterise.py [--grid-mm 40] [--repeats 10] [--step-mm 20]
 
 Writes calibration/arm_report-<time>.json (every reading with encoder, joint and xyz arrays) and grows
-calibration/arm.json's box to the points reached, which is what lets move_to run.
+calibration/arm.json's box to the points reached (a record only; the server does not read it).
 """
 
 import argparse
@@ -48,13 +48,26 @@ def ask(prompt, read=input):
         return None
 
 
+def summarise(report):
+    """What the mat answers say. The DLL's own readings cannot show the scale (they are in its units); the mat can.
+    suggested_units_per_mm is the DLL units that one real mm is worth, for bridge.XYZ_UNITS_PER_MM."""
+    step = report["step_mm"]
+    factor = {axis: f["mat_mm"] / step for axis, f in report["frame"].items() if f.get("mat_mm")}
+    units = {axis: report["frame"][axis]["units_per_mm"] / factor[axis] for axis in factor}
+    repeats = [abs(r["mat_mm"]) for r in report["repeatability"]["readings"] if r.get("mat_mm") is not None]
+    grid = [abs(g["mat_error_mm"]) for g in report["grid"] if g.get("mat_error_mm") is not None]
+    return {"mat_mm_per_commanded_mm": factor, "suggested_units_per_mm": units,
+            "worst_repeat_mat_mm": max(repeats, default=None), "worst_grid_mat_mm": max(grid, default=None)}
+
+
 def reading(position, **extra):
     return {"x": position.x, "y": position.y, "z": position.z, "encoder": position.encoder,
             "joint": position.joint, "xyz": position.xyz, **extra}
 
 
 def characterise(arm, grid_mm=40.0, repeats=10, step_mm=20.0, read=input):
-    report = {"when": datetime.now().isoformat(timespec="seconds"), "xyz_units_per_mm_assumed": XYZ_UNITS_PER_MM}
+    report = {"when": datetime.now().isoformat(timespec="seconds"), "xyz_units_per_mm_assumed": XYZ_UNITS_PER_MM,
+              "step_mm": step_mm}
     start = arm.where()
     report["start"] = reading(start)
     reached = [(start.x, start.y, start.z)]
@@ -103,7 +116,11 @@ def main(argv=None):
     parser.add_argument("--grid-mm", type=float, default=40.0)
     parser.add_argument("--repeats", type=int, default=10)
     parser.add_argument("--step-mm", type=float, default=20.0)
+    parser.add_argument("--summarise", metavar="REPORT", help="print what an earlier report's mat answers say, then exit")
     args = parser.parse_args(argv)
+    if args.summarise:
+        print(json.dumps(summarise(json.loads(Path(args.summarise).read_text(encoding="utf-8"))), indent=2))
+        return 0
     if not 0 < args.grid_mm <= 50 or not 0 < args.step_mm <= 50:
         parser.error("--grid-mm and --step-mm must be above 0 and at most 50 (the server's step limit)")
     try:

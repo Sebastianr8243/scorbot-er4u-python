@@ -14,9 +14,9 @@ Protocol: one JSON object per line, each with an "op" and an optional "id" that 
     gripper {open: true|false} | stop | quit
 Distances are mm (sent to Teach as micrometres, the decided unit). pitch and roll are passed through in the DLL's
 own units. Every reply after a DLL call carries the encoder, joint and xyz arrays. move_to is refused until this
-session has homed and when the target is outside the box in --box (calibration/arm.json): no absolute move before
-the frame is measured. A "stop" line during a move calls Stop. --online energises the motors and moves the arm;
-Stop here is not an emergency stop, the physical stop is. The log goes to logs\\ unless --output names a file.
+session has homed; the DLL's own workspace is the only other limit. A "stop" line during a move calls Stop.
+--online energises the motors and moves the arm; Stop here is not an emergency stop, the physical stop is. The log
+goes to logs\\ unless --output names a file.
 """
 
 import argparse
@@ -133,22 +133,10 @@ def _number(command, key, default=None):
     return float(value)
 
 
-def load_box(path):
-    """The measured working box {x: [min, max], y: ..., z: ...} in mm, or None when there is no file yet."""
-    try:
-        with open(path, encoding="utf-8") as handle:
-            box = json.load(handle)["box_mm"]
-        return {axis: (float(box[axis][0]), float(box[axis][1])) for axis in "xyz"}
-    except FileNotFoundError:
-        return None
-    except (ValueError, KeyError, TypeError, IndexError) as error:
-        raise Refused(f"{path} is not a valid box file: {error!r}") from None
-
-
 class Server:
-    def __init__(self, dll, log, console, state, box_path, homed):
+    def __init__(self, dll, log, console, state, homed):
         self.dll, self.log, self.console, self.state = dll, log, console, state
-        self.box_path, self.homed = box_path, homed
+        self.homed = homed
         state.setdefault("call_open", 0)
 
     def handle(self, command):
@@ -215,19 +203,15 @@ class Server:
     def _move_to(self, command):
         if not self.homed:
             raise Refused("move_to needs a Home in this session first")
-        box = load_box(self.box_path)
-        if box is None:
-            raise Refused(f"no box file at {self.box_path}: run examples/arm_characterise.py first")
         target = {axis: _number(command, axis) for axis in "xyz"}
-        outside = [axis for axis in "xyz" if not box[axis][0] <= target[axis] <= box[axis][1]]
-        if outside:
-            raise Refused(f"target outside the box on {', '.join(outside)}: {target} vs {box}")
         now = jog.call(self.dll.position, self.state)
         if not now["ok"]:
             raise Refused("could not read the current pitch and roll")
         pitch = round(_number(command, "pitch", now["xyz"][3]))
         roll = round(_number(command, "roll", now["xyz"][4]))
         values = [round(target[axis] * UM_PER_MM) for axis in "xyz"] + [pitch, roll]
+        if not all(-2 ** 31 <= value < 2 ** 31 for value in values):    # ctypes would wrap it to another target
+            raise Refused("target does not fit the DLL's 32-bit units")
         return self._move(lambda: self.dll.teach_absolute(move.VECTOR, move.POINT, values),
                           {"point_um": values, "relative": False}, {"op": "move_to", "mm": target})
 
@@ -306,7 +290,7 @@ def _serve_client(server, channel, log):
             return code
 
 
-def make_action(port, box_path, do_home, ready=None):
+def make_action(port, do_home, ready=None):
     def action(dll, log, console, state):
         state["call_open"] = 0
         homed = False
@@ -320,10 +304,10 @@ def make_action(port, box_path, do_home, ready=None):
             listener.bind((HOST, port))
             listener.listen(1)
             listener.settimeout(IDLE_POLL_S)
-            log.event("serving", host=HOST, port=listener.getsockname()[1], homed=homed, box=box_path)
+            log.event("serving", host=HOST, port=listener.getsockname()[1], homed=homed)
             if ready:
                 ready(listener.getsockname()[1])
-            server = Server(dll, log, ServerConsole(console), state, box_path, homed)
+            server = Server(dll, log, ServerConsole(console), state, homed)
             return serve(server, listener, log)
         finally:
             listener.close()
@@ -348,12 +332,9 @@ def main(argv=None):
     parser.add_argument("--output", help="JSONL log to create (refuses to overwrite); default logs/server-<time>.jsonl")
     parser.add_argument("--operator", help="initials, written to the log")
     parser.add_argument("--port", type=int, default=PORT)
-    parser.add_argument("--box", default=os.path.join("calibration", "arm.json"),
-                        help="measured working box for move_to (default calibration/arm.json)")
     parser.add_argument("--no-home", action="store_true",
                         help="skip the Home at start; move_to stays refused until a home command")
     args = parser.parse_args(argv)
-    box_path = os.path.abspath(args.box)        # load_library changes directory to the DLL's folder
     if not args.probe and not args.output:
         args.output = home.default_output("server", args.simulate)
     log = home.EventLog(args.output, "vendor_dll_simulated" if args.simulate else "vendor_dll")
@@ -368,7 +349,7 @@ def main(argv=None):
         if args.online:
             home.check_fingerprint(facts["sha256"], log)
         return home.run(ServerDll(lib), log, args.simulate, home.Console(),
-                        action=make_action(args.port, box_path, not args.no_home))
+                        action=make_action(args.port, not args.no_home))
     except home.ToolError as error:
         log.event("error", message=str(error))
         return 1
