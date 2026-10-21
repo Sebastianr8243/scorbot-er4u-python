@@ -161,6 +161,16 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(flag, move.ABSOLUTE_FLAG)
         self.assertEqual(list(array.contents), [310000, 20000, 100000, -63000, 0])   # pitch and roll kept
 
+    def test_a_target_that_overflows_the_dll_integer_is_refused_not_wrapped(self):
+        running = self.start()
+        with running.arm() as arm:
+            with self.assertRaisesRegex(bridge.ArmError, "32-bit"):
+                arm.move_to(4295267.296, 0, 100)        # would wrap to x = 300 mm in a c_long
+            with self.assertRaisesRegex(bridge.ArmError, "32-bit"):
+                arm.move_to(300, 0, 100, pitch=2 ** 31)
+            arm.quit()
+        self.assertEqual(running.lib.calls("Teach"), [])
+
     def test_a_stop_line_during_a_move_calls_stop(self):
         release = threading.Event()
         running = self.start(FakeLib(MoveJoint=lambda *args: release.wait(0.8) and 1))
