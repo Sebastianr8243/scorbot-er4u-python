@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Python SDK, legacy USB protocol code, lab tools and offline research tools for the Intelitek ScorBot ER-4U arm (USB `09F1:0007`, original Controller-USB). Nothing here is hardware-validated yet. **To move the arm: [docs/lab/RUN_THE_ARM.md](docs/lab/RUN_THE_ARM.md)** (the vendor-DLL tools in `tools/`). Deeper docs: [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md), [docs/protocol/PROTOCOL.md](docs/protocol/PROTOCOL.md), [docs/manual/HARDWARE_REFERENCE.md](docs/manual/HARDWARE_REFERENCE.md). Old plans, specs, checklists and evidence are in `docs/archive/`.
+Python SDK, legacy USB protocol code, lab tools and offline research tools for the Intelitek ScorBot ER-4U arm (USB `09F1:0007`, original Controller-USB). The vendor Home through Intelitek's DLL ran on the real arm on 2026-10-20; everything else is unverified on hardware. **To move the arm: [docs/lab/RUN_THE_ARM.md](docs/lab/RUN_THE_ARM.md)** (the vendor-DLL tools in `tools/`). Deeper docs: [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md), [docs/protocol/PROTOCOL.md](docs/protocol/PROTOCOL.md), [docs/manual/HARDWARE_REFERENCE.md](docs/manual/HARDWARE_REFERENCE.md). Old plans, specs, checklists and evidence are in `docs/archive/`.
 
 Each subdirectory has its own CLAUDE.md with module-level rules. Read it before editing there.
 
@@ -18,6 +18,21 @@ This is an engineering lab: if Sebastian asks for a run, run it. The red physica
 - Manual and vendor-DLL numbers are priors, not measurements; say "unverified" until a bench log backs a claim.
 
 ## Layers
+
+Two stacks. **Stack 1 (vendor DLL) is how the arm moves today.** Stack 2 (our own USB protocol) is the long-term no-DLL goal and has never moved the arm; its one real home attempt failed (2026-10-06).
+
+Stack 1:
+
+```mermaid
+flowchart TD
+  P["your script, examples/arm_characterise.py, pick_place.py (64-bit Python)"] --> A1["scorbot/bridge.py Arm (the Python API)"]
+  A1 -- "JSON lines, 127.0.0.1:8765" --> SV["tools/usbc_server (32-bit, one homed session)"]
+  T["tools/usbc_home, usbc_jog, usbc_move (one-shot lab tools)"] --> D
+  SV --> D["Intelitek USBC.dll (lab PC only, never committed)"]
+  D --> DR["ERUSB driver -> ER-4U controller"]
+```
+
+Stack 2:
 
 ```mermaid
 flowchart TD
@@ -44,6 +59,7 @@ flowchart TD
 | `docs/` | `lab/RUN_THE_ARM.md` (run the arm), protocol and manual reference, architecture. `archive/` holds old specs, plans, checklists and evidence |
 | `models/er4u_meshes/` | Optional community link meshes for the 3D view. Only the README is tracked; never commit the STL files (licence unclear) |
 | `tools/foxglove/` | Foxglove layouts for recorded sessions |
+| `tools/usbc_home/`, `usbc_jog/`, `usbc_move/`, `usbc_server/` | The vendor-DLL lab tools (32-bit, stdlib). `usbc_server` keeps one homed session and serves the Python API `scorbot/bridge.py` over 127.0.0.1 (`docs/requirements/arm-api.md`) |
 | `tools/usbc_fake/` | The vendor DLL's Home against a fake controller on a named pipe (no USB, no arm), with switch widths you choose; guards against a real device |
 | `tools/usbc_analysis/` | Ghidra export script and query tool for static analysis of the vendor `USBC.dll`. Never commit the DLL or its decompiled output |
 | `models/` | OpenSCAD, STL, DXF parts from the original project (encoder, home jig) |

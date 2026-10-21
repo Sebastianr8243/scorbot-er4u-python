@@ -103,37 +103,47 @@ def make_action(axis, mm):
     delta[AXES[axis]] = round(mm * 1000)        # micrometres, from the vendor header (RobotDll.h)
 
     def action(dll, log, console, state):
-        state["busy"] = True        # until every bounded call below is proven finished
-        state["call_open"] = 0
-        result = {}
-        try:
-            before = jog.call(dll.position, state)
-            log.event("position_before", **before)
+        return move_point(dll, log, console, state, lambda: dll.teach_relative(VECTOR, POINT, delta),
+                          {"delta_um": delta, "relative": True}, {"axis": axis, "mm": mm})
+    return action
+
+
+def move_point(dll, log, console, state, teach, taught, start, define=True):
+    """DefineVector (unless define is False), teach() point 1, MoveJoint to it, settle. Returns an exit code;
+    the position after the move is in state["position"]. Shared with tools/usbc_server."""
+    state["busy"] = True        # until every bounded call below is proven finished
+    state["call_open"] = 0
+    result = {}
+    try:
+        before = jog.call(dll.position, state)
+        log.event("position_before", **before)
+        if define:
             if not jog.call(lambda: dll.define_vector(VECTOR, VECTOR_POINTS), state):
                 log.event("define_vector_refused")
                 state["busy"] = False
                 return 4
-            if not jog.call(lambda: dll.teach_relative(VECTOR, POINT, delta), state):
-                log.event("teach_refused", delta_um=delta)
-                state["busy"] = False
-                return 4
-            log.event("point_taught", delta_um=delta, relative=True)
-            worker = threading.Thread(target=lambda: result.update(ok=dll.move_joint(VECTOR, POINT)), daemon=True)
-            log.event("move_start", axis=axis, mm=mm)
-            worker.start()
-            code = _supervise(dll, log, console, state, worker, result)
-            if not worker.is_alive():
-                after = _settle(dll, log)
-                log.event("position_after", **after)
-                log.event("position_delta", **{key: [a - b for a, b in zip(after[key], before[key])]
-                                               for key in ("encoder", "joint", "xyz")})
-                state["busy"] = state["stop_open"] > 0 or state["call_open"] > 0
-            return code
-        except jog.Hung:
-            log.event("move_call_hang", seconds=jog.CALL_S)
-            state["busy_note"] = "A MOVE CALL DID NOT RETURN: the arm may still be moving. USE THE PHYSICAL STOP NOW."
-            return 8
-    return action
+            state["vector_defined"] = True
+        if not jog.call(teach, state):
+            log.event("teach_refused", **taught)
+            state["busy"] = False
+            return 4
+        log.event("point_taught", **taught)
+        worker = threading.Thread(target=lambda: result.update(ok=dll.move_joint(VECTOR, POINT)), daemon=True)
+        log.event("move_start", **start)
+        worker.start()
+        code = _supervise(dll, log, console, state, worker, result)
+        if not worker.is_alive():
+            after = _settle(dll, log)
+            state["position"] = after
+            log.event("position_after", **after)
+            log.event("position_delta", **{key: [a - b for a, b in zip(after[key], before[key])]
+                                           for key in ("encoder", "joint", "xyz")})
+            state["busy"] = state["stop_open"] > 0 or state["call_open"] > 0
+        return code
+    except jog.Hung:
+        log.event("move_call_hang", seconds=jog.CALL_S)
+        state["busy_note"] = "A MOVE CALL DID NOT RETURN: the arm may still be moving. USE THE PHYSICAL STOP NOW."
+        return 8
 
 
 def _supervise(dll, log, console, state, worker, result):
