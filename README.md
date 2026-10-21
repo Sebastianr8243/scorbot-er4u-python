@@ -70,6 +70,8 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/CL
 | `scripts/lab_day.ps1` | Yes, unless `-Simulate` or `-DryRun` | Runs the one-arm lab day in order ([card](docs/archive/lab/LAB_DAY_ONE_ARM.md)); `scripts/lab_summary.py` reads the logs back (offline) |
 | `examples/record_raw_state.py` | Connects, no motion, unless `--simulate` | Idle state recording |
 | `tools/usbc_home/` | `--online` only | Vendor-DLL home; needs a 32-bit Python and the vendor DLL |
+| `tools/usbc_server/` + `python -m scorbot.bridge` | `--online` only | One homed DLL session serving the Python API (`scorbot.bridge.Arm`); see [RUN_THE_ARM](docs/lab/RUN_THE_ARM.md) |
+| `examples/arm_characterise.py`, `examples/pick_place.py` | Yes, through the arm server | Measure frame, scale, repeatability and grid error; scripted pick-and-place with a per-run record |
 | `examples/preview_jog.py`, `kinematics_check.py`, `make_synthetic_session.py` | No | Offline previews and a synthetic session |
 | `scripts/*.py` (calibration, trace and log readers) | No | Offline analysis of logs and USB captures |
 | `scripts/setup_windows.ps1`, `windows_usb_check.ps1` | No | Windows setup and a read-only USB check |

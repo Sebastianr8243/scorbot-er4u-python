@@ -44,6 +44,7 @@ flowchart TD
 | `docs/` | `lab/RUN_THE_ARM.md` (run the arm), protocol and manual reference, architecture. `archive/` holds old specs, plans, checklists and evidence |
 | `models/er4u_meshes/` | Optional community link meshes for the 3D view. Only the README is tracked; never commit the STL files (licence unclear) |
 | `tools/foxglove/` | Foxglove layouts for recorded sessions |
+| `tools/usbc_home/`, `usbc_jog/`, `usbc_move/`, `usbc_server/` | The vendor-DLL lab tools (32-bit, stdlib). `usbc_server` keeps one homed session and serves the Python API `scorbot/bridge.py` over 127.0.0.1 (`docs/requirements/arm-api.md`) |
 | `tools/usbc_fake/` | The vendor DLL's Home against a fake controller on a named pipe (no USB, no arm), with switch widths you choose; guards against a real device |
 | `tools/usbc_analysis/` | Ghidra export script and query tool for static analysis of the vendor `USBC.dll`. Never commit the DLL or its decompiled output |
 | `models/` | OpenSCAD, STL, DXF parts from the original project (encoder, home jig) |
