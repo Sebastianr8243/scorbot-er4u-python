@@ -14,8 +14,9 @@ Protocol: one JSON object per line, each with an "op" and an optional "id" that 
     gripper {open: true|false} | stop | quit
 Distances are mm (sent to Teach as micrometres, the decided unit). pitch and roll are passed through in the DLL's
 own units. Every reply after a DLL call carries the encoder, joint and xyz arrays. move_to is refused until this
-session has homed; the DLL's own workspace is the only other limit. A "stop" line during a move calls Stop. --online energises the motors and moves the arm;
-Stop here is not an emergency stop, the physical stop is. The log goes to logs\\ unless --output names a file.
+session has homed; the DLL's own workspace is the only other limit. A "stop" line during a move calls Stop.
+--online energises the motors and moves the arm; Stop here is not an emergency stop, the physical stop is. The log
+goes to logs\\ unless --output names a file.
 """
 
 import argparse
