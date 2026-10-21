@@ -97,8 +97,9 @@ class Channel:
         return self.pending.pop(0) if self.pending else None
 
     def stop_waiting(self):
-        """True (and the line consumed) if a stop arrived; other lines stay queued."""
-        self._read(0)
+        """True (and the line consumed) if a stop arrived, or the client went away (Ctrl+C in a script)."""
+        if not self._read(0):
+            return True
         for index, line in enumerate(self.pending):
             try:
                 if json.loads(line).get("op") == "stop":
@@ -279,12 +280,12 @@ def _serve_client(server, channel, log):
         if line is None:
             continue
         request_id = None
+        log.event("command", line=line.decode("utf-8", "replace"))     # raw: client fields never reach event()'s kwargs
         try:
             command = json.loads(line)
             if not isinstance(command, dict):
                 raise Refused("each line must be a JSON object")
             request_id = command.get("id")
-            log.event("command", **{key: value for key, value in command.items() if key != "id"})
             reply, code = server.handle(command)
         except Refused as error:
             log.event("command_refused", reason=str(error))

@@ -9,9 +9,9 @@ A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, us
 |----|------|-----------|-------|
 | A01 | SHALL | Distances in the API and on the wire are mm; Teach gets micrometres (`UM_PER_MM` 1000); positions carry the raw encoder, joint and xyz arrays next to x, y, z mm | test: `tests_extra/test_usbc_server.py::ServerTests::test_move_by_teaches_micrometres_relative_and_defines_the_vector_once` |
 | A02 | SHALL NOT | The server listens on any interface other than 127.0.0.1 | test: `test_usbc_server.py::ServerTests::test_it_listens_on_localhost_only` |
-| A03 | SHALL NOT | A move_by step above 50 mm per axis, a non-finite or non-number value, or an unknown op reaches the DLL | test: `test_usbc_server.py::ServerTests::test_bad_steps_are_refused_without_a_dll_call` |
+| A03 | SHALL NOT | A move_by step above 50 mm per axis, a non-finite or non-number value, or an unknown op reaches the DLL; no client line can end the session | test: `test_usbc_server.py::ServerTests::test_bad_steps_are_refused_without_a_dll_call`, `::test_odd_fields_cannot_end_the_session` |
 | A04 | SHALL NOT | An absolute move runs before this session has homed, without a box file, or to a target outside the box (refused, never clipped) | test: `test_usbc_server.py::ServerTests::test_move_to_needs_a_home_and_a_box_and_stays_inside_it`, `::test_move_to_without_a_box_file_is_refused` |
-| A05 | SHALL | A stop request from the client during a move calls Stop and the move reply says it was stopped | test: `test_usbc_server.py::ServerTests::test_a_stop_line_during_a_move_calls_stop` |
+| A05 | SHALL | A stop request from the client, or the client going away (Ctrl+C), during a move calls Stop; the move reply says it was stopped | test: `test_usbc_server.py::ServerTests::test_a_stop_line_during_a_move_calls_stop`, `::test_a_client_that_vanishes_mid_move_gets_the_arm_stopped` |
 | A06 | SHALL | Every exit (quit, error, Ctrl+C) ends with Control off and CloseUSBC, unless a DLL call may still be running, in which case serving stops and the operator is told to use the physical stop | test: `test_usbc_server.py::ServerTests::test_it_homes_then_serves_and_quit_ends_with_zero`, `::test_a_move_call_that_never_returns_ends_serving_busy` (shutdown itself: `tests_extra/test_usbc_home.py`) |
 | A07 | SHALL | A client that disconnects leaves the homed session for the next client | test: `test_usbc_server.py::ServerTests::test_a_client_that_disconnects_leaves_the_session_for_the_next` |
 | A08 | SHALL NOT | Moves or gripper calls are sent while the emergency stop is active | test: `test_usbc_server.py::ServerTests::test_the_emergency_stop_refuses_moves` |
@@ -30,7 +30,6 @@ A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, us
 
 ## Open questions
 - Does a second DefineVector in one session fail? The server defines once per session, and Teach then overwrites point 1 fine (desk run on the fake controller, 2026-10-20).
-- Does the DLL's own simulation work anywhere? It refused on a desk PC on 2026-10-20.
 
 ## Change log
 - 2026-10-20 draft written from the approved plan (`arm side — a measured Python API`).

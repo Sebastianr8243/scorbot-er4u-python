@@ -56,6 +56,7 @@ class Log:
         self.events = []
 
     def event(self, name, **fields):
+        json.dumps(fields, allow_nan=False)     # as strict as home.EventLog
         self.events.append((name, fields))
 
     def names(self):
@@ -232,6 +233,36 @@ class ServerTests(unittest.TestCase):
         release.set()
         self.assertEqual(running.result["code"], 8)
         self.assertTrue(running.state["busy"])
+
+    def test_odd_fields_cannot_end_the_session(self):
+        running = self.start()
+        with socket.create_connection(("127.0.0.1", running.port), timeout=5) as raw:
+            reader = raw.makefile("rb")
+            raw.sendall(b'{"op": "where", "name": 1, "event": 2}\n{"op": "move_by", "dx": NaN}\n')
+            self.assertTrue(json.loads(reader.readline())["ok"])
+            self.assertIn("finite", json.loads(reader.readline())["error"])
+            raw.sendall(b'{"op": "ping", "id": 7}\n')
+            self.assertEqual(json.loads(reader.readline())["id"], 7)
+            raw.sendall(b'{"op": "quit"}\n')
+            reader.readline()
+        running.thread.join(5)
+        self.assertEqual(running.result["code"], 0)
+
+    def test_a_client_that_vanishes_mid_move_gets_the_arm_stopped(self):
+        release = threading.Event()
+        running = self.start(FakeLib(MoveJoint=lambda *args: release.wait(0.8) and 1))
+        raw = socket.create_connection(("127.0.0.1", running.port), timeout=5)
+        raw.sendall(b'{"op": "move_by", "dx": 5}\n')
+        threading.Timer(0.1, raw.close).start()
+        for _ in range(100):
+            if running.lib.calls("Stop"):
+                break
+            threading.Event().wait(0.02)
+        release.set()
+        self.assertEqual(running.lib.calls("Stop"), [(ord("&"),)])
+        with running.arm() as arm:      # the session is still there for the next client
+            self.assertTrue(arm.ping()["homed"])
+            arm.quit()
 
     def test_garbage_lines_get_an_error_reply_and_serving_goes_on(self):
         running = self.start()

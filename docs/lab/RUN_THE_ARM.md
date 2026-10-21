@@ -46,7 +46,7 @@ Logs go to `logs\<tool>-<time>.jsonl` by itself (`rehearsal\` when simulated). A
 & $py tools\usbc_move\usbc_move.py --dll-dir $bin --online --axis x --mm 5
 ```
 
-`--simulate` asks for the DLL's own simulation, but on 2026-10-20 the lab build refused it on a desk PC (`init_refused`); use `tools/usbc_fake` to rehearse instead. Press `s` during a run to stop early. The red physical stop is the only emergency stop.
+`--simulate` runs the DLL's own simulation (no arm). It needs the axis ini files (`ER4Ax*.ini`, `ROB_4u.ini`) beside the DLL or it refuses (`init_refused`), and its Home always ends in error 561 (no switches), so use it to check the connection and relative moves; `tools/usbc_fake` rehearses a full session. Press `s` during a run to stop early. The red physical stop is the only emergency stop.
 
 After a jog, the log's `position_delta` says which joint moved and by how many counts. Write the axis mapping down in `logs\NOTES.md`.
 
@@ -59,17 +59,20 @@ Terminal 1, 32-bit, leave it running (`s` stops a move; `quit` from a script end
 & $py tools\usbc_server\usbc_server.py --dll-dir $bin --online
 ```
 
-Terminal 2, the repo's normal Python (`.\.venv\Scripts\python.exe`):
+Terminal 2, the repo's normal 64-bit Python (the `.venv` that `uv sync` made). Start both terminals in the repo root: the server and the scripts both use `calibration\arm.json`, relative to where they started.
 ```powershell
-python -m scorbot.bridge where            # position: x y z mm, pitch, roll, encoder counts
-python -m scorbot.bridge speed 20         # percent, start slow
-python -m scorbot.bridge by 10 0 0        # relative move in mm (x y z), at most 50 per axis
-python -m scorbot.bridge close            # gripper (open / close)
-python -m scorbot.bridge teach above_a    # save this spot by name
-python -m scorbot.bridge go above_a       # move back to it (needs the box, below)
-python examples\arm_characterise.py       # measure frame, scale, repeatability, grid (mat under the arm)
-python examples\pick_place.py --runs 10   # needs above_a, at_a, above_b, at_b taught
+$vpy = ".\.venv\Scripts\python.exe"
+& $vpy -m scorbot.bridge where            # position: x y z mm, pitch, roll, encoder counts
+& $vpy -m scorbot.bridge speed 20         # percent, start slow
+& $vpy -m scorbot.bridge by 10 0 0        # relative move in mm (x y z), at most 50 per axis
+& $vpy -m scorbot.bridge close            # gripper (open / close)
+& $vpy -m scorbot.bridge teach above_a    # save this spot by name
+& $vpy -m scorbot.bridge go above_a       # move back to it (needs the box, below)
+& $vpy examples\arm_characterise.py       # measure frame, scale, repeatability, grid (mat under the arm)
+& $vpy examples\pick_place.py --runs 10   # needs above_a, at_a, above_b, at_b taught
 ```
+
+Ctrl+C in terminal 2 stops a move that is running (the server calls Stop when its client goes away).
 
 In a script: `from scorbot.bridge import Arm`, then `with Arm() as arm: arm.move_by(dz=20)`. Absolute moves (`to`, `go`) are refused until `calibration\arm.json` has a box: `arm_characterise.py` writes it from the points it reached, and `teach` grows it to every taught spot. A script that ends leaves the server homed for the next one.
 

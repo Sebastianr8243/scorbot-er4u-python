@@ -82,13 +82,17 @@ class Arm:
         """One command and its reply. Raises ArmError when the reply is not ok."""
         self._next_id += 1
         self._write({"op": op, "id": self._next_id, **fields})
-        while True:
-            line = self._reader.readline()
-            if not line:
-                raise ArmError("the arm server closed the connection")
-            reply = json.loads(line)
-            if reply.get("id") == self._next_id:     # anything else answers an earlier stop
-                break
+        try:
+            while True:
+                line = self._reader.readline()
+                if not line:
+                    raise ArmError("the arm server closed the connection")
+                reply = json.loads(line)
+                if reply.get("id") == self._next_id:     # anything else answers an earlier stop
+                    break
+        except KeyboardInterrupt:       # Ctrl+C while the arm moves: stop it before giving up the call
+            self.stop()
+            raise
         if not reply.get("ok"):
             raise ArmError(reply.get("error") or f"{op} failed (code {reply.get('code')})", reply)
         return reply
