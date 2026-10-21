@@ -267,6 +267,16 @@ class ServerTests(unittest.TestCase):
                 arm.move_to(300, 0, 100)
             arm.quit()
 
+    def test_a_target_that_overflows_the_dll_integer_is_refused_not_wrapped(self):
+        running = self.start(box=BOX)
+        with running.arm() as arm:
+            with self.assertRaisesRegex(bridge.ArmError, "outside the box"):
+                arm.move_to(4295267.296, 0, 100)        # would wrap to x = 300 mm in a c_long; the box stops it first
+            with self.assertRaisesRegex(bridge.ArmError, "32-bit"):
+                arm.move_to(300, 0, 100, pitch=2 ** 31)     # inside the box, so only the range check can stop it
+            arm.quit()
+        self.assertEqual(running.lib.calls("Teach"), [])
+
     def test_a_stop_line_during_a_move_calls_stop(self):
         release = threading.Event()
         running = self.start(FakeLib(MoveJoint=lambda *args: release.wait(0.8) and 1))

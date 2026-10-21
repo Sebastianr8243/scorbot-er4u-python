@@ -269,6 +269,8 @@ class Server:
         pitch = round(_number(command, "pitch", now["xyz"][3]))
         roll = round(_number(command, "roll", now["xyz"][4]))
         values = [round(target[axis] * UM_PER_MM) for axis in "xyz"] + [pitch, roll]
+        if not all(-2 ** 31 <= value < 2 ** 31 for value in values):    # ctypes would wrap it to another target
+            raise Refused("target does not fit the DLL's 32-bit units")
         return self._move(lambda: self.dll.teach_absolute(move.VECTOR, move.POINT, values),
                           {"point_um": values, "relative": False}, {"op": "move_to", "mm": target})
 

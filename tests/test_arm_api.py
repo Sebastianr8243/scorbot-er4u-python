@@ -180,6 +180,14 @@ class CharacteriseTests(unittest.TestCase):
         self.assertEqual(result["worst_repeat_mat_mm"], 1.5)
         self.assertEqual(result["worst_grid_mat_mm"], 2.0)
 
+    def test_summarise_compares_offsets_by_size_not_sign(self):
+        report = {"step_mm": 20.0, "frame": {},
+                  "repeatability": {"readings": [{"mat_mm": -3.0}, {"mat_mm": 0.5}]},
+                  "grid": [{"mat_error_mm": -2.5}, {"mat_error_mm": 1.0}]}
+        result = arm_characterise.summarise(report)
+        self.assertEqual(result["worst_repeat_mat_mm"], 3.0)
+        self.assertEqual(result["worst_grid_mat_mm"], 2.5)
+
     def test_summarise_with_no_mat_answers_says_so(self):
         report = {"step_mm": 20.0, "frame": {"x": {"units_per_mm": 1000.0, "mat_mm": None}},
                   "repeatability": {"readings": []}, "grid": []}

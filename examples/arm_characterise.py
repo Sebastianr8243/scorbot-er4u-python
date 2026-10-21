@@ -54,8 +54,8 @@ def summarise(report):
     step = report["step_mm"]
     factor = {axis: f["mat_mm"] / step for axis, f in report["frame"].items() if f.get("mat_mm")}
     units = {axis: report["frame"][axis]["units_per_mm"] / factor[axis] for axis in factor}
-    repeats = [r["mat_mm"] for r in report["repeatability"]["readings"] if r.get("mat_mm") is not None]
-    grid = [g["mat_error_mm"] for g in report["grid"] if g.get("mat_error_mm") is not None]
+    repeats = [abs(r["mat_mm"]) for r in report["repeatability"]["readings"] if r.get("mat_mm") is not None]
+    grid = [abs(g["mat_error_mm"]) for g in report["grid"] if g.get("mat_error_mm") is not None]
     return {"mat_mm_per_commanded_mm": factor, "suggested_units_per_mm": units,
             "worst_repeat_mat_mm": max(repeats, default=None), "worst_grid_mat_mm": max(grid, default=None)}
 
