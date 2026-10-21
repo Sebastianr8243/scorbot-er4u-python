@@ -27,6 +27,20 @@ BOX = Path("calibration") / "arm.json"
 REPLY_TIMEOUT_S = 900.0     # a Home takes about 135 s on the lab arm; the server bounds every call itself
 
 
+# The server's exit codes (tools/usbc_home, tools/usbc_move) as plain words.
+FAILURE_CODES = {
+    4: "the DLL refused to set the move up",
+    6: "it ran past its time limit and was stopped",
+    7: "it was refused or stopped (not homed, outside the DLL's workspace, or Stop was pressed)",
+    8: "a DLL call did not return: the arm may still be moving, use the physical stop",
+}
+
+
+def describe_failure(op, reply):
+    code = reply.get("code")
+    return f"{op} failed: {FAILURE_CODES[code]} (code {code})" if code in FAILURE_CODES else f"{op} failed (code {code})"
+
+
 class ArmError(Exception):
     """The server refused a command or the DLL call failed. `reply` is the server's whole answer."""
 
@@ -94,7 +108,7 @@ class Arm:
             self.stop()
             raise
         if not reply.get("ok"):
-            raise ArmError(reply.get("error") or f"{op} failed (code {reply.get('code')})", reply)
+            raise ArmError(reply.get("error") or describe_failure(op, reply), reply)
         return reply
 
     def ping(self):

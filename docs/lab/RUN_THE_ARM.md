@@ -76,6 +76,24 @@ Ctrl+C in terminal 2 stops a move that is running (the server calls Stop when it
 
 In a script: `from scorbot.bridge import Arm`, then `with Arm() as arm: arm.move_by(dz=20)`. Absolute moves (`to`, `go`) are refused until `calibration\arm.json` has a box: `arm_characterise.py` writes it from the points it reached, and `teach` grows it to every taught spot. A script that ends leaves the server homed for the next one.
 
+### First run of the Python API (no mat)
+
+Hand on the red stop the whole time. One line at a time; if a line fails, stop and keep `logs\server-*.jsonl`. Terminal 1 is the server line above; wait for `serving`. Terminal 2 from the repo root.
+
+| # | Command | Pass looks like |
+|---|---|---|
+| 1 | `& $vpy -m scorbot.bridge where` | x y z mm printed; note them |
+| 2 | `& $vpy -m scorbot.bridge speed 20` | `ok` |
+| 3 | `& $vpy -m scorbot.bridge by 0 0 5` | arm moves about 5 mm; write down which way (up or down) |
+| 4 | `& $vpy -m scorbot.bridge by 0 0 -5` | back where it was; `where` agrees within about 0.1 mm |
+| 5 | `& $vpy -m scorbot.bridge by 5 0 0`, then `by -5 0 0` | write down forward or back; repeat for y |
+| 6 | `& $vpy -m scorbot.bridge open`, then `close` | jaws open, then close |
+| 7 | `& $vpy -m scorbot.bridge by 0 0 20`, Ctrl+C during the move | arm stops; the server says it called Stop |
+| 8 | `& $vpy -m scorbot.bridge teach above_a` | saves the spot and a first box around it |
+| 9 | `by 10 0 0`, then `go above_a` | returns to the taught spot (a small move_to, the first one on the arm) |
+
+The 5 mm steps are only so the first look at each direction is easy to read. A refused move prints the reason; a code like `(code 7)` now says what it means. With a ruler or phone camera in step 3 and 5, note how far the tip really moved for each 5 mm: that is a first look at the scale until the mat is ready.
+
 ## If it goes wrong
 
 | Symptom | Fix |
