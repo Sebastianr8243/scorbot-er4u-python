@@ -25,12 +25,13 @@ A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, us
 
 ## Assumptions
 - Teach takes micrometres (vendor header, USNA toolbox); unverified on the arm.
-- GetCurrentPosition's xyz uses the same unit (`XYZ_UNITS_PER_MM` 1000); A09 measures it.
+- GetCurrentPosition's xyz uses the same unit (`XYZ_UNITS_PER_MM` 1000): true in the DLL's own model (a 10 mm move_by read back as 9,996 units on the fake controller, 2026-10-20); the physical scale is A09's job.
 - OpenGripper, CloseGripper and Speed behave as named; names read from the lab build's export table, never called before.
 
 ## Open questions
-- Does a second DefineVector in one session fail? The server defines once per session to avoid it.
+- Does a second DefineVector in one session fail? The server defines once per session, and Teach then overwrites point 1 fine (desk run on the fake controller, 2026-10-20).
 - Does the DLL's own simulation work anywhere? It refused on a desk PC on 2026-10-20.
 
 ## Change log
 - 2026-10-20 draft written from the approved plan (`arm side — a measured Python API`).
+- 2026-10-20 desk run: the lab USBC.dll build against `tools/usbc_fake` ran Home, move_by twice, gripper close and open, Speed, move_to (refused without a box, then run), reconnect and quit with Control off; no refusals from the DLL.
