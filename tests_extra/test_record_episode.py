@@ -150,6 +150,29 @@ class KeyboardTests(unittest.TestCase):
         commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=pending))
         self.assertEqual(commands, [{"dx": 10}])
 
+    def test_a_quit_pressed_during_a_move_still_ends_the_episode(self):
+        keys, queued = iter("ddqdd"), [4]       # d d q d pressed while the first move ran
+
+        def pending():
+            queued[0], was = max(queued[0] - 1, 0), queued[0] > 0
+            return was
+
+        commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=pending))
+        self.assertEqual(commands, [{"dx": 10}])        # nothing after the q ran
+
+    def test_an_extended_key_queued_during_a_move_does_not_pose_as_quit(self):
+        keys, queued = iter(["d", "\xe0", "q", "q"]), [2]       # a special key whose scan code is q, then a real q
+        pending_calls = []
+
+        def pending():
+            pending_calls.append(1)
+            queued[0], was = max(queued[0] - 1, 0), queued[0] > 0
+            return was
+
+        commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=pending))
+        self.assertEqual(commands, [{"dx": 10}])
+        self.assertEqual(next(keys, None), None)        # both q-looking characters were consumed
+
     def test_unknown_keys_are_ignored(self):
         keys = iter("zzq")
         self.assertEqual(list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10)), [])

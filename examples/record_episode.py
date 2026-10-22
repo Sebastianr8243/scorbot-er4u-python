@@ -35,7 +35,7 @@ def keyboard_commands(getch, step_mm, pending=lambda: False):
     """Commands from key presses until q. getch() returns one character; pending() says whether more are waiting.
 
     Keys pressed while a step was running (a held key repeats during the blocking move) are thrown away, so
-    letting go stops the arm and q is not stuck behind a queue of moves."""
+    letting go stops the arm. A q among them still ends the episode, after the current step."""
     while True:
         key = getch().lower()
         if key in ("\x00", "\xe0"):       # Windows sends arrows, Insert, Delete, End as a prefix plus a scan code
@@ -56,7 +56,11 @@ def keyboard_commands(getch, step_mm, pending=lambda: False):
             continue
         yield command
         while pending():
-            getch()
+            queued = getch().lower()
+            if queued in ("\x00", "\xe0"):
+                getch()
+            elif queued == "q":         # a quit pressed during the step still ends the episode
+                return
 
 
 def _write_json(path, data):
