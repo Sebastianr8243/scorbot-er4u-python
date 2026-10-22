@@ -104,33 +104,41 @@ class Arm:
             raise ArmError(reply.get("error") or f"{op} failed (code {reply.get('code')})", reply)
         return reply
 
+    def _position(self, op: str, **fields) -> Position:
+        """send() for the ops whose reply carries the arm's position; a reply without it is an error."""
+        reply = self.send(op, **fields)
+        position = Position.from_reply(reply)
+        if position is None:
+            raise ArmError(f"{op} reply carried no position", reply)
+        return position
+
     def ping(self):
         return self.send("ping")
 
-    def where(self) -> Position | None:
+    def where(self) -> Position:
         """Current position."""
-        return Position.from_reply(self.send("where"))
+        return self._position("where")
 
     def home(self) -> Position | None:
-        """Vendor Home: about 135 s on the lab arm, closes the gripper and moves the wrist."""
+        """Vendor Home: about 135 s on the lab arm, closes the gripper and moves the wrist. The reply may carry no position."""
         return Position.from_reply(self.send("home"))
 
     def speed(self, percent: int) -> None:
         """Whole percent of top speed, 1 to 100."""
         self.send("speed", percent=percent)
 
-    def move_by(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> Position | None:
+    def move_by(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> Position:
         """Relative move in mm; the server refuses more than 50 mm on any axis."""
-        return Position.from_reply(self.send("move_by", dx=dx, dy=dy, dz=dz))
+        return self._position("move_by", dx=dx, dy=dy, dz=dz)
 
-    def move_to(self, x: float, y: float, z: float, pitch: int | None = None, roll: int | None = None) -> Position | None:
+    def move_to(self, x: float, y: float, z: float, pitch: int | None = None, roll: int | None = None) -> Position:
         """Absolute move in mm. Refused before a Home, without a box file, or outside the box."""
         extra = {key: value for key, value in (("pitch", pitch), ("roll", roll)) if value is not None}
-        return Position.from_reply(self.send("move_to", x=x, y=y, z=z, **extra))
+        return self._position("move_to", x=x, y=y, z=z, **extra)
 
-    def gripper(self, open: bool) -> Position | None:        # noqa: A002 - reads as arm.gripper(open=True)
+    def gripper(self, open: bool) -> Position:        # noqa: A002 - reads as arm.gripper(open=True)
         """Open (True) or close (False) the gripper."""
-        return Position.from_reply(self.send("gripper", open=open))
+        return self._position("gripper", open=open)
 
     def stop(self) -> None:
         """Ask the server to Stop. Safe from another thread while a move waits for its reply."""
@@ -144,10 +152,10 @@ class Arm:
         """Send {"op": ..., ...} commands in order; stops at the first failure (ArmError)."""
         return [self.send(**command) for command in commands]
 
-    def teach(self, name: str, positions: Path = POSITIONS, box: Path = BOX) -> Position | None:
+    def teach(self, name: str, positions: Path = POSITIONS, box: Path = BOX) -> Position:
         return teach(self, name, positions, box)
 
-    def go(self, name: str, positions: Path = POSITIONS) -> Position | None:
+    def go(self, name: str, positions: Path = POSITIONS) -> Position:
         return go(self, name, positions)
 
 
