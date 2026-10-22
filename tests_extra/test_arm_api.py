@@ -8,7 +8,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from examples import arm_characterise, pick_place
+from examples import arm_characterise, arm_latency, pick_place
 from scorbot import bridge
 
 
@@ -183,6 +183,28 @@ class PickPlaceTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertFalse(rows[0]["placed"])
         self.assertIn("Home", rows[0]["failure"])
+
+
+class ArmLatencyTests(unittest.TestCase):
+    def test_every_call_is_timed_in_order_and_the_arm_ends_where_it_started(self):
+        arm, rows = bridge.FakeArm(), []
+        ticks = iter(range(0, 1000, 2))          # a fake clock: every call takes 2 s
+        result = arm_latency.run(arm, rows.append, speed=30, pairs=2, sizes=(5, 10), reads=3,
+                                 clock=lambda: next(ticks))
+        self.assertEqual(result, rows)
+        self.assertEqual([r["kind"] for r in rows],
+                         ["where"] * 3 + ["move_by_5mm"] * 4 + ["move_by_10mm"] * 4 + ["gripper"] * 4)
+        self.assertTrue(all(r["seconds"] == 2 for r in rows))
+        self.assertEqual(arm.commands[0], ("speed", 30))
+        self.assertEqual((arm.x, arm.y, arm.z), (300.0, 0.0, 200.0))
+
+    def test_summary_gives_median_worst_and_calls_per_second(self):
+        rows = [{"kind": "move_by_5mm", "seconds": s} for s in (0.5, 1.0, 4.0)]
+        self.assertEqual(arm_latency.summary(rows),
+                         {"move_by_5mm": {"n": 3, "median_s": 1.0, "worst_s": 4.0, "per_second": 1.0}})
+
+    def test_main_does_not_start_without_go(self):
+        self.assertEqual(arm_latency.main([], read=lambda _p: "no"), 1)
 
 
 if __name__ == "__main__":

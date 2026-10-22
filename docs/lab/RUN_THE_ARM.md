@@ -70,6 +70,7 @@ $vpy = ".\.venv\Scripts\python.exe"
 & $vpy -m scorbot.bridge go above_a       # move back to it (needs the box, below)
 & $vpy examples\arm_characterise.py       # measure frame, scale, repeatability, grid (mat under the arm)
 & $vpy examples\pick_place.py --runs 10   # needs above_a, at_a, above_b, at_b taught
+& $vpy examplesrm_latency.py --speed 20 # how many calls per second the arm gives (moves up and down along z; type go)
 ```
 
 Ctrl+C in terminal 2 stops a move that is running (the server calls Stop when its client goes away).
