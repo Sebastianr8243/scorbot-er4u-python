@@ -13,6 +13,8 @@ here. The same calls work on FakeArm, which needs no server.
     python -m scorbot.bridge where | by DX DY DZ | to X Y Z | open | close | speed N | home | teach NAME | go NAME | stop | quit
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import socket
@@ -21,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 HOST, PORT = "127.0.0.1", 8765          # tools/usbc_server PORT
-XYZ_UNITS_PER_MM = 1000     # unverified: the unit of GetCurrentPosition's xyz array; arm_characterise.py measures it
+XYZ_UNITS_PER_MM = 1000     # the DLL's xyz unit: a 10 mm move_by read back as 9,996 on the fake controller (2026-10-20). Physical scale unverified; arm_characterise.py measures it
 POSITIONS = Path("calibration") / "positions.json"
 BOX = Path("calibration") / "arm.json"
 REPLY_TIMEOUT_S = 900.0     # a Home takes about 135 s on the lab arm; the server bounds every call itself
@@ -30,13 +32,15 @@ REPLY_TIMEOUT_S = 900.0     # a Home takes about 135 s on the lab arm; the serve
 class ArmError(Exception):
     """The server refused a command or the DLL call failed. `reply` is the server's whole answer."""
 
-    def __init__(self, message, reply=None):
+    def __init__(self, message: str, reply: dict | None = None):
         super().__init__(message)
         self.reply = reply or {}
 
 
 @dataclass(frozen=True)
 class Position:
+    """Where the arm is: x, y, z in mm (DLL task frame), pitch and roll in the DLL's units, and the raw arrays."""
+
     x: float
     y: float
     z: float
@@ -47,7 +51,8 @@ class Position:
     xyz: list = field(default_factory=list)
 
     @classmethod
-    def from_reply(cls, reply):
+    def from_reply(cls, reply: dict) -> Position | None:
+        """A Position from a server reply, or None when the reply carries no xyz (ping, speed, quit)."""
         xyz = reply.get("xyz")
         if not xyz:
             return None
@@ -56,7 +61,9 @@ class Position:
 
 
 class Arm:
-    def __init__(self, host=HOST, port=PORT, timeout=REPLY_TIMEOUT_S):
+    """A connection to tools/usbc_server. Use as a context manager so the socket closes."""
+
+    def __init__(self, host: str = HOST, port: int = PORT, timeout: float = REPLY_TIMEOUT_S):
         try:
             self._sock = socket.create_connection((host, port), timeout=10)
         except OSError as error:
@@ -78,7 +85,7 @@ class Arm:
     def _write(self, command):
         self._sock.sendall((json.dumps(command, allow_nan=False) + "\n").encode("utf-8"))
 
-    def send(self, op, **fields):
+    def send(self, op: str, **fields) -> dict:
         """One command and its reply. Raises ArmError when the reply is not ok."""
         self._next_id += 1
         self._write({"op": op, "id": self._next_id, **fields})
@@ -100,46 +107,55 @@ class Arm:
     def ping(self):
         return self.send("ping")
 
-    def where(self):
+    def where(self) -> Position | None:
+        """Current position."""
         return Position.from_reply(self.send("where"))
 
-    def home(self):
+    def home(self) -> Position | None:
+        """Vendor Home: about 135 s on the lab arm, closes the gripper and moves the wrist."""
         return Position.from_reply(self.send("home"))
 
-    def speed(self, percent):
+    def speed(self, percent: int) -> None:
+        """Whole percent of top speed, 1 to 100."""
         self.send("speed", percent=percent)
 
-    def move_by(self, dx=0.0, dy=0.0, dz=0.0):
+    def move_by(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> Position | None:
+        """Relative move in mm; the server refuses more than 50 mm on any axis."""
         return Position.from_reply(self.send("move_by", dx=dx, dy=dy, dz=dz))
 
-    def move_to(self, x, y, z, pitch=None, roll=None):
+    def move_to(self, x: float, y: float, z: float, pitch: int | None = None, roll: int | None = None) -> Position | None:
+        """Absolute move in mm. Refused before a Home, without a box file, or outside the box."""
         extra = {key: value for key, value in (("pitch", pitch), ("roll", roll)) if value is not None}
         return Position.from_reply(self.send("move_to", x=x, y=y, z=z, **extra))
 
-    def gripper(self, open):        # noqa: A002 - reads as arm.gripper(open=True)
+    def gripper(self, open: bool) -> Position | None:        # noqa: A002 - reads as arm.gripper(open=True)
+        """Open (True) or close (False) the gripper."""
         return Position.from_reply(self.send("gripper", open=open))
 
-    def stop(self):
+    def stop(self) -> None:
         """Ask the server to Stop. Safe from another thread while a move waits for its reply."""
         self._write({"op": "stop"})
 
-    def quit(self):
+    def quit(self) -> None:
         """End the server's session: Control off and CloseUSBC."""
         self.send("quit")
 
-    def run(self, commands):
+    def run(self, commands: list[dict]) -> list[dict]:
         """Send {"op": ..., ...} commands in order; stops at the first failure (ArmError)."""
         return [self.send(**command) for command in commands]
 
-    def teach(self, name, positions=POSITIONS, box=BOX):
+    def teach(self, name: str, positions: Path = POSITIONS, box: Path = BOX) -> Position | None:
         return teach(self, name, positions, box)
 
-    def go(self, name, positions=POSITIONS):
+    def go(self, name: str, positions: Path = POSITIONS) -> Position | None:
         return go(self, name, positions)
 
 
 class FakeArm:
-    """Arm without a server: positions in memory, for laptops and tests. Never talks to a DLL."""
+    """Arm without a server: positions in memory, for laptops and tests. Never talks to a DLL.
+
+    Same calls as Arm. No server-side limits are applied, except that move_to needs a Home.
+    """
 
     def __init__(self, start=(300.0, 0.0, 200.0), homed=True):
         self.x, self.y, self.z = start

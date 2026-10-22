@@ -2,7 +2,9 @@
 
 import json
 import math
+import socket
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -48,6 +50,63 @@ class TaughtPointTests(unittest.TestCase):
             arm.move_to(1, 2, 3)
         arm.home()
         arm.move_to(1, 2, 3)
+
+
+class ClientTests(unittest.TestCase):
+    """The real Arm client against a one-connection stand-in server on localhost. No DLL."""
+
+    def serve(self, replies):
+        """Answer each received line with the next canned reply (a callable gets the request); returns the port."""
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+        self.requests = []
+
+        def run():
+            connection, _ = listener.accept()
+            with connection, connection.makefile("rwb") as stream:
+                for reply in replies:
+                    request = json.loads(stream.readline())
+                    self.requests.append(request)
+                    for line in reply(request) if callable(reply) else [reply]:
+                        stream.write((json.dumps(line) + "\n").encode())
+                    stream.flush()
+
+        threading.Thread(target=run, daemon=True).start()
+        return listener.getsockname()[1]
+
+    def test_where_sends_one_line_and_returns_mm(self):
+        port = self.serve([lambda r: [{"id": r["id"], "ok": True, "xyz": [300000, 0, 200000, 1, 2]}]])
+        with bridge.Arm(port=port, timeout=5) as arm:
+            position = arm.where()
+        self.assertEqual(self.requests[0]["op"], "where")
+        self.assertEqual((position.x, position.y, position.z, position.pitch, position.roll), (300, 0, 200, 1, 2))
+
+    def test_a_reply_for_an_earlier_request_is_skipped(self):
+        port = self.serve([lambda r: [{"id": r["id"] - 1, "ok": False, "error": "stale"},
+                                      {"id": r["id"], "ok": True, "xyz": [1000, 2000, 3000, 0, 0]}]])
+        with bridge.Arm(port=port, timeout=5) as arm:
+            self.assertEqual(arm.where().z, 3)
+
+    def test_a_refusal_raises_with_the_servers_whole_reply(self):
+        port = self.serve([lambda r: [{"id": r["id"], "ok": False, "error": "each of dx, dy, dz must be at most 50 mm"}]])
+        with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "at most 50") as caught:
+            arm.move_by(dx=60)
+        self.assertEqual(self.requests[0], {"op": "move_by", "id": 1, "dx": 60, "dy": 0.0, "dz": 0.0})
+        self.assertFalse(caught.exception.reply["ok"])
+
+    def test_a_closed_connection_raises(self):
+        port = self.serve([lambda r: []])
+        with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "closed the connection"):
+            arm.where()
+
+    def test_no_server_says_to_start_it(self):
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        with self.assertRaisesRegex(bridge.ArmError, "start tools/usbc_server first"):
+            bridge.Arm(port=port)
 
 
 class ScaledArm(bridge.FakeArm):
