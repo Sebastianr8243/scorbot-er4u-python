@@ -30,3 +30,4 @@ references/*.pdf
 # Community ER-4U link meshes for the 3D view: downloaded locally, licence unclear, never commit
 models/er4u_meshes/*
 !models/er4u_meshes/README.md
+graphify-out/

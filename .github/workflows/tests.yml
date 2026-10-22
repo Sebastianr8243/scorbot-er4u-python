@@ -59,3 +59,6 @@ jobs:
           python -m unittest discover -s tests_extra
       - name: Synthetic session smoke test
         run: python examples/make_synthetic_session.py --root "${{ runner.temp }}/sessions"
+      # The README quickstart: the arm API with no server and no hardware.
+      - name: FakeArm quickstart
+        run: python -c "from scorbot.bridge import FakeArm; a = FakeArm(); a.move_by(dz=20); assert a.where().z == 220"

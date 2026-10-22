@@ -67,7 +67,7 @@ flowchart TD
 
 ## Commands
 
-**Verify before saying done** (about 4.5 min, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot openScorbot scripts examples tests && python -m pytest -n 2 -q tests`. Last run 2026-10-18: 1011 passed. Read `LESSONS.md` before starting; add one dated line after a non-trivial task.
+**Verify before saying done** (about 1 min with `-n 2`, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot openScorbot scripts examples tests && python -m pytest -n 2 -q tests`. Last run 2026-10-22: 1011 passed in 54 s. Read `LESSONS.md` before starting; add one dated line after a non-trivial task.
 
 ```powershell
 python -m pip install -e ".[dev]"              # add ,kinematics for the Robotics Toolbox cross-check; windows extra adds libusb-package; gui adds PyQt5

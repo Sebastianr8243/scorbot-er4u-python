@@ -2,6 +2,14 @@
 
 **To run the arm: [`lab/RUN_THE_ARM.md`](lab/RUN_THE_ARM.md).** Project summary: [`../README.md`](../README.md). Where things stand: [`STATUS.md`](STATUS.md).
 
+## API and overview
+
+| Doc | Read when |
+|---|---|
+| [`API.md`](API.md) | Writing a script against `scorbot.bridge.Arm`: calls, units, errors |
+| [`STATUS.md`](STATUS.md) | What works and how sure we are |
+| [`STACK2_SDK.md`](STACK2_SDK.md) | The experimental own-USB-protocol SDK (`scorbot.Scorbot`); never moved the arm |
+
 ## lab/
 
 | Doc | Read when |
