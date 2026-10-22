@@ -1,5 +1,7 @@
 # scorbot/ (public SDK)
 
+> Only `bridge.py` is on the path that moves the arm today (vendor DLL, see [docs/API.md](../docs/API.md)). Every other module here is Stack 2, our own USB protocol: experimental, never moved the arm. Treat it as reference and a long-term goal, not the demo path.
+
 Facade and pure helpers over the legacy USB code. Read the root [CLAUDE.md](../CLAUDE.md) invariants first. `import scorbot` must never import `usb` or touch `sys.path` (`tests/test_simulated.py:test_import_loads_no_usb_and_leaves_sys_path_alone`); `robot.py` imports `usb` only inside `connect` and `disconnect`.
 
 ## Modules
