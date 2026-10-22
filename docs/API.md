@@ -1,0 +1,55 @@
+# Arm API
+
+`scorbot.bridge.Arm` is a client of `tools/usbc_server`, which keeps one homed vendor-DLL session open. Standard library only. Start the server first ([lab/RUN_THE_ARM.md](lab/RUN_THE_ARM.md)). `FakeArm` has the same calls, keeps positions in memory and needs no server.
+
+```python
+from scorbot.bridge import Arm, ArmError
+
+with Arm() as arm:                     # connects to 127.0.0.1:8765
+    arm.speed(20)                      # start slow
+    arm.move_by(dz=20)
+    arm.gripper(open=False)
+    print(arm.where())
+```
+
+## Units
+
+- Positions and distances are **mm** in the DLL's own task frame. Its origin and axis directions are whatever the DLL uses after Home; `examples/arm_characterise.py` measures them.
+- The server sends micrometres to the DLL's Teach. The DLL's xyz array is read back at 1000 units per mm (`XYZ_UNITS_PER_MM`). That holds in the DLL's own model (a 10 mm step read back as 9,996 units on the fake controller); the physical scale is **unmeasured**.
+- `pitch` and `roll` are the DLL's own units, passed through unchanged.
+
+## Calls
+
+| Call | Does | Refused when |
+|---|---|---|
+| `where()` | Returns a `Position` | |
+| `home()` | Vendor Home (about 135 s on the lab arm). Closes the gripper and moves the wrist | |
+| `speed(percent)` | Whole number, 1 to 100 | outside 1 to 100 |
+| `move_by(dx=0, dy=0, dz=0)` | Relative move in mm | any axis above 50 mm, or a non-finite value |
+| `move_to(x, y, z, pitch=None, roll=None)` | Absolute move in mm | no Home in this session, no box file, or a target outside the box (never clipped) |
+| `gripper(open)` | `open=True` or `False` | emergency stop active |
+| `stop()` | Asks the server to Stop. Safe from another thread during a move | |
+| `quit()` | Ends the session: Control off, then CloseUSBC | |
+| `teach(name)` | Saves the current spot to `calibration/positions.json` and grows the box to include it | |
+| `go(name)` | `move_to` a taught spot | unknown name |
+| `run(commands)` | Sends `{"op": ...}` dicts in order; stops at the first failure | |
+
+Moves and gripper calls return a `Position`: `x`, `y`, `z` in mm, `pitch`, `roll`, plus the raw `encoder`, `joint` and `xyz` arrays.
+
+## Errors
+
+Every refusal or failed DLL call raises `ArmError`; `error.reply` holds the server's whole answer. `Arm()` raises it too if no server is listening. Ctrl+C during a move calls `stop()` before re-raising, and a client that disconnects mid-move gets the arm stopped. A client that disconnects otherwise leaves the homed session for the next one.
+
+## The box
+
+`move_to` and `go` only run inside `calibration/arm.json`, the region the arm has been driven in under supervision. `arm_characterise.py` writes it, and `teach` grows it. The server and the scripts must start in the same folder, because the path is relative.
+
+## Command line
+
+```powershell
+python -m scorbot.bridge where | by DX DY DZ | to X Y Z | open | close | speed N | home | teach NAME | go NAME | stop | quit
+```
+
+## Where the guarantees are tested
+
+The requirements and the test behind each (A01 to A10) are in [requirements/arm-api.md](requirements/arm-api.md).
