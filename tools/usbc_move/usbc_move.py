@@ -114,26 +114,39 @@ def move_point(dll, log, console, state, teach, taught, start, define=True):
     state["busy"] = True        # until every bounded call below is proven finished
     state["call_open"] = 0
     result = {}
+    timing = state["timing_s"] = {"define": 0.0}     # seconds per step, for the server's reply
+    mark = time.monotonic()
+
+    def lap(step):
+        nonlocal mark
+        now = time.monotonic()
+        timing[step], mark = round(now - mark, 4), now
+
     try:
         before = jog.call(dll.position, state)
         log.event("position_before", **before)
+        lap("read")
         if define:
             if not jog.call(lambda: dll.define_vector(VECTOR, VECTOR_POINTS), state):
                 log.event("define_vector_refused")
                 state["busy"] = False
                 return 4
             state["vector_defined"] = True
+            lap("define")
         if not jog.call(teach, state):
             log.event("teach_refused", **taught)
             state["busy"] = False
             return 4
         log.event("point_taught", **taught)
+        lap("teach")
         worker = threading.Thread(target=lambda: result.update(ok=dll.move_joint(VECTOR, POINT)), daemon=True)
         log.event("move_start", **start)
         worker.start()
         code = _supervise(dll, log, console, state, worker, result)
+        lap("move")
         if not worker.is_alive():
             after = _settle(dll, log)
+            lap("settle")
             state["position"] = after
             log.event("position_after", **after)
             log.event("position_delta", **{key: [a - b for a, b in zip(after[key], before[key])]

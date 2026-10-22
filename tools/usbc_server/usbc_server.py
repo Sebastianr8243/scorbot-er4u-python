@@ -26,6 +26,7 @@ import json
 import os
 import socket
 import sys
+import time
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location("usbc_move", os.path.join(_HERE, "..", "usbc_move", "usbc_move.py"))
@@ -195,6 +196,8 @@ class Server:
         reply = {"ok": code == 0, "code": code}
         if self.state.get("position"):
             reply.update({key: self.state["position"][key] for key in ("encoder", "joint", "xyz")})
+        if self.state.get("timing_s"):
+            reply["timing_s"] = self.state["timing_s"]
         return reply
 
     def _check_emergency(self):
@@ -203,7 +206,7 @@ class Server:
 
     def _move(self, teach, taught, start):
         self._check_emergency()
-        self.state["position"] = None
+        self.state["position"] = self.state["timing_s"] = None
         code = move.move_point(self.dll, self.log, self.console, self.state, teach, taught, start,
                                define=not self.state.get("vector_defined"))    # once per session: a second define is unread
         return self._result(code)
@@ -260,6 +263,7 @@ class Server:
         self._check_emergency()
         self.state["busy"] = True
         self.state["call_open"] += 1
+        started = time.monotonic()
         finished, ok, error = home.bounded(lambda: self.dll.gripper(opening), GRIPPER_CALL_S)
         if not finished:
             self.log.event("gripper_call_hang", seconds=GRIPPER_CALL_S)
@@ -269,7 +273,9 @@ class Server:
         if error is not None:
             raise error
         self.log.event("gripper", open=opening, ok=ok)
+        called = time.monotonic()
         self.state["position"] = move._settle(self.dll, self.log) if ok else None
+        self.state["timing_s"] = {"call": round(called - started, 4), "settle": round(time.monotonic() - called, 4)}
         self.state["busy"] = self.state["stop_open"] > 0 or self.state["call_open"] > 0
         return self._result(0 if ok else 7)
 

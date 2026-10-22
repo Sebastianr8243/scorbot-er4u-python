@@ -210,6 +210,15 @@ class ArmLatencyTests(unittest.TestCase):
         self.assertEqual(arm_latency.summary(rows),
                          {"move_by_5mm": {"n": 3, "median_s": 1.0, "worst_s": 4.0, "per_second": 1.0}})
 
+    def test_the_servers_split_of_a_call_is_kept_and_summarised(self):
+        ticks = iter(range(0, 100, 2))
+        row = arm_latency.timed("move_by_5mm", lambda: bridge.Position(0, 0, 0, timing={"teach": 0.1, "move": 0.9}),
+                                clock=lambda: next(ticks))
+        self.assertEqual(row["steps"], {"teach": 0.1, "move": 0.9})
+        self.assertNotIn("steps", arm_latency.timed("where", lambda: None))
+        rows = [row, {**row, "steps": {"teach": 0.3, "move": 0.5}}, {**row, "steps": {"teach": 0.2, "move": 0.7}}]
+        self.assertEqual(arm_latency.summary(rows)["move_by_5mm"]["steps"], {"teach": 0.2, "move": 0.7})
+
     def test_main_does_not_start_without_go(self):
         self.assertEqual(arm_latency.main([], read=lambda _p: "no"), 1)
 
