@@ -10,7 +10,7 @@ Keys: d/a = x +/-, w/s = y +/-, r/f = z +/-, o = open gripper, c = close, space 
 Each step reads both cameras, then the arm, then runs your command. One folder per episode (never overwritten):
     meta.json     task, cameras, units, source (real or simulated), step count, ended_early
     steps.jsonl   per step a row (state before the command, the command, frame paths, timestamps) written before the
-                  arm moves, then a line {"step", "outcome": ok|refused|interrupted, ...} once the command ended
+                  arm moves, then a line {"step", "outcome": ok|refused|failed|interrupted, ...} once the command ended
     <camera>/000000.jpg ...
 Rate is whatever the arm gives (a blocking move per step), not a fixed Hz: use t_s. state.gripper is the last
 commanded one (the server cannot read it). Camera frames are stamped at read-return time and may be a few frames old.
@@ -31,8 +31,11 @@ from scorbot.camera.source import FakeSource
 KEYS = {"d": ("dx", 1), "a": ("dx", -1), "w": ("dy", 1), "s": ("dy", -1), "r": ("dz", 1), "f": ("dz", -1)}
 
 
-def keyboard_commands(getch, step_mm):
-    """Commands from key presses until q. getch() returns one character."""
+def keyboard_commands(getch, step_mm, pending=lambda: False):
+    """Commands from key presses until q. getch() returns one character; pending() says whether more are waiting.
+
+    Keys pressed while a step was running (a held key repeats during the blocking move) are thrown away, so
+    letting go stops the arm and q is not stuck behind a queue of moves."""
     while True:
         key = getch().lower()
         if key in ("\x00", "\xe0"):       # Windows sends arrows, Insert, Delete, End as a prefix plus a scan code
@@ -42,13 +45,18 @@ def keyboard_commands(getch, step_mm):
             return
         if key in KEYS:
             axis, sign = KEYS[key]
-            yield {axis: sign * step_mm}
+            command = {axis: sign * step_mm}
         elif key == "o":
-            yield {"gripper": True}
+            command = {"gripper": True}
         elif key == "c":
-            yield {"gripper": False}
+            command = {"gripper": False}
         elif key == " ":
-            yield {}
+            command = {}
+        else:
+            continue
+        yield command
+        while pending():
+            getch()
 
 
 def _write_json(path, data):
@@ -99,7 +107,10 @@ def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality
                         arm.gripper(open=wanted)
                         gripper = "open" if wanted else "closed"
                 except ArmError as error:
-                    outcome.update(outcome="refused", error=str(error))
+                    # a server refusal has an error and no code; anything else (a DLL code, a lost connection)
+                    # may have happened after the arm started moving
+                    refused = "error" in error.reply and "code" not in error.reply
+                    outcome.update(outcome="refused" if refused else "failed", error=str(error), reply=error.reply)
                     raise
                 except BaseException as error:      # Ctrl+C or a dead socket: the arm may have moved
                     outcome.update(outcome="interrupted", error=repr(error))
@@ -120,7 +131,12 @@ def _getch():
     return msvcrt.getwch()
 
 
-def main(argv=None, read=input, getch=_getch, encode=encode_jpeg):
+def _pending():
+    import msvcrt
+    return msvcrt.kbhit()
+
+
+def main(argv=None, read=input, getch=_getch, encode=encode_jpeg, pending=_pending):
     parser = argparse.ArgumentParser(description="Record a teleoperated episode: two cameras, arm state, your command")
     parser.add_argument("--out", help="episode folder (default episodes/<time>; rehearsal/<time> with --fake)")
     parser.add_argument("--task", default="")
@@ -150,10 +166,10 @@ def main(argv=None, read=input, getch=_getch, encode=encode_jpeg):
             source.open()
             opened.append(source)
         if fake_arm is not None:
-            return _run(fake_arm, cameras, args, out, getch, encode, "simulated")
+            return _run(fake_arm, cameras, args, out, getch, encode, pending, "simulated")
         with Arm(port=args.port) as arm:
             arm.speed(args.speed)
-            return _run(arm, cameras, args, out, getch, encode)
+            return _run(arm, cameras, args, out, getch, encode, pending)
     except (ArmError, RuntimeError) as error:
         print(f"stopped: {error}")
         return 1
@@ -162,9 +178,9 @@ def main(argv=None, read=input, getch=_getch, encode=encode_jpeg):
             source.close()
 
 
-def _run(arm, cameras, args, out, getch, encode, source="real"):
+def _run(arm, cameras, args, out, getch, encode, pending, source="real"):
     print("keys: d/a x, w/s y, r/f z, o open, c close, space look, q end")
-    steps = record(arm, cameras, keyboard_commands(getch, args.step_mm), out, args.task, encode, source=source)
+    steps = record(arm, cameras, keyboard_commands(getch, args.step_mm, pending), out, args.task, encode, source=source)
     print(f"{steps} steps in {out}")
     return 0
 

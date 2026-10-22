@@ -81,7 +81,7 @@ class RecordTests(unittest.TestCase):
     def test_an_arm_refusal_is_logged_on_its_row_and_stops_the_episode(self):
         class Refusing(bridge.FakeArm):
             def move_by(self, dx=0.0, dy=0.0, dz=0.0):
-                raise bridge.ArmError("step ends outside the box")
+                raise bridge.ArmError("step ends outside the box", {"ok": False, "error": "step ends outside the box"})
 
         with self.assertRaises(bridge.ArmError):
             record_episode.record(Refusing(), sources(), [{}, {"dx": 5}, {}], self.out, encode=encode)
@@ -90,6 +90,24 @@ class RecordTests(unittest.TestCase):
         self.assertNotIn("error", rows[1])
         self.assertEqual(self.outcomes()[1]["outcome"], "refused")
         self.assertIn("outside the box", self.outcomes()[1]["error"])
+
+    def test_a_failure_after_the_arm_may_have_moved_is_not_called_a_refusal(self):
+        class Hung(bridge.FakeArm):
+            def gripper(self, open):        # noqa: A002
+                raise bridge.ArmError("a DLL call did not return", {"ok": False, "code": 8, "error": "a DLL call did not return"})
+
+        class Gone(bridge.FakeArm):
+            def move_by(self, dx=0.0, dy=0.0, dz=0.0):
+                raise bridge.ArmError("the arm server closed the connection")
+
+        for arm, commands in ((Hung(), [{"gripper": True}]), (Gone(), [{"dx": 5}])):
+            with self.subTest(type(arm).__name__):
+                out = self.out.parent / type(arm).__name__
+                with self.assertRaises(bridge.ArmError):
+                    record_episode.record(arm, sources(), commands, out, encode=encode)
+                last = json.loads((out / "steps.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+                self.assertEqual(last["outcome"], "failed")
+                self.assertIn("error", last)
 
     def test_the_row_is_on_disk_before_the_arm_moves_and_an_interrupt_is_recorded(self):
         seen = {}
@@ -122,6 +140,16 @@ class KeyboardTests(unittest.TestCase):
         keys = iter(chr(0xe0) + "R" + chr(0xe0) + "S" + chr(0) + "O" + chr(0xe0) + "O" + "q")
         self.assertEqual(list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10)), [])
 
+    def test_keys_queued_while_a_move_ran_are_thrown_away(self):
+        keys, queued = iter("ddddq"), [3]       # three more d presses piled up during the first move
+
+        def pending():
+            queued[0], was = max(queued[0] - 1, 0), queued[0] > 0
+            return was
+
+        commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=pending))
+        self.assertEqual(commands, [{"dx": 10}])
+
     def test_unknown_keys_are_ignored(self):
         keys = iter("zzq")
         self.assertEqual(list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10)), [])
@@ -134,7 +162,7 @@ class KeyboardTests(unittest.TestCase):
             out = Path(folder) / "ep"
             keys = iter("dq")
             code = record_episode.main(["--fake", "--out", str(out)], read=lambda _p: "go", getch=lambda: next(keys),
-                                       encode=encode)
+                                       encode=encode, pending=lambda: False)
             self.assertEqual(code, 0)
             self.assertEqual(json.loads((out / "meta.json").read_text(encoding="utf-8"))["source"], "simulated")
             lines = (out / "steps.jsonl").read_text(encoding="utf-8").splitlines()
