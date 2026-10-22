@@ -39,6 +39,13 @@ class TaughtPointTests(unittest.TestCase):
         self.assertEqual(data["note"], "kept")
         self.assertEqual(data["box_mm"], {"x": [-1, 1], "y": [2, 5], "z": [0, 3]})
 
+    def test_the_measured_flag_is_set_only_by_a_measuring_caller_and_survives_teach(self):
+        bridge.widen_box(self.box, [(1, 2, 3)])
+        self.assertFalse(json.loads(self.box.read_text())["measured"])
+        bridge.widen_box(self.box, [(1, 2, 3)], measured=True)
+        bridge.FakeArm().teach("a", self.positions, self.box)
+        self.assertTrue(json.loads(self.box.read_text())["measured"])
+
     def test_position_from_a_reply_converts_xyz_to_mm(self):
         position = bridge.Position.from_reply({"xyz": [300000, -5000, 200000, -63000, 10], "encoder": [1]})
         self.assertEqual((position.x, position.y, position.z, position.pitch, position.roll), (300, -5, 200, -63000, 10))

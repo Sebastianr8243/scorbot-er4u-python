@@ -15,7 +15,7 @@ Protocol: one JSON object per line, each with an "op" and an optional "id" that 
 Distances are mm (sent to Teach as micrometres, the decided unit). pitch and roll are passed through in the DLL's
 own units. Every reply after a DLL call carries the encoder, joint and xyz arrays. move_to is refused until this
 session has homed and when the target is outside the box in --box (calibration/arm.json): no absolute move before
-the frame is measured. A "stop" line during a move calls Stop. --online energises the motors and moves the arm;
+the frame is measured. With a measured box file, move_by is refused when it would end further outside the box than it starts. A "stop" line during a move calls Stop. --online energises the motors and moves the arm;
 Stop here is not an emergency stop, the physical stop is. The log goes to logs\\ unless --output names a file.
 """
 
@@ -145,6 +145,12 @@ def load_box(path):
         raise Refused(f"{path} is not a valid box file: {error!r}") from None
 
 
+def _measured(path):
+    """Whether arm_characterise.py measured the box in this file (load_box has already read it successfully)."""
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle).get("measured") is True
+
+
 class Server:
     def __init__(self, dll, log, console, state, box_path, homed):
         self.dll, self.log, self.console, self.state = dll, log, console, state
@@ -208,9 +214,28 @@ class Server:
             raise Refused("move_by needs a non-zero dx, dy or dz")
         if max(abs(d) for d in delta) > MAX_STEP_MM:
             raise Refused(f"each of dx, dy, dz must be at most {MAX_STEP_MM:g} mm")
+        self._check_box_for_step(delta)
         values = [round(d * UM_PER_MM) for d in delta] + [0, 0]
         return self._move(lambda: self.dll.teach_relative(move.VECTOR, move.POINT, values),
                           {"delta_um": values, "relative": True}, {"op": "move_by", "mm": delta})
+
+    def _check_box_for_step(self, delta):
+        """With a box file, a step may not end further outside it than it starts (no box file: the step cap only)."""
+        box = load_box(self.box_path)
+        if box is None or not _measured(self.box_path):     # taught points alone are not a measured box
+            return
+        now = jog.call(self.dll.position, self.state)
+        if not now["ok"]:
+            raise Refused("could not read the current position to check the box")
+        outside = []
+        for axis, d, units in zip("xyz", delta, now["xyz"]):
+            low, high = box[axis]
+            here = units / UM_PER_MM
+            if max(low - (here + d), here + d - high, 0) > max(low - here, here - high, 0):
+                outside.append(axis)
+        if outside:
+            raise Refused(f"step ends outside the box on {', '.join(outside)}: at {[u / UM_PER_MM for u in now['xyz'][:3]]} mm, "
+                          f"step {delta} mm, box {box} (to measure elsewhere, delete {self.box_path})")
 
     def _move_to(self, command):
         if not self.homed:

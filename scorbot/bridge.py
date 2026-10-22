@@ -128,7 +128,7 @@ class Arm:
         self.send("speed", percent=percent)
 
     def move_by(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> Position:
-        """Relative move in mm; the server refuses more than 50 mm on any axis."""
+        """Relative move in mm; the server refuses more than 50 mm on any axis, or a step that leaves the measured box."""
         return self._position("move_by", dx=dx, dy=dy, dz=dz)
 
     def move_to(self, x: float, y: float, z: float, pitch: int | None = None, roll: int | None = None) -> Position:
@@ -232,9 +232,10 @@ def _save(path, data):
     path.write_text(json.dumps(data, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
-def widen_box(path, points):
+def widen_box(path, points, measured=False):
     """Grow the box in `path` to hold every point (x, y, z in mm). The box is where the arm has been driven
-    under supervision; the server refuses move_to outside it."""
+    under supervision; the server refuses move_to outside it. measured=True (arm_characterise.py) also makes
+    the server refuse a move_by that leaves it; a box grown only by teach does not."""
     data = _load(path)
     box = data.get("box_mm", {})
     for point in points:
@@ -242,6 +243,7 @@ def widen_box(path, points):
             low, high = box.get(axis, [value, value])
             box[axis] = [min(low, value), max(high, value)]
     data["box_mm"] = box
+    data["measured"] = bool(data.get("measured")) or measured
     _save(path, data)
     return box
 

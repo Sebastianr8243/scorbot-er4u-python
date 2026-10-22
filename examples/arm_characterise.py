@@ -112,7 +112,7 @@ def main(argv=None):
     except ArmError as error:
         print(f"stopped: {error}")
         return 1
-    box = widen_box(BOX, reached)
+    box = widen_box(BOX, reached, measured=True)
     path = Path("calibration") / f"arm_report-{datetime.now():%Y%m%d-%H%M%S}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "x", encoding="utf-8") as handle:       # evidence is never overwritten
