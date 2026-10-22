@@ -23,7 +23,7 @@ Run from the repo root: these files import helpers as `tests.<name>`.
 | `test_lab_summary.py` | `scripts/lab_summary.py` on hand-made records: direction, scale against the prior, phone angle, other joints, policy runs, problems and exit code |
 | `test_usbc_server.py` | `tools/usbc_server` through `scorbot.bridge.Arm` on a real localhost socket, against a fake library: refusals, stop during a move, reconnect, a hung call |
 | `test_arm_api.py` | `scorbot.bridge.FakeArm`, the `Arm` client against a stand-in server (replies matched by id, refusals, closed connection, no server), taught points and the box, `examples/arm_characterise.py` math and run, `examples/pick_place.py` |
-| `test_record_episode.py` | `examples/record_episode.py` against `FakeArm` and `FakeSource`: both frames, state before the command, action, timing, no overwrite, a dead camera or an arm refusal ending the episode with the rows so far, the key map, the `--fake` run |
+| `test_record_episode.py` | `examples/record_episode.py` against `FakeArm` and `FakeSource`: both frames, state before the command, action, timing, no overwrite, a dead camera, an arm refusal or an interrupt ending the episode (the row is on disk before the arm moves), the key map (Windows extended keys swallowed), the saved `source`, the `--fake` run |
 | `test_usbc_home.py`, `test_usbc_jog.py`, `test_usbc_move.py` | `tools/usbc_home/usbc_home.py`, `tools/usbc_jog/usbc_jog.py` and `tools/usbc_move/usbc_move.py` against a fake library (no DLL, no USB) |
 
 Several of these cover code that is still reachable from `robot.py` (streaming and gripper gates). Before any lab visit, run everything (`tests` and `tests_extra`), not only the gate.

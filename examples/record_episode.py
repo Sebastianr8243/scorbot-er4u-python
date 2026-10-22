@@ -8,8 +8,9 @@ Rehearse with no hardware: `python examples/record_episode.py --fake`.
 
 Keys: d/a = x +/-, w/s = y +/-, r/f = z +/-, o = open gripper, c = close, space = look without moving, q = end.
 Each step reads both cameras, then the arm, then runs your command. One folder per episode (never overwritten):
-    meta.json     task, cameras, units, step count, ended_early
-    steps.jsonl   one row per step: state (before the command), action (the command), frame paths, timestamps
+    meta.json     task, cameras, units, source (real or simulated), step count, ended_early
+    steps.jsonl   per step a row (state before the command, the command, frame paths, timestamps) written before the
+                  arm moves, then a line {"step", "outcome": ok|refused|interrupted, ...} once the command ended
     <camera>/000000.jpg ...
 Rate is whatever the arm gives (a blocking move per step), not a fixed Hz: use t_s. state.gripper is the last
 commanded one (the server cannot read it). Camera frames are stamped at read-return time and may be a few frames old.
@@ -34,6 +35,9 @@ def keyboard_commands(getch, step_mm):
     """Commands from key presses until q. getch() returns one character."""
     while True:
         key = getch().lower()
+        if key in ("\x00", "\xe0"):       # Windows sends arrows, Insert, Delete, End as a prefix plus a scan code
+            getch()
+            continue
         if key == "q":
             return
         if key in KEYS:
@@ -51,7 +55,8 @@ def _write_json(path, data):
     path.write_text(json.dumps(data, indent=2, allow_nan=False), encoding="utf-8")
 
 
-def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality=90, clock=time.monotonic):
+def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality=90, clock=time.monotonic,
+           source="real"):
     """Run each command and log a row per step; cameras is {name: opened FrameSource}. Returns the row count.
 
     A camera or arm failure stops the episode after the rows already written (meta.json says ended_early)."""
@@ -59,7 +64,7 @@ def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality
     out_dir.mkdir(parents=True, exist_ok=False)       # evidence is never overwritten
     for name in cameras:
         (out_dir / name).mkdir()
-    meta = {"task": task, "cameras": list(cameras), "units": {"x,y,z,dx,dy,dz": "mm", "pitch,roll": "DLL units"},
+    meta = {"task": task, "source": source, "cameras": list(cameras), "units": {"x,y,z,dx,dy,dz": "mm", "pitch,roll": "DLL units"},
             "started": datetime.now().isoformat(timespec="seconds"), "steps": 0, "ended_early": True}
     _write_json(out_dir / "meta.json", meta)
     gripper, start, steps = None, clock(), 0
@@ -83,6 +88,10 @@ def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality
                 delta = {axis: command.get(axis, 0) for axis in ("dx", "dy", "dz")}
                 wanted = command.get("gripper")
                 row["action"] = {**delta, "gripper": None if wanted is None else ("open" if wanted else "close")}
+                log.write(json.dumps(row, allow_nan=False) + "\n")
+                log.flush()                 # the evidence is on disk before the arm moves
+                steps += 1
+                outcome = {"step": step, "outcome": "ok"}
                 try:
                     if any(delta.values()):
                         arm.move_by(**delta)
@@ -90,14 +99,15 @@ def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality
                         arm.gripper(open=wanted)
                         gripper = "open" if wanted else "closed"
                 except ArmError as error:
-                    row["error"] = str(error)
-                    log.write(json.dumps(row, allow_nan=False) + "\n")
-                    steps += 1
+                    outcome.update(outcome="refused", error=str(error))
                     raise
-                row["act_s"] = round(clock() - read_at, 4)
-                log.write(json.dumps(row, allow_nan=False) + "\n")
-                log.flush()
-                steps += 1
+                except BaseException as error:      # Ctrl+C or a dead socket: the arm may have moved
+                    outcome.update(outcome="interrupted", error=repr(error))
+                    raise
+                finally:
+                    outcome["act_s"] = round(clock() - read_at, 4)
+                    log.write(json.dumps(outcome, allow_nan=False) + "\n")
+                    log.flush()
             meta["ended_early"] = False
     finally:
         meta["steps"] = steps
@@ -112,7 +122,7 @@ def _getch():
 
 def main(argv=None, read=input, getch=_getch, encode=encode_jpeg):
     parser = argparse.ArgumentParser(description="Record a teleoperated episode: two cameras, arm state, your command")
-    parser.add_argument("--out", help="episode folder (default episodes/<time>)")
+    parser.add_argument("--out", help="episode folder (default episodes/<time>; rehearsal/<time> with --fake)")
     parser.add_argument("--task", default="")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--speed", type=int, default=20, help="percent of top speed, 1 to 100")
@@ -126,7 +136,8 @@ def main(argv=None, read=input, getch=_getch, encode=encode_jpeg):
     if read(f"{warning} Type go: ") != "go":
         print("not started")
         return 1
-    out = Path(args.out or Path("episodes") / f"{datetime.now():%Y%m%d-%H%M%S}")
+    folder = "rehearsal" if args.fake else "episodes"      # rehearsals never land beside real episodes
+    out = Path(args.out or Path(folder) / f"{datetime.now():%Y%m%d-%H%M%S}")
     if args.fake:
         cameras, fake_arm = {"top": FakeSource(), "wrist": FakeSource()}, FakeArm()
     else:
@@ -139,7 +150,7 @@ def main(argv=None, read=input, getch=_getch, encode=encode_jpeg):
             source.open()
             opened.append(source)
         if fake_arm is not None:
-            return _run(fake_arm, cameras, args, out, getch, encode)
+            return _run(fake_arm, cameras, args, out, getch, encode, "simulated")
         with Arm(port=args.port) as arm:
             arm.speed(args.speed)
             return _run(arm, cameras, args, out, getch, encode)
@@ -151,9 +162,9 @@ def main(argv=None, read=input, getch=_getch, encode=encode_jpeg):
             source.close()
 
 
-def _run(arm, cameras, args, out, getch, encode):
+def _run(arm, cameras, args, out, getch, encode, source="real"):
     print("keys: d/a x, w/s y, r/f z, o open, c close, space look, q end")
-    steps = record(arm, cameras, keyboard_commands(getch, args.step_mm), out, args.task, encode)
+    steps = record(arm, cameras, keyboard_commands(getch, args.step_mm), out, args.task, encode, source=source)
     print(f"{steps} steps in {out}")
     return 0
 

@@ -24,9 +24,17 @@ class RecordTests(unittest.TestCase):
         self.addCleanup(self.dir.cleanup)
         self.out = Path(self.dir.name) / "ep"
 
+    def lines(self):
+        text = (self.out / "steps.jsonl").read_text(encoding="utf-8")
+        return [json.loads(line) for line in text.splitlines()]
+
     def rows(self):
-        lines = (self.out / "steps.jsonl").read_text(encoding="utf-8").splitlines()
-        return [json.loads(line) for line in lines]
+        """The step rows, written before the command runs."""
+        return [line for line in self.lines() if "state" in line]
+
+    def outcomes(self):
+        """What happened to each command, written after it."""
+        return {line["step"]: line for line in self.lines() if "outcome" in line}
 
     def test_each_step_logs_both_frames_the_state_before_and_the_command_given(self):
         arm, cameras = bridge.FakeArm(), sources()
@@ -79,7 +87,27 @@ class RecordTests(unittest.TestCase):
             record_episode.record(Refusing(), sources(), [{}, {"dx": 5}, {}], self.out, encode=encode)
         rows = self.rows()
         self.assertEqual(len(rows), 2)
-        self.assertIn("outside the box", rows[1]["error"])
+        self.assertNotIn("error", rows[1])
+        self.assertEqual(self.outcomes()[1]["outcome"], "refused")
+        self.assertIn("outside the box", self.outcomes()[1]["error"])
+
+    def test_the_row_is_on_disk_before_the_arm_moves_and_an_interrupt_is_recorded(self):
+        seen = {}
+
+        class Interrupted(bridge.FakeArm):
+            def move_by(inner, dx=0.0, dy=0.0, dz=0.0):
+                seen["rows_before_motion"] = len(self.rows())
+                raise KeyboardInterrupt
+
+        with self.assertRaises(KeyboardInterrupt):
+            record_episode.record(Interrupted(), sources(), [{"dx": 5}], self.out, encode=encode)
+        self.assertEqual(seen["rows_before_motion"], 1)
+        self.assertEqual(self.outcomes()[0]["outcome"], "interrupted")
+        self.assertEqual(json.loads((self.out / "meta.json").read_text(encoding="utf-8"))["steps"], 1)
+
+    def test_the_source_is_saved_so_rehearsals_cannot_pass_for_hardware(self):
+        record_episode.record(bridge.FakeArm(), sources(), [{}], self.out, encode=encode, source="simulated")
+        self.assertEqual(json.loads((self.out / "meta.json").read_text(encoding="utf-8"))["source"], "simulated")
 
 
 class KeyboardTests(unittest.TestCase):
@@ -88,6 +116,11 @@ class KeyboardTests(unittest.TestCase):
         commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10))
         self.assertEqual(commands, [{"dx": 10}, {"dy": 10}, {"dz": 10}, {"dz": -10},
                                     {"gripper": True}, {"gripper": False}, {}])
+
+    def test_windows_extended_keys_are_consumed_whole(self):
+        # Insert, Delete and End arrive as a prefix then R, S, O: they must not become r, s, o commands
+        keys = iter(chr(0xe0) + "R" + chr(0xe0) + "S" + chr(0) + "O" + chr(0xe0) + "O" + "q")
+        self.assertEqual(list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10)), [])
 
     def test_unknown_keys_are_ignored(self):
         keys = iter("zzq")
@@ -103,7 +136,9 @@ class KeyboardTests(unittest.TestCase):
             code = record_episode.main(["--fake", "--out", str(out)], read=lambda _p: "go", getch=lambda: next(keys),
                                        encode=encode)
             self.assertEqual(code, 0)
-            self.assertEqual(len((out / "steps.jsonl").read_text(encoding="utf-8").splitlines()), 1)
+            self.assertEqual(json.loads((out / "meta.json").read_text(encoding="utf-8"))["source"], "simulated")
+            lines = (out / "steps.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 2)         # the step row, then its outcome
 
 
 if __name__ == "__main__":
