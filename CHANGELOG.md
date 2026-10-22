@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (branch arm-latency, 2026-10-22)
+
+- `examples/arm_latency.py`: times `where`, `move_by` and the gripper through the arm server (calls per second). Not yet run on the arm.
+
 ## Unreleased (branch release-cleanup, 2026-10-22)
 
 - README rewritten around the arm API (`scorbot.bridge.Arm`); the old text is `docs/STACK2_SDK.md`.
