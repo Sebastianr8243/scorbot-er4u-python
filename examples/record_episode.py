@@ -31,16 +31,23 @@ from scorbot.camera.source import FakeSource
 KEYS = {"d": ("dx", 1), "a": ("dx", -1), "w": ("dy", 1), "s": ("dy", -1), "r": ("dz", 1), "f": ("dz", -1)}
 
 
+def _next_key(getch):
+    """The next key, lowercased, or "" for a special key. Windows sends arrows, Insert, Delete and End as a prefix
+    plus a scan code that can look like a letter, so both characters are consumed."""
+    key = getch().lower()
+    if key in ("\x00", "\xe0"):
+        getch()
+        return ""
+    return key
+
+
 def keyboard_commands(getch, step_mm, pending=lambda: False):
     """Commands from key presses until q. getch() returns one character; pending() says whether more are waiting.
 
     Keys pressed while a step was running (a held key repeats during the blocking move) are thrown away, so
     letting go stops the arm. A q among them still ends the episode, after the current step."""
     while True:
-        key = getch().lower()
-        if key in ("\x00", "\xe0"):       # Windows sends arrows, Insert, Delete, End as a prefix plus a scan code
-            getch()
-            continue
+        key = _next_key(getch)
         if key == "q":
             return
         if key in KEYS:
@@ -56,10 +63,7 @@ def keyboard_commands(getch, step_mm, pending=lambda: False):
             continue
         yield command
         while pending():
-            queued = getch().lower()
-            if queued in ("\x00", "\xe0"):
-                getch()
-            elif queued == "q":         # a quit pressed during the step still ends the episode
+            if _next_key(getch) == "q":         # a quit pressed during the step still ends the episode
                 return
 
 
@@ -67,11 +71,12 @@ def _write_json(path, data):
     path.write_text(json.dumps(data, indent=2, allow_nan=False), encoding="utf-8")
 
 
-def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality=90, clock=time.monotonic,
-           source="real"):
+def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality=90, clock=time.monotonic):
     """Run each command and log a row per step; cameras is {name: opened FrameSource}. Returns the row count.
 
-    A camera or arm failure stops the episode after the rows already written (meta.json says ended_early)."""
+    A camera or arm failure stops the episode after the rows already written (meta.json says ended_early).
+    meta.json's source is "simulated" for a FakeArm and "real" for anything else, never a caller's choice."""
+    source = "simulated" if isinstance(arm, FakeArm) else "real"
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=False)       # evidence is never overwritten
     for name in cameras:
@@ -83,16 +88,17 @@ def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality
     try:
         with open(out_dir / "steps.jsonl", "x", encoding="utf-8") as log:
             for step, command in enumerate(commands):
-                frames, seen = {}, []
-                for name, source in cameras.items():
-                    ok, image = source.read()
+                images, seen = {}, []
+                for name, cam in cameras.items():       # both reads first so encoding one frame never delays the other
+                    ok, images[name] = cam.read()
                     seen.append(clock())
                     if not ok:
                         raise RuntimeError(f"camera {name} returned no frame at step {step}")
-                    frames[name] = f"{name}/{step:06d}.jpg"
-                    (out_dir / frames[name]).write_bytes(encode(image, quality))
                 here = arm.where()
                 read_at = clock()
+                frames = {name: f"{name}/{step:06d}.jpg" for name in images}
+                for name, image in images.items():
+                    (out_dir / frames[name]).write_bytes(encode(image, quality))
                 row = {"step": step, "t_s": round(read_at - start, 4), "frames": frames,
                        "frame_skew_s": round(max(seen) - min(seen), 4), "state_lag_s": round(read_at - min(seen), 4),
                        "state": {"x": here.x, "y": here.y, "z": here.z, "pitch": here.pitch, "roll": here.roll,
@@ -166,11 +172,11 @@ def main(argv=None, read=input, getch=_getch, encode=encode_jpeg, pending=_pendi
         fake_arm = None
     opened = []
     try:
-        for source in cameras.values():
-            source.open()
-            opened.append(source)
+        for cam in cameras.values():
+            cam.open()
+            opened.append(cam)
         if fake_arm is not None:
-            return _run(fake_arm, cameras, args, out, getch, encode, pending, "simulated")
+            return _run(fake_arm, cameras, args, out, getch, encode, pending)
         with Arm(port=args.port) as arm:
             arm.speed(args.speed)
             return _run(arm, cameras, args, out, getch, encode, pending)
@@ -178,13 +184,13 @@ def main(argv=None, read=input, getch=_getch, encode=encode_jpeg, pending=_pendi
         print(f"stopped: {error}")
         return 1
     finally:
-        for source in opened:
-            source.close()
+        for cam in opened:
+            cam.close()
 
 
-def _run(arm, cameras, args, out, getch, encode, pending, source="real"):
+def _run(arm, cameras, args, out, getch, encode, pending):
     print("keys: d/a x, w/s y, r/f z, o open, c close, space look, q end")
-    steps = record(arm, cameras, keyboard_commands(getch, args.step_mm, pending), out, args.task, encode, source=source)
+    steps = record(arm, cameras, keyboard_commands(getch, args.step_mm, pending), out, args.task, encode)
     print(f"{steps} steps in {out}")
     return 0
 

@@ -14,6 +14,16 @@ def sources():
     return {"top": FakeSource(), "wrist": FakeSource()}
 
 
+def queued(count):
+    """A pending() that says True for the first `count` calls: keys that piled up during a move."""
+    left = [count]
+
+    def pending():
+        left[0], was = max(left[0] - 1, 0), left[0] > 0
+        return was
+    return pending
+
+
 def encode(image, quality):
     return b"jpg%d" % quality
 
@@ -23,6 +33,9 @@ class RecordTests(unittest.TestCase):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.out = Path(self.dir.name) / "ep"
+
+    def meta(self):
+        return json.loads((self.out / "meta.json").read_text(encoding="utf-8"))
 
     def lines(self):
         text = (self.out / "steps.jsonl").read_text(encoding="utf-8")
@@ -54,7 +67,7 @@ class RecordTests(unittest.TestCase):
             self.assertEqual((self.out / path).read_bytes(), b"jpg90")
             self.assertTrue(path.startswith(name + "/"))
         self.assertEqual((arm.x, arm.y, arm.z), (310.0, 0.0, 195.0))
-        meta = json.loads((self.out / "meta.json").read_text(encoding="utf-8"))
+        meta = self.meta()
         self.assertEqual((meta["task"], meta["cameras"], meta["steps"]), ("reach", ["top", "wrist"], 4))
 
     def test_time_and_skew_are_logged(self):
@@ -76,7 +89,7 @@ class RecordTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             record_episode.record(bridge.FakeArm(), cameras, [{}] * 5, self.out, encode=encode)
         self.assertEqual(len(self.rows()), 2)
-        self.assertTrue(json.loads((self.out / "meta.json").read_text(encoding="utf-8"))["ended_early"])
+        self.assertTrue(self.meta()["ended_early"])
 
     def test_an_arm_refusal_is_logged_on_its_row_and_stops_the_episode(self):
         class Refusing(bridge.FakeArm):
@@ -121,11 +134,17 @@ class RecordTests(unittest.TestCase):
             record_episode.record(Interrupted(), sources(), [{"dx": 5}], self.out, encode=encode)
         self.assertEqual(seen["rows_before_motion"], 1)
         self.assertEqual(self.outcomes()[0]["outcome"], "interrupted")
-        self.assertEqual(json.loads((self.out / "meta.json").read_text(encoding="utf-8"))["steps"], 1)
+        self.assertEqual(self.meta()["steps"], 1)
 
     def test_the_source_is_saved_so_rehearsals_cannot_pass_for_hardware(self):
-        record_episode.record(bridge.FakeArm(), sources(), [{}], self.out, encode=encode, source="simulated")
-        self.assertEqual(json.loads((self.out / "meta.json").read_text(encoding="utf-8"))["source"], "simulated")
+        class Duck:         # anything that is not a FakeArm is taken for the real thing
+            def where(self):
+                return bridge.Position(0, 0, 0)
+
+        record_episode.record(bridge.FakeArm(), sources(), [{}], self.out, encode=encode)
+        record_episode.record(Duck(), sources(), [{}], self.out.parent / "real", encode=encode)
+        self.assertEqual(self.meta()["source"], "simulated")
+        self.assertEqual(json.loads((self.out.parent / "real" / "meta.json").read_text(encoding="utf-8"))["source"], "real")
 
 
 class KeyboardTests(unittest.TestCase):
@@ -141,35 +160,18 @@ class KeyboardTests(unittest.TestCase):
         self.assertEqual(list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10)), [])
 
     def test_keys_queued_while_a_move_ran_are_thrown_away(self):
-        keys, queued = iter("ddddq"), [3]       # three more d presses piled up during the first move
-
-        def pending():
-            queued[0], was = max(queued[0] - 1, 0), queued[0] > 0
-            return was
-
-        commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=pending))
+        keys = iter("ddddq")                    # three more d presses piled up during the first move
+        commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=queued(3)))
         self.assertEqual(commands, [{"dx": 10}])
 
     def test_a_quit_pressed_during_a_move_still_ends_the_episode(self):
-        keys, queued = iter("ddqdd"), [4]       # d d q d pressed while the first move ran
-
-        def pending():
-            queued[0], was = max(queued[0] - 1, 0), queued[0] > 0
-            return was
-
-        commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=pending))
+        keys = iter("ddqdd")                    # d d q d pressed while the first move ran
+        commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=queued(4)))
         self.assertEqual(commands, [{"dx": 10}])        # nothing after the q ran
 
     def test_an_extended_key_queued_during_a_move_does_not_pose_as_quit(self):
-        keys, queued = iter(["d", "\xe0", "q", "q"]), [2]       # a special key whose scan code is q, then a real q
-        pending_calls = []
-
-        def pending():
-            pending_calls.append(1)
-            queued[0], was = max(queued[0] - 1, 0), queued[0] > 0
-            return was
-
-        commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=pending))
+        keys = iter(["d", "\xe0", "q", "q"])    # a special key whose scan code is q, then a real q
+        commands = list(record_episode.keyboard_commands(lambda: next(keys), step_mm=10, pending=queued(2)))
         self.assertEqual(commands, [{"dx": 10}])
         self.assertEqual(next(keys, None), None)        # both q-looking characters were consumed
 

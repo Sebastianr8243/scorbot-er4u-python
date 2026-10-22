@@ -2,7 +2,7 @@
 
 ## Unreleased (branch episode-recorder, 2026-10-22)
 
-- `examples/record_episode.py`: key-driven teleoperation that logs two cameras, the arm state and each command to `episodes/<time>/` as plain files (`--fake` rehearses with no hardware). Each step's row is written before the arm moves, then an outcome line (ok, refused, failed, interrupted); keys pressed during a move are discarded except q, which still ends the episode; `meta.json` records `source` (real or simulated) and `--fake` writes under `rehearsal/`; Windows special keys (Insert, Delete, End) no longer become commands. Not yet run on the arm or with real cameras. Nothing in the repo reads the episodes yet; a converter to a training format comes after the format is checked against the real library.
+- `examples/record_episode.py`: key-driven teleoperation that logs two cameras, the arm state and each command to `episodes/<time>/` as plain files; `--fake` rehearses with no hardware under `rehearsal/`. Details in its docstring. Not yet run on the arm or with real cameras; nothing reads the episodes yet.
 
 ## Unreleased (branch box-check, 2026-10-22)
 
