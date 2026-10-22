@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (branch episode-recorder, 2026-10-22)
+
+- `examples/record_episode.py`: key-driven teleoperation that logs two cameras, the arm state and each command to `episodes/<time>/` as plain files (`--fake` rehearses with no hardware). Not yet run on the arm or with real cameras. Nothing in the repo reads the episodes yet; a converter to a training format comes after the format is checked against the real library.
+
 ## Unreleased (branch box-check, 2026-10-22)
 
 - `usbc_server`: with a box that `arm_characterise.py` measured (`"measured": true` in `calibration/arm.json`), `move_by` is refused when the step ends further outside the box than it starts (a step back toward the box is allowed). No box, or a box grown only by `teach`: the 50 mm cap only, so teach-then-characterise still works. Tested against the fake DLL only; not run on the arm.

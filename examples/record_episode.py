@@ -1,0 +1,162 @@
+"""Record one teleoperated episode for imitation learning: two cameras, the arm's state and the command you gave.
+
+Needs tools/usbc_server running and homed, and two cameras (`pip install .[camera]`). It moves the arm with the
+keys below, one `move_by` per key press, so keep a hand near the red stop. It asks you to type "go" first.
+Rehearse with no hardware: `python examples/record_episode.py --fake`.
+
+    python examples/record_episode.py --task "pick the block" --step-mm 10
+
+Keys: d/a = x +/-, w/s = y +/-, r/f = z +/-, o = open gripper, c = close, space = look without moving, q = end.
+Each step reads both cameras, then the arm, then runs your command. One folder per episode (never overwritten):
+    meta.json     task, cameras, units, step count, ended_early
+    steps.jsonl   one row per step: state (before the command), action (the command), frame paths, timestamps
+    <camera>/000000.jpg ...
+Rate is whatever the arm gives (a blocking move per step), not a fixed Hz: use t_s. state.gripper is the last
+commanded one (the server cannot read it). Camera frames are stamped at read-return time and may be a few frames old.
+Convert to a training format later; this keeps plain files and adds no dependency.
+"""
+
+import argparse
+import json
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+from scorbot.bridge import Arm, ArmError, FakeArm
+from scorbot.camera.recorder import encode_jpeg
+from scorbot.camera.source import FakeSource
+
+KEYS = {"d": ("dx", 1), "a": ("dx", -1), "w": ("dy", 1), "s": ("dy", -1), "r": ("dz", 1), "f": ("dz", -1)}
+
+
+def keyboard_commands(getch, step_mm):
+    """Commands from key presses until q. getch() returns one character."""
+    while True:
+        key = getch().lower()
+        if key == "q":
+            return
+        if key in KEYS:
+            axis, sign = KEYS[key]
+            yield {axis: sign * step_mm}
+        elif key == "o":
+            yield {"gripper": True}
+        elif key == "c":
+            yield {"gripper": False}
+        elif key == " ":
+            yield {}
+
+
+def _write_json(path, data):
+    path.write_text(json.dumps(data, indent=2, allow_nan=False), encoding="utf-8")
+
+
+def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality=90, clock=time.monotonic):
+    """Run each command and log a row per step; cameras is {name: opened FrameSource}. Returns the row count.
+
+    A camera or arm failure stops the episode after the rows already written (meta.json says ended_early)."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=False)       # evidence is never overwritten
+    for name in cameras:
+        (out_dir / name).mkdir()
+    meta = {"task": task, "cameras": list(cameras), "units": {"x,y,z,dx,dy,dz": "mm", "pitch,roll": "DLL units"},
+            "started": datetime.now().isoformat(timespec="seconds"), "steps": 0, "ended_early": True}
+    _write_json(out_dir / "meta.json", meta)
+    gripper, start, steps = None, clock(), 0
+    try:
+        with open(out_dir / "steps.jsonl", "x", encoding="utf-8") as log:
+            for step, command in enumerate(commands):
+                frames, seen = {}, []
+                for name, source in cameras.items():
+                    ok, image = source.read()
+                    seen.append(clock())
+                    if not ok:
+                        raise RuntimeError(f"camera {name} returned no frame at step {step}")
+                    frames[name] = f"{name}/{step:06d}.jpg"
+                    (out_dir / frames[name]).write_bytes(encode(image, quality))
+                here = arm.where()
+                read_at = clock()
+                row = {"step": step, "t_s": round(read_at - start, 4), "frames": frames,
+                       "frame_skew_s": round(max(seen) - min(seen), 4), "state_lag_s": round(read_at - min(seen), 4),
+                       "state": {"x": here.x, "y": here.y, "z": here.z, "pitch": here.pitch, "roll": here.roll,
+                                 "encoder": here.encoder, "joint": here.joint, "gripper": gripper}}
+                delta = {axis: command.get(axis, 0) for axis in ("dx", "dy", "dz")}
+                wanted = command.get("gripper")
+                row["action"] = {**delta, "gripper": None if wanted is None else ("open" if wanted else "close")}
+                try:
+                    if any(delta.values()):
+                        arm.move_by(**delta)
+                    if wanted is not None:
+                        arm.gripper(open=wanted)
+                        gripper = "open" if wanted else "closed"
+                except ArmError as error:
+                    row["error"] = str(error)
+                    log.write(json.dumps(row, allow_nan=False) + "\n")
+                    steps += 1
+                    raise
+                row["act_s"] = round(clock() - read_at, 4)
+                log.write(json.dumps(row, allow_nan=False) + "\n")
+                log.flush()
+                steps += 1
+            meta["ended_early"] = False
+    finally:
+        meta["steps"] = steps
+        _write_json(out_dir / "meta.json", meta)
+    return steps
+
+
+def _getch():
+    import msvcrt
+    return msvcrt.getwch()
+
+
+def main(argv=None, read=input, getch=_getch, encode=encode_jpeg):
+    parser = argparse.ArgumentParser(description="Record a teleoperated episode: two cameras, arm state, your command")
+    parser.add_argument("--out", help="episode folder (default episodes/<time>)")
+    parser.add_argument("--task", default="")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--speed", type=int, default=20, help="percent of top speed, 1 to 100")
+    parser.add_argument("--step-mm", type=float, default=10.0, help="distance per key press, at most 50")
+    parser.add_argument("--cameras", type=int, nargs=2, default=[0, 1], metavar=("TOP", "WRIST"), help="OpenCV indexes")
+    parser.add_argument("--fake", action="store_true", help="FakeArm and fake cameras: no hardware")
+    args = parser.parse_args(argv)
+    if not 0 < args.step_mm <= 50:
+        parser.error("--step-mm must be above 0 and at most 50 (the server's step limit)")
+    warning = "Rehearsal with no hardware." if args.fake else "The arm will move on every key press. Hand on the red stop."
+    if read(f"{warning} Type go: ") != "go":
+        print("not started")
+        return 1
+    out = Path(args.out or Path("episodes") / f"{datetime.now():%Y%m%d-%H%M%S}")
+    if args.fake:
+        cameras, fake_arm = {"top": FakeSource(), "wrist": FakeSource()}, FakeArm()
+    else:
+        from scorbot.camera.source import OpenCVSource
+        cameras = {name: OpenCVSource(index) for name, index in zip(("top", "wrist"), args.cameras)}
+        fake_arm = None
+    opened = []
+    try:
+        for source in cameras.values():
+            source.open()
+            opened.append(source)
+        if fake_arm is not None:
+            return _run(fake_arm, cameras, args, out, getch, encode)
+        with Arm(port=args.port) as arm:
+            arm.speed(args.speed)
+            return _run(arm, cameras, args, out, getch, encode)
+    except (ArmError, RuntimeError) as error:
+        print(f"stopped: {error}")
+        return 1
+    finally:
+        for source in opened:
+            source.close()
+
+
+def _run(arm, cameras, args, out, getch, encode):
+    print("keys: d/a x, w/s y, r/f z, o open, c close, space look, q end")
+    steps = record(arm, cameras, keyboard_commands(getch, args.step_mm), out, args.task, encode)
+    print(f"{steps} steps in {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
