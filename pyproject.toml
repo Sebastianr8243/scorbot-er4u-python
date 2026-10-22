@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "scorbot-er4u"
 version = "0.1.0"
-description = "Python adapter for the original ScorBot ER-4U USB controller"
+description = "Python API for the Intelitek ScorBot ER-4U arm (vendor-DLL path), plus an experimental own-USB-protocol SDK"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
