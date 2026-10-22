@@ -25,7 +25,7 @@ with Arm() as arm:                     # connects to 127.0.0.1:8765
 | `where()` | Returns a `Position` | |
 | `home()` | Vendor Home (about 135 s on the lab arm). Closes the gripper and moves the wrist | |
 | `speed(percent)` | Whole number, 1 to 100 | outside 1 to 100 |
-| `move_by(dx=0, dy=0, dz=0)` | Relative move in mm | any axis above 50 mm, a non-finite value, or (once `calibration/arm.json` exists) a step that ends further outside the box than it starts |
+| `move_by(dx=0, dy=0, dz=0)` | Relative move in mm | any axis above 50 mm, a non-finite value, or (once `arm_characterise.py` has measured the box in `calibration/arm.json`) a step that ends further outside the box than it starts |
 | `move_to(x, y, z, pitch=None, roll=None)` | Absolute move in mm | no Home in this session, no box file, or a target outside the box (never clipped) |
 | `gripper(open)` | `open=True` or `False` | emergency stop active |
 | `stop()` | Asks the server to Stop. Safe from another thread during a move | |

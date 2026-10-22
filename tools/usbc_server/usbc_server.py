@@ -15,7 +15,7 @@ Protocol: one JSON object per line, each with an "op" and an optional "id" that 
 Distances are mm (sent to Teach as micrometres, the decided unit). pitch and roll are passed through in the DLL's
 own units. Every reply after a DLL call carries the encoder, joint and xyz arrays. move_to is refused until this
 session has homed and when the target is outside the box in --box (calibration/arm.json): no absolute move before
-the frame is measured. With a box file, move_by is refused when it would end further outside the box than it starts. A "stop" line during a move calls Stop. --online energises the motors and moves the arm;
+the frame is measured. With a measured box file, move_by is refused when it would end further outside the box than it starts. A "stop" line during a move calls Stop. --online energises the motors and moves the arm;
 Stop here is not an emergency stop, the physical stop is. The log goes to logs\\ unless --output names a file.
 """
 
@@ -145,6 +145,12 @@ def load_box(path):
         raise Refused(f"{path} is not a valid box file: {error!r}") from None
 
 
+def _measured(path):
+    """Whether arm_characterise.py measured the box in this file (load_box has already read it successfully)."""
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle).get("measured") is True
+
+
 class Server:
     def __init__(self, dll, log, console, state, box_path, homed):
         self.dll, self.log, self.console, self.state = dll, log, console, state
@@ -216,7 +222,7 @@ class Server:
     def _check_box_for_step(self, delta):
         """With a box file, a step may not end further outside it than it starts (no box file: the step cap only)."""
         box = load_box(self.box_path)
-        if box is None:
+        if box is None or not _measured(self.box_path):     # taught points alone are not a measured box
             return
         now = jog.call(self.dll.position, self.state)
         if not now["ok"]:
@@ -229,7 +235,7 @@ class Server:
                 outside.append(axis)
         if outside:
             raise Refused(f"step ends outside the box on {', '.join(outside)}: at {[u / UM_PER_MM for u in now['xyz'][:3]]} mm, "
-                          f"step {delta} mm, box {box}")
+                          f"step {delta} mm, box {box} (to measure elsewhere, delete {self.box_path})")
 
     def _move_to(self, command):
         if not self.homed:

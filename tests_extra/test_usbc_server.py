@@ -172,6 +172,7 @@ class ServerTests(unittest.TestCase):
         lib = FakeLib()
         lib.xyz = [390000, 0, 200000, -63000, 0]        # 10 mm from the x = 400 wall
         running = self.start(lib, box=BOX)
+        running.box.write_text(json.dumps({"box_mm": BOX, "measured": True}), encoding="utf-8")
         with running.arm() as arm:
             with self.assertRaisesRegex(bridge.ArmError, "outside the box on x"):
                 arm.move_by(dx=20)
@@ -184,6 +185,7 @@ class ServerTests(unittest.TestCase):
         lib = FakeLib()
         lib.xyz = [410000, 0, 200000, -63000, 0]        # 10 mm past the x = 400 wall
         running = self.start(lib, box=BOX)
+        running.box.write_text(json.dumps({"box_mm": BOX, "measured": True}), encoding="utf-8")
         with running.arm() as arm:
             with self.assertRaisesRegex(bridge.ArmError, "outside the box on x"):
                 arm.move_by(dx=5)
@@ -191,8 +193,18 @@ class ServerTests(unittest.TestCase):
             arm.quit()
         self.assertEqual(len(lib.calls("Teach")), 1)
 
+    def test_move_by_ignores_a_box_that_only_teach_grew(self):
+        lib = FakeLib()
+        lib.xyz = [300000, 0, 200000, -63000, 0]
+        running = self.start(lib)
+        running.box.write_text(json.dumps({"box_mm": {"x": [300, 300], "y": [0, 0], "z": [200, 200]}}), encoding="utf-8")
+        with running.arm() as arm:
+            arm.move_by(dx=10)          # a one-point box must not block the teach-then-characterise sequence
+            arm.quit()
+        self.assertEqual(len(lib.calls("Teach")), 1)
+
     def test_move_by_with_a_broken_box_file_is_refused(self):
-        running = self.start(box=BOX)
+        running = self.start()
         running.box.write_text("{", encoding="utf-8")
         with running.arm() as arm:
             with self.assertRaisesRegex(bridge.ArmError, "not a valid box file"):
