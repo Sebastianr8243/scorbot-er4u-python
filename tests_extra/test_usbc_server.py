@@ -168,6 +168,38 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(flag, move.ABSOLUTE_FLAG)
         self.assertEqual(list(array.contents), [310000, 20000, 100000, -63000, 0])   # pitch and roll kept
 
+    def test_move_by_stays_inside_the_box_when_there_is_one(self):
+        lib = FakeLib()
+        lib.xyz = [390000, 0, 200000, -63000, 0]        # 10 mm from the x = 400 wall
+        running = self.start(lib, box=BOX)
+        with running.arm() as arm:
+            with self.assertRaisesRegex(bridge.ArmError, "outside the box on x"):
+                arm.move_by(dx=20)
+            self.assertEqual(lib.calls("Teach"), [])
+            arm.move_by(dx=10, dy=-5)                   # onto the wall is still inside
+            arm.quit()
+        self.assertEqual(len(lib.calls("Teach")), 1)
+
+    def test_move_by_from_outside_the_box_may_only_go_back_toward_it(self):
+        lib = FakeLib()
+        lib.xyz = [410000, 0, 200000, -63000, 0]        # 10 mm past the x = 400 wall
+        running = self.start(lib, box=BOX)
+        with running.arm() as arm:
+            with self.assertRaisesRegex(bridge.ArmError, "outside the box on x"):
+                arm.move_by(dx=5)
+            arm.move_by(dx=-5)
+            arm.quit()
+        self.assertEqual(len(lib.calls("Teach")), 1)
+
+    def test_move_by_with_a_broken_box_file_is_refused(self):
+        running = self.start(box=BOX)
+        running.box.write_text("{", encoding="utf-8")
+        with running.arm() as arm:
+            with self.assertRaisesRegex(bridge.ArmError, "not a valid box file"):
+                arm.move_by(dx=1)
+            arm.quit()
+        self.assertEqual(running.lib.calls("Teach"), [])
+
     def test_move_to_without_a_box_file_is_refused(self):
         running = self.start()
         with running.arm() as arm:

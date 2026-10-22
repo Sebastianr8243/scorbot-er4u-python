@@ -128,7 +128,7 @@ class Arm:
         self.send("speed", percent=percent)
 
     def move_by(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> Position:
-        """Relative move in mm; the server refuses more than 50 mm on any axis."""
+        """Relative move in mm; the server refuses more than 50 mm on any axis, or a step that leaves the measured box."""
         return self._position("move_by", dx=dx, dy=dy, dz=dz)
 
     def move_to(self, x: float, y: float, z: float, pitch: int | None = None, roll: int | None = None) -> Position:

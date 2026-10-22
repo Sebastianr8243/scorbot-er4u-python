@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (branch box-check, 2026-10-22)
+
+- `usbc_server`: with a box file, `move_by` is refused when the step ends further outside the box than it starts (a step back toward the box is allowed). No box file: the 50 mm cap only, as before. Tested against the fake DLL only; not run on the arm.
+
 ## Unreleased (branch arm-latency, 2026-10-22)
 
 - `examples/arm_latency.py`: times `where`, `move_by` and the gripper through the arm server (calls per second). Not yet run on the arm.
