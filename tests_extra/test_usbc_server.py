@@ -139,6 +139,28 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(len(running.lib.calls("MoveJoint")), 2)
         self.assertAlmostEqual(position.x, 300.0)       # the fake's xyz, read after the move
 
+    def test_move_and_gripper_replies_say_where_the_time_went(self):
+        running = self.start()
+        with running.arm() as arm:
+            moved = arm.move_by(dx=5)
+            grip = arm.send("gripper", open=False)
+            where = arm.send("where")
+            arm.quit()
+        self.assertEqual(set(moved.timing), {"read", "define", "teach", "move", "settle"})
+        self.assertEqual(set(grip["timing_s"]), {"call", "settle"})
+        self.assertNotIn("timing_s", where)         # a plain read carries none
+        for seconds in [*moved.timing.values(), *grip["timing_s"].values()]:
+            self.assertGreaterEqual(seconds, 0)
+        self.assertGreater(moved.timing["settle"], 0)       # settle sleeps SETTLE_S between reads
+
+    def test_a_second_move_does_not_define_the_vector_and_says_so(self):
+        running = self.start()
+        with running.arm() as arm:
+            arm.move_by(dx=1)
+            second = arm.move_by(dx=1)
+            arm.quit()
+        self.assertEqual(second.timing["define"], 0.0)
+
     def test_bad_steps_are_refused_without_a_dll_call(self):
         running = self.start()
         with running.arm() as arm:

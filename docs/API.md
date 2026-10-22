@@ -36,6 +36,8 @@ with Arm() as arm:                     # connects to 127.0.0.1:8765
 
 Moves and gripper calls return a `Position`: `x`, `y`, `z` in mm, `pitch`, `roll`, plus the raw `encoder`, `joint` and `xyz` arrays.
 
+A move's `Position` also has `timing`, a dict of seconds the server spent per step: `read`, `define`, `teach`, `move`, `settle` (`define` is 0 after the first move of a session); a gripper call has `call` and `settle`. `where()` leaves it empty. `examples/arm_latency.py` prints the median per step.
+
 ## Errors
 
 Every refusal or failed DLL call raises `ArmError`; `error.reply` holds the server's whole answer. `Arm()` raises it too if no server is listening. Ctrl+C during a move calls `stop()` before re-raising, and a client that disconnects mid-move gets the arm stopped. A client that disconnects otherwise leaves the homed session for the next one.

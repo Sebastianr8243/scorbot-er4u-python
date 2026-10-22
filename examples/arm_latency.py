@@ -25,8 +25,12 @@ SIZES_MM = (2, 5, 10, 20)
 
 def timed(kind, call, clock=time.monotonic):
     started = clock()
-    call()
-    return {"kind": kind, "seconds": round(clock() - started, 4)}
+    result = call()
+    row = {"kind": kind, "seconds": round(clock() - started, 4)}
+    steps = getattr(result, "timing", None)         # the server's own split of this call, when it sent one
+    if steps:
+        row["steps"] = steps
+    return row
 
 
 def run(arm, log, speed=20, pairs=5, sizes=SIZES_MM, reads=20, clock=time.monotonic):
@@ -51,13 +55,17 @@ def run(arm, log, speed=20, pairs=5, sizes=SIZES_MM, reads=20, clock=time.monoto
 
 
 def summary(rows):
-    """{kind: {n, median_s, worst_s, per_second}}; per_second is 1 / median."""
+    """{kind: {n, median_s, worst_s, per_second[, steps]}}; per_second is 1 / median, steps the median seconds per server step."""
     result = {}
     for kind in dict.fromkeys(row["kind"] for row in rows):
         seconds = [row["seconds"] for row in rows if row["kind"] == kind]
         median = statistics.median(seconds)
         result[kind] = {"n": len(seconds), "median_s": median, "worst_s": max(seconds),
                         "per_second": round(1 / median, 2) if median > 0 else None}
+        split = [row["steps"] for row in rows if row["kind"] == kind and "steps" in row]
+        if split:
+            result[kind]["steps"] = {step: statistics.median(one.get(step, 0) for one in split)
+                                     for step in dict.fromkeys(step for one in split for step in one)}
     return result
 
 
@@ -86,6 +94,8 @@ def main(argv=None, read=input):
     for kind, stats in summary(rows).items():
         print(f"{kind:>14}  n={stats['n']:<3} median {stats['median_s']:.3f} s  worst {stats['worst_s']:.3f} s  "
               f"{stats['per_second']} per second")
+        if "steps" in stats:
+            print(f"{'':>14}  server steps (median s): " + "  ".join(f"{k} {v:.3f}" for k, v in stats["steps"].items()))
     print(f"log: {path}")
     return 0
 

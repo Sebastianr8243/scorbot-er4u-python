@@ -49,6 +49,7 @@ class Position:
     encoder: list = field(default_factory=list)
     joint: list = field(default_factory=list)
     xyz: list = field(default_factory=list)
+    timing: dict = field(default_factory=dict)      # seconds the server spent per step of a move or gripper call
 
     @classmethod
     def from_reply(cls, reply: dict) -> Position | None:
@@ -57,7 +58,8 @@ class Position:
         if not xyz:
             return None
         x, y, z = (value / XYZ_UNITS_PER_MM for value in xyz[:3])
-        return cls(x, y, z, xyz[3], xyz[4], reply.get("encoder", []), reply.get("joint", []), xyz)
+        return cls(x, y, z, xyz[3], xyz[4], reply.get("encoder", []), reply.get("joint", []), xyz,
+                   reply.get("timing_s", {}))
 
 
 class Arm:
