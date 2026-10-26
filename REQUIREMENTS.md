@@ -1,5 +1,5 @@
 # Requirements
-Status: draft 2026-10-20 (plan approved by Sebastian; baseline pending his yes)
+Status: baseline approved by Sebastian 2026-10-26 (draft written 2026-10-20)
 
 ## Goal
 A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, use to move the ER-4U through the vendor DLL session in `tools/usbc_server`. Every claim about where the arm goes is checked against something other than the code: a grid mat, raw encoder counts, SCORBASE.
@@ -17,7 +17,6 @@ A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, us
 | A08 | SHALL NOT | Moves or gripper calls are sent while the emergency stop is active | test: `test_usbc_server.py::ServerTests::test_the_emergency_stop_refuses_moves` |
 | A09 | SHALL | The characterisation reports the DLL xyz scale per axis, repeatability spread and 3x3 grid error, and records mat readings | test: `tests/test_arm_api.py::CharacteriseTests`; observable: run `examples/arm_characterise.py` on the arm, report in `calibration/` |
 | A10 | SHALL | The scripted pick-and-place records success and mat error per run over 10 runs | test: `tests/test_arm_api.py::PickPlaceTests`; observable: `examples/pick_place.py --runs 10` on the arm |
-
 | W01 | SHALL | `wrist_by` sends a relative Teach of `[0, 0, 0, dpitch, droll]` in whole DLL units and MoveJoint once; x, y, z are not touched | test: `tests/test_usbc_server.py::ServerTests::test_wrist_by_teaches_pitch_and_roll`; desk run against `tools/usbc_fake` (2026-10-25): +200 pitch gave m1 -5, m2 +5 counts and no change in x, y, z |
 | W02 | SHALL NOT | A wrist step above 10000 units on an axis, one that rounds to zero, or a non-finite or non-number value reaches the DLL | test: `test_usbc_server.py::ServerTests::test_bad_wrist_steps_are_refused` |
 | W03 | SHALL NOT | `examples/teleop.py` sends an x, y, z step above 20 mm or a wrist step above 5000 units, or moves the arm before a typed `go`; the wrist keys do nothing unless `--wrist-step` is above zero | test: `tests/test_teleop.py::MainTests::test_step_cap`, `::test_wrist_step_cap`, `::test_needs_go`, `DriveTests::test_wrist_keys_need_a_wrist_step` |
@@ -43,6 +42,7 @@ Not built. Each needs numbers from the arm ([docs/PLAN.md](docs/PLAN.md), [docs/
 - Does a second DefineVector in one session fail? The server defines once per session, and Teach then overwrites point 1 fine (desk run on the fake controller, 2026-10-20).
 
 ## Change log
+- 2026-10-26 baseline approved by Sebastian; blank line removed so the W01 to W03 rows render in the table.
 - 2026-10-25 wrist_by added (W01 to W03): relative pitch and roll steps, tested on the fake library and end to end on the vendor DLL against the fake controller; joint jog and hold-to-move listed as planned.
 - 2026-10-20 draft written from the approved plan (`arm side — a measured Python API`).
 - 2026-10-20 desk run: the lab USBC.dll build against `tools/usbc_fake` ran Home, move_by twice, gripper close and open, Speed, move_to (refused without a box, then run), reconnect and quit with Control off; no refusals from the DLL.
