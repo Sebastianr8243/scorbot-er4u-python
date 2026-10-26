@@ -1,6 +1,6 @@
 # Project status
 
-**As of 2026-10-25, `main`.** One page: what works, how well we know it, what is in the way. Update this page whenever a result changes a row.
+**As of 2026-10-26, `main`.** One page: what works, how well we know it, what is in the way. Update this page whenever a result changes a row.
 
 **Goal:** Python control of the Intelitek ScorBot ER-4U through its original controller: home, move to points, grip, and later camera-driven tasks.
 
@@ -51,6 +51,5 @@ Steps and commands: [`lab/RUN_THE_ARM.md`](lab/RUN_THE_ARM.md), "Python API".
 
 | Item | Needed before |
 |---|---|
-| Baseline [`REQUIREMENTS.md`](../REQUIREMENTS.md) (draft, waiting for Sebastian's yes) | The lab run |
 | Lab date | Planning |
 | Check on the arm: joint directions, the wrist unit (probably 0.001 degree), latency, coasting after a stop | Joint jog and hold-to-move (see [`PLAN.md`](PLAN.md)) |

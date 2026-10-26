@@ -48,8 +48,8 @@ No decoded state byte is known to show motor power, so if the controller turns t
 | Axis 3, elbow | ±130° | Upper bound |
 | Axis 4, wrist pitch | ±130° | Upper bound |
 | Axis 5, wrist roll | unlimited mechanically, ±570° electrically | Upper bound |
-| Maximum operating radius | 610 mm (top-view envelope) | Rough sanity check for `scorbot.kinematics`; the manual does not say which point it is measured to |
-| Heights (side view, p. 6) | base bottom to shoulder axis 364 mm; base pedestal 190 mm | `nominal.SHOULDER_AXIS_HEIGHT_MM`, `BASE_PEDESTAL_HEIGHT_MM` |
+| Maximum operating radius | 610 mm (top-view envelope) | Rough sanity check for a reach limit (`scorbot.kinematics` on the `stack2` branch); the manual does not say which point it is measured to |
+| Heights (side view, p. 6) | base bottom to shoulder axis 364 mm; base pedestal 190 mm | `nominal.SHOULDER_AXIS_HEIGHT_MM`, `BASE_PEDESTAL_HEIGHT_MM` (`stack2` branch) |
 | Gear ratios | motors 1-3: 127.1:1 in the specification table (p. 4) but 127.7:1 for S309/S310 in the parts list (p. 28), unresolved; motors 4-5: 65.5:1; gripper: 19.5:1 | Prior for counts per degree (arm axes only: 65.5:1 is the wrist *motor* gearbox, the differential ratio is not given). Measuring counts per degree directly makes the conflict moot |
 | Transmission | gears, timing belts, lead screw | The 4pc manual (p. 16) has base and shoulder gear-driven, elbow on timing belts, wrist on belts plus a bevel differential. The vendor parameter files fit a final gear stage of 5:1 (base) vs 4:1 (shoulder, elbow), which explains the different counts/degree |
 | Position repeatability | ±0.18 mm at the TCP (gripper tip) | **A target to test**, at the tool tip: encoder-count repeatability from home and jog trials does not test it |
