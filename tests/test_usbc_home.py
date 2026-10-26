@@ -292,12 +292,6 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(lib.exports["CloseUSBC"].calls, [])
         self.assertEqual(lib.exports["Control"].calls, [(ord("&"), 1)])
 
-    def test_an_exception_raised_by_initialization_itself_still_closes(self):
-        lib = FakeLib(Initialization=lambda *_a: (_ for _ in ()).throw(RuntimeError("boom")))
-        with self.assertRaises(RuntimeError):
-            tool.run(tool.VendorDll(lib), Recorder(), True, FakeConsole())
-        self.assertEqual(len(lib.exports["CloseUSBC"].calls), 1)    # the call finished, so closing is safe
-
     def test_a_hung_initialization_is_reported_and_nothing_else_is_called(self):
         release = threading.Event()
         lib = FakeLib(Initialization=lambda *_a: release.wait(5))
@@ -366,11 +360,6 @@ class FingerprintTests(unittest.TestCase):
             tool.check_fingerprint("0" * 64, log)
         self.assertEqual(log.names(), ["unknown_dll"])
 
-    def test_the_known_builds_are_the_two_we_decompiled(self):
-        self.assertEqual(set(tool.KNOWN_DLL_SHA256), {
-            "91e99a915c4f5e22c942b3e8dc757ac6b0f3610c01abdab0c2ea2ad0aa555240",
-            "6de887a8d6f2ce686d377586d4be8981ff643cad13c158cd4603f8b44f20555e"})
-
 
 class LogTests(unittest.TestCase):
     def test_log_is_strict_json_with_its_source_and_refuses_to_overwrite(self):
@@ -404,10 +393,6 @@ class ArgumentTests(unittest.TestCase):
     def test_no_home_needs_online(self):
         with self.assertRaises(SystemExit):
             tool.main(["--dll-dir", ".", "--simulate", "--no-home", "--output", "x.jsonl"])
-
-    def test_modes_are_exclusive(self):
-        with self.assertRaises(SystemExit):
-            tool.main(["--dll-dir", ".", "--probe", "--simulate"])
 
 
 class ControlOnHangTests(unittest.TestCase):

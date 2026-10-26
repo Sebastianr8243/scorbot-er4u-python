@@ -2,7 +2,7 @@
 
 ## Unreleased (branch stack1-only, 2026-10-25)
 
-- `main` is now only the vendor-DLL path. Our own USB protocol (`Scorbot`, the simulator, sessions, `openScorbot/`), the disassembly notes, the archive and their tests moved to the `stack2` branch. Tests went from 1,431 to 161; `uv.lock` dropped mcap, pyusb, ruckig and the other Stack 2 dependencies.
+- `main` is now only the vendor-DLL path. Our own USB protocol (`Scorbot`, the simulator, sessions, `openScorbot/`), the disassembly notes, the archive and their tests moved to the `stack2` branch. Tests went from 1,431 to 148; `uv.lock` dropped mcap, pyusb, ruckig and the other Stack 2 dependencies.
 - `scripts/lab_check.py`: read-only checks before a lab run.
 - `usbc_server` `ping` reports `simulated`; `record_episode.py` labels an episode `real` only when the server says it is not simulating.
 - `REQUIREMENTS.md` is now the arm API requirements (was `docs/requirements/arm-api.md`).

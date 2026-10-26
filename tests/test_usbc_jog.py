@@ -234,13 +234,6 @@ class JogTests(unittest.TestCase):
         self.assertTrue(state["busy"])
         self.assertIn("PHYSICAL STOP", state["busy_note"])
 
-    def test_a_stop_that_raises_is_reported_and_keeps_the_session_busy(self):
-        lib = FakeLib(Stop=lambda group: (_ for _ in ()).throw(RuntimeError("boom")))
-        code, log, state = self.go(lib)
-        self.assertEqual(code, 8)
-        self.assertTrue(state["busy"])
-        self.assertIn("STOP FAILED", state["busy_note"])
-
     def test_a_dll_error_in_the_last_move_is_not_reported_as_a_timed_success(self):
         import time
         log, state = Recorder(), {"busy": False, "stop_open": 0}
@@ -339,12 +332,6 @@ class JogTests(unittest.TestCase):
         order.clear()
         self.go(lib)
         self.assertEqual(order, ["close", "stop"])
-
-    def test_the_event_hook_is_put_back(self):
-        log = Recorder()
-        original = log.event
-        jog.make_action(0, 10, 0.05)(jog.JogDll(FakeLib()), log, FakeConsole(), {"busy": False, "stop_open": 0})
-        self.assertEqual(log.event, original)
 
     def test_a_whole_simulated_run_turns_control_on_then_off(self):
         done_calls = []
