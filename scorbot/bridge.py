@@ -117,7 +117,12 @@ class Arm:
             self.stop()
             raise
         if not reply.get("ok"):
-            raise ArmError(reply.get("error") or describe_failure(op, reply), reply)
+            detail, message = reply.get("error"), describe_failure(op, reply)
+            if detail and reply.get("code") not in FAILURE_CODES:
+                message = detail
+            elif detail:    # keep the mapped warning (code 8 says use the physical stop) and add the server's own words
+                message = f"{message}; server said: {detail}"
+            raise ArmError(message, reply)
         return reply
 
     def _position(self, op: str, **fields) -> Position:

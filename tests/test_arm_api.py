@@ -114,6 +114,15 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.requests[0], {"op": "move_by", "id": 1, "dx": 60, "dy": 0.0, "dz": 0.0})
         self.assertFalse(caught.exception.reply["ok"])
 
+    def test_a_dll_hang_reply_keeps_the_physical_stop_warning(self):
+        # the server sends code 8 together with its own short error text; the warning must not be lost
+        port = self.serve([lambda r: [{"id": r["id"], "ok": False, "code": 8, "error": "a DLL call did not return"}]])
+        with bridge.Arm(port=port, timeout=5) as arm, self.assertRaises(bridge.ArmError) as caught:
+            arm.move_by(dx=1)
+        self.assertRegex(str(caught.exception), "(?i)physical stop")
+        self.assertIn("a DLL call did not return", str(caught.exception))
+        self.assertEqual(caught.exception.reply["code"], 8)
+
     def test_a_closed_connection_raises(self):
         port = self.serve([lambda r: []])
         with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "closed the connection"):
