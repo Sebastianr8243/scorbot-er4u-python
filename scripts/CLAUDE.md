@@ -22,6 +22,7 @@ A new script gets a row in the table below and in the README's "Scripts and exam
 | `build_bench_kit.py` | Zip the working tree for the Windows PC into `dist/` | repo files | Packs `scorbot/`, `openScorbot/`, `examples/`, `docs/`, `tests/`, `scripts/` and a few root files, never `references/`, plus `dist/usb-tools/zadig-2.9.exe` if present (`DIRECTORIES` in the script) |
 | `setup_windows.ps1` | Create `.venv`, `pip install -e ".[windows,test]"`, `pip check`, run unit tests | | No USB access, no driver change |
 | `windows_usb_check.ps1` | List `VID_09F1&PID_0007` in Windows and run enumeration-only preflight | | Read-only |
+| `lab_check.py` | Stack 1 pre-run check: vendor files and `ER4Ax*.ini` beside the DLL, 32-bit python, controller listed with the Intelitek driver (not Zadig's), SCORBASE closed, server port free, working box measured, no vendor files tracked by git. PASS / WARN / FAIL per line | `--bin` (default `C:/scratch/bin`), `--port`, `--box` | Stdlib plus `scorbot.bridge.Arm.ping` when the port is busy. Never opens the DLL or the arm. Exit 1 on any FAIL. Written 2026-10-25; USB, driver and python checks need the lab PC, so they have only run on a PC without the arm |
 
 ## fit_calibration.py
 

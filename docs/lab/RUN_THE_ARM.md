@@ -22,6 +22,8 @@ Drives the arm through Intelitek's own `USBC.dll` (the same calls SCORBASE makes
    ```
    The last line must print `32`.
 
+Then check the PC before you start the server (read-only, from the repo root): `.\.venv\Scripts\python.exe scripts\lab_check.py`. Fix every FAIL line first.
+
 Close SCORBASE first: only one program can talk to the controller. Teach pendant on Auto (or the bypass plug in).
 
 ## Commands
