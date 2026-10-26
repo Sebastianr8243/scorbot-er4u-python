@@ -46,6 +46,7 @@ A wrist step that moves nothing, or the wrong way, means the unit or sign guess 
 
 ## After
 
+- Read the server log as a table and paste it into `logs\NOTES.md`: `.venv\Scripts\python.exe scripts\summarize_log.py logs\server-<time>.jsonl` (what was asked, ok, refused with the reason, or a DLL error).
 - Add a few lines to `logs\NOTES.md`: command, log file, what moved, the numbers.
 - `quit` the server (`-m scorbot.bridge quit`) so Control goes off.
 - Record the results in [../STATUS.md](../STATUS.md): a step that ran on the arm moves up to E4.

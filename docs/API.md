@@ -43,6 +43,8 @@ A move's `Position` also has `timing`, a dict of seconds the server spent per st
 
 Every refusal or failed DLL call raises `ArmError`; `error.reply` holds the server's whole answer. `Arm()` raises it too if no server is listening. Ctrl+C during a move calls `stop()` before re-raising, and a client that disconnects mid-move gets the arm stopped. A client that disconnects otherwise leaves the homed session for the next one.
 
+The server logs every command and every reply to `logs/server-<time>.jsonl`. `python scripts/summarize_log.py <log>` prints it as one row per command (ok, refused with the reason, or a DLL error). It reports what was asked and answered, not whether the arm physically moved.
+
 ## The box
 
 `move_to` and `go` only run inside `calibration/arm.json`, the region the arm has been driven in under supervision. `arm_characterise.py` writes it, and `teach` grows it. The server and the scripts must start in the same folder, because the path is relative.
