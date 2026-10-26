@@ -24,7 +24,7 @@ Rows are drawn from the safety invariants in `CLAUDE.md` and the hazards in `doc
 | R11 | SHALL NOT | `USBC.dll` is loaded by any path other than the tools in `tools/` (`usbc_home`, `usbc_jog`, `usbc_move`, `usbc_server`, `usbc_fake`). | review: `grep -rn "USBC" --include=*.py` shows no other loader |
 | R24 | SHALL NOT | `home_inch()` runs without `operator_at_stop=True`, with motors disabled, with a switch byte of 32 or more, or with `max_search_deg` outside 0 to 180; it never homes the wrist and never jogs more than 1 degree per step. | test: `pytest tests/test_inch_home.py` |
 | R25 | SHALL NOT | A stream target leads the arm by more than the jog ceiling (5 degrees) before the session faults. | test: `pytest tests_extra -k stream` (not yet checked that a lead-limit test exists) |
-| R26 | SHALL NOT | `examples/bench_joint.py` accepts a `--delta` above 1 degree. | observable: `python examplesench_joint.py --simulate --delta 2 ...` (arguments as in `CLAUDE.md`) refuses with an error and writes no motion row |
+| R26 | SHALL NOT | `examples/bench_joint.py` accepts a `--delta` above 1 degree. | observable: `python examples\bench_joint.py --simulate --delta 2 ...` (arguments as in `CLAUDE.md`) refuses with an error and writes no motion row |
 
 ### Must work
 | ID | Type | Statement | Check |
