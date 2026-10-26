@@ -31,12 +31,12 @@ The two Intelitek PDFs are copyrighted and this repository is public, so they ar
 | MOTORS | off | COFF, EMERGENCY pressed, **communication time-out**, over-current, or SCORBASE closes (stated for SCORBASE only; what happens when a Python program exits is unverified) |
 | EMERGENCY | red | Emergency stop active |
 
-The SDK reports `enabled` from its own command history, not from the controller. No decoded state byte is known to show motor power, so if the controller turns the motors off by itself (e-stop, over-current, timeout) the SDK does not notice until a later command fails. **The MOTORS LED is the only independent evidence of motor power**, so the G1 observation sheet records it at each step.
+No decoded state byte is known to show motor power, so if the controller turns the motors off by itself (e-stop, over-current, timeout) nothing in this code notices until a later command fails. **The MOTORS LED is the only independent evidence of motor power**, so watch it at each lab step.
 
 ### Control (p. 4)
 
 - Real-time PID with PWM (15 kHz H-bridge drivers, 3 A standard, 7 A peak), NEC V853 microcontroller.
-- "1.5 ms control cycle": the controller's internal servo loop. The host packet period (about 13 ms by the legacy sleeps) is separate; measure it in the idle capture.
+- "1.5 ms control cycle": the controller's internal servo loop. The host packet period (about 13 ms by the legacy sleeps, not measured here) is separate.
 - Position feedback from incremental optical encoders on each axis. The controller itself supports joint, linear and circular interpolation through SCORBASE; the vendor DLL calls used here are listed in `docs/API.md`.
 
 ## SCORBOT-ER 4u arm (pp. 4-8)
@@ -63,7 +63,7 @@ The SDK reports `enabled` from its own command history, not from the controller.
 
 **From other vendor sources (priors, not measurements):**
 
-- Encoder: a 20-slot disk with two channels a quarter cycle apart (ER-4u manual pp. 19, 24, 28; 4pc manual p. 35). 80 counts per motor revolution assumes x4 quadrature decoding, which **neither manual states** (inferred from the INI `CountsPerRound=20`). Vendor parameter files give 141.89 counts/° base, 113.51 shoulder and elbow, 27.90 per wrist motor (`scorbot.nominal.VENDOR_COUNTS_PER_DEGREE`). The legacy pitch scale (33.8) disagrees.
+- Encoder: a 20-slot disk with two channels a quarter cycle apart (ER-4u manual pp. 19, 24, 28; 4pc manual p. 35). 80 counts per motor revolution assumes x4 quadrature decoding, which **neither manual states** (inferred from the INI `CountsPerRound=20`). Vendor parameter files give 141.89 counts/° base, 113.51 shoulder and elbow, 27.90 per wrist motor (`scorbot/nominal.py` on the `stack2` branch); a desk run through the vendor DLL reproduced them ([../DESK_FINDINGS.md](../DESK_FINDINGS.md)). The legacy pitch scale (33.8) disagrees.
 - Encoder zero: SCORBASE zeroes all encoders at hard home (SCORBASE manual p. 23); its home pose is base 0, shoulder -120, elbow 95, pitch 88, roll 0 degrees (p. 28).
 - Controller limits in the parameter files: base +174/-132, shoulder +31/-124, elbow +160/-115 (275° span, wider than this manual's 260°; the stricter manual bound stays enforced), pitch +115/-113.
 - Geometry in the parameter files: base height 349 mm (probably the DH offset to the shoulder axis, inferred), upper arm and forearm 221 mm, gripper 145 mm (this manual's side view: shoulder axis 364 mm, links 220 mm).
@@ -74,7 +74,7 @@ The manual's procedure: move each axis until its switch activates, then move sli
 
 The vendor parameter files home in the order shoulder, elbow, roll, pitch, base, gripper, with per-axis offsets after the switch (shoulder -190, elbow +45, pitch +850, roll -690 counts). The legacy code homes pitch before roll and does not home the gripper; SCORBASE homes the gripper with the five axes (SCORBASE manual p. 24). The captures should show the vendor sequence.
 
-The Controller-USB manual (p. 29, troubleshooting item 9) says electrical noise can make the Home position change suddenly, with the robot carrying on relative to the new Home. The manual also does not say whether home survives COFF/CON, an e-stop, a USB reconnect or a power cycle. The SDK therefore forgets home on any disable, fault or disconnect, and stored encoder counts should be checked against logged travel before they are reused.
+The Controller-USB manual (p. 29, troubleshooting item 9) says electrical noise can make the Home position change suddenly, with the robot carrying on relative to the new Home. The manual also does not say whether home survives COFF/CON, an e-stop, a USB reconnect or a power cycle. Treat Home as lost after any e-stop, disable, fault or disconnect: re-home before the next move, and check any stored encoder counts against logged travel before reusing them.
 
 ### Encoder check (maintenance section)
 

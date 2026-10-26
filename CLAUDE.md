@@ -40,7 +40,7 @@ flowchart TD
 | `examples/` | `arm_characterise.py`, `pick_place.py`, `arm_latency.py`, `record_episode.py`, `teleop.py` |
 | `scripts/` | `lab_check.py` (read-only checks before a lab run), `setup_windows.ps1` |
 | `tests/` | `unittest` suite, no hardware |
-| `docs/` | `lab/RUN_THE_ARM.md`, `API.md`, `STATUS.md`, manual reference (`manual/`) |
+| `docs/` | `lab/RUN_THE_ARM.md`, `API.md`, `STATUS.md`, `PLAN.md`, `DESK_FINDINGS.md`, manual reference (`manual/`) |
 | `models/` | OpenSCAD, STL, DXF parts from the original project (encoder, home jig) |
 | `references/` | Local only: vendor manuals, never committed |
 
@@ -72,5 +72,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, ru
 | Run the arm (setup, commands, errors) | `docs/lab/RUN_THE_ARM.md` |
 | Write a script against the arm | `docs/API.md` |
 | Requirements and the test behind each | `REQUIREMENTS.md` |
+| Where the project is going, and what we do not know yet | `docs/PLAN.md` |
+| What the vendor DLL asks for (axes, directions, wrist units) | `docs/DESK_FINDINGS.md` |
 | What the vendor DLL sends (from disassembly), own-protocol work | the `stack2` branch |
 | Manual facts, LEDs | `docs/manual/HARDWARE_REFERENCE.md` |

@@ -25,6 +25,19 @@ Every number below is from a desk run against the vendor DLL and a fake controll
 
 **Run `arm_latency.py` (step 5) before `arm_characterise.py` (step 6).** Characterise writes a box only about 20 mm tall, and `arm_latency` then refuses its 20 mm up-and-down steps. If you must run it after, use smaller `--sizes`.
 
+## After step 8: check the desk guesses
+
+The wrist code and the joint directions come from the vendor DLL on a fake controller ([../DESK_FINDINGS.md](../DESK_FINDINGS.md)). Check them on the arm with tiny moves, hand on the red stop, and write what you see in `logs/NOTES.md`.
+
+| # | Command | Expect (desk) | Write down |
+|---|---|---|---|
+| 9 | `by 0 10 0` | the base turns toward +y; base count goes down by about 480 | which way it turned |
+| 10 | `wrist 200 0` | pitch changes by about 179 units; the two wrist motors move opposite ways, about 5 counts each; the tip stays still | which way the wrist tilted, how far |
+| 11 | `wrist 0 200` | roll changes by about 179 units; both wrist motors move the same way | which way it rolled |
+| 12 | `teleop.py --step-mm 5 --wrist-step 200`, a few keys | each key does what steps 3, 10 and 11 did | anything that differs |
+
+A wrist step that moves nothing, or the wrong way, means the unit or sign guess is wrong: stop and do not raise the step.
+
 ## What the desk run measured (fake controller)
 
 - A 10 mm `by` reads back as 10.0 mm. A 20 mm move reads about 1000 DLL units per mm.

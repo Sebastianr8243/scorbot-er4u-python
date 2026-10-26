@@ -35,6 +35,7 @@ Full table with evidence levels: [docs/STATUS.md](docs/STATUS.md).
 | Arm server and Python API (`move_by`, `move_to`, gripper, speed) | Tested, and run against the DLL on a fake controller. Not yet run on the arm |
 | Physical mm scale of moves | Unmeasured. `examples/arm_characterise.py` measures it |
 | Pick and place (`examples/pick_place.py`) | Written, not yet run on the arm |
+| Keyboard control and wrist steps (`examples/teleop.py`, `wrist_by`) | Tested, and the wrist run against the DLL on a fake controller. Not yet run on the arm; the wrist unit is unverified |
 | Own USB protocol without the DLL | Separate research line on the `stack2` branch. Never moved the arm |
 
 Hardware claims are "unverified" until a bench log backs them.
@@ -44,13 +45,14 @@ Hardware claims are "unverified" until a bench log backs them.
 | Path | What it is |
 |---|---|
 | `scorbot/bridge.py` | The Python API (`Arm`, `FakeArm`), standard library only |
+| `scorbot/keys.py` | Keyboard commands shared by `record_episode.py` and `teleop.py` |
 | `tools/usbc_server/` | The 32-bit server that holds the DLL session |
 | `tools/usbc_home`, `usbc_jog`, `usbc_move` | One-shot lab tools through the DLL |
 | `tools/usbc_fake/` | The DLL against a fake controller (no arm) |
 | `scorbot/camera/` | Frame sources and JPEG encoding for the episode recorder |
 | `examples/` | `arm_characterise.py`, `pick_place.py`, `arm_latency.py`, `record_episode.py`, `teleop.py` |
 | `scripts/lab_check.py` | Read-only checks before a lab run |
-| `docs/` | Index in [docs/README.md](docs/README.md) |
+| `docs/` | Index in [docs/README.md](docs/README.md); the plan is [docs/PLAN.md](docs/PLAN.md) |
 | `tests/` | `unittest` suite, no hardware |
 
 ## Rules
