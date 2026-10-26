@@ -1,6 +1,6 @@
 """Keep one vendor USBC.dll session open and run arm commands sent over a local socket. Lab tool, standard library only.
 
-Plan: docs/requirements/arm-api.md. Needs a 32-bit Python. The Python API (scorbot/bridge.py, any Python) is the
+Requirements: REQUIREMENTS.md. Needs a 32-bit Python. The Python API (scorbot/bridge.py, any Python) is the
 client. One session: Initialization, Control on, Home, then serve commands until "quit"; Control off and CloseUSBC
 on every exit (tools/usbc_home run()). A client that disconnects leaves the session open for the next one, so the
 arm homes once and many scripts can follow.

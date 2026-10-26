@@ -1,6 +1,6 @@
 """Jog ONE axis through the vendor's USBC.dll and nothing else. Lab tool, standard library only.
 
-Spec: docs/archive/specs/2026-10-13-vendor-dll-jog-plan.md. Needs a 32-bit Python. From the SDK
+Spec (stack2 branch): docs/archive/specs/2026-10-13-vendor-dll-jog-plan.md. Needs a 32-bit Python. From the SDK
 header, the vendor description and the vendor demo; unverified on the arm.
 
     python32 usbc_jog.py --dll-dir DIR --probe

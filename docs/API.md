@@ -54,4 +54,4 @@ python -m scorbot.bridge where | by DX DY DZ | to X Y Z | open | close | speed N
 
 ## Where the guarantees are tested
 
-The requirements and the test behind each (A01 to A10) are in [requirements/arm-api.md](requirements/arm-api.md).
+The requirements and the test behind each (A01 to A10) are in [REQUIREMENTS.md](../REQUIREMENTS.md).

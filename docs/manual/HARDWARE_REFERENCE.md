@@ -1,6 +1,6 @@
 # ER-4U hardware reference
 
-Facts from the Intelitek manuals for the lab's arms, with what each one means for this code. Page numbers are the manuals' own. **Manual values are nominal; calibration still needs measurement on each arm** (see [PHYSICAL_CALIBRATION.md](../lab/PHYSICAL_CALIBRATION.md)).
+Facts from the Intelitek manuals for the lab's arms, with what each one means for this code. Page numbers are the manuals' own. **Manual values are nominal; calibration still needs measurement on each arm**.
 
 | Manual | Catalog | Date | Local file (not in git) |
 |---|---|---|---|
@@ -37,7 +37,7 @@ The SDK reports `enabled` from its own command history, not from the controller.
 
 - Real-time PID with PWM (15 kHz H-bridge drivers, 3 A standard, 7 A peak), NEC V853 microcontroller.
 - "1.5 ms control cycle": the controller's internal servo loop. The host packet period (about 13 ms by the legacy sleeps) is separate; measure it in the idle capture.
-- Position feedback from incremental optical encoders on each axis. The controller itself supports joint, linear and circular interpolation through SCORBASE; the legacy USB protocol used here exposes only what `openScorbot/` implements.
+- Position feedback from incremental optical encoders on each axis. The controller itself supports joint, linear and circular interpolation through SCORBASE; the vendor DLL calls used here are listed in `docs/API.md`.
 
 ## SCORBOT-ER 4u arm (pp. 4-8)
 
@@ -61,7 +61,7 @@ The SDK reports `enabled` from its own command history, not from the controller.
 
 **Not in either manual:** encoder counts per revolution, encoder zero, and joint sign convention. Counts to degrees must be measured.
 
-**From other vendor sources (priors, not measurements; see [MANUAL_AND_PRIOR_ART_FINDINGS.md](MANUAL_AND_PRIOR_ART_FINDINGS.md)):**
+**From other vendor sources (priors, not measurements):**
 
 - Encoder: a 20-slot disk with two channels a quarter cycle apart (ER-4u manual pp. 19, 24, 28; 4pc manual p. 35). 80 counts per motor revolution assumes x4 quadrature decoding, which **neither manual states** (inferred from the INI `CountsPerRound=20`). Vendor parameter files give 141.89 counts/° base, 113.51 shoulder and elbow, 27.90 per wrist motor (`scorbot.nominal.VENDOR_COUNTS_PER_DEGREE`). The legacy pitch scale (33.8) disagrees.
 - Encoder zero: SCORBASE zeroes all encoders at hard home (SCORBASE manual p. 23); its home pose is base 0, shoulder -120, elbow 95, pitch 88, roll 0 degrees (p. 28).
@@ -70,7 +70,7 @@ The SDK reports `enabled` from its own command history, not from the controller.
 
 ### Homing (p. 8)
 
-The manual's procedure: move each axis until its switch activates, then move slightly until the switch **turns off**; that point is home. The manual gives no search direction, axis order, back-off distance or speed. The legacy `openScorbot/setHome.py` instead continues 12 full-speed packets past the switch and stops (review finding H3). The Python home pose therefore differs from the vendor home pose, and a vendor-style back-off is the reference for fixing it after hardware traces.
+The manual's procedure: move each axis until its switch activates, then move slightly until the switch **turns off**; that point is home. The manual gives no search direction, axis order, back-off distance or speed. The vendor DLL's `Home` follows this procedure, so the arm API inherits it.
 
 The vendor parameter files home in the order shoulder, elbow, roll, pitch, base, gripper, with per-axis offsets after the switch (shoulder -190, elbow +45, pitch +850, roll -690 counts). The legacy code homes pitch before roll and does not home the gripper; SCORBASE homes the gripper with the five axes (SCORBASE manual p. 24). The captures should show the vendor sequence.
 

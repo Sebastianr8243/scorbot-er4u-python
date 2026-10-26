@@ -50,8 +50,8 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
     Write-Host "Reusing .venv with Python $environmentVersion"
 }
 
-Write-Host 'Installing the ScorBot package, Windows USB backend, and test dependency...'
-& $venvPython -m pip install -e '.[windows,test,planning]'
+Write-Host 'Installing the ScorBot package and test dependencies...'
+& $venvPython -m pip install -e '.[dev]'
 if ($LASTEXITCODE -ne 0) { throw 'Package installation failed. Save the pip error output.' }
 
 & $venvPython -m pip check
@@ -61,5 +61,4 @@ if ($LASTEXITCODE -ne 0) { throw 'Installed Python packages have a dependency co
 if ($LASTEXITCODE -ne 0) { throw 'Software tests failed. Do not connect to the robot yet.' }
 
 Write-Host 'Python setup passed. This script did not access the USB controller.'
-Write-Host 'Next: connect the original ER-4U controller by USB, then run:'
-Write-Host 'powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.ps1'
+Write-Host 'Next: docs/lab/RUN_THE_ARM.md, then scripts/lab_check.py.'

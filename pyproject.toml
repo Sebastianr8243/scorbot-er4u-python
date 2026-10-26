@@ -5,22 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "scorbot-er4u"
 version = "0.1.0"
-description = "Python API for the Intelitek ScorBot ER-4U arm (vendor-DLL path), plus an experimental own-USB-protocol SDK"
+description = "Python control for the Intelitek ScorBot ER-4U arm through its vendor DLL"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
-dependencies = ["mcap>=1.5,<2", "numpy>=1.26,<3", "pyusb>=1.2,<2"]
+dependencies = ["numpy>=1.26,<3"]
 
 [project.optional-dependencies]
-windows = ["libusb-package"]
-test = ["hypothesis>=6.100,<7"]
-gui = ["PyQt5>=5.15,<6"]
-plot = ["matplotlib>=3.8,<4"]
-# Rerun viewer for recorded sessions (large wheel; never needed on the lab PC).
-viz = ["rerun-sdk>=0.38,<0.39"]
-# Ruckig, the jerk-limited trajectory generator behind Scorbot.start_stream
-# (scorbot/streaming.py). Jogs and the guided session work without it.
-planning = ["ruckig>=0.12,<1"]
 # Webcam capture (scorbot.camera.OpenCVSource and JPEG encoding).
 camera = ["opencv-python-headless>=4.9,<5"]
 dev = [
@@ -28,26 +19,17 @@ dev = [
     "pytest-xdist>=3.8,<4",
     "pytest-timeout>=2.4,<3",
     "coverage[toml]>=7.10,<8",
-    "hypothesis>=6.100,<7",
     "ruff==0.16.9",  # same version as .pre-commit-config.yaml, so local and CI agree
     "pre-commit>=4,<5",
-    "matplotlib>=3.8,<4",
-    "ruckig>=0.12,<1",
     "opencv-python-headless>=4.9,<5",
 ]
-# Cross-checks the offline kinematics model against an independent implementation.
-kinematics = ["roboticstoolbox-python>=1.1,<2"]
 
 [tool.setuptools]
-packages = ["scorbot", "scorbot.session", "scorbot.lab", "scorbot.transport", "scorbot.camera", "openScorbot"]
-
-[tool.setuptools.package-data]
-openScorbot = ["*.ui", "*.png"]
-"scorbot.session" = ["*.json"]
+packages = ["scorbot", "scorbot.camera"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Runs the existing unittest tests unchanged; -n auto spreads them over CPU cores.
+# Runs the unittest tests unchanged; -n auto spreads them over CPU cores.
 addopts = "-n auto --durations=5"
 # Windows has no SIGALRM: the thread method turns a hang into a traceback.
 timeout = 300
@@ -62,9 +44,6 @@ parallel = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-
-[tool.ruff]
-extend-exclude = ["openScorbot"]  # legacy code kept as-is
 
 [tool.ruff.lint]
 # Correctness rules (ruff defaults) plus flake8-bugbear, pinned so a personal

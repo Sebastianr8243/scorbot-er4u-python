@@ -36,15 +36,10 @@ jobs:
         run: |
           python -m pip install uv
           uv lock --check
-      # The toolbox is large; one OS is enough for the kinematics cross-check.
-      - if: matrix.os == 'ubuntu-latest'
-        run: python -m pip install -e ".[dev,kinematics]"
-      - run: python -m compileall -q scorbot openScorbot scripts examples tests tests_extra
-      # tests/ is the lab-visit gate; tests_extra/ is everything off the first-trial path.
-      # CI runs both so the extras do not rot.
+      - run: python -m compileall -q scorbot scripts examples tests tools
       - name: Tests in parallel with coverage (pytest runs the unittest suite)
         run: |
-          python -m coverage run -m pytest tests tests_extra
+          python -m coverage run -m pytest tests
           python -m coverage combine
       - name: Coverage summary
         if: always()
@@ -56,9 +51,6 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
         run: |
           python -m unittest discover -s tests
-          python -m unittest discover -s tests_extra
-      - name: Synthetic session smoke test
-        run: python examples/make_synthetic_session.py --root "${{ runner.temp }}/sessions"
       # The README quickstart: the arm API with no server and no hardware.
       - name: FakeArm quickstart
         run: python -c "from scorbot.bridge import FakeArm; a = FakeArm(); a.move_by(dz=20); assert a.where().z == 220"

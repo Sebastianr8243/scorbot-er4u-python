@@ -18,7 +18,7 @@ with Arm() as arm:
 ```powershell
 python -m pip install -e ".[dev]"
 python -c "from scorbot.bridge import FakeArm; a = FakeArm(); a.move_by(dz=20); print(a.where())"
-python -m pytest -n 2 tests          # about 1 minute, never opens USB or moves the arm
+python -m pytest -n 2 tests          # about 15 seconds, never opens USB or moves the arm
 ```
 
 ## Run the real arm
@@ -35,7 +35,7 @@ Full table with evidence levels: [docs/STATUS.md](docs/STATUS.md).
 | Arm server and Python API (`move_by`, `move_to`, gripper, speed) | Tested, and run against the DLL on a fake controller. Not yet run on the arm |
 | Physical mm scale of moves | Unmeasured. `examples/arm_characterise.py` measures it |
 | Pick and place (`examples/pick_place.py`) | Written, not yet run on the arm |
-| Our own USB protocol (`scorbot.Scorbot`, "Stack 2") | Experimental. Never moved the arm; its one home attempt failed. See [docs/STACK2_SDK.md](docs/STACK2_SDK.md) |
+| Own USB protocol without the DLL | Separate research line on the `stack2` branch. Never moved the arm |
 
 Hardware claims are "unverified" until a bench log backs them.
 
@@ -47,10 +47,11 @@ Hardware claims are "unverified" until a bench log backs them.
 | `tools/usbc_server/` | The 32-bit server that holds the DLL session |
 | `tools/usbc_home`, `usbc_jog`, `usbc_move` | One-shot lab tools through the DLL |
 | `tools/usbc_fake/` | The DLL against a fake controller (no arm) |
-| `examples/` | `arm_characterise.py`, `pick_place.py`, and offline previews |
-| `scorbot/` (rest), `openScorbot/` | Stack 2 and the original GPL OpenScorbot code (experimental, reference) |
-| `docs/` | Index in [docs/README.md](docs/README.md); protocol and manual notes; `archive/` is history |
-| `tests/`, `tests_extra/` | `unittest` suites, no hardware |
+| `scorbot/camera/` | Frame sources and JPEG encoding for the episode recorder |
+| `examples/` | `arm_characterise.py`, `pick_place.py`, `arm_latency.py`, `record_episode.py` |
+| `scripts/lab_check.py` | Read-only checks before a lab run |
+| `docs/` | Index in [docs/README.md](docs/README.md) |
+| `tests/` | `unittest` suite, no hardware |
 
 ## Rules
 
@@ -60,4 +61,4 @@ Hardware claims are "unverified" until a bench log backs them.
 
 ## Original project
 
-OpenScorbot was developed by José Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez at the University of La Laguna ([original repo](https://github.com/tidus747/openScorbot)). This repository retains the GPL-3.0 license.
+OpenScorbot was developed by José Luis Pérez Pérez and Yolanda M. Gimeno Rodríguez at the University of La Laguna ([original repo](https://github.com/tidus747/openScorbot)). This repository started from that project and retains the GPL-3.0 license; the original code is on the `stack2` branch.

@@ -1,6 +1,6 @@
 """Move the arm one small step to a point through the vendor's USBC.dll. Lab tool, standard library only.
 
-Spec: docs/archive/specs/2026-10-16-vendor-dll-point-move-plan.md. Needs a 32-bit Python. The call order is the
+Spec (stack2 branch): docs/archive/specs/2026-10-16-vendor-dll-point-move-plan.md. Needs a 32-bit Python. The call order is the
 USNA ScorBot Toolbox's (Kutzer: RDefineVector, RAddToVecXYZPR, RMoveJoint, then wait), which is
 DefineVector, Teach, MoveJoint in USBC.dll (tools/usbc_analysis robotdll.c). Unverified on the arm.
 
