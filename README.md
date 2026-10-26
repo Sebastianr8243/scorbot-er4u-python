@@ -48,7 +48,7 @@ Hardware claims are "unverified" until a bench log backs them.
 | `tools/usbc_home`, `usbc_jog`, `usbc_move` | One-shot lab tools through the DLL |
 | `tools/usbc_fake/` | The DLL against a fake controller (no arm) |
 | `scorbot/camera/` | Frame sources and JPEG encoding for the episode recorder |
-| `examples/` | `arm_characterise.py`, `pick_place.py`, `arm_latency.py`, `record_episode.py` |
+| `examples/` | `arm_characterise.py`, `pick_place.py`, `arm_latency.py`, `record_episode.py`, `teleop.py` |
 | `scripts/lab_check.py` | Read-only checks before a lab run |
 | `docs/` | Index in [docs/README.md](docs/README.md) |
 | `tests/` | `unittest` suite, no hardware |

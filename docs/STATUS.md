@@ -30,6 +30,7 @@
 | Gripper, speed (`OpenGripper`, `CloseGripper`, `Speed`) | E3 | no | Desk run above; names from the lab DLL's export table | Never ran on the arm |
 | Joint jog (`tools/usbc_jog`) | E2 | no (Codex only) | `tests/` | Axis numbers not confirmed on the arm |
 | Characterise, pick-and-place (`examples/`) | E2 | no | `tests/test_arm_api.py` | Needs the arm and a printed mm grid mat |
+| Keyboard control (`examples/teleop.py`) | E2 | not yet | `tests/test_teleop.py`; `--fake` rehearsal | Never run on the arm |
 | Episode recorder (`examples/record_episode.py`) | E2 | Codex (one finding, fixed) | `tests/test_record_episode.py`; `--fake` rehearsal | Never run with real cameras or the arm |
 | Lab preflight (`scripts/lab_check.py`) | E2 | no | `tests/test_lab_check.py` | USB, driver and 32-bit Python checks never run on the lab PC |
 
