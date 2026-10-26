@@ -62,6 +62,34 @@ class DriveTests(unittest.TestCase):
             with self.assertRaises(ArmError):
                 teleop.drive(arm, keyboard_commands(keys("ddq"), 5))
 
+    def test_status_line_after_each_key(self):
+        arm, lines = Recorder(), []
+        refused = ArmError("outside the box", {"error": "outside the box"})
+        with mock.patch.object(arm, "move_by", side_effect=[arm.where(), refused, arm.where()]):
+            teleop.drive(arm, keyboard_commands(keys("dddq"), 5), lambda _: None, lines.append)
+        self.assertEqual(len(lines), 3)
+        self.assertIn("step 1: ok", lines[0])
+        self.assertIn("refused 0", lines[0])
+        self.assertIn(f"x {arm.where().x:.1f} y {arm.where().y:.1f} z {arm.where().z:.1f} mm", lines[0])
+        self.assertIn("refused: outside the box", lines[1])
+        self.assertIn("refused 1", lines[1])
+        self.assertIn("step 2: ok", lines[2])      # a refused key is not a step
+        self.assertIn("refused 1", lines[2])
+
+    def test_status_line_shortens_a_long_refusal(self):
+        arm, lines = Recorder(), []
+        refused = ArmError("x" * 200, {"error": "x" * 200})
+        with mock.patch.object(arm, "move_by", side_effect=refused):
+            teleop.drive(arm, keyboard_commands(keys("dq"), 5), lambda _: None, lines.append)
+        self.assertLess(len(lines[0]), 100)
+
+    def test_status_line_sends_the_same_requests(self):
+        plain, with_status = Recorder(), Recorder()
+        text = "dwfotgq"
+        teleop.drive(plain, keyboard_commands(keys(text), 5, wrist_step=200))
+        teleop.drive(with_status, keyboard_commands(keys(text), 5, wrist_step=200), print, lambda _: None)
+        self.assertEqual(plain.calls, with_status.calls)
+
 
 class MainTests(unittest.TestCase):
     def test_needs_go(self):

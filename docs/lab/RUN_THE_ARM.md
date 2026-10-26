@@ -32,6 +32,8 @@ Close SCORBASE first: only one program can talk to the controller. Teach pendant
 
 Logs go to `logs\<tool>-<time>.jsonl` by itself (`rehearsal\` when simulated). Add `--output <file>` to name one.
 
+After a run, read the server log as a table (what was asked, ok, refused with the reason, or a DLL error; read-only): `.venv\Scripts\python.exe scripts\summarize_log.py logs\server-<time>.jsonl`. The full refusal text stays in the log. `examples/teleop.py` also prints a status line after every key.
+
 ```powershell
 # check the DLL loads (no arm)
 & $py tools\usbc_home\usbc_home.py --dll-dir $bin --probe

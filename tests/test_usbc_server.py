@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scorbot import bridge
 
@@ -159,6 +160,55 @@ class ServerTests(unittest.TestCase):
         for seconds in [*moved.timing.values(), *grip["timing_s"].values()]:
             self.assertGreaterEqual(seconds, 0)
         self.assertGreater(moved.timing["settle"], 0)       # settle sleeps SETTLE_S between reads
+
+    def test_every_reply_is_logged(self):
+        running = self.start()
+        with running.arm() as arm:
+            arm.move_by(dx=5)
+            with self.assertRaises(bridge.ArmError):
+                arm.send("move_by", dx=0)       # refused by the server, no DLL call
+            arm.send("where")
+            arm.quit()
+        events = [(name, fields) for name, fields in running.log.events if name in ("command", "reply")]
+        self.assertEqual([name for name, _ in events], ["command", "reply"] * (len(events) // 2))
+        replies = [fields for name, fields in events if name == "reply"]
+        moved, refused, where, quit_ = replies[-4:]
+        self.assertTrue(moved["ok"])
+        self.assertEqual(moved["code"], 0)
+        self.assertGreaterEqual(len(moved["xyz"]), 5)       # x, y, z, pitch, roll
+        self.assertEqual(set(moved["timing_s"]), {"read", "define", "teach", "move", "settle"})
+        self.assertFalse(refused["ok"])
+        self.assertIn("non-zero", refused["error"])
+        self.assertNotIn("code", refused)
+        self.assertNotIn("timing_s", where)
+        self.assertEqual([moved["id"], refused["id"], where["id"], quit_["id"]], sorted({moved["id"], refused["id"], where["id"], quit_["id"]}))
+
+    def test_a_log_write_error_does_not_drop_the_reply(self):
+        class FailingLog(Log):
+            def event(self, name, **fields):
+                if name == "reply":
+                    raise OSError("disk full")
+                super().event(name, **fields)
+
+        with mock.patch(__name__ + ".Log", FailingLog):
+            running = self.start()
+        with running.arm() as arm:
+            moved = arm.move_by(dx=5)       # the reply still arrives
+            self.assertAlmostEqual(arm.where().x, moved.x)
+            arm.quit()
+        running.thread.join(5)
+        self.assertEqual(running.result["code"], 0)
+        self.assertEqual(len(running.lib.calls("Teach")), 1)
+
+    def test_logging_does_not_change_the_reply(self):
+        running = self.start()
+        with socket.create_connection(("127.0.0.1", running.port), timeout=5) as raw:
+            raw.sendall(b'{"op": "where", "id": 7}\n')
+            reply = json.loads(raw.makefile("rb").readline())
+            raw.sendall(b'{"op": "quit"}\n')
+        self.assertEqual(set(reply), {"ok", "encoder", "joint", "xyz", "id"})     # no log fields leak into the reply
+        (logged,) = [fields for name, fields in running.log.events if name == "reply" and fields.get("id") == 7]
+        self.assertEqual({key: logged[key] for key in ("ok", "xyz")}, {key: reply[key] for key in ("ok", "xyz")})
 
     def test_vector_is_defined_once(self):
         running = self.start()

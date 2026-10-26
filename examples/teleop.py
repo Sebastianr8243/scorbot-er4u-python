@@ -9,6 +9,7 @@ Keys: d/a = x +/-, w/s = y +/-, r/f = z +/-, t/g = wrist pitch +/-, y/h = wrist 
 q = end. Wrist steps are in the DLL's own pitch and roll units (probably 0.001 degree; unverified on the arm): start
 small, `--wrist-step 200`, and watch the first one.
 A server refusal (a step outside the box) is printed and the loop goes on; any other error ends it.
+After every key a status line shows the step count, the last result, the refusals so far and the position in mm.
 """
 
 import argparse
@@ -21,25 +22,39 @@ MAX_STEP_MM = 20        # below the server's 50 mm limit: this is a hand-driven 
 MAX_WRIST_STEP = 5000   # below the server's 10000 units, for the same reason
 
 
-def drive(arm, commands, say=print):
-    """Apply each command. Returns the number applied; a server refusal is reported and skipped."""
-    done = 0
+def status_line(done, last, refused, position):
+    last = last if len(last) <= 60 else last[:57] + "..."       # the full refusal was just printed
+    where = f" | x {position.x:.1f} y {position.y:.1f} z {position.z:.1f} mm" if position else ""
+    return f"step {done}: {last} | refused {refused}{where}"
+
+
+def drive(arm, commands, say=print, status=None):
+    """Apply each command. Returns the number applied; a server refusal is reported and skipped.
+
+    `status`, when given, gets one line after every key: steps so far, the last result, refusals, the last known position."""
+    done = refused = 0
+    position = None
     for command in commands:
         delta = {axis: command[axis] for axis in ("dx", "dy", "dz") if axis in command}
         wrist = {axis: command[axis] for axis in ("dpitch", "droll") if axis in command}
         try:
             if delta:
-                arm.move_by(**delta)
+                position = arm.move_by(**delta) or position
             if wrist:
-                arm.wrist_by(**wrist)
+                position = arm.wrist_by(**wrist) or position
             if "gripper" in command:
-                arm.gripper(open=command["gripper"])
+                position = arm.gripper(open=command["gripper"]) or position
         except ArmError as error:
             if "error" not in error.reply or "code" in error.reply:
                 raise                   # not a plain refusal: the arm may have moved, so end here
             say(f"refused: {error}")
+            refused += 1
+            if status:
+                status(status_line(done, f"refused: {error}", refused, position))
             continue
         done += 1
+        if status:
+            status(status_line(done, "ok", refused, position))
     return done
 
 
@@ -63,7 +78,7 @@ def main(argv=None, read=input, keys=getch, waiting=kbhit):
     try:
         with FakeArm() if args.fake else Arm(port=args.port) as arm:
             arm.speed(args.speed)
-            print(f"{drive(arm, keyboard_commands(keys, args.step_mm, waiting, args.wrist_step))} steps")
+            print(f"{drive(arm, keyboard_commands(keys, args.step_mm, waiting, args.wrist_step), status=print)} steps")
     except ArmError as error:
         print(f"stopped: {error}")
         return 1
