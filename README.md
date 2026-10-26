@@ -13,6 +13,28 @@ with Arm() as arm:
 
 **The red physical stop is the only emergency stop.** Nothing in this repo replaces it.
 
+```mermaid
+flowchart TD
+  S["your script or examples/teleop.py (64-bit Python)"] --> A["scorbot/bridge.py: Arm"]
+  A -- "JSON lines, 127.0.0.1:8765" --> V["tools/usbc_server (32-bit, one homed session, refuses unsafe steps)"]
+  V --> D["Intelitek USBC.dll (lab PC only, not in this repo)"]
+  D --> C["ERUSB driver, ER-4U controller, arm"]
+  F["tools/usbc_fake: the same DLL against a fake controller"] -.-> D
+```
+
+## For a reviewer
+
+Start with [docs/STATUS.md](docs/STATUS.md): every capability has an evidence level from E0 (idea) to E5 (ran on the arm repeatedly). Today only the vendor Home is E4. Everything else is built and tested at the desk, and the first lab run is the next step.
+
+| To check | Look at |
+|---|---|
+| What the code promises, and the test behind each promise | [REQUIREMENTS.md](REQUIREMENTS.md) (baseline approved 2026-10-26) |
+| The safety limits (step caps, box, stop on disconnect) | `tools/usbc_server/usbc_server.py`, `tests/test_usbc_server.py` |
+| What was learned from the vendor DLL without the arm | [docs/DESK_FINDINGS.md](docs/DESK_FINDINGS.md) |
+| The order of the lab day | [docs/lab/LAB_RUN_SHEET.md](docs/lab/LAB_RUN_SHEET.md) |
+
+`CLAUDE.md`, `AGENTS.md` and `LESSONS.md` are working notes for the coding agents used on this repo; the project does not depend on them.
+
 ## Try it with no hardware
 
 ```powershell

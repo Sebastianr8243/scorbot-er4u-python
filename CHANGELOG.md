@@ -2,6 +2,7 @@
 
 ## Unreleased (2026-10-25)
 
+- 2026-10-26: `REQUIREMENTS.md` baseline approved; `STATUS.md` brought up to date; README gained the layers diagram and a reviewer path.
 - `main` is now only the vendor-DLL path. Our own USB protocol (`Scorbot`, the simulator, sessions, `openScorbot/`), the disassembly notes, the archive and their tests moved to the `stack2` branch. Tests went from 1,431 to 148; `uv.lock` dropped mcap, pyusb, ruckig and the other Stack 2 dependencies.
 - `scripts/lab_check.py`: read-only checks before a lab run.
 - `docs/PLAN.md` (goal, unknowns, steps), `docs/DESK_FINDINGS.md` (what the vendor DLL asks for) and `tools/usbc_fake/fake_oracle.py` (the 44-move desk run behind it).
