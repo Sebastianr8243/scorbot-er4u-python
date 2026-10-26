@@ -100,6 +100,18 @@ class DriveTests(unittest.TestCase):
         self.assertEqual(plain.calls, with_status.calls)
 
 
+class GetchTests(unittest.TestCase):
+    def test_getch_waits_in_short_polls_so_ctrl_c_is_seen(self):
+        """msvcrt.getwch blocks and is not woken by Ctrl+C on Windows, so getch only calls it once a key is waiting."""
+        calls = []
+        waiting = iter([False, False, True])
+        fake = mock.Mock(kbhit=lambda: next(waiting), getwch=lambda: calls.append("getwch") or "d")
+        with mock.patch.dict("sys.modules", {"msvcrt": fake}), mock.patch("time.sleep") as sleep:
+            from scorbot import keys as scorbot_keys
+            self.assertEqual(scorbot_keys.getch(), "d")
+        self.assertEqual((sleep.call_count, calls), (2, ["getwch"]))
+
+
 class MainTests(unittest.TestCase):
     def test_needs_go(self):
         self.assertEqual(teleop.main(["--fake"], read=lambda _: "no", keys=keys("q")), 1)

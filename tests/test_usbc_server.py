@@ -487,6 +487,52 @@ class ServerTests(unittest.TestCase):
         first.close()
         self.assertEqual(running.lib.calls("Stop"), [])
 
+    def test_an_accept_error_does_not_end_the_first_clients_session(self):
+        class Aborting:
+            timeouts = []
+
+            def settimeout(self, value):
+                self.timeouts.append(value)
+
+            def accept(self):
+                raise ConnectionAbortedError("a client gave up while connecting")
+
+        server._turn_away_waiting_clients(Aborting(), Log())       # must return, not raise
+        self.assertEqual(Aborting.timeouts[-1], server.IDLE_POLL_S)
+
+    def test_reconnecting_clients_cannot_hold_the_server_in_the_busy_loop(self):
+        class Peer:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                self.closed = True
+
+            def sendall(self, _data):
+                pass
+
+            def shutdown(self, _how):
+                pass
+
+            def settimeout(self, _value):
+                pass
+
+            def recv(self, _size):
+                return b""
+
+        class Endless:
+            accepted = 0
+
+            def settimeout(self, _value):
+                pass
+
+            def accept(self):
+                Endless.accepted += 1
+                return Peer(), ("127.0.0.1", 50000 + Endless.accepted)
+
+        server._turn_away_waiting_clients(Endless(), Log())       # a client always waiting: it must still return
+        self.assertEqual(Endless.accepted, server.MAX_TURNED_AWAY)
+
     def test_garbage_lines(self):
         running = self.start()
         with socket.create_connection(("127.0.0.1", running.port), timeout=5) as raw:

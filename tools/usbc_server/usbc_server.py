@@ -40,6 +40,7 @@ MAX_STEP_MM = 50.0              # largest move_by on one axis
 MAX_WRIST_UNITS = 10000         # largest wrist_by on one axis, DLL units (probably 0.001 degree each; unverified on the arm)
 GRIPPER_CALL_S = 10.0           # whether OpenGripper returns before the jaws stop is unread
 IDLE_POLL_S = 0.2
+MAX_TURNED_AWAY = 4       # busy refusals per idle poll
 REPLY_LOGGED = ("id", "ok", "code", "error", "timing_s", "xyz")      # the reply fields the log keeps: enough to read a run back
 UM_PER_MM = 1000                # Teach's unit, micrometres (RobotDll.h; decided 2026-10-20, unverified on the arm)
 
@@ -319,19 +320,22 @@ def serve(server, listener, log):
 
 
 def _turn_away_waiting_clients(listener, log):
-    """Between commands only: a second client gets one busy line and is closed. Never while a DLL call runs."""
+    """Between commands only: a second client gets one busy line and is closed. Never while a DLL call runs.
+
+    At most MAX_TURNED_AWAY per call so reconnecting clients cannot keep the first one waiting, and any accept
+    error (a client that gave up while connecting) just ends the call: it must never end the first client's session."""
     listener.settimeout(0)
     try:
-        while True:
+        for _ in range(MAX_TURNED_AWAY):
             try:
                 conn, peer = listener.accept()
-            except (BlockingIOError, socket.timeout):
+            except OSError:         # nothing waiting (BlockingIOError, timeout) or a client that already left
                 return
             with conn:
                 Channel(conn).send({"ok": False, "busy": True, "error": "busy: another client is connected to this arm server"})
                 try:
                     conn.shutdown(socket.SHUT_WR)
-                    conn.settimeout(0.05)
+                    conn.settimeout(0.01)
                     conn.recv(4096)         # read what it already sent, so closing does not reset the connection before it reads the line
                 except OSError:
                     pass

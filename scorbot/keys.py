@@ -4,6 +4,7 @@ Shared by examples/record_episode.py and examples/teleop.py.
 """
 
 KEYS = {"d": ("dx", 1), "a": ("dx", -1), "w": ("dy", 1), "s": ("dy", -1), "r": ("dz", 1), "f": ("dz", -1)}
+KEY_POLL_S = 0.05
 WRIST_KEYS = {"t": ("dpitch", 1), "g": ("dpitch", -1), "y": ("droll", 1), "h": ("droll", -1)}
 
 
@@ -48,7 +49,12 @@ def keyboard_commands(getch, step_mm, pending=lambda: False, wrist_step=0):
 
 
 def getch():
+    """One character. msvcrt.getwch blocks and is not woken by Ctrl+C on Windows (a real CTRL_C_EVENT left teleop
+    waiting, 2026-10-27), so wait in short sleeps until a key is there, and the interrupt is seen between them."""
     import msvcrt
+    import time
+    while not msvcrt.kbhit():
+        time.sleep(KEY_POLL_S)
     return msvcrt.getwch()
 
 
