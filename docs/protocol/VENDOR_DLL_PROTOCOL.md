@@ -13,7 +13,7 @@ Labels: **V** = read directly from the vendor code. **I** = our inference from i
 | 2018 (built 2018-11-22) | `github.com/kutzer/ScorBotToolbox`, `ScorBotToolboxFunctions/USBC.dll` | 539,784 bytes | `6de887a8d6f2ce686d377586d4be8981ff643cad13c158cd4603f8b44f20555e` |
 | 2008 (dated 2008-05-04) | `MTIS.zip` in `github.com/baijuch/sboter4u` | 471,040 bytes | `91e99a915c4f5e22c942b3e8dc757ac6b0f3610c01abdab0c2ea2ad0aa555240` |
 
-Both are 32-bit and not packed. Decompiled with Ghidra 12.1.4 in headless mode; how to repeat it is in [tools/usbc_analysis/README.md](../../tools/usbc_analysis/README.md). Function addresses below are from the 2018 build. The lab's own `USBC.dll` has not been examined and may be a third build.
+Both are 32-bit and not packed. Decompiled with Ghidra 12.1.4 in headless mode; how to repeat it is in [tools/usbc_analysis/README.md](../../tools/usbc_analysis/README.md). Function addresses below are from the 2018 build. The lab's own `USBC.dll` is a third build (2014-06-11); [LAB_BUILD_FINDINGS.md](LAB_BUILD_FINDINGS.md) compares it with this one: same message layer, but a different `Home` entry.
 
 Not examined: Intelitek's kernel driver, which sits between the DLL and the cable. That it passes the 64 bytes through unchanged is I.
 
