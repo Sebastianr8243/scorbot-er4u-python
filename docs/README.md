@@ -25,6 +25,7 @@
 |---|---|
 | [`design/ARCHITECTURE.md`](design/ARCHITECTURE.md) | Changing module boundaries or adding a backend |
 | [`design/TWO_STACKS_AND_AI.md`](design/TWO_STACKS_AND_AI.md) | Choosing between the vendor-DLL stack and our own USB stack, and what each means for an AI/LeRobot goal |
+| [`design/STACK2_RESEARCH.md`](design/STACK2_RESEARCH.md) | What is established and what is unknown about driving the controller with our own USB code, after a Codex claim check |
 | [`protocol/PROTOCOL.md`](protocol/PROTOCOL.md) | Editing packet code, decoding a capture |
 | [`protocol/VENDOR_DLL_PROTOCOL.md`](protocol/VENDOR_DLL_PROTOCOL.md) | What the vendor's `USBC.dll` sends (from disassembly) |
 | [`protocol/BRING_UP_SEQUENCE.md`](protocol/BRING_UP_SEQUENCE.md) | The steps from power-on to a moving arm and how sure we are of each |
