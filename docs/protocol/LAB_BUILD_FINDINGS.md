@@ -44,7 +44,7 @@ What the handlers do:
 | C1 | WRITE builds a bulk/interrupt OUT URB (function 0x9) | proved: `10c80` to `16550` |
 | C2 | The URB buffer is the caller's 64 bytes, unchanged | proved: same pointer, same length, no copy, no arithmetic |
 | C3 | READ builds the matching IN URB, reply unchanged | proved, with one caveat: the length is capped to the pipe's MaximumTransferSize, and a short reply is allowed |
-| C4 | Endpoints and transfer type | endpoints proved: OUT `0x02`, IN `0x83`, 64 bytes. Transfer type (bulk or interrupt) NOT shown: function 0x9 serves both and the driver never sets it; it comes from the device's endpoint descriptor |
+| C4 | Endpoints and transfer type | endpoints proved from the driver: OUT `0x02`, IN `0x83`, 64 bytes. The driver does not set the transfer type (function 0x9 serves both), but the ULPGC thesis's device dump of the same `09F1/0007` controller lists two BULK endpoints, `83h` in and `02h` out, 64-byte packets (p. 105, see `ULPGC_THESIS_FINDINGS.md`), and `BRING_UP_SEQUENCE.md` step 1 records bulk OUT `02` / IN `83` running on our own arm (2026-09-29 and 10-06). Transfer type: bulk, from those two sources, not from the driver |
 | C5 | No header, trailer, padding or sequence number added | proved on both paths: the URB length equals the user length |
 
 Not covered: what the USB stack and the controller do below the URB (outside these files); the device-control IOCTL path (the DLL uses ReadFile and WriteFile, per `VENDOR_DLL_PROTOCOL.md`).
@@ -58,7 +58,7 @@ Gemini was asked for the driver framework and Microsoft's URB layout (citation c
 - Framework: Gemini says Compuware DriverWorks (C++ KDriver/KDevice classes, default pool tag `Wdm `). Treat as a lead: the sources that carry it are dead or do not contain the claim. It does not change any verdict above.
 
 ## Next
-1. Read the endpoint transfer type (bulk or interrupt) and wMaxPacketSize from the real device descriptor (a USB tree viewer on the lab PC; passive, arm not moved).
+1. (Optional) Read the device descriptor once with a USB tree viewer to confirm bulk and 64 bytes first-hand; passive, arm not moved. Already settled by the thesis dump and our own arm runs.
 2. Wire proof at the lab (needs you): a USBPcap capture while the vendor software runs, compared with what `USBC.dll` says it sends. This is what turns "read from code" into "seen on the cable".
 3. Re-label `VENDOR_DLL_PROTOCOL.md` items the real-arm Home has confirmed.
 4. Callee-identity check on the 18 differing DLL functions, only if a difference starts to matter.
