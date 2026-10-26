@@ -39,7 +39,7 @@ Why two Pythons: the vendor DLL is 32-bit, so one small 32-bit server owns it an
 | How far the arm coasts after a stop | hold-to-move | lab, slow and short |
 | How the controller reacts if USB drops | hold-to-move safety | last, a careful bench test |
 
-The vendor's own files already give per-axis limits, jog directions and the arm's link lengths (read-only, local, never committed). They are priors, not measurements.
+Step 1 is done: [DESK_FINDINGS.md](DESK_FINDINGS.md) lists what the DLL itself says about axes, directions, wrist units and the wrist coupling. The vendor's own files already give per-axis limits, jog directions and the arm's link lengths (read-only, local, never committed). They are priors, not measurements.
 
 ## The path
 
