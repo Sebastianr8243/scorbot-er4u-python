@@ -92,7 +92,7 @@ class JogTests(unittest.TestCase):
                                                "EnterManual", "MoveManual", "CloseManual", "GetCurrentPosition"})
         self.assertFalse(set(FORBIDDEN) & set(jog.SIGNATURES))
 
-    def test_a_timed_jog_enters_manual_repeats_the_move_then_closes_and_stops(self):
+    def test_timed_jog_call_order(self):
         lib = FakeLib(GetCurrentPosition=moving_position())
         code, log, state = self.go(lib)
         self.assertEqual(code, 0)
@@ -109,7 +109,7 @@ class JogTests(unittest.TestCase):
         self.assertEqual(log.first("position_delta")["encoder"][0], 30)
         self.assertFalse(state["busy"])
 
-    def test_the_stop_key_ends_the_jog_early_and_still_closes_and_stops(self):
+    def test_stop_key_ends_the_jog(self):
         lib = FakeLib()
         code, log, _ = self.go(lib, FakeConsole(stop_after=5), seconds=5)
         self.assertEqual(code, 7)
@@ -117,7 +117,7 @@ class JogTests(unittest.TestCase):
         self.assertEqual(len(lib.calls("CloseManual")), 1)
         self.assertEqual(len(lib.calls("Stop")), 1)
 
-    def test_an_emergency_ends_the_jog_before_the_move_is_sent(self):
+    def test_emergency_ends_the_jog(self):
         lib = FakeLib(IsEmergency=lambda: 1)
         code, log, _ = self.go(lib, seconds=5)
         self.assertEqual(code, 7)
@@ -138,7 +138,7 @@ class JogTests(unittest.TestCase):
         code = jog.make_action(0, 10, 5)(jog.JogDll(lib), log, console, state)
         self.assertEqual((code, log.first("jog_end")["reason"]), (7, "dll_error"))
 
-    def test_a_refused_enter_manual_moves_nothing_but_still_closes_and_stops(self):
+    def test_enter_manual_refused(self):
         lib = FakeLib(EnterManual=lambda kind: 0)
         code, log, state = self.go(lib)
         self.assertEqual(code, 4)
@@ -147,7 +147,7 @@ class JogTests(unittest.TestCase):
         self.assertEqual(len(lib.calls("Stop")), 1)
         self.assertFalse(state["busy"])
 
-    def test_a_move_call_that_never_returns_leaves_the_session_busy(self):
+    def test_hung_move_call(self):
         import threading
         release = threading.Event()
         lib = FakeLib(MoveManual=lambda axis, velocity: release.wait(5))
@@ -160,7 +160,7 @@ class JogTests(unittest.TestCase):
         self.assertIn("jog_call_hang", log.names())
         self.assertIn("PHYSICAL STOP", state["busy_note"])
 
-    def test_a_refused_move_ends_the_jog_and_still_closes_and_stops(self):
+    def test_move_refused(self):
         lib = FakeLib(MoveManual=lambda axis, velocity: 0)
         code, log, _ = self.go(lib, seconds=5)
         self.assertEqual((code, log.first("jog_end")["reason"]), (7, "move_refused"))
@@ -168,14 +168,14 @@ class JogTests(unittest.TestCase):
         self.assertEqual(len(lib.calls("CloseManual")), 1)
         self.assertEqual(len(lib.calls("Stop")), 1)
 
-    def test_a_failed_close_manual_is_reported_as_unsafe_and_leaves_the_session_busy(self):
+    def test_close_manual_failure(self):
         lib = FakeLib(CloseManual=lambda: 0)
         code, log, state = self.go(lib)
         self.assertEqual(code, 8)
         self.assertTrue(state["busy"])
         self.assertIn("PHYSICAL STOP", state["busy_note"])
 
-    def test_a_close_manual_that_never_returns_leaves_the_session_busy(self):
+    def test_hung_close_manual(self):
         import threading
         release = threading.Event()
         lib = FakeLib(CloseManual=lambda: release.wait(5))
@@ -187,7 +187,7 @@ class JogTests(unittest.TestCase):
         self.assertTrue(state["busy"])
         self.assertEqual(lib.calls("Stop"), [(ord("&"),)])      # Stop is still sent when CloseManual hangs
 
-    def test_a_ctrl_c_during_the_jog_still_cleans_up_and_lets_control_switch_off(self):
+    def test_ctrl_c_cleans_up(self):
         class Interrupt(KeyboardInterrupt):
             pass
         console = FakeConsole()
@@ -198,7 +198,7 @@ class JogTests(unittest.TestCase):
         self.assertEqual((len(lib.calls("CloseManual")), len(lib.calls("Stop"))), (1, 1))
         self.assertFalse(state["busy"])
 
-    def test_a_failed_close_manual_on_ctrl_c_is_still_reported_and_keeps_the_session_busy(self):
+    def test_ctrl_c_with_failed_close_manual(self):
         console = FakeConsole()
         console.stop_pressed = lambda: (_ for _ in ()).throw(KeyboardInterrupt())
         lib, log, state = FakeLib(CloseManual=lambda: 0), Recorder(), {"busy": False, "stop_open": 0}
@@ -207,14 +207,14 @@ class JogTests(unittest.TestCase):
         self.assertTrue(state["busy"])
         self.assertIn("CLOSEMANUAL FAILED", state["busy_note"])
 
-    def test_a_stop_that_returns_false_is_reported_and_keeps_the_session_busy(self):
+    def test_stop_returns_false(self):
         lib = FakeLib(Stop=lambda group: 0)
         code, log, state = self.go(lib)
         self.assertEqual(code, 8)
         self.assertTrue(state["busy"])
         self.assertIn("STOP FAILED", state["busy_note"])
 
-    def test_a_ctrl_c_while_a_move_call_is_still_running_keeps_the_session_busy(self):
+    def test_ctrl_c_during_a_move_call(self):
         import threading
         release, real = threading.Event(), jog.home.bounded
         lib = FakeLib(MoveManual=lambda axis, velocity: release.wait(5))
@@ -234,7 +234,7 @@ class JogTests(unittest.TestCase):
         self.assertTrue(state["busy"])
         self.assertIn("PHYSICAL STOP", state["busy_note"])
 
-    def test_a_dll_error_in_the_last_move_is_not_reported_as_a_timed_success(self):
+    def test_dll_error_in_the_last_move(self):
         import time
         log, state = Recorder(), {"busy": False, "stop_open": 0}
 
@@ -246,7 +246,7 @@ class JogTests(unittest.TestCase):
         code = jog.make_action(0, 10, 0.05)(jog.JogDll(lib), log, FakeConsole(), state)
         self.assertEqual((code, log.first("jog_end")["reason"]), (7, "dll_error"))
 
-    def test_a_dll_error_during_the_clean_up_is_not_reported_as_a_success(self):
+    def test_dll_error_during_cleanup(self):
         log, state = Recorder(), {"busy": False, "stop_open": 0}
         lib = FakeLib(CloseManual=lambda: log.event("dll_error_callback", code=1) or 1)
         code = jog.make_action(0, 10, 0.05)(jog.JogDll(lib), log, FakeConsole(), state)
@@ -260,7 +260,7 @@ class JogTests(unittest.TestCase):
         self.assertNotIn("position_delta", log.names())
         self.assertFalse(state["busy"])
 
-    def test_a_failed_last_position_read_logs_no_delta_and_is_not_a_success(self):
+    def test_last_position_read_fails(self):
         reads = []
 
         def position(encoder, joint, xyz):
@@ -273,7 +273,7 @@ class JogTests(unittest.TestCase):
         self.assertNotIn("position_delta", log.names())
         self.assertFalse(state["busy"])
 
-    def test_a_position_read_that_hangs_after_the_stop_does_not_block_the_shutdown(self):
+    def test_hung_position_read_after_stop(self):
         import threading
         release, reads = threading.Event(), []
 
@@ -291,7 +291,7 @@ class JogTests(unittest.TestCase):
         self.assertFalse(state["busy"])
         self.assertIn("position_after_hang", log.names())
 
-    def test_a_first_position_read_that_hangs_is_not_asked_again_during_clean_up(self):
+    def test_hung_first_position_read(self):
         import threading
         release = threading.Event()
         lib = FakeLib(GetCurrentPosition=lambda encoder, joint, xyz: release.wait(5))
@@ -304,7 +304,7 @@ class JogTests(unittest.TestCase):
         self.assertEqual(len(lib.calls("GetCurrentPosition")), 1)
         self.assertEqual(len(lib.calls("Stop")), 1)
 
-    def test_a_stop_that_never_returns_is_reported_and_leaves_the_session_busy(self):
+    def test_hung_stop(self):
         import threading
         release = threading.Event()
         lib = FakeLib(Stop=lambda group: release.wait(5))
@@ -316,7 +316,7 @@ class JogTests(unittest.TestCase):
         self.assertTrue(state["busy"])
         self.assertIn("STOP DID NOT RETURN", state["busy_note"])
 
-    def test_an_exception_before_the_loop_takes_the_abort_order(self):
+    def test_exception_before_the_loop(self):
         order = []
         lib = FakeLib(EnterManual=lambda kind: (_ for _ in ()).throw(RuntimeError("boom")),
                       CloseManual=lambda: order.append("close") or 1, Stop=lambda group: order.append("stop") or 1)
@@ -324,7 +324,7 @@ class JogTests(unittest.TestCase):
             self.go(lib)
         self.assertEqual(order, ["stop", "close"])
 
-    def test_an_abort_stops_before_closing_and_a_normal_end_closes_before_stopping(self):
+    def test_cleanup_order(self):
         order = []
         lib = FakeLib(CloseManual=lambda: order.append("close") or 1, Stop=lambda group: order.append("stop") or 1)
         self.go(lib, FakeConsole(stop_after=3), seconds=5)
@@ -333,7 +333,7 @@ class JogTests(unittest.TestCase):
         self.go(lib)
         self.assertEqual(order, ["close", "stop"])
 
-    def test_a_whole_simulated_run_turns_control_on_then_off(self):
+    def test_simulated_run(self):
         done_calls = []
         lib = FakeLib(Initialization=lambda mode, kind, done, error: (done_calls.append(mode), done(None), 1)[2],
                       GetCurrentPosition=moving_position())

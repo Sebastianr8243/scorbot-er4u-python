@@ -74,7 +74,7 @@ class FakeSourceTests(unittest.TestCase):
 
 
 class OpenCVSourceTests(unittest.TestCase):
-    def test_settings_record_request_set_result_and_raw_read_back(self):
+    def test_settings_are_recorded(self):
         cv2 = FakeCV2(read_back={39: 2.0, 21: -1.0})
         source = OpenCVSource(1, width=320, height=240, fps=30.0, focus=10.0,
                               exposure=-6.0, warmup_s=0.0, cv2_module=cv2)

@@ -19,7 +19,7 @@ class TaughtPointTests(unittest.TestCase):
         self.positions = Path(self.dir.name) / "positions.json"
         self.box = Path(self.dir.name) / "arm.json"
 
-    def test_teach_saves_the_point_and_grows_the_box_and_go_returns_there(self):
+    def test_teach_then_go_returns_to_the_point(self):
         arm = bridge.FakeArm(start=(300, 10, 150))
         arm.teach("above_a", self.positions, self.box)
         arm.move_by(dz=-40)
@@ -39,7 +39,7 @@ class TaughtPointTests(unittest.TestCase):
         self.assertEqual(data["note"], "kept")
         self.assertEqual(data["box_mm"], {"x": [-1, 1], "y": [2, 5], "z": [0, 3]})
 
-    def test_the_measured_flag_is_set_only_by_a_measuring_caller_and_survives_teach(self):
+    def test_measured_flag_survives_teach(self):
         bridge.widen_box(self.box, [(1, 2, 3)])
         self.assertFalse(json.loads(self.box.read_text())["measured"])
         bridge.widen_box(self.box, [(1, 2, 3)], measured=True)
@@ -140,7 +140,7 @@ class CharacteriseTests(unittest.TestCase):
         self.assertAlmostEqual(arm_characterise.spread_mm([(0, 0, 0), (2, 0, 0)]), 1.0)
         self.assertEqual(len(arm_characterise.grid_offsets(40)), 9)
 
-    def test_a_run_measures_the_scale_and_comes_back_to_the_start(self):
+    def test_characterise_returns_to_the_start(self):
         arm = ScaledArm(units_per_mm=1000)
         report, reached = arm_characterise.characterise(arm, grid_mm=30, repeats=4, read=lambda _prompt: "")
         for axis in "xyz":
@@ -150,7 +150,7 @@ class CharacteriseTests(unittest.TestCase):
         self.assertLess(max(g["dll_error_mm"] for g in report["grid"]), 1e-9)
         self.assertIn((330, 30, 200), [tuple(round(v) for v in p) for p in reached])
 
-    def test_a_wrong_unit_shows_up_as_a_scale_away_from_the_assumption(self):
+    def test_wrong_unit_shows_in_the_scale(self):
         report, _ = arm_characterise.characterise(ScaledArm(units_per_mm=100), grid_mm=10, repeats=2,
                                                   read=lambda _prompt: "")
         self.assertAlmostEqual(report["frame"]["z"]["units_per_mm"], 100)
@@ -193,7 +193,7 @@ class PickPlaceTests(unittest.TestCase):
 
 
 class ArmLatencyTests(unittest.TestCase):
-    def test_every_call_is_timed_in_order_and_the_arm_ends_where_it_started(self):
+    def test_latency_times_each_call_in_order(self):
         arm, rows = bridge.FakeArm(), []
         ticks = iter(range(0, 1000, 2))          # a fake clock: every call takes 2 s
         result = arm_latency.run(arm, rows.append, speed=30, pairs=2, sizes=(5, 10), reads=3,
@@ -205,12 +205,12 @@ class ArmLatencyTests(unittest.TestCase):
         self.assertEqual(arm.commands[0], ("speed", 30))
         self.assertEqual((arm.x, arm.y, arm.z), (300.0, 0.0, 200.0))
 
-    def test_summary_gives_median_worst_and_calls_per_second(self):
+    def test_latency_summary(self):
         rows = [{"kind": "move_by_5mm", "seconds": s} for s in (0.5, 1.0, 4.0)]
         self.assertEqual(arm_latency.summary(rows),
                          {"move_by_5mm": {"n": 3, "median_s": 1.0, "worst_s": 4.0, "per_second": 1.0}})
 
-    def test_the_servers_split_of_a_call_is_kept_and_summarised(self):
+    def test_server_timing_is_summarised(self):
         ticks = iter(range(0, 100, 2))
         row = arm_latency.timed("move_by_5mm", lambda: bridge.Position(0, 0, 0, timing={"teach": 0.1, "move": 0.9}),
                                 clock=lambda: next(ticks))

@@ -37,14 +37,14 @@ class PlantTests(unittest.TestCase):
         self.assertEqual(plant.bands[0], (-4500, -2500))
         self.assertEqual(plant.bands[1], (2500, 4500))
 
-    def test_the_roll_bit_follows_the_mean_of_the_two_wrist_motors(self):
+    def test_roll_bit_follows_the_wrist_mean(self):
         plant = pipe_server.Plant(width=2000, roll_width=300)
         plant.phys[3] = plant.phys[4] = -2600
         self.assertTrue(plant.switch_bits() & 16)
         plant.phys[3] = plant.phys[4] = -2900
         self.assertFalse(plant.switch_bits() & 16)
 
-    def test_a_drive_moves_the_axis_and_set_position_rezeroes_it(self):
+    def test_drive_and_set_position(self):
         plant = pipe_server.Plant()
         plant.on_out(out_packet(0x4F, 0x01, letter=ord("H")))
         plant.on_out(out_packet(0x4D, 0x01, value=100))
@@ -54,7 +54,7 @@ class PlantTests(unittest.TestCase):
         self.assertEqual(plant.reported(0), 0)
         self.assertEqual(plant.events[-1]["event"], "set_position")
 
-    def test_the_reply_echoes_the_id_and_carries_the_switch_bits(self):
+    def test_reply_echoes_id_and_switches(self):
         plant = pipe_server.Plant()
         plant.phys[3] = plant.phys[4] = -3000
         reply = plant.reply(out_packet(0x0D, 0, first=77))
@@ -63,7 +63,7 @@ class PlantTests(unittest.TestCase):
 
 
 class RateModeTests(unittest.TestCase):
-    def test_rate_mode_moves_closes_stops_and_logs_a_summary(self):
+    def test_rate_mode_summary(self):
         class Dll:
             def __init__(self):
                 self.calls = []
@@ -90,13 +90,13 @@ class GuardTests(unittest.TestCase):
         Path(folder, "USBC.INI").write_text(f"[General]\nDriverLink  = {link}\n", encoding="latin-1")
         return folder
 
-    def test_the_dll_is_refused_unless_its_link_is_the_pipe(self):
+    def test_dll_needs_the_pipe_link(self):
         usb, pipe = self.ini(r"\\.\ERUSBDevice0"), self.ini(pipe_server.PIPE)
         with self.assertRaises(SystemExit):
             fake_home.require_pipe_link(usb, host_dir=usb)
         fake_home.require_pipe_link(pipe, host_dir=pipe)
 
-    def test_a_usbc_ini_next_to_the_host_program_must_also_name_the_pipe(self):
+    def test_ini_must_name_the_pipe(self):
         good, host = self.ini(pipe_server.PIPE), self.ini(r"\\.\ERUSBDevice0")
         with self.assertRaises(SystemExit):
             fake_home.require_pipe_link(good, host_dir=host)

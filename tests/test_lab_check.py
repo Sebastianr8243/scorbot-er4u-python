@@ -19,7 +19,7 @@ class LabCheckTests(unittest.TestCase):
         self.addCleanup(self.dir.cleanup)
         self.path = Path(self.dir.name)
 
-    def test_a_complete_bin_folder_passes_and_each_gap_fails(self):
+    def test_bin_folder_checks(self):
         for name in lab_check.VENDOR_FILES + ("ER4Ax1.ini",):
             (self.path / name).write_text("x")
         (self.path / "Par").mkdir()
@@ -32,7 +32,7 @@ class LabCheckTests(unittest.TestCase):
     def test_a_missing_python_is_a_fail_not_a_crash(self):
         self.assertEqual(lab_check.check_python32(self.path)[0], "FAIL")
 
-    def test_box_missing_or_unmeasured_warns_and_measured_passes(self):
+    def test_box_states(self):
         box = self.path / "arm.json"
         self.assertEqual(lab_check.check_box(box)[0], "WARN")
         box.write_text(json.dumps({"box_mm": {}}))
@@ -40,7 +40,7 @@ class LabCheckTests(unittest.TestCase):
         box.write_text(json.dumps({"measured": True}))
         self.assertEqual(lab_check.check_box(box)[0], "PASS")
 
-    def test_a_free_port_passes_and_a_foreign_listener_fails(self):
+    def test_port_free_or_foreign(self):
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             listener.listen(1)
@@ -48,7 +48,7 @@ class LabCheckTests(unittest.TestCase):
             self.assertEqual(lab_check.check_port(port)[0], "FAIL")      # accepts, never speaks: not the arm server
         self.assertEqual(lab_check.check_port(port)[0], "PASS")
 
-    def test_vendor_and_capture_files_are_recognised_as_untrackable(self):
+    def test_untrackable_files(self):
         for name in ("USBC.dll", "bin/ER4Ax1.ini", "x.pcapng", "ROB_4u.ini"):
             self.assertTrue(lab_check.TRACKED.search(name), name)
         self.assertFalse(lab_check.TRACKED.search("scorbot/bridge.py"))
