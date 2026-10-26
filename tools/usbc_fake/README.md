@@ -30,6 +30,8 @@ Intelitek's `USBC.dll` talks to its controller through the file named in `USBC.I
    <the tree>\python.exe tools\usbc_fake\fake_home.py <the tree> DLL.jsonl 300
    ```
 
+Wait for the pipe server's `listening` line before starting the DLL (its arm-presence check can take 10 seconds; a DLL that starts earlier never connects). `fake_oracle.py DLL_DIR OUT.json` replaces the second command to run 44 small moves after Home and log the DLL's encoder, joint and xyz arrays (results in `docs/DESK_FINDINGS.md`).
+
 `--band-width` sets every switch's width in counts (default 2000), `--roll-width` the wrist roll's. A run with a good switch takes about 10 seconds. A run that misses a switch ends 80 seconds later with the vendor's own error 561.
 
 ## Results (2026-10-12, 2008 build, one fake arm model)

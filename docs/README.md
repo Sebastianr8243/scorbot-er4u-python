@@ -7,6 +7,8 @@
 | [`lab/RUN_THE_ARM.md`](lab/RUN_THE_ARM.md) | Setting up the lab PC and moving the arm through the vendor DLL: probe, connect, jog, Home, point move, errors |
 | [`lab/LAB_RUN_SHEET.md`](lab/LAB_RUN_SHEET.md) | The day at the arm: steps in order, expected numbers, what to stop on |
 | [`API.md`](API.md) | Writing a script against `scorbot.bridge.Arm`: calls, units, errors |
+| [`PLAN.md`](PLAN.md) | Where the project is going: the goal, what we do not know yet, the steps in order |
+| [`DESK_FINDINGS.md`](DESK_FINDINGS.md) | What the vendor DLL asks for (axes, directions, wrist units), from the fake controller; not measured on the arm |
 | [`STATUS.md`](STATUS.md) | What works and how sure we are |
 | [`../REQUIREMENTS.md`](../REQUIREMENTS.md) | The requirements and the test behind each |
 | [`manual/HARDWARE_REFERENCE.md`](manual/HARDWARE_REFERENCE.md) | LEDs, limits, manual claims |
