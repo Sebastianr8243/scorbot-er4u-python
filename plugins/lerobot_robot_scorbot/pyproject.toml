@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_robot_scorbot"
+version = "0.2.0"
+description = "LeRobot robot plugin for the ScorBot ER-4U (simulator only)"
+requires-python = ">=3.12"
+license = {text = "GPL-3.0-or-later"}
+# LeRobot finds packages named lerobot_robot_*. Install with --no-deps into a separate
+# environment that already has lerobot and this repository (editable).
+dependencies = ["scorbot-er4u", "lerobot>=0.6,<0.7"]
+
+[tool.setuptools]
+packages = ["lerobot_robot_scorbot"]
