@@ -24,7 +24,8 @@ Why two Pythons: the vendor DLL is 32-bit, so one small 32-bit server owns it an
 - The server and the Python API (`Arm`, `FakeArm`) for position moves, speed and gripper.
 - Vendor Home ran on the real arm (2026-10-20). Nothing else has.
 - A desk rehearsal of the whole flow against the real DLL and a fake controller (`tools/usbc_fake`).
-- Scripts: characterise (measure the arm), pick and place, latency, record episode, keyboard control (`examples/teleop.py`, unmerged).
+- Scripts: characterise (measure the arm), pick and place, latency, record episode, keyboard control (`examples/teleop.py`), and relative wrist steps (`wrist_by`, `--wrist-step`).
+- Desk findings from the vendor DLL on the fake controller ([DESK_FINDINGS.md](DESK_FINDINGS.md)) and the requirements rows W01 to W03 ([../REQUIREMENTS.md](../REQUIREMENTS.md)).
 - A lab run sheet ([lab/LAB_RUN_SHEET.md](lab/LAB_RUN_SHEET.md)) and a read-only preflight (`scripts/lab_check.py`).
 
 ## What we do not know yet
@@ -52,6 +53,8 @@ flowchart TD
   P5 --> P6["6. Hold-to-move, then gamepad"]
   P6 --> P7["7. Record episodes with cameras"]
 ```
+
+**Where we are:** step 1 is done, and the wrist part of step 2 is done and merged. Joint jog and hold-to-move wait for the lab. Next is step 3.
 
 1. **Learn at the desk.** Ask the vendor DLL what it sends the controller for each move (through the fake): axis order, directions, counts per mm and per degree, how pitch and roll map to the two wrist motors. Read the disassembly notes on the `stack2` branch and the manuals for the rest.
 2. **Requirements, then build.** A short numbered list (the `requirements` skill), each line with a check. Then build wrist keys, joint jog and hold-to-move against the fake DLL. Unknown numbers live in one settings spot with tiny, slow defaults. Tests cover only what can hurt the arm: step caps, stop on release, cleanup after an error or Ctrl+C, refusals outside the box.

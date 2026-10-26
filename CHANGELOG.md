@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased (branch stack1-only, 2026-10-25)
+## Unreleased (2026-10-25)
 
 - `main` is now only the vendor-DLL path. Our own USB protocol (`Scorbot`, the simulator, sessions, `openScorbot/`), the disassembly notes, the archive and their tests moved to the `stack2` branch. Tests went from 1,431 to 148; `uv.lock` dropped mcap, pyusb, ruckig and the other Stack 2 dependencies.
 - `scripts/lab_check.py`: read-only checks before a lab run.
+- `docs/PLAN.md` (goal, unknowns, steps), `docs/DESK_FINDINGS.md` (what the vendor DLL asks for) and `tools/usbc_fake/fake_oracle.py` (the 44-move desk run behind it).
+- `FakeArm.move_to` now restores pitch and roll when given.
 - `wrist_by` (server op, `Arm.wrist_by`, `python -m scorbot.bridge wrist`): relative wrist pitch and roll steps; `teleop.py --wrist-step` turns on the t/g and y/h keys. Tested on the fake library and end to end on the vendor DLL against the fake controller; not run on the arm.
 - `examples/teleop.py`: keyboard control, one `move_by` per key press, no cameras. The key reader moved from `record_episode.py` to `scorbot/keys.py`. Not yet run on the arm.
 - `usbc_server` `ping` reports `simulated`; `record_episode.py` labels an episode `real` only when the server says it is not simulating.
