@@ -49,7 +49,7 @@ class LabCheckTests(unittest.TestCase):
         self.assertEqual(lab_check.check_port(port)[0], "PASS")
 
     def test_untrackable_files(self):
-        for name in ("USBC.dll", "bin/ER4Ax1.ini", "x.pcapng", "ROB_4u.ini"):
+        for name in ("USBC.dll", "USBC.INI", "bin/ER4Ax1.ini", "x.pcap", "x.pcapng", "ROB_4u.ini"):
             self.assertTrue(lab_check.TRACKED.search(name), name)
         self.assertFalse(lab_check.TRACKED.search("scorbot/bridge.py"))
 

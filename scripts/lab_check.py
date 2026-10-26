@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 VENDOR_FILES = ("USBC.dll", "USBC.INI", "ER4CONF.INI", "ROB_4u.ini")
-TRACKED = re.compile(r"(?i)(usbc[.]dll|er4.*[.]ini|rob_4u[.]ini|[.]pcapng?)$")      # RUN_THE_ARM.md: never commit these
+TRACKED = re.compile(r"(?i)(usbc[.](dll|ini)|er4.*[.]ini|rob_4u[.]ini|[.]pcap(ng)?)$")      # RUN_THE_ARM.md: never commit these
 
 
 def check_bin(bin_dir):
