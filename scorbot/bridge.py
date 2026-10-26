@@ -19,6 +19,7 @@ import argparse
 import json
 import socket
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +28,8 @@ XYZ_UNITS_PER_MM = 1000     # the DLL's xyz unit: a 10 mm move_by read back as 9
 POSITIONS = Path("calibration") / "positions.json"
 BOX = Path("calibration") / "arm.json"
 REPLY_TIMEOUT_S = 900.0     # a Home takes about 135 s on the lab arm; the server bounds every call itself
+POLL_S = 0.2                # a read that blocks for the whole timeout is not woken by Ctrl+C on Windows (checked 2026-10-26), so wake this often
+LINE_END = bytes([10])      # one JSON object per line
 
 
 # The server's exit codes (tools/usbc_home, tools/usbc_move) as plain words.
@@ -84,12 +87,11 @@ class Arm:
             self._sock = socket.create_connection((host, port), timeout=10)
         except OSError as error:
             raise ArmError(f"no arm server on {host}:{port} ({error}); start tools/usbc_server first") from None
-        self._sock.settimeout(timeout)
-        self._reader = self._sock.makefile("rb")
+        self._sock.settimeout(POLL_S)
+        self._reply_timeout, self._buffer = timeout, b""
         self._next_id = 0
 
     def close(self):
-        self._reader.close()
         self._sock.close()
 
     def __enter__(self):
@@ -101,16 +103,29 @@ class Arm:
     def _write(self, command):
         self._sock.sendall((json.dumps(command, allow_nan=False) + "\n").encode("utf-8"))
 
+    def _readline(self) -> bytes:
+        """The next line from the server. Polls in POLL_S slices so Ctrl+C is seen while a move runs."""
+        deadline = time.monotonic() + self._reply_timeout
+        while LINE_END not in self._buffer:
+            try:
+                data = self._sock.recv(4096)
+            except socket.timeout:
+                if time.monotonic() > deadline:
+                    raise ArmError(f"no reply from the arm server in {self._reply_timeout:g} s; the arm may still be moving: use the physical stop") from None
+                continue
+            if not data:
+                raise ArmError("the arm server closed the connection")
+            self._buffer += data
+        line, self._buffer = self._buffer.split(LINE_END, 1)
+        return line
+
     def send(self, op: str, **fields) -> dict:
         """One command and its reply. Raises ArmError when the reply is not ok."""
         self._next_id += 1
         self._write({"op": op, "id": self._next_id, **fields})
         try:
             while True:
-                line = self._reader.readline()
-                if not line:
-                    raise ArmError("the arm server closed the connection")
-                reply = json.loads(line)
+                reply = json.loads(self._readline())
                 if reply.get("id") == self._next_id:     # anything else answers an earlier stop
                     break
         except KeyboardInterrupt:       # Ctrl+C while the arm moves: stop it before giving up the call
