@@ -137,13 +137,20 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(self.meta()["steps"], 1)
 
     def test_the_source_is_saved_so_rehearsals_cannot_pass_for_hardware(self):
-        class Duck:         # anything that is not a FakeArm is taken for the real thing
+        class Server:       # stands in for Arm: the server's ping says what it drives
+            def __init__(self, ping):
+                self.ping = lambda: ping
+
             def where(self):
                 return bridge.Position(0, 0, 0)
 
         record_episode.record(bridge.FakeArm(), sources(), [{}], self.out, encode=encode)
-        record_episode.record(Duck(), sources(), [{}], self.out.parent / "real", encode=encode)
+        record_episode.record(Server({"simulated": False}), sources(), [{}], self.out.parent / "real", encode=encode)
+        record_episode.record(Server({"simulated": True}), sources(), [{}], self.out.parent / "vendor-sim", encode=encode)
+        record_episode.record(Server({}), sources(), [{}], self.out.parent / "old-server", encode=encode)     # no field: not proven real
         self.assertEqual(self.meta()["source"], "simulated")
+        for name in ("vendor-sim", "old-server"):
+            self.assertEqual(json.loads((self.out.parent / name / "meta.json").read_text(encoding="utf-8"))["source"], "simulated")
         self.assertEqual(json.loads((self.out.parent / "real" / "meta.json").read_text(encoding="utf-8"))["source"], "real")
 
 

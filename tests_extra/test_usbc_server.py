@@ -71,7 +71,7 @@ class Keys:
 class Running:
     """The server's action on a thread, listening on a free port."""
 
-    def __init__(self, lib, do_home=True, box=None):
+    def __init__(self, lib, do_home=True, box=None, simulated=False):
         self._saved = (move.SETTLE_S, move.jog.CALL_S, home.STOP_CALL_S, move.MOVE_TIMEOUT_S, server.IDLE_POLL_S)
         move.SETTLE_S, move.jog.CALL_S, home.STOP_CALL_S, move.MOVE_TIMEOUT_S, server.IDLE_POLL_S = 0.002, 0.5, 0.5, 1.0, 0.02
         self.dir = tempfile.TemporaryDirectory()
@@ -82,7 +82,7 @@ class Running:
         self.state = {"busy": False, "stop_open": 0}
         ready = threading.Event()
         port = {}
-        action = server.make_action(0, str(self.box), do_home, ready=lambda p: (port.update(p=p), ready.set()))
+        action = server.make_action(0, str(self.box), do_home, ready=lambda p: (port.update(p=p), ready.set()), simulated=simulated)
         self.result = {}
         self.thread = threading.Thread(
             target=lambda: self.result.update(code=action(server.ServerDll(lib), self.log, Keys(), self.state)),
@@ -115,6 +115,13 @@ class ServerTests(unittest.TestCase):
 
     def test_it_listens_on_localhost_only(self):
         self.assertEqual(server.HOST, "127.0.0.1")
+
+    def test_ping_says_whether_the_session_is_simulated(self):
+        for simulated in (False, True):
+            running = self.start(simulated=simulated)
+            with running.arm() as arm:
+                self.assertIs(arm.ping()["simulated"], simulated)
+                arm.quit()
 
     def test_it_homes_then_serves_and_quit_ends_with_zero(self):
         running = self.start()

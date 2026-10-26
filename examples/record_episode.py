@@ -75,8 +75,8 @@ def record(arm, cameras, commands, out_dir, task="", encode=encode_jpeg, quality
     """Run each command and log a row per step; cameras is {name: opened FrameSource}. Returns the row count.
 
     A camera or arm failure stops the episode after the rows already written (meta.json says ended_early).
-    meta.json's source is "simulated" for a FakeArm and "real" for anything else, never a caller's choice."""
-    source = "simulated" if isinstance(arm, FakeArm) else "real"
+    meta.json's source is "real" only when the arm server says it is not simulating, never a caller's choice."""
+    source = "real" if not isinstance(arm, FakeArm) and arm.ping().get("simulated") is False else "simulated"
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=False)       # evidence is never overwritten
     for name in cameras:

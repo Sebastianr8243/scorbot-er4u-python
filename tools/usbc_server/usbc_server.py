@@ -153,16 +153,16 @@ def _measured(path):
 
 
 class Server:
-    def __init__(self, dll, log, console, state, box_path, homed):
+    def __init__(self, dll, log, console, state, box_path, homed, simulated=False):
         self.dll, self.log, self.console, self.state = dll, log, console, state
-        self.box_path, self.homed = box_path, homed
+        self.box_path, self.homed, self.simulated = box_path, homed, simulated
         state.setdefault("call_open", 0)
 
     def handle(self, command):
         """Run one command. Returns (reply fields, exit code or None to keep serving)."""
         op = command.get("op")
         if op == "ping":
-            return {"homed": self.homed}, None
+            return {"homed": self.homed, "simulated": self.simulated}, None
         if op == "quit":
             return {}, 0
         if op == "stop":
@@ -337,7 +337,7 @@ def _serve_client(server, channel, log):
             return code
 
 
-def make_action(port, box_path, do_home, ready=None):
+def make_action(port, box_path, do_home, ready=None, simulated=False):
     def action(dll, log, console, state):
         state["call_open"] = 0
         homed = False
@@ -354,7 +354,7 @@ def make_action(port, box_path, do_home, ready=None):
             log.event("serving", host=HOST, port=listener.getsockname()[1], homed=homed, box=box_path)
             if ready:
                 ready(listener.getsockname()[1])
-            server = Server(dll, log, ServerConsole(console), state, box_path, homed)
+            server = Server(dll, log, ServerConsole(console), state, box_path, homed, simulated)
             return serve(server, listener, log)
         finally:
             listener.close()
@@ -399,7 +399,7 @@ def main(argv=None):
         if args.online:
             home.check_fingerprint(facts["sha256"], log)
         return home.run(ServerDll(lib), log, args.simulate, home.Console(),
-                        action=make_action(args.port, box_path, not args.no_home))
+                        action=make_action(args.port, box_path, not args.no_home, simulated=args.simulate))
     except home.ToolError as error:
         log.event("error", message=str(error))
         return 1
