@@ -39,6 +39,10 @@ LIM_INF = conf.readData("general", "downLimit")
 # Positions of each motor's data bytes within the buffer
 # [base, shoulder, elbow, wrist motor 1, wrist motor 2, gripper]
 VEC_POS = conf.readData("general", "VEC_POS")
+# Per-message values, read once here: re-parsing data.json for every USB message cost about 0.3 ms each.
+MAX_COUNT = conf.readData("general", "MAX_COUNT")
+MSG_LEN = conf.readData("general", "MSG_LEN")
+TIME_OUT_W = conf.readData("general", "TIME_OUT_W")
 # Reference angle, the starting point after home.
 angRef = conf.readData("general", "angRef")
 posRef = []
@@ -94,7 +98,7 @@ def f_byte(b_1):
 #
 def countByte1(b_1):
 	b_1 += 1
-	if b_1 < conf.readData("general","MAX_COUNT"):
+	if b_1 < MAX_COUNT:
 		return b_1
 	else:
 		b_1 = 1
@@ -108,7 +112,7 @@ def countByte1(b_1):
 # media  -> Encoder position adjustment vector
 #
 def get_media(buffer, media):
-	vec_pos = conf.readData("general","VEC_POS")
+	vec_pos = VEC_POS
 	for i in range(len(vec_pos)):
 		dato = transform([buffer[vec_pos[i]], buffer[vec_pos[i]+1]])
 		if abs(dato - media[i]) >= 1000:
@@ -138,7 +142,7 @@ def get_media(buffer, media):
 #
 def get_encoder(buffer, media):
 	msg = ''
-	vec_pos = conf.readData("general","VEC_POS")
+	vec_pos = VEC_POS
 	for i in range(len(vec_pos)):
 		dato = detrans(media[i])
 		msg += dato
@@ -428,7 +432,7 @@ def filter(msg, setup):
 # read       -> Delay before starting the next message after a read request
 #
 def set_msg(cadena, epout, epin, buffer, write,read):
-	cadena = fill_msg(cadena, conf.readData('general','MSG_LEN'))
+	cadena = fill_msg(cadena, MSG_LEN)
 	#filter(cadena, 'write')
 	x = bytes.fromhex(cadena)
 	check(x, epout, epin, buffer, write,read)
@@ -446,7 +450,7 @@ def set_msg(cadena, epout, epin, buffer, write,read):
 #
 def check(x,epout,epin,buffer, write,read):
 	try:
-		epout.write(x, conf.readData('general','TIME_OUT_W'))
+		epout.write(x, TIME_OUT_W)
 		time.sleep(write)
 	except Exception as exc:
 		raise RuntimeError(f"USB write failed: {exc}") from exc
