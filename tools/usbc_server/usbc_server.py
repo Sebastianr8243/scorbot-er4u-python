@@ -40,6 +40,7 @@ MAX_STEP_MM = 50.0              # largest move_by on one axis
 MAX_WRIST_UNITS = 10000         # largest wrist_by on one axis, DLL units (probably 0.001 degree each; unverified on the arm)
 GRIPPER_CALL_S = 10.0           # whether OpenGripper returns before the jaws stop is unread
 IDLE_POLL_S = 0.2
+REPLY_LOGGED = ("id", "ok", "code", "error", "timing_s", "xyz")      # the reply fields the log keeps: enough to read a run back
 UM_PER_MM = 1000                # Teach's unit, micrometres (RobotDll.h; decided 2026-10-20, unverified on the arm)
 
 SIGNATURES = {**{name: home.SIGNATURES[name] for name in
@@ -344,6 +345,7 @@ def _serve_client(server, channel, log):
         reply.setdefault("ok", True)
         if request_id is not None:
             reply["id"] = request_id
+        log.event("reply", **{key: reply[key] for key in REPLY_LOGGED if key in reply})     # before the send: the log never lags the client
         channel.send(reply)
         if server.state["busy"]:        # a call may still run inside the DLL: stop serving, run() skips shutdown
             log.event("serve_ended_busy")

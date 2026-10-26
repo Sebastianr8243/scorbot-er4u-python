@@ -38,7 +38,7 @@ flowchart TD
 | `tools/usbc_home/`, `usbc_jog/`, `usbc_move/` | One-shot vendor-DLL lab tools (32-bit, stdlib) |
 | `tools/usbc_fake/` | The vendor DLL's Home against a fake controller on a named pipe (no USB, no arm) |
 | `examples/` | `arm_characterise.py`, `pick_place.py`, `arm_latency.py`, `record_episode.py`, `teleop.py` |
-| `scripts/` | `lab_check.py` (read-only checks before a lab run), `setup_windows.ps1` |
+| `scripts/` | `lab_check.py` (read-only checks before a lab run), `summarize_log.py` (a server log as a table), `setup_windows.ps1` |
 | `tests/` | `unittest` suite, no hardware |
 | `docs/` | `lab/RUN_THE_ARM.md`, `API.md`, `STATUS.md`, `PLAN.md`, `DESK_FINDINGS.md`, manual reference (`manual/`) |
 | `models/` | OpenSCAD, STL, DXF parts from the original project (encoder, home jig) |
