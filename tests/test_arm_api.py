@@ -1,10 +1,12 @@
 """scorbot.bridge's FakeArm, taught points and box, and the two arm-server example scripts. No server, no DLL."""
 
+import _thread
 import json
 import math
 import socket
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -126,6 +128,33 @@ class ClientTests(unittest.TestCase):
     def test_a_closed_connection_raises(self):
         port = self.serve([lambda r: []])
         with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "closed the connection"):
+            arm.where()
+
+    def test_ctrl_c_interrupts_a_wait_and_asks_for_stop(self):
+        # A socket read that blocks for the whole timeout is not woken by Ctrl+C on Windows (checked 2026-10-26,
+        # Python 3.13), so a move could not be stopped from the keyboard. The client has to wake up often.
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        port = self.serve([lambda r: (gate.wait(5), [])[1], lambda r: []])
+        started = time.monotonic()
+        with bridge.Arm(port=port, timeout=30) as arm:
+            threading.Timer(0.3, _thread.interrupt_main).start()
+            with self.assertRaises(KeyboardInterrupt):
+                arm.where()
+            elapsed = time.monotonic() - started
+            gate.set()
+            for _ in range(40):
+                if len(self.requests) > 1:
+                    break
+                time.sleep(0.05)
+        self.assertLess(elapsed, 2.0)
+        self.assertEqual([request["op"] for request in self.requests], ["where", "stop"])
+
+    def test_a_reply_that_never_comes_times_out_as_an_arm_error(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        port = self.serve([lambda r: (gate.wait(5), [])[1]])
+        with bridge.Arm(port=port, timeout=0.5) as arm, self.assertRaisesRegex(bridge.ArmError, "no reply"):
             arm.where()
 
     def test_no_server_says_to_start_it(self):

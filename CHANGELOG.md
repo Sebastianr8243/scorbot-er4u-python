@@ -2,6 +2,8 @@
 
 ## Unreleased (2026-10-25)
 
+
+- 2026-10-26: `Arm.send` now waits for a reply in 0.2 s slices. A read blocked for the whole timeout is not woken by Ctrl+C on Windows, so Ctrl+C during a move did not send `stop` until the move had finished; now it does (desk test, no arm).
 - 2026-10-26: `REQUIREMENTS.md` baseline approved; `STATUS.md` brought up to date; README gained the layers diagram and a reviewer path.
 - `main` is now only the vendor-DLL path. Our own USB protocol (`Scorbot`, the simulator, sessions, `openScorbot/`), the disassembly notes, the archive and their tests moved to the `stack2` branch. Tests went from 1,431 to 148; `uv.lock` dropped mcap, pyusb, ruckig and the other Stack 2 dependencies.
 - `scripts/lab_check.py`: read-only checks before a lab run.
