@@ -114,6 +114,15 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.requests[0], {"op": "move_by", "id": 1, "dx": 60, "dy": 0.0, "dz": 0.0})
         self.assertFalse(caught.exception.reply["ok"])
 
+    def test_a_dll_hang_reply_keeps_the_physical_stop_warning(self):
+        # the server sends code 8 together with its own short error text; the warning must not be lost
+        port = self.serve([lambda r: [{"id": r["id"], "ok": False, "code": 8, "error": "a DLL call did not return"}]])
+        with bridge.Arm(port=port, timeout=5) as arm, self.assertRaises(bridge.ArmError) as caught:
+            arm.move_by(dx=1)
+        self.assertRegex(str(caught.exception), "(?i)physical stop")
+        self.assertIn("a DLL call did not return", str(caught.exception))
+        self.assertEqual(caught.exception.reply["code"], 8)
+
     def test_a_closed_connection_raises(self):
         port = self.serve([lambda r: []])
         with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "closed the connection"):
@@ -166,6 +175,34 @@ class CharacteriseTests(unittest.TestCase):
                                                   read=lambda _prompt: "")
         self.assertAlmostEqual(report["frame"]["z"]["units_per_mm"], 100)
         self.assertTrue(math.isclose(report["grid"][0]["dll_error_mm"], math.hypot(9, 9), rel_tol=1e-6))
+
+    def test_summarise_turns_mat_numbers_into_a_scale_and_worst_errors(self):
+        report = {"step_mm": 20.0,
+                  "frame": {"x": {"units_per_mm": 1000.0, "mat_mm": 19.0}, "y": {"units_per_mm": 1000.0, "mat_mm": 20.0},
+                            "z": {"units_per_mm": 1000.0, "mat_mm": None}},
+                  "repeatability": {"spread_mm": 0.0, "readings": [{"mat_mm": 0.5}, {"mat_mm": None}, {"mat_mm": 1.5}]},
+                  "grid": [{"mat_error_mm": 2.0, "dll_error_mm": 0.0}, {"mat_error_mm": None, "dll_error_mm": 0.0}]}
+        result = arm_characterise.summarise(report)
+        self.assertAlmostEqual(result["mat_mm_per_commanded_mm"]["x"], 0.95)
+        self.assertAlmostEqual(result["suggested_units_per_mm"]["x"], 1000 * 20 / 19)
+        self.assertNotIn("z", result["mat_mm_per_commanded_mm"])
+        self.assertEqual(result["worst_repeat_mat_mm"], 1.5)
+        self.assertEqual(result["worst_grid_mat_mm"], 2.0)
+
+    def test_summarise_compares_offsets_by_size_not_sign(self):
+        report = {"step_mm": 20.0, "frame": {},
+                  "repeatability": {"readings": [{"mat_mm": -3.0}, {"mat_mm": 0.5}]},
+                  "grid": [{"mat_error_mm": -2.5}, {"mat_error_mm": 1.0}]}
+        result = arm_characterise.summarise(report)
+        self.assertEqual(result["worst_repeat_mat_mm"], 3.0)
+        self.assertEqual(result["worst_grid_mat_mm"], 2.5)
+
+    def test_summarise_with_no_mat_answers_says_so(self):
+        report = {"step_mm": 20.0, "frame": {"x": {"units_per_mm": 1000.0, "mat_mm": None}},
+                  "repeatability": {"readings": []}, "grid": []}
+        result = arm_characterise.summarise(report)
+        self.assertEqual(result["mat_mm_per_commanded_mm"], {})
+        self.assertIsNone(result["worst_repeat_mat_mm"])
 
     def test_mat_answers_are_recorded_and_bad_ones_skipped(self):
         self.assertEqual(arm_characterise.ask("q", read=lambda _p: "1.5"), 1.5)

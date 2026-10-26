@@ -267,6 +267,16 @@ class ServerTests(unittest.TestCase):
                 arm.move_to(300, 0, 100)
             arm.quit()
 
+    def test_a_target_that_overflows_the_dll_integer_is_refused_not_wrapped(self):
+        running = self.start(box=BOX)
+        with running.arm() as arm:
+            with self.assertRaisesRegex(bridge.ArmError, "outside the box"):
+                arm.move_to(4295267.296, 0, 100)        # would wrap to x = 300 mm in a c_long; the box stops it first
+            with self.assertRaisesRegex(bridge.ArmError, "32-bit"):
+                arm.move_to(300, 0, 100, pitch=2 ** 31)     # inside the box, so only the range check can stop it
+            arm.quit()
+        self.assertEqual(running.lib.calls("Teach"), [])
+
     def test_a_stop_line_during_a_move_calls_stop(self):
         release = threading.Event()
         running = self.start(FakeLib(MoveJoint=lambda *args: release.wait(0.8) and 1))
@@ -278,6 +288,32 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(caught.exception.reply["code"], 7)
             arm.quit()
         self.assertEqual(running.lib.calls("Stop"), [(ord("&"),)])
+
+    def test_a_failed_move_says_what_the_code_means(self):
+        running = self.start(FakeLib(MoveJoint=lambda *args: 0))
+        with running.arm() as arm:
+            with self.assertRaises(bridge.ArmError) as caught:
+                arm.move_by(dx=5)
+            arm.quit()
+        self.assertEqual(caught.exception.reply["code"], 7)
+        self.assertRegex(str(caught.exception), "move_by failed.*refused or stopped")
+
+    def test_a_timeout_never_claims_the_arm_stopped(self):
+        # code 6 is returned after Stop was only requested; Stop can fail and the move can still be running
+        text = bridge.describe_failure("move_by", {"code": 6})
+        self.assertNotRegex(text, r"(?i)was stopped|has stopped|stopped")
+        self.assertRegex(text, r"(?i)time limit.*not confirmed.*physical stop")
+
+    def test_an_unknown_failure_code_is_still_reported(self):
+        self.assertEqual(bridge.describe_failure("move_by", {"code": 99}), "move_by failed (code 99)")
+
+    def test_the_no_box_message_names_the_full_path(self):
+        running = self.start()
+        with running.arm() as arm:
+            with self.assertRaises(bridge.ArmError) as caught:
+                arm.move_to(300, 0, 100)
+            arm.quit()
+        self.assertIn(str(running.box), str(caught.exception))
 
     def test_the_emergency_stop_refuses_moves(self):
         running = self.start(FakeLib(IsEmergency=lambda: 1))

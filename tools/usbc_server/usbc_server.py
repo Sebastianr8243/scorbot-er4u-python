@@ -258,7 +258,7 @@ class Server:
             raise Refused("move_to needs a Home in this session first")
         box = load_box(self.box_path)
         if box is None:
-            raise Refused(f"no box file at {self.box_path}: run examples/arm_characterise.py first")
+            raise Refused(f"no box file at {os.path.abspath(self.box_path)}: run examples/arm_characterise.py first (the server and the script must start in the same folder)")
         target = {axis: _number(command, axis) for axis in "xyz"}
         outside = [axis for axis in "xyz" if not box[axis][0] <= target[axis] <= box[axis][1]]
         if outside:
@@ -269,6 +269,8 @@ class Server:
         pitch = round(_number(command, "pitch", now["xyz"][3]))
         roll = round(_number(command, "roll", now["xyz"][4]))
         values = [round(target[axis] * UM_PER_MM) for axis in "xyz"] + [pitch, roll]
+        if not all(-2 ** 31 <= value < 2 ** 31 for value in values):    # ctypes would wrap it to another target
+            raise Refused("target does not fit the DLL's 32-bit units")
         return self._move(lambda: self.dll.teach_absolute(move.VECTOR, move.POINT, values),
                           {"point_um": values, "relative": False}, {"op": "move_to", "mm": target})
 
