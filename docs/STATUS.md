@@ -31,6 +31,8 @@
 | Joint jog (`tools/usbc_jog`) | E2 | no (Codex only) | `tests/` | Axis numbers not confirmed on the arm |
 | Characterise, pick-and-place (`examples/`) | E2 | no | `tests/test_arm_api.py` | Needs the arm and a printed mm grid mat |
 | Keyboard control (`examples/teleop.py`), wrist steps (`wrist_by`) | E2 | Codex (teleop: no findings; wrist: one finding, fixed; both partial runs) | `tests/test_teleop.py`, `tests/test_usbc_server.py`; desk run of the vendor DLL on the fake controller | Never run on the arm; wrist unit (probably 0.001 degree) unverified |
+| Run log and summary: every server reply is logged, `scripts/summarize_log.py` prints a log as a table, `teleop.py` prints a status line per key | E2 | Codex (3 findings, fixed; no second pass) | `tests/test_usbc_server.py`, `tests/test_summarize_log.py`, `tests/test_teleop.py`; desk run on the fake library, `docs/requirements/run-log.md` | Never run on the arm; reports what was asked and answered, not whether the arm moved |
+| Ctrl+C during a move sends `stop` (`Arm.send` waits in 0.2 s slices) | E2 | Codex (no findings) | `tests/test_arm_api.py`; a real `CTRL_C_EVENT` run on Windows against a stand-in server | Not yet seen while `teleop.py` waits for a key; never run on the arm |
 | Episode recorder (`examples/record_episode.py`) | E2 | Codex (one finding, fixed) | `tests/test_record_episode.py`; `--fake` rehearsal | Never run with real cameras or the arm |
 | Lab preflight (`scripts/lab_check.py`) | E2 | Codex (one finding, fixed) | `tests/test_lab_check.py` | USB, driver and 32-bit Python checks never run on the lab PC |
 
@@ -52,4 +54,5 @@ Steps and commands: [`lab/RUN_THE_ARM.md`](lab/RUN_THE_ARM.md), "Python API".
 | Item | Needed before |
 |---|---|
 | Lab date | Planning |
+| 10-second desk check that Ctrl+C ends `teleop.py --fake` while it waits for a key | Lab |
 | Check on the arm: joint directions, the wrist unit (probably 0.001 degree), latency, coasting after a stop | Joint jog and hold-to-move (see [`PLAN.md`](PLAN.md)) |

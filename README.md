@@ -58,6 +58,7 @@ Full table with evidence levels: [docs/STATUS.md](docs/STATUS.md).
 | Physical mm scale of moves | Unmeasured. `examples/arm_characterise.py` measures it |
 | Pick and place (`examples/pick_place.py`) | Written, not yet run on the arm |
 | Keyboard control and wrist steps (`examples/teleop.py`, `wrist_by`) | Tested, and the wrist run against the DLL on a fake controller. Not yet run on the arm; the wrist unit is unverified |
+| Run log, log summary and teleop status line (`scripts/summarize_log.py`) | Tested on the fake library. Not yet run on the arm |
 | Own USB protocol without the DLL | Separate research line on the `stack2` branch. Never moved the arm |
 
 Hardware claims are "unverified" until a bench log backs them.
