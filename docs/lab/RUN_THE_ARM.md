@@ -77,6 +77,8 @@ $vpy = ".\.venv\Scripts\python.exe"
 & $vpy examples\arm_latency.py --speed 20 # how many calls per second the arm gives (moves up and down along z; type go)
 ```
 
+Keyboard control (after the basic steps work): `& $vpy examples\teleop.py --step-mm 5` (asks for `go`; d/a, w/s, r/f move x, y, z, o/c the gripper, q ends).
+
 Ctrl+C in terminal 2 stops a move that is running (the server calls Stop when its client goes away).
 
 In a script: `from scorbot.bridge import Arm`, then `with Arm() as arm: arm.move_by(dz=20)`. Absolute moves (`to`, `go`) are refused until `calibration\arm.json` has a box: `arm_characterise.py` writes it from the points it reached, and `teach` grows it to every taught spot. A script that ends leaves the server homed for the next one.
