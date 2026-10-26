@@ -37,6 +37,7 @@ home, jog = move.home, move.jog
 PORT = 8765
 HOST = "127.0.0.1"              # never another interface: anyone who can connect can move the arm
 MAX_STEP_MM = 50.0              # largest move_by on one axis
+MAX_WRIST_UNITS = 10000         # largest wrist_by on one axis, DLL units (probably 0.001 degree each; unverified on the arm)
 GRIPPER_CALL_S = 10.0           # whether OpenGripper returns before the jaws stop is unread
 IDLE_POLL_S = 0.2
 UM_PER_MM = 1000                # Teach's unit, micrometres (RobotDll.h; decided 2026-10-20, unverified on the arm)
@@ -187,6 +188,8 @@ class Server:
             return self._move_by(command), None
         if op == "move_to":
             return self._move_to(command), None
+        if op == "wrist_by":
+            return self._wrist_by(command), None
         raise Refused(f"unknown op {op!r}")
 
     def _position(self):
@@ -221,6 +224,16 @@ class Server:
         values = [round(d * UM_PER_MM) for d in delta] + [0, 0]
         return self._move(lambda: self.dll.teach_relative(move.VECTOR, move.POINT, values),
                           {"delta_um": values, "relative": True}, {"op": "move_by", "mm": delta})
+
+    def _wrist_by(self, command):
+        """A relative pitch and roll step in the DLL's own units; the tool tip stays put. The box does not apply."""
+        values = [round(_number(command, key, 0)) for key in ("dpitch", "droll")]
+        if not any(values):
+            raise Refused("wrist_by needs a dpitch or droll of at least one whole unit")
+        if max(abs(v) for v in values) > MAX_WRIST_UNITS:
+            raise Refused(f"dpitch and droll must each be at most {MAX_WRIST_UNITS} units")
+        return self._move(lambda: self.dll.teach_relative(move.VECTOR, move.POINT, [0, 0, 0, *values]),
+                          {"delta_units": values, "relative": True}, {"op": "wrist_by", "units": values})
 
     def _check_box_for_step(self, delta):
         """With a box file, a step may not end further outside it than it starts (no box file: the step cap only)."""

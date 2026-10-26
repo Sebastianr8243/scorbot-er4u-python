@@ -4,6 +4,7 @@ Shared by examples/record_episode.py and examples/teleop.py.
 """
 
 KEYS = {"d": ("dx", 1), "a": ("dx", -1), "w": ("dy", 1), "s": ("dy", -1), "r": ("dz", 1), "f": ("dz", -1)}
+WRIST_KEYS = {"t": ("dpitch", 1), "g": ("dpitch", -1), "y": ("droll", 1), "h": ("droll", -1)}
 
 
 def _next_key(getch):
@@ -16,11 +17,12 @@ def _next_key(getch):
     return key
 
 
-def keyboard_commands(getch, step_mm, pending=lambda: False):
+def keyboard_commands(getch, step_mm, pending=lambda: False, wrist_step=0):
     """Commands from key presses until q. getch() returns one character; pending() says whether more are waiting.
 
     Keys pressed while a step was running (a held key repeats during the blocking move) are thrown away, so
-    letting go stops the arm. A q among them still ends the episode, after the current step."""
+    letting go stops the arm. A q among them still ends the episode, after the current step.
+    The wrist keys (t/g pitch, y/h roll) only act when wrist_step, in DLL units, is above zero."""
     while True:
         key = _next_key(getch)
         if key == "q":
@@ -28,6 +30,9 @@ def keyboard_commands(getch, step_mm, pending=lambda: False):
         if key in KEYS:
             axis, sign = KEYS[key]
             command = {axis: sign * step_mm}
+        elif key in WRIST_KEYS and wrist_step:
+            axis, sign = WRIST_KEYS[key]
+            command = {axis: sign * wrist_step}
         elif key == "o":
             command = {"gripper": True}
         elif key == "c":

@@ -133,6 +133,10 @@ class Arm:
         """Relative move in mm; the server refuses more than 50 mm on any axis, or a step that leaves the measured box."""
         return self._position("move_by", dx=dx, dy=dy, dz=dz)
 
+    def wrist_by(self, dpitch: float = 0.0, droll: float = 0.0) -> Position:
+        """Relative wrist step in the DLL's own pitch and roll units (probably 0.001 degree; unverified). At most 10000 per axis."""
+        return self._position("wrist_by", dpitch=dpitch, droll=droll)
+
     def move_to(self, x: float, y: float, z: float, pitch: int | None = None, roll: int | None = None) -> Position:
         """Absolute move in mm. Refused before a Home, without a box file, or outside the box."""
         extra = {key: value for key, value in (("pitch", pitch), ("roll", roll)) if value is not None}
@@ -169,6 +173,7 @@ class FakeArm:
 
     def __init__(self, start=(300.0, 0.0, 200.0), homed=True):
         self.x, self.y, self.z = start
+        self.pitch = self.roll = 0
         self.homed, self.open, self.commands = homed, True, []
 
     def close(self):
@@ -181,7 +186,7 @@ class FakeArm:
         pass
 
     def where(self):
-        return Position(self.x, self.y, self.z)
+        return Position(self.x, self.y, self.z, self.pitch, self.roll)
 
     def home(self):
         self.commands.append(("home",))
@@ -194,6 +199,11 @@ class FakeArm:
     def move_by(self, dx=0.0, dy=0.0, dz=0.0):
         self.commands.append(("move_by", dx, dy, dz))
         self.x, self.y, self.z = self.x + dx, self.y + dy, self.z + dz
+        return self.where()
+
+    def wrist_by(self, dpitch=0.0, droll=0.0):
+        self.commands.append(("wrist_by", dpitch, droll))
+        self.pitch, self.roll = self.pitch + dpitch, self.roll + droll
         return self.where()
 
     def move_to(self, x, y, z, pitch=None, roll=None):
@@ -271,11 +281,11 @@ def go(arm, name, positions=POSITIONS):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="One command to the arm server")
     parser.add_argument("--port", type=int, default=PORT)
-    parser.add_argument("command", choices=("where", "by", "to", "open", "close", "speed", "home",
+    parser.add_argument("command", choices=("where", "by", "wrist", "to", "open", "close", "speed", "home",
                                             "teach", "go", "stop", "quit"))
     parser.add_argument("args", nargs="*")
     args = parser.parse_args(argv)
-    needs = {"by": 3, "to": 3, "speed": 1, "teach": 1, "go": 1}.get(args.command, 0)
+    needs = {"by": 3, "wrist": 2, "to": 3, "speed": 1, "teach": 1, "go": 1}.get(args.command, 0)
     if len(args.args) != needs:
         parser.error(f"{args.command} takes {needs} value(s)")
     numbers = args.args if args.command in ("teach", "go") else [float(value) for value in args.args]
@@ -284,6 +294,7 @@ def main(argv=None):
             result = {
                 "where": lambda: arm.where(),
                 "by": lambda: arm.move_by(*numbers),
+                "wrist": lambda: arm.wrist_by(*numbers),
                 "to": lambda: arm.move_to(*numbers),
                 "open": lambda: arm.gripper(open=True),
                 "close": lambda: arm.gripper(open=False),
