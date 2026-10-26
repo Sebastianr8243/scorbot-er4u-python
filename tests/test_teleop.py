@@ -1,5 +1,7 @@
 """examples/teleop.py against FakeArm and a scripted key stream: no arm, no USB."""
 
+import contextlib
+import io
 import unittest
 from unittest import mock
 
@@ -62,6 +64,13 @@ class DriveTests(unittest.TestCase):
             with self.assertRaises(ArmError):
                 teleop.drive(arm, keyboard_commands(keys("ddq"), 5))
 
+    def test_a_busy_reply_ends_the_loop(self):
+        arm = Recorder()
+        busy = ArmError("busy: another client", {"ok": False, "busy": True, "error": "busy: another client"})
+        with mock.patch.object(arm, "move_by", side_effect=busy):
+            with self.assertRaises(ArmError):
+                teleop.drive(arm, keyboard_commands(keys("ddq"), 5))
+
     def test_status_line_after_each_key(self):
         arm, lines = Recorder(), []
         refused = ArmError("outside the box", {"error": "outside the box"})
@@ -102,6 +111,16 @@ class MainTests(unittest.TestCase):
     def test_wrist_step_cap(self):
         with self.assertRaises(SystemExit):
             teleop.main(["--fake", "--wrist-step", "5001"], read=lambda _: "go", keys=keys("q"))
+
+    def test_an_arm_error_says_to_check_where(self):
+        failed = ArmError("move failed", {"error": "move failed", "code": 911})
+        said = io.StringIO()
+        with mock.patch.object(FakeArm, "move_by", side_effect=failed), contextlib.redirect_stdout(said):
+            code = teleop.main(["--fake"], read=lambda _: "go", keys=keys("dq"), waiting=lambda: False)
+        self.assertEqual(code, 1)
+        self.assertIn("stopped: move failed", said.getvalue())
+        self.assertIn("may have moved", said.getvalue())
+        self.assertIn("where", said.getvalue())
 
     def test_fake_run_ends_on_q(self):
         self.assertEqual(teleop.main(["--fake"], read=lambda _: "go", keys=keys("dq"), waiting=lambda: False), 0)

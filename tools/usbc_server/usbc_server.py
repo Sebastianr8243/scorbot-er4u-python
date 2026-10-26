@@ -309,7 +309,7 @@ def serve(server, listener, log):
         channel = Channel(conn)
         server.console.channel = channel
         try:
-            code = _serve_client(server, channel, log)
+            code = _serve_client(server, channel, log, listener)
         finally:
             server.console.channel = None
             conn.close()
@@ -318,13 +318,39 @@ def serve(server, listener, log):
             return code
 
 
-def _serve_client(server, channel, log):
+def _turn_away_waiting_clients(listener, log):
+    """Between commands only: a second client gets one busy line and is closed. Never while a DLL call runs."""
+    listener.settimeout(0)
+    try:
+        while True:
+            try:
+                conn, peer = listener.accept()
+            except (BlockingIOError, socket.timeout):
+                return
+            with conn:
+                Channel(conn).send({"ok": False, "busy": True, "error": "busy: another client is connected to this arm server"})
+                try:
+                    conn.shutdown(socket.SHUT_WR)
+                    conn.settimeout(0.05)
+                    conn.recv(4096)         # read what it already sent, so closing does not reset the connection before it reads the line
+                except OSError:
+                    pass
+            try:
+                log.event("client_turned_away", peer=list(peer))
+            except OSError as error:        # a full disk must not cost the first client its session
+                print(f"warning: could not log a turned-away client: {error}", file=sys.stderr)
+    finally:
+        listener.settimeout(IDLE_POLL_S)
+
+
+def _serve_client(server, channel, log, listener):
     while True:
         try:
             line = channel.next_line(IDLE_POLL_S)
         except EOFError:
             return None
         if line is None:
+            _turn_away_waiting_clients(listener, log)
             continue
         request_id = None
         log.event("command", line=line.decode("utf-8", "replace"))     # raw: client fields never reach event()'s kwargs

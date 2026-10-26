@@ -126,6 +126,8 @@ class Arm:
         try:
             while True:
                 reply = json.loads(self._readline())
+                if reply.get("busy"):       # another client holds the server; the line has no id
+                    raise ArmError(reply.get("error") or "the arm server is busy", reply)
                 if reply.get("id") == self._next_id:     # anything else answers an earlier stop
                     break
         except KeyboardInterrupt:       # Ctrl+C while the arm moves: stop it before giving up the call
