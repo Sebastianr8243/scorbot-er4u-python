@@ -30,7 +30,7 @@ REPLY_TIMEOUT_S = 900.0     # a Home takes about 135 s on the lab arm; the serve
 # The server's exit codes (tools/usbc_home, tools/usbc_move) as plain words.
 FAILURE_CODES = {
     4: "the DLL refused to set the move up",
-    6: "it ran past its time limit and was stopped",
+    6: "it ran past its time limit; Stop was asked for but is not confirmed, so the arm may still be moving: use the physical stop",
     7: "it was refused or stopped (not homed, outside the DLL's workspace, or Stop was pressed)",
     8: "a DLL call did not return: the arm may still be moving, use the physical stop",
 }
