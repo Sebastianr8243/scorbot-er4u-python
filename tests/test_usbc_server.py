@@ -298,6 +298,12 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(caught.exception.reply["code"], 7)
         self.assertRegex(str(caught.exception), "move_by failed.*refused or stopped")
 
+    def test_a_timeout_never_claims_the_arm_stopped(self):
+        # code 6 is returned after Stop was only requested; Stop can fail and the move can still be running
+        text = bridge.describe_failure("move_by", {"code": 6})
+        self.assertNotRegex(text, r"(?i)was stopped|has stopped|stopped")
+        self.assertRegex(text, r"(?i)time limit.*not confirmed.*physical stop")
+
     def test_an_unknown_failure_code_is_still_reported(self):
         self.assertEqual(bridge.describe_failure("move_by", {"code": 99}), "move_by failed (code 99)")
 
