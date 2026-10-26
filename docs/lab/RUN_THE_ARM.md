@@ -1,5 +1,7 @@
 # Run the arm
 
+The one-page order for lab day, with expected numbers: [LAB_RUN_SHEET.md](LAB_RUN_SHEET.md).
+
 Drives the arm through Intelitek's own `USBC.dll` (the same calls SCORBASE makes). PowerShell, from the repo root, one line at a time (pasting several lines at once crashed PSReadLine on the lab PC).
 
 ## Setup (once per PC)
