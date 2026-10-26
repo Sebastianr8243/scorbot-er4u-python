@@ -22,6 +22,10 @@ class Recorder(FakeArm):
         self.calls.append(("by", dx, dy, dz))
         return super().move_by(dx, dy, dz)
 
+    def wrist_by(self, dpitch=0.0, droll=0.0):
+        self.calls.append(("wrist", dpitch, droll))
+        return super().wrist_by(dpitch, droll)
+
     def gripper(self, open):  # noqa: A002
         self.calls.append(("gripper", open))
         return super().gripper(open)
@@ -33,6 +37,14 @@ class DriveTests(unittest.TestCase):
         done = teleop.drive(arm, keyboard_commands(keys("dwfocq"), 5))
         self.assertEqual(done, 5)
         self.assertEqual(arm.calls, [("by", 5, 0, 0), ("by", 0, 5, 0), ("by", 0, 0, -5), ("gripper", True), ("gripper", False)])
+
+    def test_wrist_keys_need_a_wrist_step(self):
+        arm = Recorder()
+        teleop.drive(arm, keyboard_commands(keys("tgyhq"), 5, wrist_step=200))
+        self.assertEqual(arm.calls, [("wrist", 200, 0), ("wrist", -200, 0), ("wrist", 0, 200), ("wrist", 0, -200)])
+        off = Recorder()
+        teleop.drive(off, keyboard_commands(keys("tgyhq"), 5))
+        self.assertEqual(off.calls, [])
 
     def test_plain_refusal_goes_on(self):
         arm = Recorder()
@@ -58,6 +70,10 @@ class MainTests(unittest.TestCase):
     def test_step_cap(self):
         with self.assertRaises(SystemExit):
             teleop.main(["--fake", "--step-mm", "21"], read=lambda _: "go", keys=keys("q"))
+
+    def test_wrist_step_cap(self):
+        with self.assertRaises(SystemExit):
+            teleop.main(["--fake", "--wrist-step", "5001"], read=lambda _: "go", keys=keys("q"))
 
     def test_fake_run_ends_on_q(self):
         self.assertEqual(teleop.main(["--fake"], read=lambda _: "go", keys=keys("dq"), waiting=lambda: False), 0)

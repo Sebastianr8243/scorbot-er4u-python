@@ -77,7 +77,7 @@ $vpy = ".\.venv\Scripts\python.exe"
 & $vpy examples\arm_latency.py --speed 20 # how many calls per second the arm gives (moves up and down along z; type go)
 ```
 
-Keyboard control (after the basic steps work): `& $vpy examples\teleop.py --step-mm 5` (asks for `go`; d/a, w/s, r/f move x, y, z, o/c the gripper, q ends).
+Keyboard control (after the basic steps work): `& $vpy examples\teleop.py --step-mm 5` (asks for `go`; d/a, w/s, r/f move x, y, z, o/c the gripper, q ends). Add `--wrist-step 200` for the wrist: t/g pitch, y/h roll, 200 units each (probably 0.2 degree; unverified, watch the first press). One-shot: `-m scorbot.bridge wrist 200 0`.
 
 Ctrl+C in terminal 2 stops a move that is running (the server calls Stop when its client goes away).
 

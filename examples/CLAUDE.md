@@ -8,7 +8,7 @@ Scripts that drive the arm through the arm server (`tools/usbc_server`) with `sc
 | `pick_place.py` | yes | Scripted pick and place between four taught points (`above_a`, `at_a`, `above_b`, `at_b`), `--runs 10`, success and mat error per run to `logs/` |
 | `arm_latency.py` | yes, up and down along z | Times `where`, `move_by` and the gripper to find how many actions per second a policy gets |
 | `record_episode.py` | yes, one `move_by` per key | Teleoperation that logs two cameras, the arm state and each command to `episodes/<time>/`. `--fake` rehearses with `FakeArm` and fake cameras under `rehearsal/` |
-| `teleop.py` | yes, one `move_by` per key | Keyboard control with no cameras or logging: d/a, w/s, r/f for x, y, z, o/c for the gripper, q to end. Steps at most 20 mm, a server refusal is printed and the loop goes on. `--fake` rehearses with `FakeArm` |
+| `teleop.py` | yes, one `move_by` per key | Keyboard control with no cameras or logging: d/a, w/s, r/f for x, y, z, t/g and y/h for wrist pitch and roll (only with `--wrist-step`), o/c for the gripper, q to end. Steps at most 20 mm or 5000 wrist units, a server refusal is printed and the loop goes on. `--fake` rehearses with `FakeArm` |
 
 ## Rules
 

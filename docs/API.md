@@ -16,7 +16,7 @@ with Arm() as arm:                     # connects to 127.0.0.1:8765
 
 - Positions and distances are **mm** in the DLL's own task frame. Its origin and axis directions are whatever the DLL uses after Home; `examples/arm_characterise.py` measures them.
 - The server sends micrometres to the DLL's Teach. The DLL's xyz array is read back at 1000 units per mm (`XYZ_UNITS_PER_MM`). That holds in the DLL's own model (a 10 mm step read back as 9,996 units on the fake controller); the physical scale is **unmeasured**.
-- `pitch` and `roll` are the DLL's own units, passed through unchanged.
+- `pitch` and `roll` are the DLL's own units, passed through unchanged. Desk runs against the fake controller suggest 0.001 degree per unit ([DESK_FINDINGS.md](DESK_FINDINGS.md)); the wrist moves in whole motor counts of about 0.036 degree, so a request of 100 moved about 71. Unverified on the arm.
 
 ## Calls
 
@@ -26,6 +26,7 @@ with Arm() as arm:                     # connects to 127.0.0.1:8765
 | `home()` | Vendor Home (about 135 s on the lab arm). Closes the gripper and moves the wrist | |
 | `speed(percent)` | Whole number, 1 to 100 | outside 1 to 100 |
 | `move_by(dx=0, dy=0, dz=0)` | Relative move in mm | any axis above 50 mm, a non-finite value, or (once `arm_characterise.py` has measured the box in `calibration/arm.json`) a step that ends further outside the box than it starts |
+| `wrist_by(dpitch=0, droll=0)` | Relative wrist step in the DLL's pitch and roll units (probably 0.001 degree, unverified); the tool tip stays put in the DLL's model | a step above 10000 units on one axis, one that rounds to zero, or a non-finite value. The box does not apply |
 | `move_to(x, y, z, pitch=None, roll=None)` | Absolute move in mm | no Home in this session, no box file, or a target outside the box (never clipped) |
 | `gripper(open)` | `open=True` or `False` | emergency stop active |
 | `stop()` | Asks the server to Stop. Safe from another thread during a move | |

@@ -18,13 +18,21 @@ A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, us
 | A09 | SHALL | The characterisation reports the DLL xyz scale per axis, repeatability spread and 3x3 grid error, and records mat readings | test: `tests/test_arm_api.py::CharacteriseTests`; observable: run `examples/arm_characterise.py` on the arm, report in `calibration/` |
 | A10 | SHALL | The scripted pick-and-place records success and mat error per run over 10 runs | test: `tests/test_arm_api.py::PickPlaceTests`; observable: `examples/pick_place.py --runs 10` on the arm |
 
+| W01 | SHALL | `wrist_by` sends a relative Teach of `[0, 0, 0, dpitch, droll]` in whole DLL units and MoveJoint once; x, y, z are not touched | test: `tests/test_usbc_server.py::ServerTests::test_wrist_by_teaches_pitch_and_roll`; desk run against `tools/usbc_fake` (2026-10-25): +200 pitch gave m1 -5, m2 +5 counts and no change in x, y, z |
+| W02 | SHALL NOT | A wrist step above 10000 units on an axis, one that rounds to zero, or a non-finite or non-number value reaches the DLL | test: `test_usbc_server.py::ServerTests::test_bad_wrist_steps_are_refused` |
+| W03 | SHALL NOT | `examples/teleop.py` sends an x, y, z step above 20 mm or a wrist step above 5000 units, or moves the arm before a typed `go`; the wrist keys do nothing unless `--wrist-step` is above zero | test: `tests/test_teleop.py::MainTests::test_step_cap`, `::test_wrist_step_cap`, `::test_needs_go`, `DriveTests::test_wrist_keys_need_a_wrist_step` |
 | A11 | SHALL NOT | Intelitek manuals, `USBC.dll`, its ini files or captures are committed | script: `git ls-files | grep -i -E "usbc|er4.*ini|pcap"` prints nothing; `scripts/lab_check.py` runs the same check |
 | A12 | SHALL NOT | `USBC.dll` is loaded by any code other than the tools in `tools/` | review: `grep -rn "USBC" --include=*.py` shows no other loader |
 
 ## Out of scope
 - Cameras, vision models, VLA (next track).
 - Our own USB protocol replacing the DLL (the `stack2` branch).
-- Joint-space moves, MoveLinear, trajectories, wrist roll or pitch targets beyond passing the current values through.
+- Joint-space moves, MoveLinear, trajectories, absolute wrist targets (`move_to` passes the current pitch and roll through).
+
+## Planned, needs the lab first
+Not built. Each needs numbers from the arm ([docs/PLAN.md](docs/PLAN.md), [docs/DESK_FINDINGS.md](docs/DESK_FINDINGS.md)).
+- J01 joint jog: one axis at a time through the DLL's `MoveManual` (axis, velocity percent), with `usbc_jog`'s cleanup order. Needs the axis numbers and signs confirmed on the arm, and the wrist branch of MoveManual is untraced.
+- H01 hold-to-move: short capped jog bursts while a key is held, stop when presses stop. Needs the measured latency and coasting after a stop; never an open-ended move.
 
 ## Assumptions
 - Teach takes micrometres (vendor header, USNA toolbox); unverified on the arm.
@@ -35,5 +43,6 @@ A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, us
 - Does a second DefineVector in one session fail? The server defines once per session, and Teach then overwrites point 1 fine (desk run on the fake controller, 2026-10-20).
 
 ## Change log
+- 2026-10-25 wrist_by added (W01 to W03): relative pitch and roll steps, tested on the fake library and end to end on the vendor DLL against the fake controller; joint jog and hold-to-move listed as planned.
 - 2026-10-20 draft written from the approved plan (`arm side — a measured Python API`).
 - 2026-10-20 desk run: the lab USBC.dll build against `tools/usbc_fake` ran Home, move_by twice, gripper close and open, Speed, move_to (refused without a box, then run), reconnect and quit with Control off; no refusals from the DLL.

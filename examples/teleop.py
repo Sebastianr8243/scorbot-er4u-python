@@ -5,7 +5,9 @@ It asks you to type "go" first. Rehearse with no hardware: `python examples/tele
 
     python examples/teleop.py --step-mm 5
 
-Keys: d/a = x +/-, w/s = y +/-, r/f = z +/-, o = open gripper, c = close, q = end.
+Keys: d/a = x +/-, w/s = y +/-, r/f = z +/-, t/g = wrist pitch +/-, y/h = wrist roll +/-, o = open gripper, c = close,
+q = end. Wrist steps are in the DLL's own pitch and roll units (probably 0.001 degree; unverified on the arm): start
+small, `--wrist-step 200`, and watch the first one.
 A server refusal (a step outside the box) is printed and the loop goes on; any other error ends it.
 """
 
@@ -16,6 +18,7 @@ from scorbot.bridge import Arm, ArmError, FakeArm
 from scorbot.keys import getch, kbhit, keyboard_commands
 
 MAX_STEP_MM = 20        # below the server's 50 mm limit: this is a hand-driven script
+MAX_WRIST_STEP = 5000   # below the server's 10000 units, for the same reason
 
 
 def drive(arm, commands, say=print):
@@ -23,9 +26,12 @@ def drive(arm, commands, say=print):
     done = 0
     for command in commands:
         delta = {axis: command[axis] for axis in ("dx", "dy", "dz") if axis in command}
+        wrist = {axis: command[axis] for axis in ("dpitch", "droll") if axis in command}
         try:
             if delta:
                 arm.move_by(**delta)
+            if wrist:
+                arm.wrist_by(**wrist)
             if "gripper" in command:
                 arm.gripper(open=command["gripper"])
         except ArmError as error:
@@ -42,19 +48,22 @@ def main(argv=None, read=input, keys=getch, waiting=kbhit):
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--speed", type=int, default=20, help="percent of top speed, 1 to 100")
     parser.add_argument("--step-mm", type=float, default=5.0, help=f"distance per key press, at most {MAX_STEP_MM}")
+    parser.add_argument("--wrist-step", type=float, default=0, help=f"wrist units per t/g/y/h press, at most {MAX_WRIST_STEP}; 0 turns the wrist keys off")
     parser.add_argument("--fake", action="store_true", help="FakeArm: no hardware")
     args = parser.parse_args(argv)
     if not 0 < args.step_mm <= MAX_STEP_MM:
         parser.error(f"--step-mm must be above 0 and at most {MAX_STEP_MM}")
+    if not 0 <= args.wrist_step <= MAX_WRIST_STEP:
+        parser.error(f"--wrist-step must be from 0 to {MAX_WRIST_STEP}")
     warning = "Rehearsal with no hardware." if args.fake else "The arm will move on every key press. Hand on the red stop."
     if read(f"{warning} Type go: ") != "go":
         print("not started")
         return 1
-    print("keys: d/a x, w/s y, r/f z, o open, c close, q end")
+    print("keys: d/a x, w/s y, r/f z" + (", t/g pitch, y/h roll" if args.wrist_step else "") + ", o open, c close, q end")
     try:
         with FakeArm() if args.fake else Arm(port=args.port) as arm:
             arm.speed(args.speed)
-            print(f"{drive(arm, keyboard_commands(keys, args.step_mm, waiting))} steps")
+            print(f"{drive(arm, keyboard_commands(keys, args.step_mm, waiting, args.wrist_step))} steps")
     except ArmError as error:
         print(f"stopped: {error}")
         return 1

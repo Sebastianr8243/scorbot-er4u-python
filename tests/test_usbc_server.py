@@ -183,6 +183,25 @@ class ServerTests(unittest.TestCase):
             reader.readline()
         self.assertEqual(running.lib.calls("Teach"), [])
 
+    def test_wrist_by_teaches_pitch_and_roll(self):
+        running = self.start()
+        with running.arm() as arm:
+            arm.wrist_by(dpitch=200, droll=-300.4)
+            arm.quit()
+        (_name, _point, array, _count, flag), = running.lib.calls("Teach")
+        self.assertEqual(flag, move.RELATIVE_FLAG)
+        self.assertEqual(list(array.contents), [0, 0, 0, 200, -300])     # whole units, position untouched
+        self.assertEqual(len(running.lib.calls("MoveJoint")), 1)
+
+    def test_bad_wrist_steps_are_refused(self):
+        running = self.start()
+        with running.arm() as arm:
+            for fields in ({}, {"dpitch": 0.4}, {"droll": 10001}, {"dpitch": "5"}, {"droll": None}):
+                with self.assertRaises(bridge.ArmError):
+                    arm.send("wrist_by", **fields)
+            arm.quit()
+        self.assertEqual(running.lib.calls("Teach"), [])
+
     def test_move_to_needs_home_and_box(self):
         running = self.start(do_home=False, box=BOX)
         with running.arm() as arm:
