@@ -46,6 +46,10 @@ class DeviceLinkError(RuntimeError):
     """The link to the controller failed or was used wrongly."""
 
 
+class DeviceNotFoundError(DeviceLinkError):
+    """The device name does not exist: the driver is not bound, or the controller is absent."""
+
+
 class Win32Api:
     """kernel32, as little of it as the DLL uses. Built only by ``DeviceLink`` when no fake is passed."""
 
@@ -128,7 +132,8 @@ class DeviceLink:
         try:
             self._handle = self._api.create_file(path)
         except Win32Error as error:
-            raise DeviceLinkError(_open_message(error, path)) from error
+            kind = DeviceNotFoundError if error.code in (ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND)                 else DeviceLinkError
+            raise kind(_open_message(error, path)) from error
         self.endpoint_out = _OutEndpoint(self)
         self.endpoint_in = _InEndpoint(self)
 

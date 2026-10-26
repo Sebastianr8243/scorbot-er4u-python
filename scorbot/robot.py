@@ -1,5 +1,6 @@
 """Small, synchronous Python adapter around the original USB controller code."""
 
+import array
 from dataclasses import asdict
 import importlib
 import json
@@ -79,13 +80,18 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
     def __init__(self, *, log_path: str | Path | None = None,
                  command_timeout: float = 30.0, max_jog_degrees: float = limits.MAX_JOG_DEG,
                  response_timeout: float = 2.0, robot_id: str | None = None,
-                 calibration_path: str | Path | None = None):
+                 calibration_path: str | Path | None = None, transport: str = "pyusb"):
+        if transport not in ("pyusb", "device_file", "auto"):
+            raise ValueError("transport must be 'pyusb', 'device_file' or 'auto'")
         if (not math.isfinite(command_timeout) or command_timeout <= 0
                 or not math.isfinite(max_jog_degrees) or not 0 < max_jog_degrees <= limits.MAX_JOG_DEG
                 or not math.isfinite(response_timeout) or response_timeout <= 0):
             raise ValueError("Timeouts must be positive; maximum jog must be 0-5 degrees")
         if calibration_path is not None and not robot_id:
             raise ValueError("robot_id is required when loading calibration")
+        self.transport = transport
+        self.transport_used = None
+        self._link = None
         self.log_path = Path(log_path) if log_path else None
         self.command_timeout = command_timeout
         self.max_jog_degrees = max_jog_degrees
@@ -143,6 +149,29 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
         with self.log_path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(row, allow_nan=False) + "\n")
 
+    @staticmethod
+    def _import_usb():
+        try:
+            import usb.core
+            import usb.util
+        except ImportError as exc:
+            raise ScorbotError("Install the package dependencies before connecting") from exc
+        return usb
+
+    def _open_link(self):
+        """The Intelitek-driver link, or ``None`` when ``auto`` falls back to pyusb. Never touches pyusb."""
+        from .transport import device_file
+        try:
+            link = device_file.DeviceLink()
+        except device_file.DeviceNotFoundError as exc:
+            if self.transport == "device_file":
+                raise ScorbotError(str(exc)) from exc
+            self._record("transport_fallback", used="pyusb", reason=str(exc))
+            return None
+        self.transport_used = "device_file"
+        self._record("transport", used="device_file")
+        return link
+
     def connect(self):
         if self._device is not None:
             raise ScorbotError("Already connected")
@@ -150,51 +179,59 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
             raise ScorbotError("Create a new Scorbot instance after a fault")
         self._cancel_event.clear()
         self._stop_event.clear()
-        try:
-            import usb.core
-            import usb.util
-        except ImportError as exc:
-            raise ScorbotError("Install the package dependencies before connecting") from exc
+        usb = self._import_usb() if self.transport == "pyusb" else None
 
         self._legacy("conf").setup()
         legacy_sync = self._legacy("libsync")
         legacy_comm = self._legacy("libcomm")
         try:
-            finder = usb.core.find
-            if sys.platform == "win32":
+            link = self._open_link() if self.transport != "pyusb" else None
+            if link is None and usb is None:
+                usb = self._import_usb()
+            if link is not None:
+                self._device = link
+                self._link = link
+                endpoint_in, endpoint_out = link.endpoint_in, link.endpoint_out
+            else:
+                finder = usb.core.find
+                if sys.platform == "win32":
+                    try:
+                        import libusb_package
+                    except ImportError:
+                        pass
+                    else:
+                        finder = libusb_package.find
+                device = finder(idVendor=0x09F1, idProduct=0x0007)
+                if device is None:
+                    raise ScorbotError("ER-4U USB controller 09F1:0007 was not found")
+                self._device = device
+                self.transport_used = "pyusb"
+                device.reset()
                 try:
-                    import libusb_package
-                except ImportError:
+                    interface_number = device[0].interfaces()[0].bInterfaceNumber
+                    if device.is_kernel_driver_active(interface_number):
+                        device.detach_kernel_driver(interface_number)
+                except (NotImplementedError, usb.core.USBError):
+                    # Kernel driver management is unavailable on some Windows backends.
                     pass
-                else:
-                    finder = libusb_package.find
-            device = finder(idVendor=0x09F1, idProduct=0x0007)
-            if device is None:
-                raise ScorbotError("ER-4U USB controller 09F1:0007 was not found")
-            self._device = device
-            device.reset()
-            try:
-                interface_number = device[0].interfaces()[0].bInterfaceNumber
-                if device.is_kernel_driver_active(interface_number):
-                    device.detach_kernel_driver(interface_number)
-            except (NotImplementedError, usb.core.USBError):
-                # Kernel driver management is unavailable on some Windows backends.
-                pass
-            interface = device.get_active_configuration()[(0, 0)]
-            endpoint_in = usb.util.find_descriptor(
-                interface, custom_match=lambda endpoint:
-                usb.util.endpoint_direction(endpoint.bEndpointAddress) == usb.util.ENDPOINT_IN)
-            endpoint_out = usb.util.find_descriptor(
-                interface, custom_match=lambda endpoint:
-                usb.util.endpoint_direction(endpoint.bEndpointAddress) == usb.util.ENDPOINT_OUT)
-            if endpoint_in is None or endpoint_out is None:
-                raise ScorbotError("The USB controller endpoints were not found")
+                interface = device.get_active_configuration()[(0, 0)]
+                endpoint_in = usb.util.find_descriptor(
+                    interface, custom_match=lambda endpoint:
+                    usb.util.endpoint_direction(endpoint.bEndpointAddress) == usb.util.ENDPOINT_IN)
+                endpoint_out = usb.util.find_descriptor(
+                    interface, custom_match=lambda endpoint:
+                    usb.util.endpoint_direction(endpoint.bEndpointAddress) == usb.util.ENDPOINT_OUT)
+                if endpoint_in is None or endpoint_out is None:
+                    raise ScorbotError("The USB controller endpoints were not found")
             # Copies packets during jogs (motion_trace); packets are unchanged.
             self._trace = PacketTrace()
             endpoint_in = TrackedInputEndpoint(endpoint_in, self._trace)
             endpoint_out = TrackedOutputEndpoint(endpoint_out, self._trace)
             self._input = endpoint_in
-            buffer = usb.util.create_buffer(endpoint_in.wMaxPacketSize)
+            if link is not None:
+                buffer = array.array("B", bytes(endpoint_in.wMaxPacketSize))
+            else:
+                buffer = usb.util.create_buffer(endpoint_in.wMaxPacketSize)
             sequence, encoder_mean = legacy_sync.msg_start(endpoint_out, endpoint_in, buffer)
             self._buffer = buffer
             self._sync.put(sequence)
@@ -730,9 +767,14 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
                 raise ScorbotError(
                     "Sync worker is still active; USB resources remain open. "
                     "Use the physical stop if motor state is uncertain")
-        import usb.util
-        usb.util.dispose_resources(self._device)
+        if self._link is not None:
+            self._link.close()
+            self._link = None
+        else:
+            import usb.util
+            usb.util.dispose_resources(self._device)
         self._device = None
+        self.transport_used = None
         self._buffer = None
         self._input = None
         self._trace = None
