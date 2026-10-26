@@ -59,6 +59,22 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("4 commands: 2 ok, 1 refused, 1 failed", text)
         self.assertNotIn("ended early", text)
 
+    def test_a_failed_call_with_no_reason_is_failed_not_refused(self):
+        _, text = run([command(1.0, op="speed", percent=20, id=1), reply(1.0, id=1, ok=False)])
+        self.assertRegex(text, r"speed.*dll call failed")
+        self.assertIn("1 commands: 0 ok, 0 refused, 1 failed", text)
+
+    def test_a_damaged_line_stops_pairing(self):
+        lines = [command(1.0, op="move_by", dx=1, id=1), "{damaged", "{damaged", reply(2.0, id=2, ok=True, xyz=[1, 2, 3, 4, 5])]
+        _, text = run(lines)
+        self.assertRegex(text, r"1\.0.*move_by.*no reply")       # reply 2 must not answer command 1
+        self.assertIn("1 commands: 0 ok, 0 refused, 1 failed", text)
+        self.assertIn("2 damaged lines", text)
+
+    def test_a_reply_with_another_id_is_not_the_answer(self):
+        _, text = run([command(1.0, op="where", id=1), reply(1.5, id=2, ok=True)])
+        self.assertRegex(text, r"where.*no reply")
+
     def test_a_long_reason_is_shortened(self):
         long = "x" * 200
         _, text = run([command(1.0, op="move_by", dx=1, id=1), reply(1.0, id=1, ok=False, error=long)])

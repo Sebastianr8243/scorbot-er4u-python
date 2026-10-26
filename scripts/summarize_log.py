@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 def read_events(path):
-    """(events, ended_early): the parsed log lines; a last line that is cut off is dropped and flagged."""
+    """(events, ended_early): the parsed log lines; an unreadable line becomes a `damaged` event, and a cut-off last line is flagged."""
     lines = Path(path).read_text(encoding="utf-8").splitlines()
     events, ended_early = [], False
     for number, line in enumerate(lines):
@@ -22,7 +22,8 @@ def read_events(path):
         try:
             events.append(json.loads(line))
         except ValueError:
-            ended_early = ended_early or number == len(lines) - 1      # a bad line mid-file is skipped, not a crash sign
+            events.append({"event": "damaged"})        # kept in place so no reply is paired across it
+            ended_early = ended_early or number == len(lines) - 1
     return events, ended_early
 
 
@@ -37,28 +38,38 @@ def outcome(reply):
         return "ok", "ok"
     if "code" in reply:
         return f"dll code {reply['code']}", "failed"
-    return f"refused: {shorten(str(reply.get('error', '?')))}", "refused"
+    if "error" not in reply:
+        return "dll call failed", "failed"          # e.g. Speed: ok false and nothing else
+    return f"refused: {shorten(str(reply['error']))}", "refused"
+
+
+def command_fields(event):
+    try:
+        fields = json.loads(event.get("line", ""))
+    except (ValueError, AttributeError, TypeError):
+        return {}
+    return fields if isinstance(fields, dict) else {}
 
 
 def op_of(event):
-    try:
-        return json.loads(event.get("line", "")).get("op", "?")
-    except (ValueError, AttributeError):
-        return "?"
+    return command_fields(event).get("op", "?")
 
 
 def reply_to(events, index):
-    """The first reply after events[index], skipping the server's own step events; None if another command comes first."""
+    """The first reply after events[index], skipping the server's own step events.
+
+    None if another command or a damaged line comes first, or the reply carries a different id than the command."""
+    want = command_fields(events[index]).get("id")
     for event in events[index + 1:]:
         if event.get("event") == "reply":
-            return event
-        if event.get("event") == "command":
+            return None if want is not None and event.get("id") not in (None, want) else event
+        if event.get("event") in ("command", "damaged"):
             return None
     return None
 
 
 def summarize(path):
-    """(rows, totals, ended_early); each row is (t, op, outcome text, seconds or None)."""
+    """(rows, totals, ended_early, damaged lines); each row is (t, op, outcome text, seconds or None)."""
     events, ended_early = read_events(path)
     rows, totals = [], {"ok": 0, "refused": 0, "failed": 0}
     for index, event in enumerate(events):
@@ -70,7 +81,7 @@ def summarize(path):
         timing = reply.get("timing_s") if reply else None
         seconds = round(sum(timing.values()), 2) if isinstance(timing, dict) and timing else None
         rows.append((event.get("t", 0.0), op_of(event), text, seconds))
-    return rows, totals, ended_early
+    return rows, totals, ended_early, sum(event.get("event") == "damaged" for event in events)
 
 
 def main(argv=None, out=print):
@@ -80,11 +91,14 @@ def main(argv=None, out=print):
     if not args.log.is_file():
         out(f"no such log: {args.log}")
         return 1
-    rows, totals, ended_early = summarize(args.log)
+    rows, totals, ended_early, damaged = summarize(args.log)
     out(f"{'time':>8}  {'op':<9} {'outcome':<66} seconds")
     for t, op, text, seconds in rows:
         out(f"{t:>8.1f}  {op:<9} {text:<66} {'' if seconds is None else seconds}")
     out(f"{len(rows)} commands: {totals['ok']} ok, {totals['refused']} refused, {totals['failed']} failed")
+    damaged -= ended_early              # the cut-off last line has its own message below
+    if damaged:
+        out(f"{damaged} damaged line{'s' if damaged != 1 else ''} could not be read; no reply was matched across them")
     if ended_early:
         out("log ended early: the last line is cut off (the server stopped mid-write)")
     return 0

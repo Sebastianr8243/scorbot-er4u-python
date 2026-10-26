@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scorbot import bridge
 
@@ -181,6 +182,23 @@ class ServerTests(unittest.TestCase):
         self.assertNotIn("code", refused)
         self.assertNotIn("timing_s", where)
         self.assertEqual([moved["id"], refused["id"], where["id"], quit_["id"]], sorted({moved["id"], refused["id"], where["id"], quit_["id"]}))
+
+    def test_a_log_write_error_does_not_drop_the_reply(self):
+        class FailingLog(Log):
+            def event(self, name, **fields):
+                if name == "reply":
+                    raise OSError("disk full")
+                super().event(name, **fields)
+
+        with mock.patch(__name__ + ".Log", FailingLog):
+            running = self.start()
+        with running.arm() as arm:
+            moved = arm.move_by(dx=5)       # the reply still arrives
+            self.assertAlmostEqual(arm.where().x, moved.x)
+            arm.quit()
+        running.thread.join(5)
+        self.assertEqual(running.result["code"], 0)
+        self.assertEqual(len(running.lib.calls("Teach")), 1)
 
     def test_logging_does_not_change_the_reply(self):
         running = self.start()

@@ -345,7 +345,10 @@ def _serve_client(server, channel, log):
         reply.setdefault("ok", True)
         if request_id is not None:
             reply["id"] = request_id
-        log.event("reply", **{key: reply[key] for key in REPLY_LOGGED if key in reply})     # before the send: the log never lags the client
+        try:
+            log.event("reply", **{key: reply[key] for key in REPLY_LOGGED if key in reply})     # before the send: the log never lags the client
+        except OSError as error:        # a full disk must not cost the client its reply: the arm may already have moved
+            print(f"warning: could not log a reply: {error}", file=sys.stderr)
         channel.send(reply)
         if server.state["busy"]:        # a call may still run inside the DLL: stop serving, run() skips shutdown
             log.event("serve_ended_busy")
