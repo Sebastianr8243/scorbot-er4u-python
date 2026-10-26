@@ -28,6 +28,17 @@ class TaughtPointTests(unittest.TestCase):
         arm.go("above_a", self.positions)
         self.assertEqual((arm.x, arm.y, arm.z), (300, 10, 150))
 
+    def test_go_restores_the_wrist(self):
+        arm = bridge.FakeArm()
+        arm.wrist_by(dpitch=200)
+        arm.teach("tilted", self.positions, self.box)
+        arm.wrist_by(dpitch=200, droll=50)
+        arm.go("tilted", self.positions)
+        self.assertEqual((arm.pitch, arm.roll), (200, 0))
+        arm.wrist_by(droll=50)
+        arm.move_to(300, 0, 200)            # no pitch or roll given: the wrist stays
+        self.assertEqual((arm.pitch, arm.roll), (200, 50))
+
     def test_go_to_an_unknown_name_is_refused(self):
         with self.assertRaisesRegex(bridge.ArmError, "no taught position"):
             bridge.FakeArm().go("nowhere", self.positions)

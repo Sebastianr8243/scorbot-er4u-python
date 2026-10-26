@@ -211,6 +211,8 @@ class FakeArm:
             raise ArmError("move_to needs a Home in this session first")
         self.commands.append(("move_to", x, y, z))
         self.x, self.y, self.z = x, y, z
+        self.pitch = self.pitch if pitch is None else pitch
+        self.roll = self.roll if roll is None else roll
         return self.where()
 
     def gripper(self, open):        # noqa: A002
