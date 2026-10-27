@@ -81,6 +81,8 @@ $vpy = ".\.venv\Scripts\python.exe"
 
 Keyboard control (after the basic steps work): `& $vpy examples\teleop.py --step-mm 5` (asks for `go`; d/a, w/s, r/f move x, y, z, o/c the gripper, q ends). Add `--wrist-step 200` for the wrist: t/g pitch, y/h roll, 200 units each (probably 0.2 degree; unverified, watch the first press). One-shot: `-m scorbot.bridge wrist 200 0`.
 
+`teach` and `go` keep their files in `calibration\` by default. `--calibration-dir DIR` (before the command, for example `& $vpy -m scorbot.bridge --calibration-dir calibration\arm3 teach above_a`) puts `positions.json` and `arm.json` in `DIR` instead: one folder per arm. Start the server with the same box file (`usbc_server.py ... --box calibration\arm3\arm.json`), or its checks and the script's will use different boxes.
+
 Ctrl+C in terminal 2 stops a move that is running (the server calls Stop when its client goes away).
 
 In a script: `from scorbot.bridge import Arm`, then `with Arm() as arm: arm.move_by(dz=20)`. Absolute moves (`to`, `go`) are refused until `calibration\arm.json` has a box: `arm_characterise.py` writes it from the points it reached, and `teach` grows it to every taught spot. A script that ends leaves the server homed for the next one.
@@ -102,6 +104,16 @@ Hand on the red stop the whole time. One line at a time; if a line fails, stop a
 | 9 | `by 10 0 0`, then `go above_a` | returns to the taught spot (a small move_to, the first one on the arm) |
 
 The 5 mm steps are only so the first look at each direction is easy to read. A refused move prints the reason; a code like `(code 7)` now says what it means. With a ruler or phone camera in step 3 and 5, note how far the tip really moved for each 5 mm: that is a first look at the scale until the mat is ready.
+
+## Ten arms (unverified: only one arm has been run)
+
+One PC per arm. Each PC has its own USB cable, its own `usbc_server` and its own folder of calibration, so nothing is shared between arms:
+
+1. On each PC, `git pull` and do the setup above.
+2. Pick the arm's name, for example `arm3`. Its port is the server's `--port` (default 8765; PCs are separate machines, so the default is fine unless two arms share a PC, then use 8765, 8766, ...).
+3. Start the server with that arm's box: `& $py tools\usbc_server\usbc_server.py --dll-dir $bin --online --port 8765 --box calibration\arm3\arm.json`.
+4. Use the same folder in the scripts: `--calibration-dir calibration\arm3` on `python -m scorbot.bridge` and on `examples\arm_characterise.py`. The measured box (`arm_characterise.py`) is per arm; never copy one arm's `arm.json` to another.
+5. In the LeRobot adapter (`plugins/lerobot_robot_scorbot_stack1`) set `arm_id="arm3"`, `port`, `calibration_dir="calibration/arm3"` and `allow_real=True`.
 
 ## If it goes wrong
 

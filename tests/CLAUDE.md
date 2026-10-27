@@ -13,6 +13,7 @@ python -m unittest discover -s tests
 | `test_arm_api.py` | `FakeArm`, the `Arm` client against a stand-in server (replies matched by id, refusals, closed connection, no server), taught points and the box, `examples/arm_characterise.py` and `examples/pick_place.py` |
 | `test_record_episode.py` | `examples/record_episode.py` against `FakeArm` and `FakeSource`: both frames, state before the command, timing, no overwrite, a dead camera, an arm refusal, the key map, the saved `source` |
 | `test_teleop.py` | `examples/teleop.py` against `FakeArm` and a scripted key stream: keys to moves, a refusal goes on, a DLL error or a busy reply ends and says to check `where`, the step cap, the status line |
+| `test_lerobot_stack1.py` | `plugins/lerobot_robot_scorbot_stack1` and `examples/sim_demo.py` on `FakeArm`: step cap, box, Home, error latch, real-server flag, features, data_source, dataset writer and reload, the demo. A socket guard makes any connection attempt fail |
 | `test_camera_source.py` | `FakeSource` and `OpenCVSource` with OpenCV replaced by a fake module |
 | `test_usbc_home.py`, `test_usbc_jog.py`, `test_usbc_move.py` | The one-shot vendor-DLL tools against a fake library |
 | `test_usbc_fake.py` | `tools/usbc_fake`: the fake arm's switch bands and drives, and the guards that refuse anything but the named pipe |

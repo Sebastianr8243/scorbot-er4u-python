@@ -37,7 +37,8 @@ flowchart TD
 | `tools/usbc_server/` | The 32-bit server that holds the DLL session and serves `bridge.py` (`REQUIREMENTS.md`) |
 | `tools/usbc_home/`, `usbc_jog/`, `usbc_move/` | One-shot vendor-DLL lab tools (32-bit, stdlib) |
 | `tools/usbc_fake/` | The vendor DLL's Home against a fake controller on a named pipe (no USB, no arm) |
-| `examples/` | `arm_characterise.py`, `pick_place.py`, `arm_latency.py`, `record_episode.py`, `teleop.py` |
+| `examples/` | `arm_characterise.py`, `pick_place.py`, `arm_latency.py`, `record_episode.py`, `teleop.py`, `sim_demo.py` (FakeArm only) |
+| `plugins/lerobot_robot_scorbot_stack1/` | LeRobot-style adapter over `scorbot.bridge.Arm` with a safety layer and an episode writer; requirements in `docs/requirements/stack1-lerobot-adapter.md` |
 | `scripts/` | `lab_check.py` (read-only checks before a lab run), `summarize_log.py` (a server log as a table), `setup_windows.ps1` |
 | `tests/` | `unittest` suite, no hardware |
 | `docs/` | `lab/RUN_THE_ARM.md`, `API.md`, `STATUS.md`, `PLAN.md`, `DESK_FINDINGS.md`, manual reference (`manual/`) |
@@ -46,7 +47,7 @@ flowchart TD
 
 ## Commands
 
-**Verify before saying done** (about 15 s, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot scripts examples tests tools && python -m pytest -q tests`. Read `LESSONS.md` before starting; add one dated line after a non-trivial task.
+**Verify before saying done** (about 15 s, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot scripts examples tests tools plugins && python -m pytest -q tests`. Read `LESSONS.md` before starting; add one dated line after a non-trivial task.
 
 ```powershell
 python -m pip install -e ".[dev]"
