@@ -168,6 +168,7 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
                 raise ScorbotError(str(exc)) from exc
             self._record("transport_fallback", used="pyusb", reason=str(exc))
             return None
+        self._device = self._link = link
         self.transport_used = "device_file"
         self._record("transport", used="device_file")
         return link
