@@ -33,6 +33,9 @@ def _check_move(before, after, expected):
             raise ScorbotError(f"Unexpected {motor} count change: {moved}; abort")
 
 
+SETTLE_SECONDS = 3.0    # the follower trails its target; the end-of-stream drift check waits for it
+
+
 def _sine(robot, joint, seconds, adaptive_pacing):
     before = robot._motion_state()
     home = robot._home_counts
@@ -48,6 +51,13 @@ def _sine(robot, joint, seconds, adaptive_pacing):
             stream.set_target({**start, joint: start[joint] + scale * math.sin(2 * math.pi * elapsed / seconds)})
             time.sleep(0.02)
         stream.set_target(start)
+        deadline = time.monotonic() + SETTLE_SECONDS
+        while time.monotonic() < deadline:
+            counts = robot._motion_state().encoder_counts
+            if all(abs(signed_count_delta(counts[m], home[m]) - start[m]) <= limits.STABLE_COUNTS
+                   for m in start):
+                break
+            time.sleep(0.05)
     after = robot._motion_state()
     _check_move(before, after, {})
 
