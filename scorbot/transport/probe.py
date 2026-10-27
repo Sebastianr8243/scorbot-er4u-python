@@ -96,6 +96,8 @@ def main(argv=None):
                 with (open(args.log, "x", encoding="utf-8") if args.log else contextlib.nullcontext()) as log:
                     result, dropped = measure(robot, args.reads, log)
                 print(f"{label} timing {json.dumps(result)}" + (f"; dropped {dropped}" if dropped else ""))
+                if result["replies"] < args.reads:
+                    raise ScorbotError(f"only {result['replies']} of {args.reads} replies arrived")
         finally:
             robot.disconnect()
     except (ScorbotError, DeviceLinkError, OSError, ValueError, EOFError) as exc:

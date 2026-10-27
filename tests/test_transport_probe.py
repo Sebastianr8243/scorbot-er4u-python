@@ -108,6 +108,14 @@ class ProbeTests(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             probe.main(["--simulate", "--log", "x.jsonl"])
 
+    def test_a_short_capture_is_a_failure_but_keeps_what_it_got(self):
+        output = io.StringIO()
+        with mock.patch.object(probe, "measure", return_value=({"replies": 2, "lag": {}}, 0)),                 contextlib.redirect_stdout(output):
+            self.assertEqual(probe.main(["--simulate", "--reads", "5"]), 1)
+        text = output.getvalue()
+        self.assertIn('"replies": 2', text)
+        self.assertIn("FAIL only 2 of 5 replies", text)
+
     def test_real_refusals_open_nothing_and_device_errors_are_plain(self):
         with mock.patch.object(probe, "Scorbot") as factory, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(probe.main([]), 1)
