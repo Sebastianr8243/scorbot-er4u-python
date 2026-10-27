@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_robot_scorbot_stack1"
+version = "0.1.0"
+description = "LeRobot-style Robot for the ScorBot ER-4U through scorbot.bridge (Stack 1, vendor DLL). Unverified on the arm."
+requires-python = ">=3.10"
+# scorbot-er4u (this repo) provides scorbot.bridge. lerobot is optional: the adapter imports without it.
+dependencies = ["scorbot-er4u"]
+
+[project.optional-dependencies]
+lerobot = ["lerobot"]
+
+[tool.setuptools]
+packages = ["lerobot_robot_scorbot_stack1"]

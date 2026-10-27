@@ -36,7 +36,7 @@ jobs:
         run: |
           python -m pip install uv
           uv lock --check
-      - run: python -m compileall -q scorbot scripts examples tests tools
+      - run: python -m compileall -q scorbot scripts examples tests tools plugins
       - name: Tests in parallel with coverage (pytest runs the unittest suite)
         run: |
           python -m coverage run -m pytest tests

@@ -52,8 +52,14 @@ The server logs every command and every reply to `logs/server-<time>.jsonl`. `py
 ## Command line
 
 ```powershell
-python -m scorbot.bridge where | by DX DY DZ | to X Y Z | open | close | speed N | home | teach NAME | go NAME | stop | quit
+python -m scorbot.bridge [--port N] [--calibration-dir DIR] where | by DX DY DZ | to X Y Z | open | close | speed N | home | teach NAME | go NAME | stop | quit
 ```
+
+`--calibration-dir DIR` (default `calibration`) is where `teach` and `go` keep `positions.json` and `arm.json`: one folder per arm. Start the server with `--box DIR\arm.json` so it checks the same box ([lab/RUN_THE_ARM.md](lab/RUN_THE_ARM.md), "Ten arms").
+
+## LeRobot adapter
+
+`plugins/lerobot_robot_scorbot_stack1` wraps `Arm` as a LeRobot-style `Robot` with a safety layer in front (step over 50 mm, target outside the box and any move before Home are refused; an arm error calls `stop()` and latches). `python examples/sim_demo.py` runs it on `FakeArm`. Unverified on the arm. See its [README](../plugins/lerobot_robot_scorbot_stack1/README.md).
 
 ## Where the guarantees are tested
 
