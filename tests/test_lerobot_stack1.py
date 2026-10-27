@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from examples import sim_demo  # noqa: E402
 from lerobot_robot_scorbot_stack1 import (  # noqa: E402
-    ActionRefused, AdapterStopped, DatasetWriter, MixedDataError, Stack1Config, Stack1Robot, read_episode)
+    ActionRefused, AdapterStopped, DatasetWriter, MixedDataError, Stack1RobotConfig, Stack1Robot, read_episode)
 from lerobot_robot_scorbot_stack1 import robot as robot_module  # noqa: E402
 from scorbot.bridge import ArmError, FakeArm  # noqa: E402
 
@@ -31,7 +31,7 @@ def act(**fields):
 
 def make(arm=None, homed=True, **config):
     """A connected robot on a FakeArm (start 300, 0, 200 inside BOX), homed unless homed=False."""
-    robot = Stack1Robot(Stack1Config(box_mm=config.pop("box_mm", BOX), **config))
+    robot = Stack1Robot(Stack1RobotConfig(box_mm=config.pop("box_mm", BOX), **config))
     robot.connect(arm=arm or FakeArm(homed=False))
     if homed:
         robot.home()
@@ -90,7 +90,7 @@ class SafetyTests(NoSocketCase):
 
     def test_no_box_means_no_move(self):
         with tempfile.TemporaryDirectory() as folder:
-            robot = Stack1Robot(Stack1Config(calibration_dir=folder))
+            robot = Stack1Robot(Stack1RobotConfig(calibration_dir=folder))
             robot.connect(arm=FakeArm(homed=False))
             robot.home()
             with self.assertRaises(ActionRefused) as raised:
@@ -166,8 +166,8 @@ class ConfigTests(NoSocketCase):
     def test_max_step_cannot_exceed_50(self):
         for value in (50.1, 0, -1, float("nan")):
             with self.assertRaises(ValueError):
-                Stack1Config(max_step_mm=value)
-        Stack1Config(max_step_mm=10)
+                Stack1RobotConfig(max_step_mm=value)
+        Stack1RobotConfig(max_step_mm=10)
         robot = make(max_step_mm=10)
         with self.assertRaises(ActionRefused):
             robot.send_action(act(**{"dx.mm": 11.0}))
@@ -175,7 +175,7 @@ class ConfigTests(NoSocketCase):
     def test_per_arm_fields_and_box_from_the_calibration_dir(self):
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / "arm.json").write_text(json.dumps({"box_mm": BOX}), encoding="utf-8")
-            config = Stack1Config(arm_id="arm7", port=8771, host="127.0.0.2", calibration_dir=folder)
+            config = Stack1RobotConfig(arm_id="arm7", port=8771, host="127.0.0.2", calibration_dir=folder)
             self.assertEqual((config.arm_id, config.port, config.host), ("arm7", 8771, "127.0.0.2"))
             robot = Stack1Robot(config)
             robot.connect(arm=FakeArm(homed=False))
@@ -183,14 +183,28 @@ class ConfigTests(NoSocketCase):
             robot.send_action(act(**{"dx.mm": 10.0}))
             with self.assertRaises(ActionRefused):
                 robot.send_action(act(**{"dx.mm": 45.0}))       # 310 + 45 is past 350
-        defaults = Stack1Config()
+        defaults = Stack1RobotConfig()
         self.assertEqual((defaults.port, str(defaults.calibration_dir), defaults.allow_real), (8765, "calibration", False))
+
+
+    def test_lerobot_can_find_the_robot_from_the_config_class_name(self):
+        """LeRobot's make_device_from_device_class cuts 'Config' off the config class name and looks that name up in the
+        plugin package (read from huggingface/lerobot import_utils.py, not run here: lerobot is not installed)."""
+        import lerobot_robot_scorbot_stack1 as package
+        name = Stack1Robot.config_class.__name__
+        self.assertTrue(name.endswith("Config"))
+        self.assertIs(getattr(package, name[:-6], None), Stack1Robot)
+
+    def test_calibration_dir_is_always_a_path(self):
+        """LeRobot's Robot.__init__ calls config.calibration_dir.mkdir(), so a plain string would crash it."""
+        self.assertIsInstance(Stack1RobotConfig().calibration_dir, Path)
+        self.assertIsInstance(Stack1RobotConfig(calibration_dir="calibration/arm3").calibration_dir, Path)
 
 
 class ConnectTests(unittest.TestCase):
     def test_a_real_server_is_refused_without_the_flag(self):
         with mock.patch.object(robot_module, "Arm", side_effect=AssertionError("must not connect")):
-            robot = Stack1Robot(Stack1Config(box_mm=BOX))
+            robot = Stack1Robot(Stack1RobotConfig(box_mm=BOX))
             with self.assertRaises(ValueError) as raised:
                 robot.connect()
             self.assertIn("allow_real", str(raised.exception))
@@ -200,7 +214,7 @@ class ConnectTests(unittest.TestCase):
         stub = mock.MagicMock()
         stub.ping.return_value = {"ok": True, "simulated": False}
         with mock.patch.object(robot_module, "Arm", return_value=stub) as arm_class:
-            robot = Stack1Robot(Stack1Config(box_mm=BOX, allow_real=True, port=8771, host="127.0.0.3"))
+            robot = Stack1Robot(Stack1RobotConfig(box_mm=BOX, allow_real=True, port=8771, host="127.0.0.3"))
             robot.connect()
         arm_class.assert_called_once_with(host="127.0.0.3", port=8771)
         self.assertTrue(robot.is_connected)
@@ -230,7 +244,7 @@ class DataSourceTests(unittest.TestCase):
     def source_for(self, ping):
         stub = mock.MagicMock()
         stub.ping.return_value = ping
-        robot = Stack1Robot(Stack1Config(box_mm=BOX, allow_real=True))
+        robot = Stack1Robot(Stack1RobotConfig(box_mm=BOX, allow_real=True))
         robot.connect(arm=stub)
         return robot.data_source
 
