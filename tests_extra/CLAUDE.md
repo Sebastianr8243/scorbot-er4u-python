@@ -19,6 +19,7 @@ Run from the repo root: these files import helpers as `tests.<name>`.
 | `test_build_calibration_csv.py`, `test_kinematics.py` | Offline calibration and kinematics tools |
 | `test_usbc_peread.py`, `test_usbc_query.py` | Ghidra dump tools |
 | `test_usbc_fake.py` | `tools/usbc_fake`: the fake arm's switch bands and drives, and the guards that refuse a `DriverLink` that is not the pipe |
+| `test_policy_arm.py` | `scorbot/policy_arm.py` on the simulated controller: starts at home, one clamped step, travel cap, bad values hold, close twice, act after close refused |
 | `test_policy_loop.py`, `test_export_policy_dataset.py` | `examples/policy_loop.py` (the clamp on its own, then the supervised policy run rehearsed in the simulator, including a policy that crashes) and `scripts/export_policy_dataset.py` (episodes reload identically; failed, errored and mixed-source runs are refused) |
 | `test_lab_summary.py` | `scripts/lab_summary.py` on hand-made records: direction, scale against the prior, phone angle, other joints, policy runs, problems and exit code |
 | `test_usbc_server.py` | `tools/usbc_server` through `scorbot.bridge.Arm` on a real localhost socket, against a fake library: refusals, stop during a move, reconnect, a hung call |

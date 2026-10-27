@@ -27,6 +27,8 @@ import time
 
 from scorbot import Scorbot, ScorbotError, SimulatedScorbot, StreamRefused
 from scorbot.calibration import signed_count_delta
+from scorbot.policy_arm import (DEFAULT_TRAVEL_CAP_DEG, LEAD_LIMIT_DEG, LEAD_MARGIN_DEG, STEP_MAX_DEG,
+                                clamp)
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder
@@ -42,11 +44,7 @@ OperatorDeclined = bench.OperatorDeclined
 observe_leds = bench.observe_leds
 
 # Tight on purpose, like bench_stream: nothing here is measured on the arm. Raise with lab evidence.
-DEFAULT_TRAVEL_CAP_DEG = 2.0
 MAX_TRAVEL_CAP_DEG = 10.0
-LEAD_LIMIT_DEG = 2.0            # the SDK's own lead limit; our targets stay inside LEAD_MARGIN_DEG of it
-LEAD_MARGIN_DEG = 1.5           # a target never leads the measured position by more than this
-STEP_MAX_DEG = 0.5              # largest delta applied in one tick
 RATE_RANGE_HZ = (1.0, 10.0)
 MAX_STEPS = 200
 TARGET_REFRESH_S = 0.1          # re-send the target between ticks: the stream holds after 0.5 s of silence
@@ -57,30 +55,6 @@ MAX_POLICY_ERRORS = 3           # in a row; then the run ends and returns home
 OBS = ("obs passed to a policy: step (int), t (seconds since the first tick), "
        "deg ({motor: degrees from home, measured}), target_deg ({motor: last commanded}), "
        "counts ({motor: counts from home, measured})")
-
-
-def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX_DEG,
-          lead_margin_deg=LEAD_MARGIN_DEG):
-    """The new commanded target (degrees from home) per motor. Pure.
-
-    Each delta is cut to +-step_max_deg, added to the last commanded target, cut to +-cap_deg from
-    home, and kept within lead_margin_deg of the measured position. Unknown motors, non-finite
-    numbers and missing motors are ignored (the motor holds). Returns (target, clamped_motors).
-    """
-    out, clamped = dict(target_deg), []
-    for motor, asked in (delta_deg or {}).items():
-        if motor not in MOTORS or isinstance(asked, bool) or not isinstance(asked, (int, float)) \
-                or not math.isfinite(asked):
-            clamped.append(motor)
-            continue
-        step = max(-step_max_deg, min(step_max_deg, asked))
-        wanted = max(-cap_deg, min(cap_deg, target_deg[motor] + step))
-        lo, hi = measured_deg[motor] - lead_margin_deg, measured_deg[motor] + lead_margin_deg
-        wanted = max(lo, min(hi, wanted))
-        if abs(wanted - (target_deg[motor] + asked)) > 1e-9:
-            clamped.append(motor)
-        out[motor] = wanted
-    return out, clamped
 
 
 def reach_policy(goals):

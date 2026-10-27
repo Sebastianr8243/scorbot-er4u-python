@@ -17,7 +17,7 @@ Original OpenScorbot code (University of La Laguna, GPL-3.0) that builds and sen
 
 ## Config: conf.py and data.json
 
-- `conf.readData(group, key)` re-reads and parses `data.json` on every call (`libdef`, `libcomm`, `setHome` call it inside loops). Module-level constants (`WRITE`, `READ`, `MAX_ERROR`, `VEC_POS`...) are read once at import.
+- `conf.readData(group, key)` re-reads and parses `data.json` on every call (about 0.3 ms). `libdef` reads the per-message values (`MAX_COUNT`, `MSG_LEN`, `TIME_OUT_W`, `VEC_POS`) once at import; `set_msg` still reads `TIME_OUT_R` between the write sleep and the read, so the write-to-read gap is unchanged. `libcomm` and `setHome` still call it inside loops. Module-level constants (`WRITE`, `READ`, `MAX_ERROR`, `VEC_POS`...) are read once at import.
 - `conf.setup()` writes `data.json` only if it does not exist and never overwrites it. Editing defaults in `conf.py` has no effect on a machine that already has `data.json`; delete the file (git-ignored, `openScorbot/data.json`) to regenerate. `readData` calls `setup()` if the file is missing, so merely importing `libsync`/`libcomm` creates it.
 - `conf.py` values (link lengths, `posRef`, `angRef`, DH terms, per-joint delays, `MAX_ERROR = 40`, homing speeds) are inherited, not measured.
 

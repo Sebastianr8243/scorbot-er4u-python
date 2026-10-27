@@ -1,11 +1,12 @@
 # scripts/
 
-Offline analysis tools and Windows setup. None of the Python scripts open USB or command the arm; keep it that way. Root rules in [../CLAUDE.md](../CLAUDE.md) apply.
+Offline analysis tools, Windows setup and the explicitly supervised `bring_up.py` lab runner. Root rules in [../CLAUDE.md](../CLAUDE.md) apply.
 
 A new script gets a row in the table below and in the README's "Scripts and examples" table, in the same PR.
 
 | Script | Purpose | Reads | Notes |
 |---|---|---|---|
+| `bring_up.py` | Stack 2 probe, enable, vendor Home (or `--legacy-home`), 1 degree jog/back, optional sine stream, disable | `--logs` folder | **Connects and commands the arm** only through existing SDK gates, and only with `--online` (vendor Home keeps its own typed EMPTY/CLEAR/HOME); agents/tests use `--simulate` only. JSONL exclusive create, first-surprise abort. See `docs/lab/BRING_UP_RUNBOOK.md` |
 | `fit_calibration.py` | Fit per-arm counts/degree from physical angle measurements | measurements CSV, limits JSON | Writes with `open("x")` (refuses to overwrite). Prints scale warnings vs legacy scale; warnings never block |
 | `build_calibration_csv.py` | Turn guided lab session logs plus physical angle readings into the calibration CSV that `fit_calibration.py` wants (`docs/lab/PHYSICAL_CALIBRATION.md`). The logs give the encoder counts; you give the angle read off the level or protractor for each step | session JSONL logs, a readings file (`log,point,joint,role,physical_angle_deg,requested_target_deg`) | Standard library only. Never opens USB |
 | `make_vendor_home_fixture.py` | Reduce a fake-controller recording of the vendor's Home to the golden fixture `tests/test_vendor_home.py` compares against (`tests/fixtures/vendor_home_trace04.json`): every non-`0D` command, with the `0D` setpoint stream dropped and repeats collapsed, plus a `recipe` of the part that does not depend on how many cycles a wait took | the JSONL a named-pipe fake controller wrote while `USBC.dll` ran `Home('A')` | Standard library only. The vendor binaries and the raw recording are never committed; the fixture holds command bytes and numbers, not Intelitek code |
@@ -54,6 +55,6 @@ Scripts use `$ErrorActionPreference = 'Stop'`, resolve the repo root from `$PSSc
 
 ## Do not
 
-- Do not import `openScorbot` protocol modules or open a device from a script. (`fit_calibration.py` imports only `openScorbot.motion_profile`, pure.)
+- Do not import `openScorbot` protocol modules or open a device from an analysis script. `bring_up.py` is the supervised SDK runner exception. (`fit_calibration.py` imports only `openScorbot.motion_profile`, pure.)
 - Do not overwrite outputs; use exclusive create.
 - Do not have a review or fit script emit "safe", "calibrated" or "validated" language beyond what its checks prove.
