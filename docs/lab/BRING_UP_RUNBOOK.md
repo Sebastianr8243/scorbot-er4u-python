@@ -25,6 +25,7 @@ Fake latency is never evidence about the controller. The thesis mean of 16.9 ms 
 
 ## Lab commands (operator present, supervised only)
 
+Lab-PC prep and the driver restore steps: [LAB_CHECKLIST.md](LAB_CHECKLIST.md).
 Close SCORBASE and vendor tools; only one program may own the controller. Secure the base,
 start near home, clear the entire arm/wrist path, empty the jaws and put a hand at the red stop.
 Keep real runs under `logs`, separate from `rehearsal`. Record a USBPcap capture alongside the log.
