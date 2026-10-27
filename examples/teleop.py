@@ -8,7 +8,8 @@ It asks you to type "go" first. Rehearse with no hardware: `python examples/tele
 Keys: d/a = x +/-, w/s = y +/-, r/f = z +/-, t/g = wrist pitch +/-, y/h = wrist roll +/-, o = open gripper, c = close,
 q = end. Wrist steps are in the DLL's own pitch and roll units (probably 0.001 degree; unverified on the arm): start
 small, `--wrist-step 200`, and watch the first one.
-A server refusal (a step outside the box) is printed and the loop goes on; any other error ends it.
+A server refusal (a step outside the box) is printed and the loop goes on; any other error ends it, and then
+the arm may have moved, so read `python -m scorbot.bridge where` before the next move.
 After every key a status line shows the step count, the last result, the refusals so far and the position in mm.
 """
 
@@ -45,7 +46,7 @@ def drive(arm, commands, say=print, status=None):
             if "gripper" in command:
                 position = arm.gripper(open=command["gripper"]) or position
         except ArmError as error:
-            if "error" not in error.reply or "code" in error.reply:
+            if "error" not in error.reply or "code" in error.reply or error.reply.get("busy"):
                 raise                   # not a plain refusal: the arm may have moved, so end here
             say(f"refused: {error}")
             refused += 1
@@ -75,12 +76,16 @@ def main(argv=None, read=input, keys=getch, waiting=kbhit):
         print("not started")
         return 1
     print("keys: d/a x, w/s y, r/f z" + (", t/g pitch, y/h roll" if args.wrist_step else "") + ", o open, c close, q end")
+    moving = False
     try:
         with FakeArm() if args.fake else Arm(port=args.port) as arm:
             arm.speed(args.speed)
+            moving = True
             print(f"{drive(arm, keyboard_commands(keys, args.step_mm, waiting, args.wrist_step), status=print)} steps")
     except ArmError as error:
         print(f"stopped: {error}")
+        if moving:
+            print("The arm may have moved. Read its position before the next move: python -m scorbot.bridge where")
         return 1
     except KeyboardInterrupt:
         print("ended")

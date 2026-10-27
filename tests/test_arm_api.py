@@ -125,6 +125,11 @@ class ClientTests(unittest.TestCase):
         self.assertIn("a DLL call did not return", str(caught.exception))
         self.assertEqual(caught.exception.reply["code"], 8)
 
+    def test_a_busy_server_is_reported_as_busy(self):
+        port = self.serve([lambda r: [{"ok": False, "busy": True, "error": "busy: another client is connected"}]])
+        with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "busy: another client"):
+            arm.where()
+
     def test_a_closed_connection_raises(self):
         port = self.serve([lambda r: []])
         with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "closed the connection"):

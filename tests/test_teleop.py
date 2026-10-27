@@ -1,5 +1,7 @@
 """examples/teleop.py against FakeArm and a scripted key stream: no arm, no USB."""
 
+import contextlib
+import io
 import unittest
 from unittest import mock
 
@@ -62,6 +64,13 @@ class DriveTests(unittest.TestCase):
             with self.assertRaises(ArmError):
                 teleop.drive(arm, keyboard_commands(keys("ddq"), 5))
 
+    def test_a_busy_reply_ends_the_loop(self):
+        arm = Recorder()
+        busy = ArmError("busy: another client", {"ok": False, "busy": True, "error": "busy: another client"})
+        with mock.patch.object(arm, "move_by", side_effect=busy):
+            with self.assertRaises(ArmError):
+                teleop.drive(arm, keyboard_commands(keys("ddq"), 5))
+
     def test_status_line_after_each_key(self):
         arm, lines = Recorder(), []
         refused = ArmError("outside the box", {"error": "outside the box"})
@@ -91,6 +100,18 @@ class DriveTests(unittest.TestCase):
         self.assertEqual(plain.calls, with_status.calls)
 
 
+class GetchTests(unittest.TestCase):
+    def test_getch_waits_in_short_polls_so_ctrl_c_is_seen(self):
+        """msvcrt.getwch blocks and is not woken by Ctrl+C on Windows, so getch only calls it once a key is waiting."""
+        calls = []
+        waiting = iter([False, False, True])
+        fake = mock.Mock(kbhit=lambda: next(waiting), getwch=lambda: calls.append("getwch") or "d")
+        with mock.patch.dict("sys.modules", {"msvcrt": fake}), mock.patch("time.sleep") as sleep:
+            from scorbot import keys as scorbot_keys
+            self.assertEqual(scorbot_keys.getch(), "d")
+        self.assertEqual((sleep.call_count, calls), (2, ["getwch"]))
+
+
 class MainTests(unittest.TestCase):
     def test_needs_go(self):
         self.assertEqual(teleop.main(["--fake"], read=lambda _: "no", keys=keys("q")), 1)
@@ -102,6 +123,16 @@ class MainTests(unittest.TestCase):
     def test_wrist_step_cap(self):
         with self.assertRaises(SystemExit):
             teleop.main(["--fake", "--wrist-step", "5001"], read=lambda _: "go", keys=keys("q"))
+
+    def test_an_arm_error_says_to_check_where(self):
+        failed = ArmError("move failed", {"error": "move failed", "code": 911})
+        said = io.StringIO()
+        with mock.patch.object(FakeArm, "move_by", side_effect=failed), contextlib.redirect_stdout(said):
+            code = teleop.main(["--fake"], read=lambda _: "go", keys=keys("dq"), waiting=lambda: False)
+        self.assertEqual(code, 1)
+        self.assertIn("stopped: move failed", said.getvalue())
+        self.assertIn("may have moved", said.getvalue())
+        self.assertIn("where", said.getvalue())
 
     def test_fake_run_ends_on_q(self):
         self.assertEqual(teleop.main(["--fake"], read=lambda _: "go", keys=keys("dq"), waiting=lambda: False), 0)

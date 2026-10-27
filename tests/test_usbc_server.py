@@ -442,6 +442,97 @@ class ServerTests(unittest.TestCase):
             self.assertTrue(arm.ping()["homed"])
             arm.quit()
 
+    def test_a_second_client_is_told_the_server_is_busy(self):
+        running = self.start()
+        with running.arm() as first:
+            first.where()
+            with socket.create_connection(("127.0.0.1", running.port), timeout=5) as second:
+                second.sendall(b'{"op": "where", "id": 1}\n')      # a client that already asked something must still read the line
+                reply = json.loads(second.makefile("rb").readline())      # within the 5 s socket timeout, or the test fails
+            self.assertEqual((reply["ok"], reply["busy"]), (False, True))
+            self.assertIn("busy", reply["error"])
+            first.quit()
+
+    def test_a_second_client_does_not_disturb_the_first(self):
+        running = self.start()
+        with running.arm() as first:
+            first.where()
+            with socket.create_connection(("127.0.0.1", running.port), timeout=5) as second:
+                second.makefile("rb").readline()
+            first.move_by(dx=1)              # the first client still gets its own reply
+        with running.arm() as next_client:   # and its disconnect still keeps the session
+            next_client.quit()
+        running.thread.join(5)
+        self.assertEqual((running.result["code"], len(running.lib.calls("Home")), running.lib.calls("Stop")), (0, 1, []))
+
+    def test_a_second_client_waits_for_a_running_move(self):
+        release = threading.Event()
+        running = self.start(FakeLib(MoveJoint=lambda *args: release.wait(5) and 1))
+        first = running.arm()
+        first._write({"op": "move_by", "dx": 5, "id": 1})
+        for _ in range(100):
+            if running.lib.calls("MoveJoint"):
+                break
+            threading.Event().wait(0.02)
+        second = socket.create_connection(("127.0.0.1", running.port), timeout=0.3)
+        with self.assertRaises(socket.timeout):     # nothing is answered while the DLL call runs
+            second.makefile("rb").readline()
+        self.assertEqual(running.lib.calls("Stop"), [])
+        release.set()
+        self.assertTrue(json.loads(first._readline())["ok"])      # the move's own reply comes first
+        second.settimeout(5)
+        self.assertTrue(json.loads(second.makefile("rb").readline())["busy"])
+        second.close()
+        first.quit()
+        first.close()
+        self.assertEqual(running.lib.calls("Stop"), [])
+
+    def test_an_accept_error_does_not_end_the_first_clients_session(self):
+        class Aborting:
+            timeouts = []
+
+            def settimeout(self, value):
+                self.timeouts.append(value)
+
+            def accept(self):
+                raise ConnectionAbortedError("a client gave up while connecting")
+
+        server._turn_away_waiting_clients(Aborting(), Log())       # must return, not raise
+        self.assertEqual(Aborting.timeouts[-1], server.IDLE_POLL_S)
+
+    def test_reconnecting_clients_cannot_hold_the_server_in_the_busy_loop(self):
+        class Peer:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                self.closed = True
+
+            def sendall(self, _data):
+                pass
+
+            def shutdown(self, _how):
+                pass
+
+            def settimeout(self, _value):
+                pass
+
+            def recv(self, _size):
+                return b""
+
+        class Endless:
+            accepted = 0
+
+            def settimeout(self, _value):
+                pass
+
+            def accept(self):
+                Endless.accepted += 1
+                return Peer(), ("127.0.0.1", 50000 + Endless.accepted)
+
+        server._turn_away_waiting_clients(Endless(), Log())       # a client always waiting: it must still return
+        self.assertEqual(Endless.accepted, server.MAX_TURNED_AWAY)
+
     def test_garbage_lines(self):
         running = self.start()
         with socket.create_connection(("127.0.0.1", running.port), timeout=5) as raw:

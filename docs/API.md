@@ -41,7 +41,7 @@ A move's `Position` also has `timing`, a dict of seconds the server spent per st
 
 ## Errors
 
-Every refusal or failed DLL call raises `ArmError`; `error.reply` holds the server's whole answer. `Arm()` raises it too if no server is listening. Ctrl+C during a move calls `stop()` before re-raising, and a client that disconnects mid-move gets the arm stopped. A client that disconnects otherwise leaves the homed session for the next one.
+Every refusal or failed DLL call raises `ArmError`; `error.reply` holds the server's whole answer. `Arm()` raises it too if no server is listening. Ctrl+C during a move calls `stop()` before re-raising, and a client that disconnects mid-move gets the arm stopped. A client that disconnects otherwise leaves the homed session for the next one. The server serves one client at a time: a second connection gets `{"ok": false, "busy": true, "error": ...}` between commands (during a move it waits until the move ends) and is closed; `Arm` raises that as an `ArmError`.
 
 The server logs every command and every reply to `logs/server-<time>.jsonl`. `python scripts/summarize_log.py <log>` prints it as one row per command (ok, refused with the reason, or a DLL error). It reports what was asked and answered, not whether the arm physically moved.
 
