@@ -23,9 +23,9 @@ Safety layer, in `send_action`, before the arm sees anything: a step over 50 mm 
 `connect()` refuses a real arm server unless the config has `allow_real=True`. `data_source` is `real` only when the server's `ping` says `simulated: false`.
 
 ```python
-from lerobot_robot_scorbot_stack1 import Stack1Config, Stack1Robot
+from lerobot_robot_scorbot_stack1 import Stack1RobotConfig, Stack1Robot
 
-robot = Stack1Robot(Stack1Config(arm_id="arm3", port=8765, calibration_dir="calibration/arm3", allow_real=True))
+robot = Stack1Robot(Stack1RobotConfig(arm_id="arm3", port=8765, calibration_dir="calibration/arm3", allow_real=True))
 robot.connect()        # needs tools/usbc_server running (docs/lab/RUN_THE_ARM.md)
 robot.home()           # about 135 s on the lab arm; a person at the red stop
 robot.send_action({"dx.mm": 5.0, "dy.mm": 0.0, "dz.mm": 0.0, "gripper.pos": 0.0})

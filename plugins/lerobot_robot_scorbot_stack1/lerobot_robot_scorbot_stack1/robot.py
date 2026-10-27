@@ -14,16 +14,19 @@ from pathlib import Path
 
 from scorbot.bridge import Arm, FakeArm
 
-try:        # lerobot is optional: tests and the demo run without it. Base-class API unverified against an install.
+try:        # lerobot is optional: tests and the demo run without it. Shape read from lerobot source, never run against an install.
     from lerobot.robots import Robot, RobotConfig
     HAVE_LEROBOT = True
 except ImportError:
     HAVE_LEROBOT = False
 
-    class RobotConfig:      # stand-in with the one thing the real one offers that we use
+    class RobotConfig:      # stand-in with the two things the real one offers that we use
         @classmethod
         def register_subclass(cls, _name):
             return lambda subclass: subclass
+
+        def __post_init__(self):
+            pass
 
     class Robot:
         def __init__(self, config):
@@ -44,16 +47,18 @@ class AdapterStopped(RuntimeError):
 
 @RobotConfig.register_subclass("scorbot_stack1")
 @dataclass
-class Stack1Config(RobotConfig):
+class Stack1RobotConfig(RobotConfig):
     arm_id: str = "arm0"
     host: str = "127.0.0.1"
     port: int = 8765                            # the arm server on this PC (one PC per arm)
-    calibration_dir: Path | str = "calibration"     # arm.json (the box) lives here; same as bridge --calibration-dir
+    calibration_dir: Path | str = Path("calibration")   # arm.json (the box) lives here; same as bridge --calibration-dir
     allow_real: bool = False                    # must be True to connect to an arm server
     box_mm: dict | None = None                  # {"x": [lo, hi], ...}; overrides calibration_dir/arm.json
     max_step_mm: float = MAX_STEP_MM
 
     def __post_init__(self):
+        super().__post_init__()
+        self.calibration_dir = Path(self.calibration_dir)       # LeRobot's Robot.__init__ calls .mkdir() on it
         if not 0 < self.max_step_mm <= MAX_STEP_MM:     # also false for nan
             raise ValueError(f"max_step_mm must be above 0 and at most {MAX_STEP_MM:g}, got {self.max_step_mm}")
 
@@ -62,7 +67,7 @@ def _number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
-def load_box(config: Stack1Config) -> dict | None:
+def load_box(config: Stack1RobotConfig) -> dict | None:
     """The calibrated box {"x": [lo, hi], ...} in mm, or None when there is none."""
     box = config.box_mm
     if box is None:
@@ -79,10 +84,10 @@ def load_box(config: Stack1Config) -> dict | None:
 
 
 class Stack1Robot(Robot):
-    config_class = Stack1Config
+    config_class = Stack1RobotConfig
     name = "scorbot_stack1"
 
-    def __init__(self, config: Stack1Config):
+    def __init__(self, config: Stack1RobotConfig):
         super().__init__(config)
         self.config = config
         self._arm = None

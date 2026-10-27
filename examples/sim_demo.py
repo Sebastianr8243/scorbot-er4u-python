@@ -18,7 +18,7 @@ for path in (ROOT, ROOT / "plugins" / "lerobot_robot_scorbot_stack1"):
         sys.path.insert(0, str(path))
 
 from lerobot_robot_scorbot_stack1 import (  # noqa: E402
-    ActionRefused, DatasetWriter, Stack1Config, Stack1Robot, read_episode)
+    ActionRefused, DatasetWriter, Stack1RobotConfig, Stack1Robot, read_episode)
 from scorbot.bridge import FakeArm  # noqa: E402
 
 BOX = {"x": [250, 350], "y": [-50, 50], "z": [150, 250]}      # the FakeArm starts at 300, 0, 200
@@ -56,7 +56,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     print("SIMULATION: FakeArm in memory. Nothing is connected; nothing here has run on the arm.")
-    robot = Stack1Robot(Stack1Config(arm_id="sim0", box_mm=BOX))
+    robot = Stack1Robot(Stack1RobotConfig(arm_id="sim0", box_mm=BOX))
     robot.connect(arm=FakeArm(homed=False))
     writer = DatasetWriter(args.out, robot.data_source, fps=FPS)
 
