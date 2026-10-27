@@ -303,6 +303,32 @@ class DatasetTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             writer.add_frame({}, {}, "simulated")
 
+    def test_a_reused_dict_does_not_change_a_frame_already_added(self):
+        writer = DatasetWriter(self.root, "simulated", fps=10)
+        path = writer.start_episode("reuse")
+        observation, action = {"x.mm": 300.0}, {"dx.mm": 5.0}
+        writer.add_frame(observation, action, "simulated")
+        observation["x.mm"], action["dx.mm"] = 305.0, -5.0      # the caller reuses its dicts
+        writer.add_frame(observation, action, "simulated")
+        writer.end_episode()
+        records = read_episode(path)
+        self.assertEqual([r["observation.state"]["x.mm"] for r in records], [300.0, 305.0])
+        self.assertEqual([r["action"]["dx.mm"] for r in records], [5.0, -5.0])
+
+    def test_the_next_episode_index_follows_the_highest_one_on_disk(self):
+        writer = DatasetWriter(self.root, "simulated", fps=10)
+        writer.start_episode("explicit", index=1)
+        writer.end_episode()
+        path = writer.start_episode("automatic")        # file count is 1, but episode 1 exists
+        writer.end_episode()
+        self.assertEqual(path.name, "episode_000002.jsonl")
+
+    def test_reopening_with_a_different_fps_is_refused(self):
+        DatasetWriter(self.root, "simulated", fps=10)
+        with self.assertRaises(ValueError):
+            DatasetWriter(self.root, "simulated", fps=20)
+        DatasetWriter(self.root, "simulated", fps=10)       # the same rate reopens fine
+
 
 class DemoTests(NoSocketCase):
     def test_the_demo_runs_and_saves_an_episode(self):

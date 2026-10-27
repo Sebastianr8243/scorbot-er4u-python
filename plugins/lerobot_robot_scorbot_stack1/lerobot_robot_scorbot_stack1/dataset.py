@@ -26,9 +26,11 @@ class DatasetWriter:
         self.root, self.data_source, self.fps = Path(root), data_source, fps
         info = self.root / "info.json"
         if info.exists():
-            existing = json.loads(info.read_text(encoding="utf-8")).get("data_source")
-            if existing != data_source:
-                raise MixedDataError(f"{self.root} holds {existing} data; refusing to add {data_source} data to it")
+            saved = json.loads(info.read_text(encoding="utf-8"))
+            if saved.get("data_source") != data_source:
+                raise MixedDataError(f"{self.root} holds {saved.get('data_source')} data; refusing to add {data_source} data to it")
+            if saved.get("fps") != fps:
+                raise ValueError(f"{self.root} was recorded at {saved.get('fps')} fps; refusing to add frames at {fps} fps")
         else:
             self.root.mkdir(parents=True, exist_ok=True)
             with open(info, "x", encoding="utf-8") as file:
@@ -39,7 +41,8 @@ class DatasetWriter:
         """Open the next episode file (or `index`, which must be new). Returns its path."""
         if self._file is not None:
             self.end_episode()
-        self.index = len(list(self.root.glob("episode_*.jsonl"))) if index is None else index
+        taken = [int(path.stem.split("_")[1]) for path in self.root.glob("episode_*.jsonl")]
+        self.index = max(taken, default=-1) + 1 if index is None else index
         path = self.root / f"episode_{self.index:06d}.jsonl"
         self._file, self._task, self._frames, self._pending = open(path, "x", encoding="utf-8"), task, 0, None
         return path
@@ -57,7 +60,8 @@ class DatasetWriter:
         if self._pending is not None:       # the last frame is written at end_episode, when done is known
             self._write(self._pending, False)
         self._pending = {"episode_index": self.index, "frame_index": self._frames, "timestamp": round(self._frames / self.fps, 6),
-                         "task": self._task, "observation.state": observation, "action": action, "data_source": data_source}
+                         "task": self._task, "observation.state": dict(observation), "action": dict(action),
+                         "data_source": data_source}     # copies: the caller may reuse its dicts
         self._frames += 1
 
     def end_episode(self) -> None:
