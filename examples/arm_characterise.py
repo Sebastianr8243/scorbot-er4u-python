@@ -113,6 +113,7 @@ def characterise(arm, grid_mm=40.0, repeats=10, step_mm=20.0, read=input):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Measure the arm's frame, scale, repeatability and grid accuracy")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--calibration-dir", default="calibration", help="folder for arm.json and the report (one per arm)")
     parser.add_argument("--grid-mm", type=float, default=40.0)
     parser.add_argument("--repeats", type=int, default=10)
     parser.add_argument("--step-mm", type=float, default=20.0)
@@ -129,8 +130,8 @@ def main(argv=None):
     except ArmError as error:
         print(f"stopped: {error}")
         return 1
-    box = widen_box(BOX, reached, measured=True)
-    path = Path("calibration") / f"arm_report-{datetime.now():%Y%m%d-%H%M%S}.json"
+    box = widen_box(Path(args.calibration_dir) / BOX.name, reached, measured=True)
+    path = Path(args.calibration_dir) / f"arm_report-{datetime.now():%Y%m%d-%H%M%S}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "x", encoding="utf-8") as handle:       # evidence is never overwritten
         json.dump(report, handle, indent=2, allow_nan=False)

@@ -30,6 +30,17 @@ class TaughtPointTests(unittest.TestCase):
         arm.go("above_a", self.positions)
         self.assertEqual((arm.x, arm.y, arm.z), (300, 10, 150))
 
+    def test_cli_calibration_dir_keeps_one_arms_files_apart(self):
+        from unittest import mock
+        arm = bridge.FakeArm(start=(300, 10, 150))
+        with mock.patch.object(bridge, "Arm", return_value=arm), mock.patch("builtins.print"):
+            self.assertEqual(bridge.main(["--calibration-dir", str(Path(self.dir.name) / "arm3"), "teach", "p"]), 0)
+            arm.move_by(dz=-40)
+            self.assertEqual(bridge.main(["--calibration-dir", str(Path(self.dir.name) / "arm3"), "go", "p"]), 0)
+        self.assertEqual(arm.z, 150)
+        self.assertTrue((Path(self.dir.name) / "arm3" / "positions.json").exists())
+        self.assertTrue((Path(self.dir.name) / "arm3" / "arm.json").exists())
+
     def test_go_restores_the_wrist(self):
         arm = bridge.FakeArm()
         arm.wrist_by(dpitch=200)

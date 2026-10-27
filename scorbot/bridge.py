@@ -319,6 +319,8 @@ def go(arm, name, positions=POSITIONS):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="One command to the arm server")
     parser.add_argument("--port", type=int, default=PORT)
+    parser.add_argument("--calibration-dir", default="calibration",
+                        help="folder for positions.json and arm.json used by teach and go (one per arm; default calibration)")
     parser.add_argument("command", choices=("where", "by", "wrist", "to", "open", "close", "speed", "home",
                                             "teach", "go", "stop", "quit"))
     parser.add_argument("args", nargs="*")
@@ -326,6 +328,7 @@ def main(argv=None):
     needs = {"by": 3, "wrist": 2, "to": 3, "speed": 1, "teach": 1, "go": 1}.get(args.command, 0)
     if len(args.args) != needs:
         parser.error(f"{args.command} takes {needs} value(s)")
+    positions, box = Path(args.calibration_dir) / POSITIONS.name, Path(args.calibration_dir) / BOX.name
     numbers = args.args if args.command in ("teach", "go") else [float(value) for value in args.args]
     try:
         with Arm(port=args.port) as arm:
@@ -338,8 +341,8 @@ def main(argv=None):
                 "close": lambda: arm.gripper(open=False),
                 "speed": lambda: arm.speed(int(numbers[0])),
                 "home": lambda: arm.home(),
-                "teach": lambda: arm.teach(numbers[0]),
-                "go": lambda: arm.go(numbers[0]),
+                "teach": lambda: arm.teach(numbers[0], positions, box),
+                "go": lambda: arm.go(numbers[0], positions),
                 "stop": lambda: arm.stop(),
                 "quit": lambda: arm.quit(),
             }[args.command]()
