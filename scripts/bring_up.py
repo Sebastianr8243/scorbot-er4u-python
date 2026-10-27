@@ -58,6 +58,7 @@ def _sine(robot, joint, seconds, adaptive_pacing):
         stream.set_target(start)
         deadline = time.monotonic() + SETTLE_SECONDS
         while time.monotonic() < deadline:
+            stream.set_target(start)    # the stream holds the arm if its target goes quiet for 0.5 s
             state = robot._motion_state()
             _check_flags(state)
             counts = state.encoder_counts

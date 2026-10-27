@@ -73,6 +73,38 @@ class BringUpTests(unittest.TestCase):
         self.assertEqual(result, 1, lines)
         self.assertEqual([r["step"] for r in rows if r["event"] == "step_fail"], ["1 degree sine stream"])
 
+    def test_the_settle_wait_keeps_refreshing_the_return_target(self):
+        robot = SimulatedScorbot()
+        targets = []
+        start_stream = robot.start_stream
+
+        class Spy:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def set_target(self, target):
+                targets.append(dict(target))
+                return self.stream.set_target(target)
+
+        class Wrapper:
+            def __init__(self, context):
+                self.context = context
+
+            def __enter__(self):
+                return Spy(self.context.__enter__())
+
+            def __exit__(self, *exc):
+                return self.context.__exit__(*exc)
+
+        robot.start_stream = lambda **kw: Wrapper(start_stream(**kw))
+        # No reading counts as settled, so the wait runs its whole (shortened) time.
+        with mock.patch.object(bring_up, "SETTLE_SECONDS", 0.3), \
+                mock.patch.object(bring_up.limits, "STABLE_COUNTS", -1):
+            result, lines, rows = self.run_ladder(options(stream=True), lambda **kw: robot)
+        self.assertEqual(result, 0, lines)
+        back = targets[-1]
+        self.assertGreaterEqual(targets.count(back), 4)     # sent once, then again while waiting
+
     def test_first_injected_fault_aborts_before_home_or_jog_and_latches(self):
         controller = SimulatedController()
         robot = SimulatedScorbot(controller=controller, command_timeout=0.5)
