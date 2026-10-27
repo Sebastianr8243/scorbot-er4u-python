@@ -7,6 +7,7 @@ import unittest
 
 from scorbot import SimulatedScorbot
 from scorbot.policy_arm import STEP_MAX_DEG, PolicyArm
+from scorbot.robot import ScorbotError
 
 
 @unittest.skipUnless(find_spec("ruckig"), "needs the planning extra")
@@ -34,6 +35,16 @@ class PolicyArmTests(unittest.TestCase):
     def test_bad_values_and_unknown_motors_hold(self):
         target = self.arm.act({"base": float("nan"), "shoulder": "x", "wrist": 1.0, "elbow": True})
         self.assertEqual(target, {"base": 0.0, "shoulder": 0.0, "elbow": 0.0})
+
+    def test_unavailable_feedback_latches_the_session(self):
+        self.arm.robot.sim.inject("stale_feedback")
+        with self.assertRaises(ScorbotError):
+            self.arm.observe()
+        self.assertIsNotNone(self.arm.robot._fault)
+        try:
+            self.arm.close()     # a faulted stream reports its fault here; the fault is what this test checks
+        except Exception:
+            pass
 
     def test_close_is_safe_twice_and_act_after_close_fails(self):
         self.arm.close()

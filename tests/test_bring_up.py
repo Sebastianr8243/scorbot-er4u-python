@@ -2,6 +2,7 @@
 
 import argparse
 import contextlib
+import dataclasses
 import io
 import json
 from pathlib import Path
@@ -48,6 +49,29 @@ class BringUpTests(unittest.TestCase):
         self.assertTrue(any(row["event"] == "home_complete" and row["method"] == "vendor" for row in rows))
         stream.assert_called_once_with(adaptive_pacing=False)
         self.assertFalse(robot.sim.motors_on)
+
+    def test_a_collision_flag_during_the_stream_aborts_the_ladder(self):
+        robot = SimulatedScorbot()
+        seen = {"stream": False, "reads": 0}
+        start_stream, motion_state = robot.start_stream, robot._motion_state
+
+        def streaming(*args, **kwargs):
+            seen["stream"] = seen["stream"] or "adaptive_pacing" in kwargs   # only the ladder passes it
+            return start_stream(*args, **kwargs)
+
+        def state_with_flag(*args, **kwargs):
+            state = motion_state(*args, **kwargs)
+            if not seen["stream"]:
+                return state
+            seen["reads"] += 1      # the flag shows for the first few reads and clears before the final check
+            return dataclasses.replace(state, collision_bits=1) if seen["reads"] <= 3 else state
+
+        robot.start_stream, robot._motion_state = streaming, state_with_flag
+        ask = mock.Mock(side_effect=("EMPTY", "CLEAR", "HOME"))
+        result, lines, rows = self.run_ladder(options(simulate=False, online=True, stream=True),
+                                             lambda **kw: robot, ask)
+        self.assertEqual(result, 1, lines)
+        self.assertEqual([r["step"] for r in rows if r["event"] == "step_fail"], ["1 degree sine stream"])
 
     def test_first_injected_fault_aborts_before_home_or_jog_and_latches(self):
         controller = SimulatedController()

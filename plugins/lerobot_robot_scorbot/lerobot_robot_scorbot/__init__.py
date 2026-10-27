@@ -10,6 +10,7 @@ installed LeRobot (API taken from its docs).
 from dataclasses import dataclass, field
 from pathlib import Path
 import time
+import uuid
 from typing import Any
 
 from lerobot.cameras import CameraConfig, make_cameras_from_configs
@@ -76,7 +77,9 @@ class ScorbotRobot(Robot):
         pass
 
     def connect(self, calibrate: bool = True) -> None:
-        log = Path(self.config.log_dir) / f"lerobot-{time.strftime('%Y%m%dT%H%M%S')}.jsonl"
+        if self._arm is not None:
+            raise RuntimeError(f"{self} is already connected.")
+        log = Path(self.config.log_dir) / f"lerobot-{time.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}.jsonl"
         arm = PolicyArm(SimulatedScorbot(log_path=log, robot_id=self.config.robot_id),
                         travel_cap_deg=self.config.travel_cap_deg)
         arm.connect()           # unwinds itself on failure: LeRobot calls us outside its cleanup
@@ -108,8 +111,10 @@ class ScorbotRobot(Robot):
 
     def disconnect(self) -> None:
         arm, self._arm = self._arm, None
-        for cam in self.cameras.values():
-            if cam.is_connected:
-                cam.disconnect()
-        if arm is not None:
-            arm.close()
+        try:
+            for cam in self.cameras.values():
+                if cam.is_connected:
+                    cam.disconnect()
+        finally:
+            if arm is not None:
+                arm.close()

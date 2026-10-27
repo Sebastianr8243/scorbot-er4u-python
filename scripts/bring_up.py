@@ -19,9 +19,13 @@ from scorbot.state import JOINTS
 from scorbot.transport.probe import CONNECT_WARNING, read_status
 
 
-def _check_state(state):
+def _check_flags(state):
     if state.fault or state.collision_bits or state.home_switch_bits >= 32:
         raise ScorbotError("Unexpected fault, collision or unknown switch bits; abort")
+
+
+def _check_state(state):
+    _check_flags(state)
     if any(state.controller_error_counts.values()):
         raise ScorbotError("Controller reports position error counts; abort and inspect")
 
@@ -49,11 +53,14 @@ def _sine(robot, joint, seconds, adaptive_pacing):
             if elapsed >= seconds:
                 break
             stream.set_target({**start, joint: start[joint] + scale * math.sin(2 * math.pi * elapsed / seconds)})
+            _check_flags(robot._motion_state())     # position errors are normal while moving; flags are not
             time.sleep(0.02)
         stream.set_target(start)
         deadline = time.monotonic() + SETTLE_SECONDS
         while time.monotonic() < deadline:
-            counts = robot._motion_state().encoder_counts
+            state = robot._motion_state()
+            _check_flags(state)
+            counts = state.encoder_counts
             if all(abs(signed_count_delta(counts[m], home[m]) - start[m]) <= limits.STABLE_COUNTS
                    for m in start):
                 break

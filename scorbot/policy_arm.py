@@ -92,7 +92,7 @@ class PolicyArm:
     def observe(self) -> dict[str, float]:
         """Degrees from home, measured."""
         self._require_connected()
-        counts = self.robot.get_state().encoder_counts
+        counts = self.robot._motion_state().encoder_counts     # latches the session if feedback is unavailable
         return {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
 
     def act(self, goal_deg: dict) -> dict[str, float]:
