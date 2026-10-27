@@ -16,6 +16,7 @@
 |---|---|
 | [`RUN_THE_ARM.md`](lab/RUN_THE_ARM.md) | Setting up the lab PC and moving the arm through the vendor DLL: probe, connect, jog, Home, point move, errors |
 | [`BRING_UP_RUNBOOK.md`](lab/BRING_UP_RUNBOOK.md) | Stack 2 desk rehearsal and supervised probe, enable, Home, 1 degree jog/back and optional stream ladder |
+| [`LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) | Stack 2 first-visit page: driver path, Windows prep, probe order, restoring Intelitek's driver after a WinUSB swap |
 | [`USB_CAPTURE.md`](lab/USB_CAPTURE.md) | Wireshark/USBPcap capture and comparison with this code's packets |
 | [`PHYSICAL_CALIBRATION.md`](lab/PHYSICAL_CALIBRATION.md) | Measuring joint angles for calibration: file formats, priors, count wrap |
 | [`WINDOWS_BENCH_RUN.md`](lab/WINDOWS_BENCH_RUN.md) | The pyusb path on Windows: install, driver check, preflight |
