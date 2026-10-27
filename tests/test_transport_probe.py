@@ -3,6 +3,9 @@
 import contextlib
 from hashlib import sha256
 import io
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 
@@ -75,6 +78,43 @@ class ProbeTests(unittest.TestCase):
         self.assertIn("energises then releases", lines[0])
         self.assertIn("raw ", lines[1])
         self.assertIn("switches", lines[2])
+
+    def test_summarise_pins_gaps_and_echo_lag_on_known_rows(self):
+        def row(direction, ms, first):
+            return {"direction": direction, "host_monotonic_ns": ms * 1_000_000, "hex": bytes([first] + [0] * 63).hex()}
+
+        rows = [row("out", 0, 10), row("in", 8, 10), row("out", 9, 11), row("in", 18, 9),
+                row("out", 20, 12), row("in", 40, 0)]
+        result = probe.summarise(rows)
+        self.assertEqual(result["replies"], 3)
+        self.assertEqual(result["lag"], {0: 1, 2: 1, None: 1})        # echo 0 is unreadable
+        self.assertEqual(result["gap_ms"], {"min": 10.0, "median": 16.0, "p95": 10.0, "max": 22.0})
+        self.assertEqual(probe.summarise([row("in", 5, 3)]), {"replies": 1, "lag": {None: 1}})
+
+    def test_reads_times_idle_replies_and_logs_to_a_new_file_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "reads.jsonl"
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(probe.main(["--simulate", "--latency-ms", "1", "--reads", "5",
+                                             "--log", str(path)]), 0)
+            lines = output.getvalue().splitlines()
+            self.assertTrue(all(line.startswith("SIMULATED ") for line in lines))
+            self.assertIn("timing", lines[-1])
+            rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            self.assertGreaterEqual(sum(r["direction"] == "in" for r in rows), 5)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(probe.main(["--simulate", "--reads", "1", "--log", str(path)]), 1)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            probe.main(["--simulate", "--log", "x.jsonl"])
+
+    def test_a_short_capture_is_a_failure_but_keeps_what_it_got(self):
+        output = io.StringIO()
+        with mock.patch.object(probe, "measure", return_value=({"replies": 2, "lag": {}}, 0)),                 contextlib.redirect_stdout(output):
+            self.assertEqual(probe.main(["--simulate", "--reads", "5"]), 1)
+        text = output.getvalue()
+        self.assertIn('"replies": 2', text)
+        self.assertIn("FAIL only 2 of 5 replies", text)
 
     def test_real_refusals_open_nothing_and_device_errors_are_plain(self):
         with mock.patch.object(probe, "Scorbot") as factory, contextlib.redirect_stdout(io.StringIO()):

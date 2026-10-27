@@ -45,6 +45,9 @@ Vendor Home requires exact `EMPTY`, `CLEAR`, `HOME` at its step. A mismatch abor
 
 1. Probe: full `Scorbot.connect()` handshake (motor-on then motor-off), one decoded snapshot.
    Standalone probe prints raw hex, counts and switch bits, then closes. Ladder retains its connection.
+   `probe --online --reads 200 --log logs\probe-reads.jsonl` also times 200 idle replies (gap min/median/p95/max in ms,
+   echo-lag histogram; `None` means the reply echoed no usable ID). It sends nothing beyond the handshake. First real
+   timing numbers; unverified until run.
 2. Enable motors: command succeeds. Check and write down the actual MOTORS LED; SDK enabled is history.
 3. HOME: default `vendor_home`, the vendor's recorded sequence through our SDK, including wrist/gripper.
    A successful SDK Home establishes this session's home. Controller acceptance is unverified.
