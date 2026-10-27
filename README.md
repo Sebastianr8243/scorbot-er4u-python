@@ -49,6 +49,7 @@ Hardware claims are "unverified" until a bench log backs them.
 | `tools/usbc_fake/` | The DLL against a fake controller (no arm) |
 | `examples/` | `arm_characterise.py`, `pick_place.py`, and offline previews |
 | `scorbot/` (rest), `openScorbot/` | Stack 2 and the original GPL OpenScorbot code (experimental, reference) |
+| `scripts/bring_up.py` | Stack 2 desk rehearsal (`--simulate`) and supervised lab ladder; [runbook](docs/lab/BRING_UP_RUNBOOK.md) |
 | `docs/` | Index in [docs/README.md](docs/README.md); protocol and manual notes; `archive/` is history |
 | `tests/`, `tests_extra/` | `unittest` suites, no hardware |
 

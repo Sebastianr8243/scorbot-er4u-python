@@ -32,3 +32,5 @@ references/*.pdf
 models/er4u_meshes/*
 !models/er4u_meshes/README.md
 graphify-out/
+
+.pytest-*/
