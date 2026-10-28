@@ -231,6 +231,83 @@ class ConnectTests(unittest.TestCase):
             robot.get_observation()
 
 
+class SimulateTests(NoSocketCase):
+    """`simulate=True` is for lerobot-record on a laptop: connect() builds its own FakeArm, already homed, because
+    lerobot-record never calls home(). It must never build an Arm."""
+
+    def robot(self, **config):
+        with mock.patch.object(robot_module, "Arm", side_effect=AssertionError("simulate must never build an Arm")):
+            robot = Stack1Robot(Stack1RobotConfig(simulate=True, **config))
+            robot.connect()
+        return robot
+
+    def test_connects_without_an_arm_or_allow_real_and_starts_homed(self):
+        robot = self.robot()
+        self.assertEqual(robot.data_source, "simulated")
+        self.assertTrue(robot.is_connected and robot.is_calibrated)
+        self.assertEqual(robot.get_observation(), {"x.mm": 300.0, "y.mm": 0.0, "z.mm": 200.0, "gripper.pos": 0.0})
+        robot.send_action(act(**{"dx.mm": 20.0}))       # no home() call
+        self.assertEqual(robot.get_observation()["x.mm"], 320.0)
+        self.assertFalse(robot._arm.open)               # the FakeArm agrees with the adapter's idea of a closed gripper
+
+    def test_simulate_wins_over_allow_real(self):
+        robot = self.robot(allow_real=True)
+        self.assertEqual(robot.data_source, "simulated")
+
+    def test_the_safety_layer_still_applies(self):
+        robot = self.robot()
+        with self.assertRaises(ActionRefused):
+            robot.send_action(act(**{"dx.mm": 60.0}))
+        self.assertEqual(robot._box, robot_module.SIM_BOX)
+        with self.assertRaises(ActionRefused):          # 300 -> 350 -> 400 is the edge, the third step is past it
+            for _ in range(3):
+                robot.send_action(act(**{"dx.mm": 50.0}))
+        self.assertEqual(robot.get_observation()["x.mm"], 400.0)
+
+    def test_an_explicit_box_replaces_the_default_one(self):
+        robot = self.robot(box_mm=BOX)
+        robot.send_action(act(**{"dx.mm": 45.0}))
+        with self.assertRaises(ActionRefused):
+            robot.send_action(act(**{"dx.mm": 10.0}))
+
+    def test_arm_json_in_the_calibration_dir_replaces_the_default_box(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "arm.json").write_text(json.dumps({"box_mm": BOX}), encoding="utf-8")
+            robot = self.robot(calibration_dir=folder)
+        self.assertEqual(robot._box, {axis: [float(lo), float(hi)] for axis, (lo, hi) in BOX.items()})
+
+    def test_the_dataset_type_says_simulated(self):
+        """lerobot-record writes robot.name into the dataset's robot_type, and LeRobot v3 has no data_source field."""
+        self.assertEqual(Stack1Robot(Stack1RobotConfig(simulate=True)).name, "scorbot_stack1_sim")
+        self.assertEqual(Stack1Robot(Stack1RobotConfig()).name, "scorbot_stack1")
+        self.assertEqual(Stack1Robot.name, "scorbot_stack1")
+
+    def test_disconnect_then_connect_starts_a_fresh_arm(self):
+        robot = self.robot()
+        robot.send_action(act(**{"dx.mm": 30.0}))
+        robot.disconnect()
+        robot.connect()
+        self.assertEqual(robot.get_observation()["x.mm"], 300.0)
+        with self.assertRaises(RuntimeError):
+            robot.connect()
+
+    def test_reset_needs_a_new_home_like_the_real_path(self):
+        robot = self.robot()
+        robot.reset()
+        with self.assertRaises(ActionRefused):
+            robot.send_action(act(**{"dx.mm": 10.0}))
+        robot.home()
+        robot.send_action(act(**{"dx.mm": 10.0}))
+
+    def test_an_arm_passed_in_is_used_as_before(self):
+        arm = FakeArm(homed=False)
+        robot = Stack1Robot(Stack1RobotConfig(simulate=True, box_mm=BOX))
+        robot.connect(arm=arm)
+        self.assertIs(robot._arm, arm)
+        with self.assertRaises(ActionRefused):          # not homed: only a simulate-built arm starts homed
+            robot.send_action(act(**{"dx.mm": 10.0}))
+
+
 class FeatureTests(NoSocketCase):
     def test_observation_and_action_keys(self):
         robot = make()
@@ -238,6 +315,9 @@ class FeatureTests(NoSocketCase):
         self.assertEqual(set(robot.action_features), {"dx.mm", "dy.mm", "dz.mm", "gripper.pos"})
         self.assertEqual(set(robot.get_observation()), set(robot.observation_features))
         self.assertEqual(robot.get_observation(), {"x.mm": 300.0, "y.mm": 0.0, "z.mm": 200.0, "gripper.pos": 0.0})
+
+    def test_lerobot_record_reads_len_of_cameras_even_with_none(self):
+        self.assertEqual(len(make().cameras), 0)
 
 
 class DataSourceTests(unittest.TestCase):

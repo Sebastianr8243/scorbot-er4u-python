@@ -33,6 +33,8 @@ except ImportError:
             self.config = config
 
 MAX_STEP_MM = 50.0      # the server's own cap (tools/usbc_server MAX_STEP_MM); the adapter never allows more
+NAME = "scorbot_stack1"
+SIM_BOX = {"x": [200.0, 400.0], "y": [-100.0, 100.0], "z": [100.0, 300.0]}     # around the FakeArm start (300, 0, 200); simulate only
 AXES = ("x", "y", "z")
 ACTION_KEYS = ("dx.mm", "dy.mm", "dz.mm", "gripper.pos")
 
@@ -53,6 +55,7 @@ class Stack1RobotConfig(RobotConfig):
     port: int = 8765                            # the arm server on this PC (one PC per arm)
     calibration_dir: Path | str = Path("calibration")   # arm.json (the box) lives here; same as bridge --calibration-dir
     allow_real: bool = False                    # must be True to connect to an arm server
+    simulate: bool = False                      # connect() builds its own FakeArm, already homed; never an Arm, even with allow_real
     box_mm: dict | None = None                  # {"x": [lo, hi], ...}; overrides calibration_dir/arm.json
     max_step_mm: float = MAX_STEP_MM
 
@@ -68,11 +71,14 @@ def _number(value) -> bool:
 
 
 def load_box(config: Stack1RobotConfig) -> dict | None:
-    """The calibrated box {"x": [lo, hi], ...} in mm, or None when there is none."""
+    """The calibrated box {"x": [lo, hi], ...} in mm, or None when there is none. With `simulate`, SIM_BOX when there
+    is no box_mm and no arm.json at all (a broken arm.json is still None)."""
     box = config.box_mm
     if box is None:
         try:
             box = json.loads((Path(config.calibration_dir) / "arm.json").read_text(encoding="utf-8")).get("box_mm")
+        except FileNotFoundError:
+            return {axis: list(span) for axis, span in SIM_BOX.items()} if config.simulate else None
         except (OSError, ValueError, AttributeError):
             return None
     try:
@@ -85,11 +91,14 @@ def load_box(config: Stack1RobotConfig) -> dict | None:
 
 class Stack1Robot(Robot):
     config_class = Stack1RobotConfig
-    name = "scorbot_stack1"
+    name = NAME
 
     def __init__(self, config: Stack1RobotConfig):
+        if config.simulate:
+            self.name = f"{NAME}_sim"       # lerobot-record writes robot.name as the dataset's robot_type: the only place v3 can say "simulated"
         super().__init__(config)
         self.config = config
+        self.cameras = {}           # lerobot-record reads len(robot.cameras) on every robot
         self._arm = None
         self._box = None
         self._homed = False
@@ -120,14 +129,21 @@ class Stack1Robot(Robot):
         pass
 
     def connect(self, calibrate: bool = True, arm=None) -> None:
-        """Open the arm. `arm` is for tests and the demo (a FakeArm); without it a real arm server is needed and
-        config.allow_real must be True."""
+        """Open the arm. `arm` is for tests and the demo (a FakeArm). Without it, config.simulate builds a FakeArm that
+        starts homed (lerobot-record never calls home()); otherwise a real arm server is needed and config.allow_real
+        must be True."""
         if self._arm is not None:
             raise RuntimeError(f"{self.config.arm_id} is already connected")
+        built_homed = False
         if arm is None:
-            if not self.config.allow_real:
+            if self.config.simulate:        # checked before allow_real: simulate never reaches Arm
+                arm, built_homed = FakeArm(homed=True), True
+                arm.gripper(open=False)     # the adapter's idea of the gripper after a Home
+                self._open = False
+            elif not self.config.allow_real:
                 raise ValueError("refusing to connect to an arm server: set allow_real=True (--allow-real) to drive the real arm")
-            arm = Arm(host=self.config.host, port=self.config.port)
+            else:
+                arm = Arm(host=self.config.host, port=self.config.port)
         try:
             simulated = isinstance(arm, FakeArm) or arm.ping().get("simulated") is not False   # "real" only on an explicit false
         except Exception:
@@ -135,7 +151,7 @@ class Stack1Robot(Robot):
             raise
         self.data_source = "simulated" if simulated else "real"
         self._arm, self._box = arm, load_box(self.config)
-        self._homed = self._stopped = False
+        self._homed, self._stopped = built_homed, False
 
     def disconnect(self) -> None:
         arm, self._arm = self._arm, None
