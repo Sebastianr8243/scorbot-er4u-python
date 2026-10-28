@@ -1,5 +1,5 @@
 # Stack 1 LeRobot adapter requirements
-Status: baseline v1 2026-10-27
+Status: baseline v1 2026-10-27; v2 2026-10-28 (L18 to L25: `simulate`, cameras, teleoperators, the `lerobot-record` check, and the outside review findings)
 
 ## Goal
 A LeRobot-style `Robot` for Stack 1 (`scorbot.bridge.Arm`, vendor DLL through `tools/usbc_server`, xyz in mm), with a safety layer in front of the arm, and a laptop simulation (`python examples/sim_demo.py`) that needs no arm, no DLL and no USB. Users: the maintainers, and anyone trying a policy on one of the ten arms. Code: `plugins/lerobot_robot_scorbot_stack1/`.
@@ -26,11 +26,20 @@ Tests are in `tests/test_lerobot_stack1.py` (class::test). All run on `FakeArm`.
 | L15 | SHALL | `python examples/sim_demo.py` exits 0 with FakeArm only, prints each step as plain text (position mm, gripper, action sent), prints a `refused: <reason>` line for each of: step over 50 mm, target outside the box, move before Home, and saves an episode that reloads equal to what was sent. No plotting, no new dependency | test: `DemoTests::test_the_demo_runs_and_saves_an_episode` |
 | L16 | SHALL | The plugin imports without the `lerobot` package (a stand-in base class is used) | test: `NoHardwareTests::test_imports_without_lerobot` |
 | L17 | SHALL NOT | Any text claim that the adapter works on the arm: docs say "unverified" until a bench log exists. Nothing in this change was run on the arm | review: grep the plugin README and docs for the word "unverified" |
+| L18 | SHALL NOT | `connect()` builds an `Arm` or opens a socket when `simulate=True`, even with `allow_real=True`; it builds its own `FakeArm` and `data_source` is `simulated` | test: `SimulateTests::test_simulate_wins_over_allow_real`, `SimulateTests::test_connects_without_an_arm_or_allow_real_and_starts_homed` |
+| L19 | SHALL | A `simulate` robot starts homed (`lerobot-record` never calls `home()`), with the gripper closed and a default box (x 200 to 400, y -100 to 100, z 100 to 300 mm) used only when there is no `box_mm` and no `arm.json`; every other safety rule (L01, L02, L06) still applies. An arm passed to `connect()` is used as given, not homed | test: `SimulateTests::test_the_safety_layer_still_applies`, `test_an_explicit_box_replaces_the_default_one`, `test_arm_json_in_the_calibration_dir_replaces_the_default_box`, `test_reset_needs_a_new_home_like_the_real_path`, `test_an_arm_passed_in_is_used_as_before` |
+| L20 | SHALL | The robot's `name` (which LeRobot writes as the dataset's `robot_type`) is `scorbot_stack1_sim` when `simulate=True` and `scorbot_stack1` otherwise, because a LeRobot v3 dataset has no `data_source` field | test: `SimulateTests::test_the_dataset_type_says_simulated`; by hand: `examples/lerobot_record_check.py` reads `robot_type` back |
+| L21 | SHALL | With `cameras` in the config: `observation_features` has a `(height, width, 3)` entry per camera, `get_observation` returns one frame per camera, `connect()` connects the cameras and a camera that fails leaves the arm closed and nothing open, `disconnect()` disconnects them, and a camera error neither stops nor latches the arm | test: `CameraTests` (a stand-in camera; the factory replaced) |
+| L22 | SHALL NOT | A simulated camera (the `scorbot_fake` camera sets `simulated`) is connected next to a real arm: real and simulated data never mix | test: `CameraTests::test_a_fake_camera_is_refused_with_a_real_arm` |
+| L23 | SHALL | The teleoperator helpers output exactly the four action keys; the keyboard map scales to `step_mm` (above 0, at most 50), keeps the gripper state on "stay" and maps close, stay and open to 0, last, 1; the script parser refuses a malformed, non-finite or over-50 mm step | test: `tests/test_lerobot_teleop.py` |
+| L24 | SHALL | `examples/lerobot_record_check.py` (opt-in, in a throwaway venv with `lerobot`) records 2 episodes with the real `lerobot-record`, once with no cameras and once with two fake cameras and video, and every check passes when the datasets are loaded with `LeRobotDataset`. The command it builds always has `--robot.simulate=true` and `--dataset.push_to_hub=false`, and never `allow_real` | test: `tests/test_lerobot_record_check.py` (the command, in CI); by hand: the run, passed on `lerobot` 0.6.1 on 2026-10-28 |
+| L25 | SHALL NOT | A robot configured for a real arm (`simulate=False`) connects to an arm server whose `ping` says it is simulating (or says nothing), because `lerobot-record` fixes the dataset's `robot_type` from the config before `connect()` runs, so those frames would be filed under the real type. `connect()` closes the arm and raises, naming `simulate=True`. An arm passed in by a test or the demo is not checked. A Ctrl+C during `connect()` also leaves the arm and the cameras closed | test: `ConnectTests::test_a_server_that_is_simulating_is_refused_by_a_real_config`, `ConnectTests::test_an_injected_arm_is_not_checked_against_the_config`, `CameraTests::test_ctrl_c_while_a_camera_connects_leaves_nothing_open`, `CameraTests::test_ctrl_c_during_the_ping_closes_the_arm` |
 
 ## Out of scope
 - Running anything on the arm; Home on the real arm takes about 135 s and is done by a person at the red stop.
-- Cameras, parquet/video LeRobot dataset files (the writer is standard library only and writes JSON lines to convert later).
-- Checking the adapter against an installed `lerobot`: the tests use a stand-in base class. `examples/lerobot_install_check.py` runs the adapter against a real install (passed on `lerobot` 0.6.1, 2026-10-28, FakeArm only) and is opt-in, not part of pytest or CI.
+- A real camera (only the fake camera is run), a person at the keyboard teleoperator, and training: none was run.
+- Converting old JSON-lines episodes to a `LeRobotDataset`; the JSON-lines writer is unchanged, `lerobot-record` writes the v3 datasets.
+- Checking the adapter against an installed `lerobot` in CI: the tests use a stand-in base class. `examples/lerobot_install_check.py` and `examples/lerobot_record_check.py` run it against a real install (passed on `lerobot` 0.6.1, 2026-10-28, FakeArm only) and are opt-in, not part of pytest or CI.
 - Wrist pitch and roll.
 
 ## Assumptions
@@ -41,6 +50,8 @@ Tests are in `tests/test_lerobot_stack1.py` (class::test). All run on `FakeArm`.
 
 ## Open questions
 - Whether to move the dataset writer onto `LeRobotDataset` once `lerobot` can be installed on the lab PC.
+- What a student should get when the keyboard asks for a move the safety layer refuses: the recording ends (today, if the `record_loop` reading holds), or a clamp, or a zero step. Changing it changes the safety layer, so it needs a decision before it is done.
 
 ## Change log
 - 2026-10-27 baseline v1. Scope trim: no live view or plot, demo is plain text, recorder stays small (one JSON-lines file per episode, reloaded in a test).
+- 2026-10-28 v2: `simulate`, cameras, teleoperators and the `lerobot-record` check (L18 to L25); up to two cameras; no training run on the laptop. A refusal inside `lerobot-record` should end the recording (read from `record_loop`: nothing there catches `ActionRefused`; not run); the scripted teleoperator stays inside the box so the check does not hit it. L25 came from the outside review of this change.

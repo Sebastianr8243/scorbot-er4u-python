@@ -2,19 +2,21 @@
 
 Observation: x.mm, y.mm, z.mm, gripper.pos. Action: dx.mm, dy.mm, dz.mm (a step, not a target), gripper.pos
 (0.5 and up opens). Every action passes the safety layer in send_action before the arm sees it; see
-docs/requirements/stack1-lerobot-adapter.md (L01 to L12). Works without the `lerobot` package.
+docs/requirements/stack1-lerobot-adapter.md (L01 to L25). Works without the `lerobot` package.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from scorbot.bridge import Arm, FakeArm
 
-try:        # lerobot is optional: tests and the demo run without it. Checked against lerobot 0.6.1 by examples/lerobot_install_check.py.
+try:        # lerobot is optional: tests and the demo run without it. Checked against lerobot 0.6.1 by examples/lerobot_install_check.py and examples/lerobot_record_check.py.
+    from lerobot.cameras import CameraConfig, make_cameras_from_configs
     from lerobot.robots import Robot, RobotConfig
     HAVE_LEROBOT = True
 except ImportError:
@@ -32,7 +34,17 @@ except ImportError:
         def __init__(self, config):
             self.config = config
 
+    class CameraConfig:
+        pass
+
+    def make_cameras_from_configs(configs):
+        if configs:
+            raise RuntimeError("cameras need the lerobot package")
+        return {}
+
 MAX_STEP_MM = 50.0      # the server's own cap (tools/usbc_server MAX_STEP_MM); the adapter never allows more
+NAME = "scorbot_stack1"
+SIM_BOX = {"x": [200.0, 400.0], "y": [-100.0, 100.0], "z": [100.0, 300.0]}     # around the FakeArm start (300, 0, 200); simulate only
 AXES = ("x", "y", "z")
 ACTION_KEYS = ("dx.mm", "dy.mm", "dz.mm", "gripper.pos")
 
@@ -53,8 +65,10 @@ class Stack1RobotConfig(RobotConfig):
     port: int = 8765                            # the arm server on this PC (one PC per arm)
     calibration_dir: Path | str = Path("calibration")   # arm.json (the box) lives here; same as bridge --calibration-dir
     allow_real: bool = False                    # must be True to connect to an arm server
+    simulate: bool = False                      # connect() builds its own FakeArm, already homed; never an Arm, even with allow_real
     box_mm: dict | None = None                  # {"x": [lo, hi], ...}; overrides calibration_dir/arm.json
     max_step_mm: float = MAX_STEP_MM
+    cameras: dict[str, CameraConfig] = field(default_factory=dict)     # up to two; each needs fps, width and height
 
     def __post_init__(self):
         super().__post_init__()
@@ -68,11 +82,14 @@ def _number(value) -> bool:
 
 
 def load_box(config: Stack1RobotConfig) -> dict | None:
-    """The calibrated box {"x": [lo, hi], ...} in mm, or None when there is none."""
+    """The calibrated box {"x": [lo, hi], ...} in mm, or None when there is none. With `simulate`, SIM_BOX when there
+    is no box_mm and no arm.json at all (a broken arm.json is still None)."""
     box = config.box_mm
     if box is None:
         try:
             box = json.loads((Path(config.calibration_dir) / "arm.json").read_text(encoding="utf-8")).get("box_mm")
+        except FileNotFoundError:
+            return {axis: list(span) for axis, span in SIM_BOX.items()} if config.simulate else None
         except (OSError, ValueError, AttributeError):
             return None
     try:
@@ -85,11 +102,14 @@ def load_box(config: Stack1RobotConfig) -> dict | None:
 
 class Stack1Robot(Robot):
     config_class = Stack1RobotConfig
-    name = "scorbot_stack1"
+    name = NAME
 
     def __init__(self, config: Stack1RobotConfig):
+        if config.simulate:
+            self.name = f"{NAME}_sim"       # lerobot-record writes robot.name as the dataset's robot_type: the only place v3 can say "simulated"
         super().__init__(config)
         self.config = config
+        self.cameras = make_cameras_from_configs(config.cameras)        # lerobot-record reads len(robot.cameras) on every robot
         self._arm = None
         self._box = None
         self._homed = False
@@ -99,7 +119,8 @@ class Stack1Robot(Robot):
 
     @property
     def observation_features(self) -> dict:
-        return {"x.mm": float, "y.mm": float, "z.mm": float, "gripper.pos": float}
+        shapes = {name: (camera.height, camera.width, 3) for name, camera in self.cameras.items()}
+        return {"x.mm": float, "y.mm": float, "z.mm": float, "gripper.pos": float, **shapes}
 
     @property
     def action_features(self) -> dict:
@@ -107,7 +128,7 @@ class Stack1Robot(Robot):
 
     @property
     def is_connected(self) -> bool:
-        return self._arm is not None
+        return self._arm is not None and all(camera.is_connected for camera in self.cameras.values())
 
     @property
     def is_calibrated(self) -> bool:
@@ -120,25 +141,54 @@ class Stack1Robot(Robot):
         pass
 
     def connect(self, calibrate: bool = True, arm=None) -> None:
-        """Open the arm. `arm` is for tests and the demo (a FakeArm); without it a real arm server is needed and
-        config.allow_real must be True."""
+        """Open the arm. `arm` is for tests and the demo (a FakeArm). Without it, config.simulate builds a FakeArm that
+        starts homed (lerobot-record never calls home()); otherwise a real arm server is needed and config.allow_real
+        must be True."""
         if self._arm is not None:
             raise RuntimeError(f"{self.config.arm_id} is already connected")
+        built_here, built_homed = arm is None, False
         if arm is None:
-            if not self.config.allow_real:
+            if self.config.simulate:        # checked before allow_real: simulate never reaches Arm
+                arm, built_homed = FakeArm(homed=True), True
+                arm.gripper(open=False)     # the adapter's idea of the gripper after a Home
+                self._open = False
+            elif not self.config.allow_real:
                 raise ValueError("refusing to connect to an arm server: set allow_real=True (--allow-real) to drive the real arm")
-            arm = Arm(host=self.config.host, port=self.config.port)
+            else:
+                arm = Arm(host=self.config.host, port=self.config.port)
         try:
             simulated = isinstance(arm, FakeArm) or arm.ping().get("simulated") is not False   # "real" only on an explicit false
-        except Exception:
+            if built_here and simulated and not self.config.simulate:
+                # robot.name, which lerobot-record writes as the dataset's robot_type, was fixed from the config before this call
+                raise ValueError("the arm server says it is simulating (ping simulated: true) but this config is for a real arm: "
+                                 "real and simulated data never mix. Use simulate=True to record simulated data")
+        except BaseException:       # BaseException: Ctrl+C must not leave the arm open
             arm.close()
+            raise
+        try:
+            if not simulated and any(getattr(camera, "simulated", False) for camera in self.cameras.values()):
+                raise ValueError("a simulated camera cannot be used with a real arm: real and simulated data never mix")
+            for camera in self.cameras.values():
+                camera.connect()
+        except BaseException:       # leave nothing open, even on Ctrl+C
+            try:
+                self._disconnect_cameras()
+            finally:
+                arm.close()
             raise
         self.data_source = "simulated" if simulated else "real"
         self._arm, self._box = arm, load_box(self.config)
-        self._homed = self._stopped = False
+        self._homed, self._stopped = built_homed, False
+
+    def _disconnect_cameras(self) -> None:
+        for camera in self.cameras.values():
+            if camera.is_connected:
+                with contextlib.suppress(Exception):        # one stuck camera must not keep the arm open
+                    camera.disconnect()
 
     def disconnect(self) -> None:
         arm, self._arm = self._arm, None
+        self._disconnect_cameras()
         if arm is not None:
             arm.close()
 
@@ -177,7 +227,10 @@ class Stack1Robot(Robot):
             here = self._arm.where()
         except Exception as error:
             self._fail(error)
-        return {"x.mm": float(here.x), "y.mm": float(here.y), "z.mm": float(here.z), "gripper.pos": 1.0 if self._open else 0.0}
+        obs = {"x.mm": float(here.x), "y.mm": float(here.y), "z.mm": float(here.z), "gripper.pos": 1.0 if self._open else 0.0}
+        for name, camera in self.cameras.items():       # a camera error is not an arm error: no stop, no latch
+            obs[name] = camera.read_latest()
+        return obs
 
     def _check(self, action):
         if not isinstance(action, dict) or set(action) != set(ACTION_KEYS):

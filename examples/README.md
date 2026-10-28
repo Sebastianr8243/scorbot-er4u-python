@@ -5,7 +5,7 @@ Scripts that drive the arm through the arm server with `scorbot.bridge.Arm`.
 ## Before you start
 
 - The arm server must be running and homed: [docs/lab/RUN_THE_ARM.md](../docs/lab/RUN_THE_ARM.md).
-- **WARNING:** every script except `sim_demo.py` moves the arm. Keep a hand near the red stop. The red stop is the only emergency stop.
+- **WARNING:** every script except `sim_demo.py` and the two `lerobot_*_check.py` scripts moves the arm. Keep a hand near the red stop. The red stop is the only emergency stop.
 - Each moving script asks you to type `go` before its first move. Do not remove that prompt.
 
 ## Scripts
@@ -19,6 +19,7 @@ Scripts that drive the arm through the arm server with `scorbot.bridge.Arm`.
 | `record_episode.py` | yes | Keyboard teleoperation that logs two cameras, the arm state and each command to `episodes/<time>/`. `--fake` rehearses with `FakeArm` and fake cameras under `rehearsal/` |
 | `sim_demo.py` | no | Plain-text simulation of the [LeRobot adapter](../plugins/lerobot_robot_scorbot_stack1/README.md) on `FakeArm`. Needs no server, DLL or USB |
 | `lerobot_install_check.py` | no | Runs the adapter against an installed `lerobot` on `FakeArm`. Use a throwaway venv; exits 2 if `lerobot` is missing |
+| `lerobot_record_check.py` | no | Runs the real `lerobot-record` on the adapter (`--robot.simulate=true`, scripted teleoperator, never the hub) twice, with no cameras and with two fake cameras and video, then loads each dataset with `LeRobotDataset` and compares values. Throwaway venv with `lerobot`, and the plugin installed with `pip install --no-deps -e`; exits 2 if either is missing |
 
 ## Conventions
 
@@ -29,4 +30,4 @@ Scripts that drive the arm through the arm server with `scorbot.bridge.Arm`.
 
 ## Tests
 
-`tests/test_arm_api.py` (characterise and pick-and-place), `tests/test_record_episode.py`, `tests/test_teleop.py`, `tests/test_lerobot_stack1.py`, `tests/test_lerobot_install_check.py`.
+`tests/test_arm_api.py` (characterise and pick-and-place), `tests/test_record_episode.py`, `tests/test_teleop.py`, `tests/test_lerobot_stack1.py`, `tests/test_lerobot_teleop.py`, `tests/test_lerobot_install_check.py`, `tests/test_lerobot_record_check.py`.

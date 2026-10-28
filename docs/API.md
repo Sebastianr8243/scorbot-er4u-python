@@ -135,6 +135,6 @@ python -m scorbot.bridge [--port N] [--calibration-dir DIR] where | by DX DY DZ 
 
 ## See also
 
-- [LeRobot adapter](../plugins/lerobot_robot_scorbot_stack1/README.md): wraps `Arm` as a LeRobot-style `Robot` with a safety layer (step over 50 mm, target outside the box and any move before Home are refused; an arm error calls `stop()` and latches). `python examples/sim_demo.py` runs it on `FakeArm`; `python examples/lerobot_install_check.py` checks it against an installed `lerobot` (0.6.1, `FakeArm` only). Unverified on the arm.
+- [LeRobot adapter](../plugins/lerobot_robot_scorbot_stack1/README.md): wraps `Arm` as a LeRobot-style `Robot` with a safety layer (step over 50 mm, target outside the box and any move before Home are refused; an arm error calls `stop()` and latches). `python examples/sim_demo.py` runs it on `FakeArm`; `python examples/lerobot_install_check.py` and `python examples/lerobot_record_check.py` check it against an installed `lerobot` (0.6.1, `FakeArm` only; the second runs the real `lerobot-record` with `--robot.simulate=true` and loads the dataset back). Unverified on the arm.
 - [Requirements A01 to A10](requirements/arm-api.md): the guarantees above and the test behind each.
 - [STATUS.md](STATUS.md): how sure we are about each call.

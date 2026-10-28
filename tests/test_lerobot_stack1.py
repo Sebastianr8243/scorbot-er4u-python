@@ -220,6 +220,29 @@ class ConnectTests(unittest.TestCase):
         self.assertTrue(robot.is_connected)
         self.assertEqual(robot.data_source, "real")
 
+    def test_a_server_that_is_simulating_is_refused_by_a_real_config(self):
+        """The dataset type (robot.name) comes from the config before connect() runs, so a config for a real arm must not
+        end up recording a simulating server's data under the real type (outside review, reproduced). simulate=True is
+        the way to record simulated data."""
+        for ping in ({"ok": True, "simulated": True}, {"ok": True}):        # a missing flag counts as simulated
+            stub = mock.MagicMock()
+            stub.ping.return_value = ping
+            with mock.patch.object(robot_module, "Arm", return_value=stub):
+                robot = Stack1Robot(Stack1RobotConfig(box_mm=BOX, allow_real=True))
+                with self.assertRaises(ValueError) as raised:
+                    robot.connect()
+            self.assertIn("simulat", str(raised.exception))
+            self.assertIn("simulate=True", str(raised.exception))
+            self.assertFalse(robot.is_connected)
+            self.assertIsNone(robot.data_source)
+            stub.close.assert_called_once()
+
+    def test_an_injected_arm_is_not_checked_against_the_config(self):
+        """connect(arm=...) is for tests and the demo; lerobot-record never passes one."""
+        robot = Stack1Robot(Stack1RobotConfig(box_mm=BOX))
+        robot.connect(arm=FakeArm(homed=False))
+        self.assertEqual(robot.data_source, "simulated")
+
     def test_disconnect_closes_the_arm_and_is_idempotent(self):
         robot = make()
         arm = robot._arm
@@ -231,6 +254,216 @@ class ConnectTests(unittest.TestCase):
             robot.get_observation()
 
 
+class SimulateTests(NoSocketCase):
+    """`simulate=True` is for lerobot-record on a laptop: connect() builds its own FakeArm, already homed, because
+    lerobot-record never calls home(). It must never build an Arm."""
+
+    def robot(self, **config):
+        with mock.patch.object(robot_module, "Arm", side_effect=AssertionError("simulate must never build an Arm")):
+            robot = Stack1Robot(Stack1RobotConfig(simulate=True, **config))
+            robot.connect()
+        return robot
+
+    def test_connects_without_an_arm_or_allow_real_and_starts_homed(self):
+        robot = self.robot()
+        self.assertEqual(robot.data_source, "simulated")
+        self.assertTrue(robot.is_connected and robot.is_calibrated)
+        self.assertEqual(robot.get_observation(), {"x.mm": 300.0, "y.mm": 0.0, "z.mm": 200.0, "gripper.pos": 0.0})
+        robot.send_action(act(**{"dx.mm": 20.0}))       # no home() call
+        self.assertEqual(robot.get_observation()["x.mm"], 320.0)
+        self.assertFalse(robot._arm.open)               # the FakeArm agrees with the adapter's idea of a closed gripper
+
+    def test_simulate_wins_over_allow_real(self):
+        robot = self.robot(allow_real=True)
+        self.assertEqual(robot.data_source, "simulated")
+
+    def test_the_safety_layer_still_applies(self):
+        robot = self.robot()
+        with self.assertRaises(ActionRefused):
+            robot.send_action(act(**{"dx.mm": 60.0}))
+        self.assertEqual(robot._box, robot_module.SIM_BOX)
+        with self.assertRaises(ActionRefused):          # 300 -> 350 -> 400 is the edge, the third step is past it
+            for _ in range(3):
+                robot.send_action(act(**{"dx.mm": 50.0}))
+        self.assertEqual(robot.get_observation()["x.mm"], 400.0)
+
+    def test_an_explicit_box_replaces_the_default_one(self):
+        robot = self.robot(box_mm=BOX)
+        robot.send_action(act(**{"dx.mm": 45.0}))
+        with self.assertRaises(ActionRefused):
+            robot.send_action(act(**{"dx.mm": 10.0}))
+
+    def test_arm_json_in_the_calibration_dir_replaces_the_default_box(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "arm.json").write_text(json.dumps({"box_mm": BOX}), encoding="utf-8")
+            robot = self.robot(calibration_dir=folder)
+        self.assertEqual(robot._box, {axis: [float(lo), float(hi)] for axis, (lo, hi) in BOX.items()})
+
+    def test_the_dataset_type_says_simulated(self):
+        """lerobot-record writes robot.name into the dataset's robot_type, and LeRobot v3 has no data_source field."""
+        self.assertEqual(Stack1Robot(Stack1RobotConfig(simulate=True)).name, "scorbot_stack1_sim")
+        self.assertEqual(Stack1Robot(Stack1RobotConfig()).name, "scorbot_stack1")
+        self.assertEqual(Stack1Robot.name, "scorbot_stack1")
+
+    def test_disconnect_then_connect_starts_a_fresh_arm(self):
+        robot = self.robot()
+        robot.send_action(act(**{"dx.mm": 30.0}))
+        robot.disconnect()
+        robot.connect()
+        self.assertEqual(robot.get_observation()["x.mm"], 300.0)
+        with self.assertRaises(RuntimeError):
+            robot.connect()
+
+    def test_reset_needs_a_new_home_like_the_real_path(self):
+        robot = self.robot()
+        robot.reset()
+        with self.assertRaises(ActionRefused):
+            robot.send_action(act(**{"dx.mm": 10.0}))
+        robot.home()
+        robot.send_action(act(**{"dx.mm": 10.0}))
+
+    def test_an_arm_passed_in_is_used_as_before(self):
+        arm = FakeArm(homed=False)
+        robot = Stack1Robot(Stack1RobotConfig(simulate=True, box_mm=BOX))
+        robot.connect(arm=arm)
+        self.assertIs(robot._arm, arm)
+        with self.assertRaises(ActionRefused):          # not homed: only a simulate-built arm starts homed
+            robot.send_action(act(**{"dx.mm": 10.0}))
+
+
+class StandInCamera:
+    """What the robot needs from a lerobot Camera: height, width, is_connected, connect, read_latest, disconnect."""
+
+    def __init__(self, height=4, width=6, simulated=False, fail_connect=False):
+        self.height, self.width, self.simulated, self.fail_connect = height, width, simulated, fail_connect
+        self.is_connected, self.reads, self.fail_read = False, 0, False
+
+    def connect(self):
+        if self.fail_connect:
+            raise OSError("no such camera")
+        self.is_connected = True
+
+    def read_latest(self):
+        if self.fail_read:
+            raise TimeoutError("camera stopped sending frames")
+        self.reads += 1
+        return f"frame-{self.reads}"
+
+    def disconnect(self):
+        self.is_connected = False
+
+
+class ClosingArm(FakeArm):
+    closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class CameraTests(NoSocketCase):
+    """Up to two cameras (or none) through config.cameras; the factory is replaced here, the real one is lerobot's."""
+
+    def robot(self, **cameras):
+        with mock.patch.object(robot_module, "make_cameras_from_configs", return_value=cameras):
+            return Stack1Robot(Stack1RobotConfig(box_mm=BOX))
+
+    def test_no_cameras_changes_nothing(self):
+        robot = make()
+        self.assertEqual(robot.cameras, {})
+        self.assertEqual(set(robot.observation_features), {"x.mm", "y.mm", "z.mm", "gripper.pos"})
+
+    def test_camera_shapes_are_in_observation_features(self):
+        robot = self.robot(front=StandInCamera(4, 6), wrist=StandInCamera(8, 10))
+        self.assertEqual(robot.observation_features["front"], (4, 6, 3))
+        self.assertEqual(robot.observation_features["wrist"], (8, 10, 3))
+        self.assertIs(robot.observation_features["x.mm"], float)
+        self.assertEqual(set(robot.action_features), {"dx.mm", "dy.mm", "dz.mm", "gripper.pos"})
+
+    def test_connect_connects_the_cameras_and_disconnect_disconnects_them(self):
+        front, wrist = StandInCamera(), StandInCamera()
+        robot = self.robot(front=front, wrist=wrist)
+        robot.connect(arm=FakeArm(homed=False))
+        self.assertTrue(front.is_connected and wrist.is_connected and robot.is_connected)
+        wrist.disconnect()
+        self.assertFalse(robot.is_connected)            # a dropped camera means not connected
+        robot.disconnect()
+        robot.disconnect()
+        self.assertFalse(front.is_connected)
+
+    def test_observations_carry_one_frame_per_camera(self):
+        front, wrist = StandInCamera(), StandInCamera()
+        robot = self.robot(front=front, wrist=wrist)
+        robot.connect(arm=FakeArm(homed=False))
+        robot.home()
+        obs = robot.get_observation()
+        self.assertEqual(set(obs), set(robot.observation_features))
+        self.assertEqual((obs["front"], obs["wrist"]), ("frame-1", "frame-1"))
+        self.assertEqual(robot.get_observation()["front"], "frame-2")
+
+    def test_a_camera_that_fails_to_connect_leaves_nothing_open(self):
+        good, bad, arm = StandInCamera(), StandInCamera(fail_connect=True), ClosingArm(homed=False)
+        robot = self.robot(front=good, wrist=bad)
+        with self.assertRaises(OSError):
+            robot.connect(arm=arm)
+        self.assertFalse(robot.is_connected)
+        self.assertTrue(arm.closed)
+        self.assertFalse(good.is_connected)
+
+    def test_a_camera_error_does_not_stop_or_latch_the_arm(self):
+        """The arm did nothing wrong: a dead camera ends the recording, but no stop is sent and no move was made."""
+        cam, arm = StandInCamera(), FakeArm(homed=False)
+        robot = self.robot(front=cam)
+        robot.connect(arm=arm)
+        robot.home()
+        cam.fail_read = True
+        with self.assertRaises(TimeoutError):
+            robot.get_observation()
+        self.assertFalse([c for c in arm.commands if c[0] in ("stop", "move_by")])
+        cam.fail_read = False
+        self.assertEqual(robot.get_observation()["front"], "frame-1")
+
+    def test_a_fake_camera_is_refused_with_a_real_arm(self):
+        """Real and simulated data never mix: a fake image next to real arm state would pass as a real demonstration."""
+        stub, arm_cam = mock.MagicMock(), StandInCamera(simulated=True)
+        stub.ping.return_value = {"ok": True, "simulated": False}
+        robot = self.robot(front=arm_cam)
+        with self.assertRaises(ValueError) as raised:
+            robot.connect(arm=stub)
+        self.assertIn("simulated", str(raised.exception))
+        self.assertFalse(robot.is_connected)
+        stub.close.assert_called_once()
+        self.assertFalse(arm_cam.is_connected)
+
+    def test_ctrl_c_while_a_camera_connects_leaves_nothing_open(self):
+        """KeyboardInterrupt is not an Exception: cleanup has to catch it too (outside review, reproduced)."""
+
+        class Interrupted(StandInCamera):
+            def connect(self):
+                self.is_connected = True
+                raise KeyboardInterrupt
+
+        cam, arm = Interrupted(), ClosingArm(homed=False)
+        robot = self.robot(front=cam)
+        with self.assertRaises(KeyboardInterrupt):
+            robot.connect(arm=arm)
+        self.assertTrue(arm.closed)
+        self.assertFalse(cam.is_connected)
+        self.assertFalse(robot.is_connected)
+
+    def test_ctrl_c_during_the_ping_closes_the_arm(self):
+        stub = mock.MagicMock()
+        stub.ping.side_effect = KeyboardInterrupt
+        robot = self.robot()
+        with self.assertRaises(KeyboardInterrupt):
+            robot.connect(arm=stub)
+        stub.close.assert_called_once()
+
+    def test_a_fake_camera_with_the_simulated_arm_is_fine(self):
+        robot = self.robot(front=StandInCamera(simulated=True))
+        robot.connect(arm=FakeArm(homed=False))
+        self.assertTrue(robot.is_connected)
+
+
 class FeatureTests(NoSocketCase):
     def test_observation_and_action_keys(self):
         robot = make()
@@ -238,6 +471,9 @@ class FeatureTests(NoSocketCase):
         self.assertEqual(set(robot.action_features), {"dx.mm", "dy.mm", "dz.mm", "gripper.pos"})
         self.assertEqual(set(robot.get_observation()), set(robot.observation_features))
         self.assertEqual(robot.get_observation(), {"x.mm": 300.0, "y.mm": 0.0, "z.mm": 200.0, "gripper.pos": 0.0})
+
+    def test_lerobot_record_reads_len_of_cameras_even_with_none(self):
+        self.assertEqual(len(make().cameras), 0)
 
 
 class DataSourceTests(unittest.TestCase):
