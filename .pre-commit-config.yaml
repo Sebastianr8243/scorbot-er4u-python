@@ -12,4 +12,4 @@ repos:
         entry: python scripts/check_docs.py
         language: system
         pass_filenames: false
-        files: \.(md|py|yml)$
+        always_run: true

@@ -16,13 +16,14 @@ import sys
 from pathlib import Path
 
 # shortcut: a word list, so a legitimate use of one of these words needs an edit here; add words as they show up.
-BANNED = re.compile(r"sebastian|codex|gemini|claude|copilot|anthropic|professor|the owner", re.I)
+BANNED = re.compile(r"\b(?:sebastian|codex|gemini|claude|copilot|anthropic|professor|the owner)\b", re.I)
 LOCAL_ONLY = {"CLAUDE.md", "AGENTS.md", "LESSONS.md", "copilot-instructions.md"}
 SKIP_BANNED = {".gitignore", "uv.lock", "LICENSE", "scripts/check_docs.py", "tests/test_check_docs.py"}
 BAD_VENV = re.compile(r"(?<![.\w])[\\/]?venv[\\/]Scripts")
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]|\t")
 ID_ROW = re.compile(r"^\|\s*([A-Z]{1,3}\d{2})\s*\|")
-LINK = re.compile(r"\]\(([^)\s]+)\)")
+FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+LINK = re.compile(r"\]\(([^)\s]+)(?=[\s)])")  # a title after the target is allowed
 
 
 def check(root, files):
@@ -44,10 +45,14 @@ def check(root, files):
                 problems.append(f"{rel}: contains '{m.group(0)}'")
         if not rel.endswith(".md"):
             continue
-        in_code = False
-        for n, line in enumerate(text.splitlines(), 1):
-            if line.lstrip().startswith("```"):
-                in_code = not in_code
+        fence = ""  # the opening fence while inside a code block
+        # Split on newlines only: splitlines() would swallow the vertical tab and form feed we want to flag.
+        for n, line in enumerate(text.split("\n"), 1):
+            m = FENCE.match(line)
+            if m and not fence:
+                fence = m.group(1)
+            elif m and fence and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line.strip().strip(fence[0]):
+                fence = ""
             if CONTROL.search(line):
                 problems.append(f"{rel}:{n}: control character or tab")
             if BAD_VENV.search(line):
@@ -57,7 +62,7 @@ def check(root, files):
                 other = ids.setdefault(m.group(1), rel)
                 if other != rel:
                     problems.append(f"{rel}:{n}: requirement ID {m.group(1)} is also defined in {other}")
-            if in_code:
+            if fence:
                 continue
             for target in LINK.findall(line):
                 if re.match(r"[a-z][a-z0-9+.-]*:|#", target):

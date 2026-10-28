@@ -38,8 +38,24 @@ class CheckDocsTests(unittest.TestCase):
             self.assertIn(expected, found)
 
     def test_links_inside_code_blocks_are_ignored(self):
-        root, files = tree({"README.md": "```\n[x](nowhere.md)\n```\n"})
+        root, files = tree({"README.md": "```\n[x](nowhere.md)\n```\n~~~\n[y](nowhere.md)\n~~~\n"})
         self.assertEqual(check(root, files), [])
+
+    def test_a_longer_fence_is_not_closed_by_a_shorter_one(self):
+        root, files = tree({"README.md": "````\n```\nx\n```\n[x](nowhere.md)\n````\n[bad](missing.md)\n"})
+        self.assertEqual(check(root, files), ["README.md:7: link to missing file missing.md"])
+
+    def test_vertical_tab_and_form_feed_are_found(self):
+        root, files = tree({"a.md": "bad\x0bpath\n", "b.md": "bad\x0cpath\n"})
+        self.assertEqual(len(check(root, files)), 2)
+
+    def test_a_link_with_a_title_is_still_checked(self):
+        root, files = tree({"README.md": '[g](missing.md "Guide")\n'})
+        self.assertIn("link to missing file missing.md", check(root, files)[0])
+
+    def test_banned_words_match_whole_words_only(self):
+        root, files = tree({"a.md": "Use the ownership flag.\n", "b.md": "Ask the owner.\n"})
+        self.assertEqual(check(root, files), ["b.md: contains 'the owner'"])
 
 
 if __name__ == "__main__":
