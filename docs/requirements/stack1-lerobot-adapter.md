@@ -1,8 +1,8 @@
 # Stack 1 LeRobot adapter requirements
-Status: baseline v1 2026-10-27; v2 2026-10-28 (L18 to L25: `simulate`, cameras, teleoperators, the `lerobot-record` check, and the Codex review findings)
+Status: baseline v1 2026-10-27; v2 2026-10-28 (L18 to L25: `simulate`, cameras, teleoperators, the `lerobot-record` check, and the outside review findings)
 
 ## Goal
-A LeRobot-style `Robot` for Stack 1 (`scorbot.bridge.Arm`, vendor DLL through `tools/usbc_server`, xyz in mm), with a safety layer in front of the arm, and a laptop simulation (`python examples/sim_demo.py`) that needs no arm, no DLL and no USB. Users: Sebastian, and anyone trying a policy on one of the ten arms. Code: `plugins/lerobot_robot_scorbot_stack1/`.
+A LeRobot-style `Robot` for Stack 1 (`scorbot.bridge.Arm`, vendor DLL through `tools/usbc_server`, xyz in mm), with a safety layer in front of the arm, and a laptop simulation (`python examples/sim_demo.py`) that needs no arm, no DLL and no USB. Users: the maintainers, and anyone trying a policy on one of the ten arms. Code: `plugins/lerobot_robot_scorbot_stack1/`.
 
 ## Requirements
 Tests are in `tests/test_lerobot_stack1.py` (class::test). All run on `FakeArm`.
@@ -50,8 +50,8 @@ Tests are in `tests/test_lerobot_stack1.py` (class::test). All run on `FakeArm`.
 
 ## Open questions
 - Whether to move the dataset writer onto `LeRobotDataset` once `lerobot` can be installed on the lab PC.
-- What a student should get when the keyboard asks for a move the safety layer refuses: the recording ends (today, if the `record_loop` reading holds), or a clamp, or a zero step. Changing it changes the safety layer, so Sebastian decides.
+- What a student should get when the keyboard asks for a move the safety layer refuses: the recording ends (today, if the `record_loop` reading holds), or a clamp, or a zero step. Changing it changes the safety layer, so it needs a decision before it is done.
 
 ## Change log
-- 2026-10-27 baseline v1, from Sebastian's brief. Same day, scope trim from Sebastian: no live view or plot, demo is plain text, recorder stays small (one JSON-lines file per episode, reloaded in a test).
-- 2026-10-28 v2, from Sebastian ("go" on the `lerobot-record` plan, up to two cameras, no training run on the laptop): L18 to L24. A refusal inside `lerobot-record` should end the recording (read from `record_loop`: nothing there catches `ActionRefused`; not run); the scripted teleoperator stays inside the box so the check does not hit it.
+- 2026-10-27 baseline v1. Scope trim: no live view or plot, demo is plain text, recorder stays small (one JSON-lines file per episode, reloaded in a test).
+- 2026-10-28 v2: `simulate`, cameras, teleoperators and the `lerobot-record` check (L18 to L25); up to two cameras; no training run on the laptop. A refusal inside `lerobot-record` should end the recording (read from `record_loop`: nothing there catches `ActionRefused`; not run); the scripted teleoperator stays inside the box so the check does not hit it. L25 came from the outside review of this change.

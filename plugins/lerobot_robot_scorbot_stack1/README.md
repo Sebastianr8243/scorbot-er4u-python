@@ -62,7 +62,7 @@ robot.send_action({"dx.mm": 5.0, "dy.mm": 0.0, "dz.mm": 0.0, "gripper.pos": 0.0}
 
 ## Ten arms
 
-One PC per arm, each with its own `tools/usbc_server`, `--port` and calibration folder: see "Ten arms" in [docs/lab/RUN_THE_ARM.md](../../docs/lab/RUN_THE_ARM.md).
+One PC per arm, each with its own `tools/usbc_server`, `--port` and calibration folder: see "Several arms" in [docs/lab/RUN_THE_ARM.md](../../docs/lab/RUN_THE_ARM.md).
 
 ## Tests
 

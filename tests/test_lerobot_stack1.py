@@ -222,7 +222,7 @@ class ConnectTests(unittest.TestCase):
 
     def test_a_server_that_is_simulating_is_refused_by_a_real_config(self):
         """The dataset type (robot.name) comes from the config before connect() runs, so a config for a real arm must not
-        end up recording a simulating server's data under the real type (Codex review, reproduced). simulate=True is
+        end up recording a simulating server's data under the real type (outside review, reproduced). simulate=True is
         the way to record simulated data."""
         for ping in ({"ok": True, "simulated": True}, {"ok": True}):        # a missing flag counts as simulated
             stub = mock.MagicMock()
@@ -435,7 +435,7 @@ class CameraTests(NoSocketCase):
         self.assertFalse(arm_cam.is_connected)
 
     def test_ctrl_c_while_a_camera_connects_leaves_nothing_open(self):
-        """KeyboardInterrupt is not an Exception: cleanup has to catch it too (Codex review, reproduced)."""
+        """KeyboardInterrupt is not an Exception: cleanup has to catch it too (outside review, reproduced)."""
 
         class Interrupted(StandInCamera):
             def connect(self):

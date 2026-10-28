@@ -31,7 +31,7 @@ def check_bin(bin_dir):
 def check_python32(bin_dir):
     exe = Path(bin_dir) / "python.exe"
     if not exe.is_file():
-        return "FAIL", f"{exe} missing: unpack the 32-bit embeddable Python there (RUN_THE_ARM.md, setup step 3)"
+        return "FAIL", f"{exe} missing: unpack the 32-bit embeddable Python there (RUN_THE_ARM.md, section 1, step 3)"
     bits = subprocess.run([str(exe), "-c", "import struct; print(struct.calcsize('P') * 8)"],
                           capture_output=True, text=True, timeout=30).stdout.strip()
     return ("PASS", "bin python is 32-bit") if bits == "32" else ("FAIL", f"bin python reports {bits or 'no output'} bits; the DLL needs 32")
@@ -70,7 +70,7 @@ def check_usb():
     if not service:
         return "FAIL", "controller 09F1:0007 not listed: check power, cable, port"
     if "usb" in service.lower() and service.lower() != "erusb":
-        return "FAIL", f"driver is {service}, not Intelitek ERUSB (Zadig swapped it): see RUN_THE_ARM.md, If it goes wrong"
+        return "FAIL", f"driver is {service}, not Intelitek ERUSB (Zadig swapped it): see RUN_THE_ARM.md, section 6, If it goes wrong"
     return "PASS", f"controller listed, driver {service}"
 
 
