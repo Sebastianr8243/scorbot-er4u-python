@@ -30,7 +30,7 @@ Tests are in `tests/test_lerobot_stack1.py` (class::test). All run on `FakeArm`.
 ## Out of scope
 - Running anything on the arm; Home on the real arm takes about 135 s and is done by a person at the red stop.
 - Cameras, parquet/video LeRobot dataset files (the writer is standard library only and writes JSON lines to convert later).
-- Checking the adapter against an installed `lerobot`: it is not installed here, so the base-class API is taken from LeRobot's documented `Robot` shape and the `stack2-optimize` plugin. Unverified.
+- Checking the adapter against an installed `lerobot`: the tests use a stand-in base class. `examples/lerobot_install_check.py` runs the adapter against a real install (passed on `lerobot` 0.6.1, 2026-10-28, FakeArm only) and is opt-in, not part of pytest or CI.
 - Wrist pitch and roll.
 
 ## Assumptions
