@@ -2,7 +2,7 @@
 Status: baseline v1 2026-10-27
 
 ## Goal
-A LeRobot-style `Robot` for Stack 1 (`scorbot.bridge.Arm`, vendor DLL through `tools/usbc_server`, xyz in mm), with a safety layer in front of the arm, and a laptop simulation (`python examples/sim_demo.py`) that needs no arm, no DLL and no USB. Users: Sebastian, and anyone trying a policy on one of the ten arms. Code: `plugins/lerobot_robot_scorbot_stack1/`.
+A LeRobot-style `Robot` for Stack 1 (`scorbot.bridge.Arm`, vendor DLL through `tools/usbc_server`, xyz in mm), with a safety layer in front of the arm, and a laptop simulation (`python examples/sim_demo.py`) that needs no arm, no DLL and no USB. Users: the maintainers, and anyone trying a policy on one of the ten arms. Code: `plugins/lerobot_robot_scorbot_stack1/`.
 
 ## Requirements
 Tests are in `tests/test_lerobot_stack1.py` (class::test). All run on `FakeArm`.
@@ -43,4 +43,4 @@ Tests are in `tests/test_lerobot_stack1.py` (class::test). All run on `FakeArm`.
 - Whether to move the dataset writer onto `LeRobotDataset` once `lerobot` can be installed on the lab PC.
 
 ## Change log
-- 2026-10-27 baseline v1, from Sebastian's brief. Same day, scope trim from Sebastian: no live view or plot, demo is plain text, recorder stays small (one JSON-lines file per episode, reloaded in a test).
+- 2026-10-27 baseline v1. Scope trim: no live view or plot, demo is plain text, recorder stays small (one JSON-lines file per episode, reloaded in a test).

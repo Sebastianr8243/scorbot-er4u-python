@@ -2,7 +2,7 @@
 Status: baseline v1 2026-10-27
 
 ## Goal
-Make the first lab run easier to run and to read back: a second client is told the server is busy instead of hanging, teleop says what to do after an arm error, and the lab sheet has a hazard table with a measured pass or fail and an outside check for every step. Users: Sebastian at the lab, and the professor reviewing.
+Make the first lab run easier to run and to read back: a second client is told the server is busy instead of hanging, teleop says what to do after an arm error, and the lab sheet has a hazard table with a measured pass or fail and an outside check for every step. Users: the lab operator, and the supervisor reviewing.
 
 ## Requirements
 | ID | Type | Statement | Check |
@@ -16,9 +16,9 @@ Make the first lab run easier to run and to read back: a second client is told t
 | T03 | SHALL | When teleop ends on an arm error that is not a plain refusal, it prints the error and then a line saying the arm may have moved and to read `where` before the next move | test: `tests/test_teleop.py::MainTests::test_an_arm_error_says_to_check_where` |
 | T04 | SHALL NOT | Teleop sends another move after an arm error that is not a plain refusal (the loop still ends, as today) | test: `tests/test_teleop.py::DriveTests::test_dll_error_ends_the_loop` |
 | K01 | SHALL | `scorbot.keys.getch` returns a character only after `kbhit` says one is waiting, sleeping 0.05 s between checks, so a Ctrl+C is seen while teleop waits for a key | test: `tests/test_teleop.py::GetchTests::test_getch_waits_in_short_polls_so_ctrl_c_is_seen` |
-| D01 | SHALL | `docs/lab/LAB_RUN_SHEET.md` has a hazard table for the first move and, for every arm step, a numeric pass or fail limit and the outside check that settles it (ruler, dial indicator, vendor software readout) | review: Sebastian reads the sheet and confirms each step row has both |
+| D01 | SHALL | `docs/lab/LAB_RUN_SHEET.md` has a hazard table for the first move and, for every arm step, a numeric pass or fail limit and the outside check that settles it (ruler, dial indicator, vendor software readout) | review: a reviewer reads the sheet and confirms each step row has both |
 | D02 | SHALL | The lab sheet marks every limit as a desk guess until the lab run confirms it, and has a signature line for the person at the red stop | review: same read |
-| C01 | SHALL | Ctrl+C at the key prompt of `teleop --fake` ends it within 2 s with `ended` and exit 0 | observable: `.\.venv\Scripts\python.exe examples	eleop.py --fake`, type `go`, wait for the first status-free prompt, press Ctrl+C; `ended` prints and the shell prompt returns |
+| C01 | SHALL | Ctrl+C at the key prompt of `teleop --fake` ends it within 2 s with `ended` and exit 0 | observable: `.\.venv\Scripts\python.exe examples\teleop.py --fake`, type `go`, wait for the first status-free prompt, press Ctrl+C; `ended` prints and the shell prompt returns |
 
 ## Out of scope
 - Making teleop continue after a DLL error: that stop is deliberate (the arm may have moved), so only its message changes.
@@ -34,5 +34,5 @@ Make the first lab run easier to run and to read back: a second client is told t
 - None on a row being built.
 
 ## Change log
-- 2026-10-27 B05, B06, K01 added after the Codex review (accept error, starvation) and a read of the key loop (`msvcrt.getwch` blocks and is not woken by Ctrl+C). Sebastian said "do 1 2 and 3"; he has not seen these three rows yet.
-- 2026-10-27 baseline v1. Sebastian said "do 1 2 and 3" for the plan in chat; the only change from that plan is that a DLL error still ends teleop (T04), reported in the PR.
+- 2026-10-27 B05, B06, K01 added after review (accept error, starvation) and a read of the key loop (`msvcrt.getwch` blocks and is not woken by Ctrl+C).
+- 2026-10-27 baseline v1. A DLL error still ends teleop (T04).

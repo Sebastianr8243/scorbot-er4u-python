@@ -1,5 +1,5 @@
 # Requirements
-Status: baseline approved by Sebastian 2026-10-26 (draft written 2026-10-20)
+Status: baseline approved 2026-10-26 (draft written 2026-10-20)
 
 ## Goal
 A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, use to move the ER-4U through the vendor DLL session in `tools/usbc_server`. Every claim about where the arm goes is checked against something other than the code: a grid mat, raw encoder counts, SCORBASE.
@@ -29,7 +29,7 @@ A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, us
 - Joint-space moves, MoveLinear, trajectories, absolute wrist targets (`move_to` passes the current pitch and roll through).
 
 ## Planned, needs the lab first
-Not built. Each needs numbers from the arm ([docs/PLAN.md](docs/PLAN.md), [docs/DESK_FINDINGS.md](docs/DESK_FINDINGS.md)).
+Not built. Each needs numbers from the arm ([STATUS.md](../STATUS.md), [DESK_FINDINGS.md](../DESK_FINDINGS.md)).
 - J01 joint jog: one axis at a time through the DLL's `MoveManual` (axis, velocity percent), with `usbc_jog`'s cleanup order. Needs the axis numbers and signs confirmed on the arm, and the wrist branch of MoveManual is untraced.
 - H01 hold-to-move: short capped jog bursts while a key is held, stop when presses stop. Needs the measured latency and coasting after a stop; never an open-ended move.
 
@@ -42,7 +42,7 @@ Not built. Each needs numbers from the arm ([docs/PLAN.md](docs/PLAN.md), [docs/
 - Does a second DefineVector in one session fail? The server defines once per session, and Teach then overwrites point 1 fine (desk run on the fake controller, 2026-10-20).
 
 ## Change log
-- 2026-10-26 baseline approved by Sebastian; blank line removed so the W01 to W03 rows render in the table.
+- 2026-10-26 baseline approved; blank line removed so the W01 to W03 rows render in the table.
 - 2026-10-25 wrist_by added (W01 to W03): relative pitch and roll steps, tested on the fake library and end to end on the vendor DLL against the fake controller; joint jog and hold-to-move listed as planned.
 - 2026-10-20 draft written from the approved plan (`arm side — a measured Python API`).
 - 2026-10-20 desk run: the lab USBC.dll build against `tools/usbc_fake` ran Home, move_by twice, gripper close and open, Speed, move_to (refused without a box, then run), reconnect and quit with Control off; no refusals from the DLL.
