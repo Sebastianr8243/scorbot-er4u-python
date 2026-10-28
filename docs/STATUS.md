@@ -38,7 +38,7 @@ A simulator run is E2, never more.
 | Ctrl+C during a move sends `stop` | E2 | `tests/test_arm_api.py`; a real `CTRL_C_EVENT` run on Windows against a stand-in server | Not yet seen while `teleop.py` waits for a key; never ran on the arm |
 | Episode recorder (`examples/record_episode.py`) | E2 | `tests/test_record_episode.py`; `--fake` rehearsal | Never ran with real cameras or the arm |
 | Lab preflight (`scripts/lab_check.py`) | E2 | `tests/test_lab_check.py` | The USB, driver and 32-bit Python checks never ran on the lab PC |
-| LeRobot adapter (`plugins/`) | E2 | `tests/test_lerobot_stack1.py`; [requirements](requirements/stack1-lerobot-adapter.md) | Never ran on the arm or against an installed `lerobot` |
+| LeRobot adapter (`plugins/`) | E2 | `tests/test_lerobot_stack1.py`, `tests/test_lerobot_install_check.py`; [requirements](requirements/stack1-lerobot-adapter.md) | `examples/lerobot_install_check.py` passed on `lerobot` 0.6.1 (2026-10-28, FakeArm only; opt-in, not in CI). Never ran on the arm |
 
 ## What we do not know yet
 

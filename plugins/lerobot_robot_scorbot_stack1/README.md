@@ -1,6 +1,6 @@
 # lerobot_robot_scorbot_stack1
 
-A LeRobot-style `Robot` for Stack 1: `scorbot.bridge.Arm`, the vendor-DLL path, xyz in mm. **Unverified on the arm: nothing here has run on it.** It is also unverified against an installed `lerobot` (not installed when this was written); the adapter imports without the package and uses a stand-in base class. Requirements and the test behind each: [docs/requirements/stack1-lerobot-adapter.md](../../docs/requirements/stack1-lerobot-adapter.md).
+A LeRobot-style `Robot` for Stack 1: `scorbot.bridge.Arm`, the vendor-DLL path, xyz in mm. **Unverified on the arm: nothing here has run on it.** Against an installed `lerobot` it passed `examples/lerobot_install_check.py` on `lerobot` 0.6.1 (2026-10-28, FakeArm only, torch 2.15.0 CPU although 0.6.1 asks for torch below 2.12): the real `Robot` base class, registration by name, `make_robot_from_config`, `calibration_dir` as str or Path, a FakeArm drive and the `--robot.type=scorbot_stack1` parse. That says nothing about the arm, policies, `lerobot-record` or `lerobot-eval`. Without the package the adapter imports and uses a stand-in base class. Requirements and the test behind each: [docs/requirements/stack1-lerobot-adapter.md](../../docs/requirements/stack1-lerobot-adapter.md).
 
 ## Try it on a laptop (one command, no arm, no DLL, no USB)
 

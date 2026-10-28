@@ -6,6 +6,7 @@ Newest first. Nothing below has run on the arm except the vendor Home (see [docs
 
 ### Added
 - `scripts/check_docs.py`: a documentation check that runs in CI and as a pre-commit hook. It fails on names or tool references that do not belong in the repository, control characters in Markdown, a mistyped venv path, duplicate requirement IDs and links to missing files.
+- `examples/lerobot_install_check.py`: runs the LeRobot adapter against an installed `lerobot` on `FakeArm` (passed on 0.6.1). Opt-in, not part of CI.
 - `README.md` files for `scorbot/`, `examples/`, `scripts/` and `tests/`.
 
 ### Changed
