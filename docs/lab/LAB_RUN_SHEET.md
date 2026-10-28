@@ -1,8 +1,14 @@
 # Lab run sheet
 
-One page for the day at the arm. Commands and fixes for errors are in [RUN_THE_ARM.md](RUN_THE_ARM.md). **The red physical stop is the only emergency stop.** Someone's hand stays near it for every step that moves the arm.
+Purpose: the order of the day at the arm, with the number each step should give and the point at which to stop. Setup, commands and fixes for errors are in [RUN_THE_ARM.md](RUN_THE_ARM.md).
 
-Every number below is from a desk run against the vendor DLL and a fake controller (2026-10-25). None of it is measured on the arm yet. Every "Pass if" limit is a desk guess until this run confirms it; if the arm disagrees, the arm is right and the limit gets rewritten.
+**WARNING:** the red physical stop is the only emergency stop. Someone's hand stays near it for every step that moves the arm.
+
+Commands below assume the variables from [RUN_THE_ARM.md](RUN_THE_ARM.md), section 1, step 4 (`$py`, `$vpy`). `-m scorbot.bridge` means `& $vpy -m scorbot.bridge`, and script paths are run with `& $vpy`.
+
+Every number below comes from a desk run against the vendor DLL and a fake controller (2026-10-25). None of it is measured on the arm. Every "Pass if" limit is an estimate until this run confirms it; if the arm disagrees, the arm is right and the limit is rewritten.
+
+The **box** is the region of the workspace the arm has been driven in under supervision; step 6 measures it ([RUN_THE_ARM.md](RUN_THE_ARM.md), "The working box").
 
 ## Hazards for the first move
 
@@ -20,13 +26,13 @@ Every number below is from a desk run against the vendor DLL and a fake controll
 ## Before you touch the arm
 
 1. Close SCORBASE. Before closing it, write down its X Y Z readout; step 1 compares against it. Teach pendant on Auto (or the bypass plug in).
-2. `.\venv\Scripts\python.exe scripts\lab_check.py --bin C:\scratch\bin`. Fix every FAIL line first. A WARN on the working box is normal before step 6.
-3. Terminal 1: start the server (`--online`). Wait for the `serving` line. Home takes about 135 s on the arm (8.8 s against the fake).
+2. `.\.venv\Scripts\python.exe scripts\lab_check.py --bin C:\scratch\bin`. Fix every FAIL line first. A WARN on the working box is normal before step 6.
+3. Terminal 1 (32-bit): `& $py tools\usbc_server\usbc_server.py --dll-dir $bin --online`. Starting the server runs the vendor Home; wait for the `serving` line. Home takes about 135 s on the arm (8.8 s against the fake). Keep the terminal open.
 4. Have ready: a ruler or calipers, a dial indicator on a stand (wrist steps), a stopwatch, the printed grid mat, a phone to film steps 5 to 8.
 
 ## Steps, in this order
 
-"Pass if" is a desk guess. "Outside check" is the thing that decides it that is not this software.
+"Pass if" is an estimate. "Outside check" is the thing that decides it that is not this software.
 
 | # | Command | Expect | Pass if | Outside check | Stop and look if |
 |---|---|---|---|---|---|
@@ -54,14 +60,15 @@ The wrist code and the joint directions come from the vendor DLL on a fake contr
 
 A wrist step that moves nothing, or the wrong way, means the unit or sign guess is wrong: stop and do not raise the step. If the dial shows nothing at 200, the step may just be too small to read: read the encoder change in the log before deciding, and do not raise the step on a hunch.
 
-## Fault checks (only with the professor's OK; each can leave the arm needing a re-Home)
+## Fault checks (only with the supervisor's approval; each can leave the arm needing a re-Home)
 
 | # | Do | Expect (unverified) | Write down |
 |---|---|---|---|
 | F1 | Press the red stop during `by 10 0 0` at speed 20 | the arm stops; the next move is refused while the stop is active | what the server said, and whether it needed a re-Home after release |
 | F2 | Close terminal 1 during `by 10 0 0` at speed 20 | unknown: the server cannot send Stop; the arm finishes its 10 mm or stops | what the arm did, and how far it went |
+| F3 | Press Ctrl+C in terminal 2 during `by 0 0 20` | the arm stops; the server log shows it called Stop | whether the arm stopped at once, and how far it coasted |
 
-Not on the sheet: unplugging the USB cable mid-move. It would show nothing F2 does not, and a half-dead driver is a worse place to find out.
+Not on the sheet: unplugging the USB cable mid-move. It shows nothing that F2 does not.
 
 ## What the desk run measured (fake controller)
 
@@ -71,14 +78,14 @@ Not on the sheet: unplugging the USB cable mid-move. It would show nothing F2 do
 
 ## After
 
-- Read the server log as a table and paste it into `logs\NOTES.md`: `.\venv\Scripts\python.exe scripts\summarize_log.py logs\server-<time>.jsonl` (what was asked, ok, refused with the reason, or a DLL error).
+- Read the server log as a table and paste it into `logs\NOTES.md`: `.\.venv\Scripts\python.exe scripts\summarize_log.py logs\server-<time>.jsonl` (what was asked, ok, refused with the reason, or a DLL error).
 - Add a few lines to `logs\NOTES.md`: command, log file, what moved, the numbers.
 - `quit` the server (`-m scorbot.bridge quit`) so Control goes off.
 - Record the results in [../STATUS.md](../STATUS.md): a step that ran on the arm moves up to E4.
 
 ## Sign-off
 
-Each step's "Pass if" limit above is a desk guess until this sheet is filled in.
+Each "Pass if" limit above is an estimate until this sheet is filled in.
 
 | | |
 |---|---|

@@ -14,7 +14,7 @@ The two Intelitek PDFs are copyrighted and this repository is public, so they ar
 
 | Manual statement | Meaning here |
 |---|---|
-| "On communication failure, motor power shutdown." | The controller should cut motor power if the USB link stops. That a dead sync worker or a Python crash counts as a communication failure is an inference: the manual gives no timeout, valid-packet definition or shutdown latency. **Stated, not yet observed with this code**: confirm on the bench by watching the MOTORS LED. |
+| "On communication failure, motor power shutdown." | The controller should cut motor power if the USB link stops. That a stopped host program or a Python crash counts as a communication failure is an inference: the manual gives no timeout, valid-packet definition or shutdown latency. **Stated, not yet observed with this code**: confirm on the bench by watching the MOTORS LED. |
 | "Hardware watchdog for each axis protects against software faults." | Per-axis protection inside the controller, independent of Python. |
 | "Impact, software limit protection" and "Axis position error" are controller functions. | The manual lists these functions but gives no thresholds or stop behaviour, so do not rely on them. What the legacy protocol's error bytes report is still unknown. |
 | Short-circuit protection; driver shutdown on overheating; motor power shutdown on failure. | More hardware protection that does not depend on this code. |
@@ -48,8 +48,8 @@ No decoded state byte is known to show motor power, so if the controller turns t
 | Axis 3, elbow | ±130° | Upper bound |
 | Axis 4, wrist pitch | ±130° | Upper bound |
 | Axis 5, wrist roll | unlimited mechanically, ±570° electrically | Upper bound |
-| Maximum operating radius | 610 mm (top-view envelope) | Rough sanity check for a reach limit (`scorbot.kinematics` on the `stack2` branch); the manual does not say which point it is measured to |
-| Heights (side view, p. 6) | base bottom to shoulder axis 364 mm; base pedestal 190 mm | `nominal.SHOULDER_AXIS_HEIGHT_MM`, `BASE_PEDESTAL_HEIGHT_MM` (`stack2` branch) |
+| Maximum operating radius | 610 mm (top-view envelope) | Rough sanity check for a reach limit (kinematics code is on the `stack2` branch); the manual does not say which point it is measured to |
+| Heights (side view, p. 6) | base bottom to shoulder axis 364 mm; base pedestal 190 mm | Prior for kinematics (the `stack2` branch holds the constants) |
 | Gear ratios | motors 1-3: 127.1:1 in the specification table (p. 4) but 127.7:1 for S309/S310 in the parts list (p. 28), unresolved; motors 4-5: 65.5:1; gripper: 19.5:1 | Prior for counts per degree (arm axes only: 65.5:1 is the wrist *motor* gearbox, the differential ratio is not given). Measuring counts per degree directly makes the conflict moot |
 | Transmission | gears, timing belts, lead screw | The 4pc manual (p. 16) has base and shoulder gear-driven, elbow on timing belts, wrist on belts plus a bevel differential. The vendor parameter files fit a final gear stage of 5:1 (base) vs 4:1 (shoulder, elbow), which explains the different counts/degree |
 | Position repeatability | ±0.18 mm at the TCP (gripper tip) | **A target to test**, at the tool tip: encoder-count repeatability from home and jog trials does not test it |
@@ -63,7 +63,7 @@ No decoded state byte is known to show motor power, so if the controller turns t
 
 **From other vendor sources (priors, not measurements):**
 
-- Encoder: a 20-slot disk with two channels a quarter cycle apart (ER-4u manual pp. 19, 24, 28; 4pc manual p. 35). 80 counts per motor revolution assumes x4 quadrature decoding, which **neither manual states** (inferred from the INI `CountsPerRound=20`). Vendor parameter files give 141.89 counts/° base, 113.51 shoulder and elbow, 27.90 per wrist motor (`scorbot/nominal.py` on the `stack2` branch); a desk run through the vendor DLL reproduced them ([../DESK_FINDINGS.md](../DESK_FINDINGS.md)). The legacy pitch scale (33.8) disagrees.
+- Encoder: a 20-slot disk with two channels a quarter cycle apart (ER-4u manual pp. 19, 24, 28; 4pc manual p. 35). 80 counts per motor revolution assumes x4 quadrature decoding, which **neither manual states** (inferred from the INI `CountsPerRound=20`). Vendor parameter files give 141.89 counts/° base, 113.51 shoulder and elbow, 27.90 per wrist motor; a desk run through the vendor DLL reproduced them ([../DESK_FINDINGS.md](../DESK_FINDINGS.md)). The legacy pitch scale (33.8) disagrees.
 - Encoder zero: SCORBASE zeroes all encoders at hard home (SCORBASE manual p. 23); its home pose is base 0, shoulder -120, elbow 95, pitch 88, roll 0 degrees (p. 28).
 - Controller limits in the parameter files: base +174/-132, shoulder +31/-124, elbow +160/-115 (275° span, wider than this manual's 260°; the stricter manual bound stays enforced), pitch +115/-113.
 - Geometry in the parameter files: base height 349 mm (probably the DH offset to the shoulder axis, inferred), upper arm and forearm 221 mm, gripper 145 mm (this manual's side view: shoulder axis 364 mm, links 220 mm).
