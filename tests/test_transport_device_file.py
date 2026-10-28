@@ -5,9 +5,12 @@ the controller attached would reach the device. Everything below uses ``FakeApi`
 """
 
 from array import array
+import sys
 import threading
 import time
 import unittest
+
+from unittest import mock
 
 from scorbot.transport import device_file as df
 
@@ -15,11 +18,12 @@ from scorbot.transport import device_file as df
 class FakeApi:
     """Stands in for kernel32. ``replies`` is a list of bytes (or an exception) handed out by ``read_file``."""
 
-    def __init__(self, replies=(), *, create_error=None, written=None, block=False):
+    def __init__(self, replies=(), *, create_error=None, written=None, block=False, lose_cancels=0):
         self.replies = list(replies)
         self.create_error = create_error
         self.written_override = written
         self.block = block
+        self.lose_cancels = lose_cancels   # cancels that arrive before the read is pending and do nothing
         self.calls = []
         self.sent = []
         self.unblock = threading.Event()
@@ -47,6 +51,9 @@ class FakeApi:
 
     def cancel_io(self, thread_id):
         self.calls.append(("cancel", thread_id))
+        if self.lose_cancels > 0:
+            self.lose_cancels -= 1
+            return
         self.unblock.set()
 
     def close_handle(self, handle):
@@ -77,6 +84,13 @@ class OpenTests(unittest.TestCase):
         with self.assertRaises(df.DeviceLinkError) as caught:
             link(api)
         self.assertIn("driver", str(caught.exception).lower())
+
+
+class PlatformTests(unittest.TestCase):
+    def test_off_windows_the_default_link_is_a_not_found_error_before_any_kernel32_call(self):
+        with mock.patch.object(sys, "platform", "linux"):
+            with self.assertRaises(df.DeviceNotFoundError):
+                df.DeviceLink()
 
 
 class WriteTests(unittest.TestCase):
@@ -138,7 +152,16 @@ class TimeoutTests(unittest.TestCase):
             link(api).endpoint_in.read(bytearray(64), 80)
         self.assertLess(time.monotonic() - started, 2.0)
         cancels = [c for c in api.calls if c[0] == "cancel"]
-        self.assertEqual(cancels, [("cancel", threading.get_native_id())])
+        self.assertTrue(cancels)
+        self.assertEqual(set(cancels), {("cancel", threading.get_native_id())})
+
+    def test_a_cancel_that_arrives_too_early_is_repeated_until_the_read_ends(self):
+        api = FakeApi(block=True, lose_cancels=2)
+        started = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            link(api).endpoint_in.read(bytearray(64), 30)
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertEqual(len([c for c in api.calls if c[0] == "cancel"]), 3)
 
     def test_a_read_that_answers_in_time_is_never_cancelled(self):
         api = FakeApi([bytes(64)])
