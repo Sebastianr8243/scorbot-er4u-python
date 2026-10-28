@@ -66,8 +66,4 @@ flowchart TD
 
 ## Rules that do not change
 
-- No code moves the real arm unless Sebastian is there, a hand is near the red stop, and he says go.
-- Every new motion feature starts slow: small steps, low speed, a hard cap, and a refusal on anything unexpected.
 - Anything not measured on the arm is written "unverified".
-- Branches are reviewed by Codex before merge; nothing merges to `main` without Sebastian saying merge.
-- The vendor files (`USBC.dll`, ini files, manuals, captures) are never committed. The repo is public.
