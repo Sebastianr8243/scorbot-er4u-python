@@ -14,12 +14,8 @@ What the driver package says (`Driver/ERUSB.inf` and `ERUSB.sys` from the privat
 
 - Plug in the controller. Device Manager: note the device's driver, `Hardware Ids` (must be `VID_09F1&PID_0007`) and Details -> `Inf name` (`oemNN.inf`). Write both down.
 - Close SCORBASE and every vendor tool. Only one program may own the controller.
-- High-performance power plan: `powercfg /setactive SCHEME_MIN`.
-- USB selective suspend off (admin): `powercfg /setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0` then `powercfg /setactive SCHEME_CURRENT`.
-- Defender exclusion for the repo and `logs` folder (a scan stall mid-stream looks like a dead arm).
 - Keep the terminal in front for the whole run; do not minimise it or let the screen lock.
 - Use `logs\` for real runs and `rehearsal\` for simulated ones, never mixed. Keep any 2026-10-06 logs.
-- Optional: USBPcap + Wireshark. Skip it if installing is a hassle; a failure is then harder to diagnose.
 - Save the output of `pnputil /enum-drivers` to a file before any driver change.
 
 ## 3. First contact order
