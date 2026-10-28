@@ -2,19 +2,21 @@
 
 Observation: x.mm, y.mm, z.mm, gripper.pos. Action: dx.mm, dy.mm, dz.mm (a step, not a target), gripper.pos
 (0.5 and up opens). Every action passes the safety layer in send_action before the arm sees it; see
-docs/requirements/stack1-lerobot-adapter.md (L01 to L12). Works without the `lerobot` package.
+docs/requirements/stack1-lerobot-adapter.md (L01 to L24). Works without the `lerobot` package.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from scorbot.bridge import Arm, FakeArm
 
-try:        # lerobot is optional: tests and the demo run without it. Checked against lerobot 0.6.1 by examples/lerobot_install_check.py.
+try:        # lerobot is optional: tests and the demo run without it. Checked against lerobot 0.6.1 by examples/lerobot_install_check.py and examples/lerobot_record_check.py.
+    from lerobot.cameras import CameraConfig, make_cameras_from_configs
     from lerobot.robots import Robot, RobotConfig
     HAVE_LEROBOT = True
 except ImportError:
@@ -31,6 +33,14 @@ except ImportError:
     class Robot:
         def __init__(self, config):
             self.config = config
+
+    class CameraConfig:
+        pass
+
+    def make_cameras_from_configs(configs):
+        if configs:
+            raise RuntimeError("cameras need the lerobot package")
+        return {}
 
 MAX_STEP_MM = 50.0      # the server's own cap (tools/usbc_server MAX_STEP_MM); the adapter never allows more
 NAME = "scorbot_stack1"
@@ -58,6 +68,7 @@ class Stack1RobotConfig(RobotConfig):
     simulate: bool = False                      # connect() builds its own FakeArm, already homed; never an Arm, even with allow_real
     box_mm: dict | None = None                  # {"x": [lo, hi], ...}; overrides calibration_dir/arm.json
     max_step_mm: float = MAX_STEP_MM
+    cameras: dict[str, CameraConfig] = field(default_factory=dict)     # up to two; each needs fps, width and height
 
     def __post_init__(self):
         super().__post_init__()
@@ -98,7 +109,7 @@ class Stack1Robot(Robot):
             self.name = f"{NAME}_sim"       # lerobot-record writes robot.name as the dataset's robot_type: the only place v3 can say "simulated"
         super().__init__(config)
         self.config = config
-        self.cameras = {}           # lerobot-record reads len(robot.cameras) on every robot
+        self.cameras = make_cameras_from_configs(config.cameras)        # lerobot-record reads len(robot.cameras) on every robot
         self._arm = None
         self._box = None
         self._homed = False
@@ -108,7 +119,8 @@ class Stack1Robot(Robot):
 
     @property
     def observation_features(self) -> dict:
-        return {"x.mm": float, "y.mm": float, "z.mm": float, "gripper.pos": float}
+        shapes = {name: (camera.height, camera.width, 3) for name, camera in self.cameras.items()}
+        return {"x.mm": float, "y.mm": float, "z.mm": float, "gripper.pos": float, **shapes}
 
     @property
     def action_features(self) -> dict:
@@ -116,7 +128,7 @@ class Stack1Robot(Robot):
 
     @property
     def is_connected(self) -> bool:
-        return self._arm is not None
+        return self._arm is not None and all(camera.is_connected for camera in self.cameras.values())
 
     @property
     def is_calibrated(self) -> bool:
@@ -149,12 +161,28 @@ class Stack1Robot(Robot):
         except Exception:
             arm.close()
             raise
+        try:
+            if not simulated and any(getattr(camera, "simulated", False) for camera in self.cameras.values()):
+                raise ValueError("a simulated camera cannot be used with a real arm: real and simulated data never mix")
+            for camera in self.cameras.values():
+                camera.connect()
+        except Exception:       # leave nothing open
+            self._disconnect_cameras()
+            arm.close()
+            raise
         self.data_source = "simulated" if simulated else "real"
         self._arm, self._box = arm, load_box(self.config)
         self._homed, self._stopped = built_homed, False
 
+    def _disconnect_cameras(self) -> None:
+        for camera in self.cameras.values():
+            if camera.is_connected:
+                with contextlib.suppress(Exception):        # one stuck camera must not keep the arm open
+                    camera.disconnect()
+
     def disconnect(self) -> None:
         arm, self._arm = self._arm, None
+        self._disconnect_cameras()
         if arm is not None:
             arm.close()
 
@@ -193,7 +221,10 @@ class Stack1Robot(Robot):
             here = self._arm.where()
         except Exception as error:
             self._fail(error)
-        return {"x.mm": float(here.x), "y.mm": float(here.y), "z.mm": float(here.z), "gripper.pos": 1.0 if self._open else 0.0}
+        obs = {"x.mm": float(here.x), "y.mm": float(here.y), "z.mm": float(here.z), "gripper.pos": 1.0 if self._open else 0.0}
+        for name, camera in self.cameras.items():       # a camera error is not an arm error: no stop, no latch
+            obs[name] = camera.read_latest()
+        return obs
 
     def _check(self, action):
         if not isinstance(action, dict) or set(action) != set(ACTION_KEYS):

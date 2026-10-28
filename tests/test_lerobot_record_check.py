@@ -17,11 +17,22 @@ from examples import lerobot_record_check  # noqa: E402
 class CommandTests(unittest.TestCase):
     def setUp(self):
         self.args = lerobot_record_check.command("ds", "cal")
+        self.with_cameras = lerobot_record_check.command("ds", "cal", cameras=True)
 
     def test_it_can_only_run_the_simulated_robot_and_never_the_hub(self):
-        for flag in ("--robot.simulate=true", "--dataset.push_to_hub=false", "--dataset.video=false", "--dataset.no_stamp=true"):
-            self.assertIn(flag, self.args)
-        self.assertFalse([arg for arg in self.args if "allow_real" in arg or "push_to_hub=true" in arg])
+        for args in (self.args, self.with_cameras):
+            for flag in ("--robot.simulate=true", "--dataset.push_to_hub=false", "--dataset.no_stamp=true"):
+                self.assertIn(flag, args)
+            self.assertFalse([arg for arg in args if "allow_real" in arg or "push_to_hub=true" in arg])
+
+    def test_video_and_cameras_are_on_together_and_only_fake_cameras_are_used(self):
+        self.assertIn("--dataset.video=false", self.args)
+        self.assertFalse([arg for arg in self.args if "cameras" in arg])
+        self.assertIn("--dataset.video=true", self.with_cameras)
+        cams = [arg for arg in self.with_cameras if arg.startswith("--robot.cameras=")]
+        self.assertEqual(len(cams), 1)
+        self.assertEqual(cams[0].count("type: scorbot_fake"), 2)
+        self.assertNotIn("opencv", cams[0])
 
     def test_it_uses_the_scripted_teleoperator_so_no_keyboard_is_needed(self):
         self.assertIn("--teleop.type=scorbot_scripted", self.args)
