@@ -14,7 +14,7 @@ from pathlib import Path
 
 from scorbot.bridge import Arm, FakeArm
 
-try:        # lerobot is optional: tests and the demo run without it. Shape read from lerobot source, never run against an install.
+try:        # lerobot is optional: tests and the demo run without it. Checked against lerobot 0.6.1 by examples/lerobot_install_check.py.
     from lerobot.robots import Robot, RobotConfig
     HAVE_LEROBOT = True
 except ImportError:

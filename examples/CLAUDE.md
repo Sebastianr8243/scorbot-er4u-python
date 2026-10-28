@@ -9,6 +9,7 @@ Scripts that drive the arm through the arm server (`tools/usbc_server`) with `sc
 | `arm_latency.py` | yes, up and down along z | Times `where`, `move_by` and the gripper to find how many actions per second a policy gets |
 | `record_episode.py` | yes, one `move_by` per key | Teleoperation that logs two cameras, the arm state and each command to `episodes/<time>/`. `--fake` rehearses with `FakeArm` and fake cameras under `rehearsal/` |
 | `sim_demo.py` | no, `FakeArm` only (needs no server, DLL or USB) | Plain-text simulation of the Stack 1 LeRobot adapter (`plugins/lerobot_robot_scorbot_stack1`): a scripted policy, `refused: <reason>` for bad actions, an episode saved under `rehearsal/` and reloaded. Test: `tests/test_lerobot_stack1.py` |
+| `lerobot_install_check.py` | no, `FakeArm` only | Checks the Stack 1 adapter against an installed `lerobot` (run it in a throwaway venv; exits 2 if `lerobot` is missing). Test: `tests/test_lerobot_install_check.py` |
 | `teleop.py` | yes, one `move_by` per key | Keyboard control with no cameras or logging: d/a, w/s, r/f for x, y, z, t/g and y/h for wrist pitch and roll (only with `--wrist-step`), o/c for the gripper, q to end. Steps at most 20 mm or 5000 wrist units, a server refusal is printed and the loop goes on. `--fake` rehearses with `FakeArm` |
 
 ## Rules
