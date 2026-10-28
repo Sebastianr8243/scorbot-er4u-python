@@ -220,6 +220,29 @@ class ConnectTests(unittest.TestCase):
         self.assertTrue(robot.is_connected)
         self.assertEqual(robot.data_source, "real")
 
+    def test_a_server_that_is_simulating_is_refused_by_a_real_config(self):
+        """The dataset type (robot.name) comes from the config before connect() runs, so a config for a real arm must not
+        end up recording a simulating server's data under the real type (Codex review, reproduced). simulate=True is
+        the way to record simulated data."""
+        for ping in ({"ok": True, "simulated": True}, {"ok": True}):        # a missing flag counts as simulated
+            stub = mock.MagicMock()
+            stub.ping.return_value = ping
+            with mock.patch.object(robot_module, "Arm", return_value=stub):
+                robot = Stack1Robot(Stack1RobotConfig(box_mm=BOX, allow_real=True))
+                with self.assertRaises(ValueError) as raised:
+                    robot.connect()
+            self.assertIn("simulat", str(raised.exception))
+            self.assertIn("simulate=True", str(raised.exception))
+            self.assertFalse(robot.is_connected)
+            self.assertIsNone(robot.data_source)
+            stub.close.assert_called_once()
+
+    def test_an_injected_arm_is_not_checked_against_the_config(self):
+        """connect(arm=...) is for tests and the demo; lerobot-record never passes one."""
+        robot = Stack1Robot(Stack1RobotConfig(box_mm=BOX))
+        robot.connect(arm=FakeArm(homed=False))
+        self.assertEqual(robot.data_source, "simulated")
+
     def test_disconnect_closes_the_arm_and_is_idempotent(self):
         robot = make()
         arm = robot._arm
@@ -410,6 +433,30 @@ class CameraTests(NoSocketCase):
         self.assertFalse(robot.is_connected)
         stub.close.assert_called_once()
         self.assertFalse(arm_cam.is_connected)
+
+    def test_ctrl_c_while_a_camera_connects_leaves_nothing_open(self):
+        """KeyboardInterrupt is not an Exception: cleanup has to catch it too (Codex review, reproduced)."""
+
+        class Interrupted(StandInCamera):
+            def connect(self):
+                self.is_connected = True
+                raise KeyboardInterrupt
+
+        cam, arm = Interrupted(), ClosingArm(homed=False)
+        robot = self.robot(front=cam)
+        with self.assertRaises(KeyboardInterrupt):
+            robot.connect(arm=arm)
+        self.assertTrue(arm.closed)
+        self.assertFalse(cam.is_connected)
+        self.assertFalse(robot.is_connected)
+
+    def test_ctrl_c_during_the_ping_closes_the_arm(self):
+        stub = mock.MagicMock()
+        stub.ping.side_effect = KeyboardInterrupt
+        robot = self.robot()
+        with self.assertRaises(KeyboardInterrupt):
+            robot.connect(arm=stub)
+        stub.close.assert_called_once()
 
     def test_a_fake_camera_with_the_simulated_arm_is_fine(self):
         robot = self.robot(front=StandInCamera(simulated=True))

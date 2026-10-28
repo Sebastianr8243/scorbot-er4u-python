@@ -29,7 +29,7 @@ lerobot-record --robot.type=scorbot_stack1 --robot.simulate=true --teleop.type=s
 |---|---|
 | `--robot.simulate=true` | `connect()` builds its own `FakeArm`, already homed (`lerobot-record` never calls `home()`), with a default box of x 200 to 400, y -100 to 100, z 100 to 300 mm unless `box_mm` or `arm.json` says otherwise. It never builds an `Arm`, even with `allow_real`. The robot is then called `scorbot_stack1_sim`, and `lerobot-record` writes that as the dataset's `robot_type`: a v3 dataset has no `data_source` field, so this is where "simulated" lives. LeRobot's resume check compares `robot_type`, so a real run should not be able to add to a simulated dataset (read from its source, not run) |
 | `scorbot_keys` teleop | LeRobot's `keyboard_ee` (arrows: x and y, shift: z, ctrl: gripper) scaled by `step_mm` (default 10, at most 50) to our action keys; the gripper "stay" value keeps the last state. Needs `pynput`. **No person has tried it**: which key moves the real arm which way is unverified |
-| `scorbot_scripted` teleop | Replays `--teleop.script="dx,dy,dz,gripper;..."` in a loop. For unattended runs and the check |
+| `scorbot_scripted` teleop | Replays `--teleop.script="dx,dy,dz,gripper;..."` in a loop. For unattended runs and the check, with `--robot.simulate=true` only: with `--robot.allow_real=true` it would drive the real arm with nobody at the keys (the safety layer still applies; the red stop is the only emergency stop) |
 | `scorbot_fake` camera | A fake image source with a moving bar, up to two in `--robot.cameras`. Marked simulated: `connect()` refuses it next to a real arm (real and simulated data never mix) |
 | Real cameras | `type: opencv` works through LeRobot's own camera classes; nothing here has run with a real camera |
 
@@ -45,7 +45,7 @@ Datasets from `lerobot-record` are LeRobot v3 (Parquet, plus MP4 when cameras ar
 
 Safety layer, in `send_action`, before the arm sees anything: a step over 50 mm on any axis, a target outside the box (`<calibration_dir>/arm.json`), no box, a malformed or non-finite action, or any move before `home()` raises `ActionRefused`. Any error from the arm calls `arm.stop()` once and latches the adapter (`AdapterStopped`) until `reset()`, which also needs a new `home()`. `arm.stop()` is not an emergency stop; the red stop is.
 
-`connect()` refuses a real arm server unless the config has `allow_real=True`. `data_source` is `real` only when the server's `ping` says `simulated: false`. A camera error (no frame) is raised as it is: no `stop()`, no latch, because the arm did nothing wrong; it ends the recording.
+`connect()` refuses a real arm server unless the config has `allow_real=True`. `data_source` is `real` only when the server's `ping` says `simulated: false`. A config for a real arm also refuses a server that says it is simulating (use `simulate=True` for simulated data). A camera error (no frame) is raised as it is: no `stop()`, no latch, because the arm did nothing wrong; it ends the recording.
 
 ```python
 from lerobot_robot_scorbot_stack1 import Stack1RobotConfig, Stack1Robot

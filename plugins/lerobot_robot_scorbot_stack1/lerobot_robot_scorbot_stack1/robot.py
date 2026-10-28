@@ -2,7 +2,7 @@
 
 Observation: x.mm, y.mm, z.mm, gripper.pos. Action: dx.mm, dy.mm, dz.mm (a step, not a target), gripper.pos
 (0.5 and up opens). Every action passes the safety layer in send_action before the arm sees it; see
-docs/requirements/stack1-lerobot-adapter.md (L01 to L24). Works without the `lerobot` package.
+docs/requirements/stack1-lerobot-adapter.md (L01 to L25). Works without the `lerobot` package.
 """
 
 from __future__ import annotations
@@ -146,7 +146,7 @@ class Stack1Robot(Robot):
         must be True."""
         if self._arm is not None:
             raise RuntimeError(f"{self.config.arm_id} is already connected")
-        built_homed = False
+        built_here, built_homed = arm is None, False
         if arm is None:
             if self.config.simulate:        # checked before allow_real: simulate never reaches Arm
                 arm, built_homed = FakeArm(homed=True), True
@@ -158,7 +158,11 @@ class Stack1Robot(Robot):
                 arm = Arm(host=self.config.host, port=self.config.port)
         try:
             simulated = isinstance(arm, FakeArm) or arm.ping().get("simulated") is not False   # "real" only on an explicit false
-        except Exception:
+            if built_here and simulated and not self.config.simulate:
+                # robot.name, which lerobot-record writes as the dataset's robot_type, was fixed from the config before this call
+                raise ValueError("the arm server says it is simulating (ping simulated: true) but this config is for a real arm: "
+                                 "real and simulated data never mix. Use simulate=True to record simulated data")
+        except BaseException:       # BaseException: Ctrl+C must not leave the arm open
             arm.close()
             raise
         try:
@@ -166,9 +170,11 @@ class Stack1Robot(Robot):
                 raise ValueError("a simulated camera cannot be used with a real arm: real and simulated data never mix")
             for camera in self.cameras.values():
                 camera.connect()
-        except Exception:       # leave nothing open
-            self._disconnect_cameras()
-            arm.close()
+        except BaseException:       # leave nothing open, even on Ctrl+C
+            try:
+                self._disconnect_cameras()
+            finally:
+                arm.close()
             raise
         self.data_source = "simulated" if simulated else "real"
         self._arm, self._box = arm, load_box(self.config)

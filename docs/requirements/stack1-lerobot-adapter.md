@@ -1,5 +1,5 @@
 # Stack 1 LeRobot adapter requirements
-Status: baseline v1 2026-10-27; v2 2026-10-28 (L18 to L24: `simulate`, cameras, teleoperators, the `lerobot-record` check)
+Status: baseline v1 2026-10-27; v2 2026-10-28 (L18 to L25: `simulate`, cameras, teleoperators, the `lerobot-record` check, and the Codex review findings)
 
 ## Goal
 A LeRobot-style `Robot` for Stack 1 (`scorbot.bridge.Arm`, vendor DLL through `tools/usbc_server`, xyz in mm), with a safety layer in front of the arm, and a laptop simulation (`python examples/sim_demo.py`) that needs no arm, no DLL and no USB. Users: Sebastian, and anyone trying a policy on one of the ten arms. Code: `plugins/lerobot_robot_scorbot_stack1/`.
@@ -33,6 +33,7 @@ Tests are in `tests/test_lerobot_stack1.py` (class::test). All run on `FakeArm`.
 | L22 | SHALL NOT | A simulated camera (the `scorbot_fake` camera sets `simulated`) is connected next to a real arm: real and simulated data never mix | test: `CameraTests::test_a_fake_camera_is_refused_with_a_real_arm` |
 | L23 | SHALL | The teleoperator helpers output exactly the four action keys; the keyboard map scales to `step_mm` (above 0, at most 50), keeps the gripper state on "stay" and maps close, stay and open to 0, last, 1; the script parser refuses a malformed, non-finite or over-50 mm step | test: `tests/test_lerobot_teleop.py` |
 | L24 | SHALL | `examples/lerobot_record_check.py` (opt-in, in a throwaway venv with `lerobot`) records 2 episodes with the real `lerobot-record`, once with no cameras and once with two fake cameras and video, and every check passes when the datasets are loaded with `LeRobotDataset`. The command it builds always has `--robot.simulate=true` and `--dataset.push_to_hub=false`, and never `allow_real` | test: `tests/test_lerobot_record_check.py` (the command, in CI); by hand: the run, passed on `lerobot` 0.6.1 on 2026-10-28 |
+| L25 | SHALL NOT | A robot configured for a real arm (`simulate=False`) connects to an arm server whose `ping` says it is simulating (or says nothing), because `lerobot-record` fixes the dataset's `robot_type` from the config before `connect()` runs, so those frames would be filed under the real type. `connect()` closes the arm and raises, naming `simulate=True`. An arm passed in by a test or the demo is not checked. A Ctrl+C during `connect()` also leaves the arm and the cameras closed | test: `ConnectTests::test_a_server_that_is_simulating_is_refused_by_a_real_config`, `ConnectTests::test_an_injected_arm_is_not_checked_against_the_config`, `CameraTests::test_ctrl_c_while_a_camera_connects_leaves_nothing_open`, `CameraTests::test_ctrl_c_during_the_ping_closes_the_arm` |
 
 ## Out of scope
 - Running anything on the arm; Home on the real arm takes about 135 s and is done by a person at the red stop.
