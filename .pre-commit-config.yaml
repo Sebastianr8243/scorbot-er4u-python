@@ -5,3 +5,11 @@ repos:
     rev: v0.16.9
     hooks:
       - id: ruff-check
+  - repo: local
+    hooks:
+      - id: check-docs
+        name: documentation check
+        entry: python scripts/check_docs.py
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -1,4 +1,4 @@
-# Lab-day runner: the steps of docs/archive/lab/LAB_DAY_CARD.md (one arm), one at a time, in order.
+# Lab-day runner: the steps of lab/LAB_DAY_CARD.md (in git history) (one arm), one at a time, in order.
 # It holds your labels and flags, picks a free log name for each step, and stops at the first failure.
 # It adds no checks of its own: the scripts it starts do their own safety prompts and refusals.
 # Before every step that connects to the arm it waits for you to type GO. Ctrl-C is not an emergency
@@ -93,7 +93,7 @@ for ($i = 1; $i -le $last; $i++) {
     & $argv[0] $argv[1..($argv.Count - 1)]
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
-        Write-Host "STEP $i FAILED (exit $LASTEXITCODE). Do not retry it. Keep $Logs, tell the owner what you saw." -ForegroundColor Red
+        Write-Host "STEP $i FAILED (exit $LASTEXITCODE). Do not retry it. Keep $Logs, tell the supervisor what you saw." -ForegroundColor Red
         Write-Host "To resume after you resolve it: .\scripts\lab_day.ps1 -From $($i + 1)"
         exit $LASTEXITCODE
     }

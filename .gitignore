@@ -21,8 +21,13 @@ episodes/
 .hypothesis/
 .pytest_cache/
 
-# Claude Code agent worktrees (temporary, per session)
-.claude/worktrees/
+# Local coding-agent notes and tooling: kept on the maintainer's machine, not part of the project
+CLAUDE.md
+AGENTS.md
+LESSONS.md
+.github/copilot-instructions.md
+.claude/
+.agents/
 
 # Intelitek manuals: copyrighted; keep local, do not publish (see docs/manual/HARDWARE_REFERENCE.md)
 references/*.pdf

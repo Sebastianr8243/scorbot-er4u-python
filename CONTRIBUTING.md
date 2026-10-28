@@ -1,12 +1,12 @@
-# CLAUDE.md
+# Contributing
 
 Python SDK, legacy USB protocol code, lab tools and offline research tools for the Intelitek ScorBot ER-4U arm (USB `09F1:0007`, original Controller-USB). The vendor Home through Intelitek's DLL ran on the real arm on 2026-10-20; everything else is unverified on hardware. **To move the arm: [docs/lab/RUN_THE_ARM.md](docs/lab/RUN_THE_ARM.md)** (the vendor-DLL tools in `tools/`). Deeper docs: [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md), [docs/protocol/PROTOCOL.md](docs/protocol/PROTOCOL.md), [docs/manual/HARDWARE_REFERENCE.md](docs/manual/HARDWARE_REFERENCE.md). Old plans, specs, checklists and evidence are in `docs/archive/`.
 
-Each subdirectory has its own CLAUDE.md with module-level rules. Read it before editing there.
+Each subdirectory has a README.md with module-level rules. Read it before editing there.
 
 ## Rules that matter
 
-This is an engineering lab: if Sebastian asks for a run, run it. The red physical stop is the only emergency stop.
+This is an engineering lab. The red physical stop is the only emergency stop.
 
 - Tests and CI never open USB or move the arm (`conftest.py` makes real USB discovery raise under pytest).
 - `openScorbot/` packet bytes and the `WRITE`/`READ` sleeps are load-bearing: change them only with a capture or the vendor disassembly (`docs/protocol/VENDOR_DLL_PROTOCOL.md`).
@@ -67,7 +67,7 @@ flowchart TD
 
 ## Commands
 
-**Verify before saying done** (about 1 min with `-n 2`, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot openScorbot scripts examples tests && python -m pytest -n 2 -q tests`. Last run 2026-10-22: 1011 passed in 54 s. Read `LESSONS.md` before starting; add one dated line after a non-trivial task.
+**Verify before saying done** (about 1 min with `-n 2`, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot openScorbot scripts examples tests && python -m pytest -n 2 -q tests`. Last run 2026-10-22: 1011 passed in 54 s.
 
 ```powershell
 python -m pip install -e ".[dev]"              # add ,kinematics for the Robotics Toolbox cross-check; windows extra adds libusb-package; gui adds PyQt5
@@ -100,7 +100,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 - Encoder counts are unsigned 16-bit with a 65535 (one's complement) wrap. Take differences with `scorbot.calibration.signed_count_delta`, never subtract raw or signed counts.
 - Claims about hardware must say "unverified" unless a bench trace exists. Say so in code comments and docs too.
 - Tests use `unittest`. Optional deps skip (`hypothesis`, `roboticstoolbox`, `usb`).
-- Commits: imperative sentence-case subject, no prefix, body explains why. No AI attribution lines, in commits or pull requests (owner's rule; see `AGENTS.md`).
+- Commits: imperative sentence-case subject, no prefix, body explains why. No AI attribution lines, in commits or pull requests.
 - Do not push or open PRs unless asked.
 
 ## Where to look
@@ -123,7 +123,7 @@ CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, co
 | Change | Read first |
 |---|---|
 | `scorbot/robot.py` and `scorbot/homing.py` gates, faults, threading, homing | `tests/test_python_api.py`, `tests/test_simulated.py`, `docs/design/ARCHITECTURE.md` sections 8, 11 |
-| `openScorbot/*` | `openScorbot/CLAUDE.md`, `docs/lab/USB_CAPTURE.md` |
+| `openScorbot/*` | `openScorbot/README.md`, `docs/lab/USB_CAPTURE.md` |
 | Session schema or topics | `scorbot/session/schemas.py`, `docs/archive/design/EXPERIMENT_RECORDING.md`; bump `SCHEMA_VERSION` only with a reader migration |
 | Calibration fields | `scorbot/calibration.py`, `scripts/fit_calibration.py`, `docs/lab/PHYSICAL_CALIBRATION.md` (loader and fitter must agree) |
 | Log event names | `scripts/watch_lab_log.py:ALARM_EVENTS`, `scripts/review_lab_logs.py` (both parse them) |

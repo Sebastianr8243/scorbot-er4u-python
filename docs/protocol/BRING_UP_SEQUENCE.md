@@ -2,7 +2,7 @@
 
 One page. Each step is what the vendor's SCORBASE does to get the arm from "powered on" to "moving", the bytes involved, where our knowledge comes from, and whether it has ever run on **our** arm. Update the last column when a real log shows it.
 
-Evidence labels: **Arm** = our own real logs (`docs/archive/evidence/`); **Capture** = the ULPGC thesis's captures of SCORBASE on the same `09F1/0007` controller ([ULPGC_THESIS_FINDINGS.md](ULPGC_THESIS_FINDINGS.md)); **DLL** = our disassembly of the vendor's `USBC.dll` ([VENDOR_DLL_PROTOCOL.md](VENDOR_DLL_PROTOCOL.md)); **Legacy** = what `openScorbot/` sends. Everything on the arm is "unverified" in the sense of `CLAUDE.md` unless it says Arm.
+Evidence labels: **Arm** = our own real logs (`evidence/ (in git history)`); **Capture** = the ULPGC thesis's captures of SCORBASE on the same `09F1/0007` controller ([ULPGC_THESIS_FINDINGS.md](ULPGC_THESIS_FINDINGS.md)); **DLL** = our disassembly of the vendor's `USBC.dll` ([VENDOR_DLL_PROTOCOL.md](VENDOR_DLL_PROTOCOL.md)); **Legacy** = what `openScorbot/` sends. Everything on the arm is "unverified" in the sense of `CONTRIBUTING.md` unless it says Arm.
 
 ## The nine steps
 
@@ -21,13 +21,13 @@ Evidence labels: **Arm** = our own real logs (`docs/archive/evidence/`); **Captu
 ## What this says
 
 - **The protocol side is mostly done.** Steps 1 to 4 and 9 run on our arm. Steps 6 and 8 have two independent sources and our legacy bytes match both, but they have never moved or stopped our arm.
-- **Step 5 is the real gap.** The vendor homes with the controller doing the driving; we have only ever tried the host-streamed way, and it failed. See `docs/archive/evidence/2026-10-06-lab-logs/ANALYSIS.md`.
+- **Step 5 is the real gap.** The vendor homes with the controller doing the driving; we have only ever tried the host-streamed way, and it failed. See `evidence/2026-10-06-lab-logs/ANALYSIS.md (in git history)`.
 
 ## The gaps, and how each one closes
 
 | Gap | Why it matters | How it closes |
 |---|---|---|
-| How to home (bytes of the vendor's `4D` / mode `H` drive, its units and sign) | We cannot establish a reliable zero without it | A USBPcap capture of SCORBASE Home (`docs/archive/lab/S1_CAPTURE_ADDENDUM.md`). The thesis never describes its own home routine; its source is on the thesis CD (`codigo.7z`), not online. |
+| How to home (bytes of the vendor's `4D` / mode `H` drive, its units and sign) | We cannot establish a reliable zero without it | A USBPcap capture of SCORBASE Home (`lab/S1_CAPTURE_ADDENDUM.md (in git history)`). The thesis never describes its own home routine; its source is on the thesis CD (`codigo.7z`), not online. |
 | What a count means physically: jog direction, counts per degree | Every move depends on it | One 1 degree base jog with a physical measurement; the thesis CD code may also have it |
 | What happens when things go wrong: comms-loss timeout, e-stop packets, whether our stop works | Safety | Lab tests with a hand on the stop (`VENDOR_PROTOCOL_LAB_PLAN.md` F2, F3) |
 | What byte 60 minus byte 0 means (a queue depth would make stops late; the DLL sizes its queue 4 to 45, see above) | Stop latency | The home and jog traces of the first lab run (they hold sent ID, echoed ID and byte 60); a run paced slower |
@@ -56,13 +56,13 @@ Sources: the 10-06 idle packets (`raw_hex`, 20 samples), the legacy code, and th
 
 **Decision (owner asked for one, 2026-10-08): plan as if byte 60 is the newest ID the controller has received, so byte 60 minus byte 0 is the number of queued messages.** It is the only reading that fits all the data (rises with the ID, constant above the echo, 47 here against 6 in the thesis, matches the DLL's 4 to 45 limits), and the two ways to be wrong are not equal: assuming it and being wrong costs slow first jogs; ignoring it and being right means a stop lands about a second late. So: stop distance is budgeted as `depth x speed` counts, first jogs run at speed 2 or 3, and a depth above about 10 is noted in the lab log. Still unproven; the first trace settles it, and this paragraph is replaced by the result.
 
-**Since 2026-10-11 the vendor home measures this itself.** `VendorHomeSource` takes the lag from each reply's echoed ID (byte 0) against the ID it just sent, scales its stall grace and setpoint lead limit by it, refuses a controller more than 60 behind (or one whose reply echoes no ID of ours), and writes `lag_first` and `lag_max` into the `home_complete` and `home_failed` rows. The first real home therefore answers the question below without any extra recording. See `docs/archive/specs/2026-10-08-vendor-home-port.md`.
+**Since 2026-10-11 the vendor home measures this itself.** `VendorHomeSource` takes the lag from each reply's echoed ID (byte 0) against the ID it just sent, scales its stall grace and setpoint lead limit by it, refuses a controller more than 60 behind (or one whose reply echoes no ID of ours), and writes `lag_first` and `lag_max` into the `home_complete` and `home_failed` rows. The first real home therefore answers the question below without any extra recording. See `specs/2026-10-08-vendor-home-port.md (in git history)`.
 
 **Puzzle that remains: byte 60 minus byte 0.** In every idle sample byte 60 is byte 0 plus a constant (47 in our run; 6 in the thesis's), and both bytes follow the ID through the wrap (V). A constant offset that differs per session looks like a queue depth: byte 0 would be the ID the controller is answering and byte 60 the newest ID it has received. **I, unproven:** if so, our 47 is close to the controller's `Buffers = 45` queue, which would mean the controller runs about 45 messages behind the host, so a command, and a software stop, could take effect more than a second late. The thesis's offset of 6 comes from a slower host loop. This matters for stopping safely, and it is checkable: the home and jog traces now hold the OUT ID and both IN bytes for every message, so the first lab run shows whether the offset changes when we pace slower or during a move. Related oddity: in the idle samples the ID advances only about 21 per 27 packets we count, and twice in 10 s it jumped by about 48 extra; not explained.
 
 ## Before step 5 or 6 on the real arm
 
-- LEDs read as expected after connect and after enable; `home_switch_bits` below 32 (`docs/archive/lab/AGENT_RUNBOOK.md`).
+- LEDs read as expected after connect and after enable; `home_switch_bits` below 32 (`lab/AGENT_RUNBOOK.md (in git history)`).
 - An idle recording first: counts stable, error words small, impact byte 0.
 - A no-motion switch check: press each microswitch by hand and see the right bit change (requirement T7).
 - First jogs at speed 2 or 3, not the default 10, and a slow shoulder jog as the lag test (the SDK's speed is the largest step in counts per message; the failed home search stepped 10).

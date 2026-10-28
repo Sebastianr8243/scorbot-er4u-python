@@ -50,14 +50,14 @@ Hardware claims are "unverified" until a bench log backs them.
 | `examples/` | `arm_characterise.py`, `pick_place.py`, and offline previews |
 | `scorbot/` (rest), `openScorbot/` | Stack 2 and the original GPL OpenScorbot code (experimental, reference) |
 | `scripts/bring_up.py` | Stack 2 desk rehearsal (`--simulate`) and supervised lab ladder; [runbook](docs/lab/BRING_UP_RUNBOOK.md) |
-| `docs/` | Index in [docs/README.md](docs/README.md); protocol and manual notes; `archive/` is history |
+| `docs/` | Index in [docs/README.md](docs/README.md); protocol and manual notes |
 | `tests/`, `tests_extra/` | `unittest` suites, no hardware |
 
 ## Rules
 
 - Never commit Intelitek files: `USBC.dll`, its ini files, manuals, captures. The repo is public.
 - Tests and CI never open USB or move the arm.
-- Contributor and agent rules: [CLAUDE.md](CLAUDE.md).
+- Contributor rules: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Original project
 

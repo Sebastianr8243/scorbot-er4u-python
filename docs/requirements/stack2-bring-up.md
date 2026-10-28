@@ -1,5 +1,5 @@
 # Stack 2 desk bring-up requirements
-Status: baseline v1 2026-10-26 (Sebastian's task brief and follow-up)
+Status: baseline v1 2026-10-26 (task brief and follow-up)
 
 ## Goal
 Rehearse the Stack 2 connection and lab ladder without USB, then provide a supervised lab procedure. Hardware behaviour remains unverified.
@@ -27,7 +27,7 @@ Rehearse the Stack 2 connection and lab ladder without USB, then provide a super
 - Driver cancellation and controller stream-loss behaviour require bench evidence.
 
 ## Change log
-- 2026-10-26 Sebastian specified Home before jog, vendor Home by default, and a full-handshake probe.
+- 2026-10-26 Specified: Home before jog, vendor Home by default, and a full-handshake probe.
 
 ## Verification (2026-10-26)
 | IDs | Result | Evidence |
@@ -39,5 +39,5 @@ Rehearse the Stack 2 connection and lab ladder without USB, then provide a super
 Shared venv, `PYTHONPATH` set to the worktree. The requested pytest invocation failed
 before collection: sandbox denied `%TEMP%/pytest-of-sebas`. The full successful retry
 added `--basetemp .pytest-stack2-full -o cache_dir=.pytest-stack2-cache` only.
-Claude read-only review produced no output in three minutes and was stopped: no review result.
+A read-only review produced no output in three minutes and was stopped: no review result.
 No USB/device was opened, no real motion run, no commit or push. Hardware remains unverified.

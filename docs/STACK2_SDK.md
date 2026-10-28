@@ -16,7 +16,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m scorbot.preflight
 ```
 
-Going to the lab? Start with [docs/archive/lab/LAB_VISIT_HANDOFF.md](archive/lab/LAB_VISIT_HANDOFF.md). To move this working version to the robot PC, clone or download the branch you intend to test, or build a ZIP with `python scripts/build_bench_kit.py`. For the first lab visit, keep the short [G1 lab card](archive/lab/G1_LAB_CHECKLIST.md) open or printed. The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`.
+Going to the lab? Start with lab/LAB_VISIT_HANDOFF.md (in git history). To move this working version to the robot PC, clone or download the branch you intend to test, or build a ZIP with `python scripts/build_bench_kit.py`. For the first lab visit, keep the short G1 lab card open or printed. The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`.
 
 The preflight only enumerates USB; it does not reset or command the robot. The original controller is identified in the legacy code as USB vendor/product `09F1:0007`. PyUSB also needs a libusb backend and a compatible Windows device driver. The `windows` extra supplies a libusb library, but it does not change the device driver. See the [PyUSB Windows FAQ](https://github.com/pyusb/pyusb/blob/master/docs/faq.rst) if discovery fails. Confirm the driver choice for your lab setup before changing it, since it may affect the Intelitek software. Follow the [Windows bench runbook](lab/WINDOWS_BENCH_RUN.md) on the robot PC.
 
@@ -36,11 +36,11 @@ with Scorbot(log_path="session.jsonl") as robot:
     robot.disable()
 ```
 
-This snippet illustrates the API. For the first hardware session, follow the [first lab visit procedure](archive/lab/ARM_CONTROL_BENCH.md); it captures idle responses and requires a physical home check before offering a jog. `jog_joint` currently accepts `base`, `shoulder`, or `elbow`; live wrist jogs remain gated pending two-motor measurements. Each call is limited to 5 degrees and legacy speed values 1–20. `speed` is the most encoder counts added per host packet (about 13 ms), not the controller's ten SCORBASE speed levels. The positive direction mapping is inherited from the old code and needs physical verification. Use the offline jog preview (`python examples\preview_jog.py --joint base --delta 1 --speed 10`) to inspect planned motor counts before a supervised trial; it shows requested setpoints, not observed motion, and opens no USB.
+This snippet illustrates the API. For the first hardware session, follow the first lab visit procedure; it captures idle responses and requires a physical home check before offering a jog. `jog_joint` currently accepts `base`, `shoulder`, or `elbow`; live wrist jogs remain gated pending two-motor measurements. Each call is limited to 5 degrees and legacy speed values 1–20. `speed` is the most encoder counts added per host packet (about 13 ms), not the controller's ten SCORBASE speed levels. The positive direction mapping is inherited from the old code and needs physical verification. Use the offline jog preview (`python examples\preview_jog.py --joint base --delta 1 --speed 10`) to inspect planned motor counts before a supervised trial; it shows requested setpoints, not observed motion, and opens no USB.
 
-For one-joint supervised trials, follow the [arm-control bench procedure](archive/lab/ARM_CONTROL_BENCH.md). Start with [raw-state recording](../examples/record_raw_state.py), then use [bench_joint.py](../examples/bench_joint.py) and [review_lab_logs.py](../scripts/review_lab_logs.py). Use the [measurement and calibration guide](lab/PHYSICAL_CALIBRATION.md) when an independent angle reference is available. The fitter in `scripts/fit_calibration.py` refuses vendor-only data and requires holdout and movement verification before emitting a calibrated file.
+For one-joint supervised trials, follow the arm-control bench procedure. Start with [raw-state recording](../examples/record_raw_state.py), then use [bench_joint.py](../examples/bench_joint.py) and [review_lab_logs.py](../scripts/review_lab_logs.py). Use the [measurement and calibration guide](lab/PHYSICAL_CALIBRATION.md) when an independent angle reference is available. The fitter in `scripts/fit_calibration.py` refuses vendor-only data and requires holdout and movement verification before emitting a calibrated file.
 
-To record an experiment (commands, controller state, camera frames, operator decisions) and replay it without hardware, see [Recording and replaying experiments](archive/design/EXPERIMENT_RECORDING.md). Try it first with `.\.venv\Scripts\python.exe examples\make_synthetic_session.py`. To develop or rehearse without the arm, use `SimulatedScorbot`, or add `--simulate` to the lab scripts. It runs the same safety code against a fake controller, and everything it produces is labelled simulated. To list, export to CSV, or compare recorded runs, use `python -m scorbot.session list|export|compare`.
+To record an experiment (commands, controller state, camera frames, operator decisions) and replay it without hardware, see Recording and replaying experiments. Try it first with `.\.venv\Scripts\python.exe examples\make_synthetic_session.py`. To develop or rehearse without the arm, use `SimulatedScorbot`, or add `--simulate` to the lab scripts. It runs the same safety code against a fake controller, and everything it produces is labelled simulated. To list, export to CSV, or compare recorded runs, use `python -m scorbot.session list|export|compare`.
 
 `disable()` is a queued controller command. It cannot interrupt a stalled command and is **not** an emergency stop. `request_stop()` asks a jog in progress to end early (`jog_joint` then raises `MotionStopped`); it needs a working USB link, the arm coasts, and it has not been tried on the arm, so it is **not** an emergency stop either. The physical emergency stop remains authoritative. If a command times out, the SDK faults and rejects more motion; it cannot guarantee motor shutdown after USB loss or a Python crash.
 
@@ -60,7 +60,7 @@ The original code remains under `openScorbot/`. The new adapter is under `scorbo
 
 ## Scripts and examples
 
-Run any of these with `--simulate` first. Per-script detail lives in [scripts/CLAUDE.md](../scripts/CLAUDE.md) and [examples/CLAUDE.md](../examples/CLAUDE.md); add a row there and here when you add a script.
+Run any of these with `--simulate` first. Per-script detail lives in [scripts/README.md](../scripts/README.md) and [examples/README.md](../examples/README.md); add a row there and here when you add a script.
 
 | Script | Moves the arm? | What it does |
 |---|---|---|
@@ -69,7 +69,7 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/CL
 | `examples/bench_stream.py` | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
 | `examples/bench_gripper.py` | Yes, unless `--simulate` | One gripper trial (never run on the arm) |
 | `examples/policy_loop.py` | Yes, unless `--simulate` | A bounded, clamped multi-joint policy run (never run on the arm); `scripts/export_policy_dataset.py` turns it into a dataset |
-| `scripts/lab_day.ps1` | Yes, unless `-Simulate` or `-DryRun` | Runs the one-arm lab day in order ([card](archive/lab/LAB_DAY_ONE_ARM.md)); `scripts/lab_summary.py` reads the logs back (offline) |
+| `scripts/lab_day.ps1` | Yes, unless `-Simulate` or `-DryRun` | Runs the one-arm lab day in order (card); `scripts/lab_summary.py` reads the logs back (offline) |
 | `examples/record_raw_state.py` | Connects, no motion, unless `--simulate` | Idle state recording |
 | `tools/usbc_home/` | `--online` only | Vendor-DLL home; needs a 32-bit Python and the vendor DLL |
 | `tools/usbc_server/` + `python -m scorbot.bridge` | `--online` only | One homed DLL session serving the Python API (`scorbot.bridge.Arm`); see [RUN_THE_ARM](lab/RUN_THE_ARM.md) |
@@ -89,8 +89,8 @@ None of these open USB or command the arm.
 - `scripts/watch_lab_log.py`: read-only live view of a lab run in a second terminal.
 - `scripts/usb_trace.py` with [docs/lab/USB_CAPTURE.md](lab/USB_CAPTURE.md): read Wireshark/USBPcap captures and compare the Intelitek software's packets with this code's.
 - `scorbot.kinematics` and `examples/kinematics_check.py`: nominal DH model (forward and inverse kinematics, trapezoidal trajectories) for validating the legacy `libdef.cIn`. The geometry is unmeasured, and the model is not wired into any motion command.
-- `tools/foxglove/scorbot_lab_layout.json`: Foxglove layout for recorded sessions; see [Viewing recordings](archive/design/EXPERIMENT_RECORDING.md).
-- [docs/archive/design/OPERATOR_UX.md](archive/design/OPERATOR_UX.md): the evidence behind the prompts and warnings, and the UX backlog.
+- `tools/foxglove/scorbot_lab_layout.json`: Foxglove layout for recorded sessions; see Viewing recordings.
+- design/OPERATOR_UX.md (in git history): the evidence behind the prompts and warnings, and the UX backlog.
 - `tests/test_legacy_properties.py`: Hypothesis property tests for the encoder and packet arithmetic. Install with `pip install -e ".[dev]"`; add `kinematics` to also run the Robotics Toolbox cross-check.
 
 ## Development checks

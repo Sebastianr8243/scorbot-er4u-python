@@ -7,7 +7,7 @@ Source: Yeray Miranda Betancor, *Estudio y análisis de las comunicaciones en el
 - **Same hardware.** Its device dump is `09F1/0007` with two bulk endpoints, `83h` in and `02h` out, 64-byte packets (p. 105). That is our controller.
 - **It is the only public decode made from real SCORBASE captures**, not from the vendor DLL. It is independent of our own disassembly, so where the two agree the claim is much stronger than either alone.
 - **It was checked against SCORBASE's own display** (encoder values, switch states), and the author's driver then moved a real arm: waist 1500 and 10,000 counts, wrist roll and tilt, and a move from Home to a pose where every encoder had to change, started from a random pose with positive and negative counts (pp. 97 to 100). The thesis does not say how many counts or how many motors beyond "all".
-- **It explains the controller's control model**, which is what the unknowns in `docs/archive/design/SAFETY_CASE.md` section 7 are really about.
+- **It explains the controller's control model**, which is what the unknowns in `design/SAFETY_CASE.md (in git history)` section 7 are really about.
 - Limits: one student, Windows XP, 2017 firmware, observation only (no disassembly, p. 102). He never describes his own home search in the PDF, gives no counts per degree, and measures no timeouts. His driver does have a home: `buscaHomeRobot` calls `buscaHome(axis)` per axis, and the interpreter has `HardHome`, `HomeEje`, `PonerCero`, `SoftHome` and `FijaSoftHome`. The source is `Driver/driver.c` in `codigo.7z` on the thesis CD, with sample captures in its `capturas` folder; neither is in the PDF. The thesis names no URL or repository, and a search for the author's name found no copy (2026-10-11), so the only known copy is the 2017 disc. It is optional: our vendor-home port already covers the same ground. Worth one email to the tutor or author, no more; the `capturas` folder is the useful part (real SCORBASE captures, possibly a full Home).
 
 ## How the controller works (the model the thesis supports)
@@ -61,7 +61,7 @@ Status (2026-10-08): the recording half of T3 and T4 is built (`collision_motors
 
 ## What it changes about the 10-06 failure
 
-See `docs/archive/evidence/2026-10-06-lab-logs/ANALYSIS.md` ("Revised reading"). In short: polarity is now confirmed, which removes the "switch was never seen" explanation, and the 4.2 s duration fits the legacy search lagging the shoulder, not a start next to the upper stop.
+See `evidence/2026-10-06-lab-logs/ANALYSIS.md (in git history)` ("Revised reading"). In short: polarity is now confirmed, which removes the "switch was never seen" explanation, and the 4.2 s duration fits the legacy search lagging the shoulder, not a start next to the upper stop.
 
 ## What it does not answer
 
@@ -73,5 +73,5 @@ See `docs/archive/evidence/2026-10-06-lab-logs/ANALYSIS.md` ("Revised reading").
 ## Experiments the thesis's method suggests (no arm motion first)
 
 1. **Press-the-switches recording** (T7): idle recorder running, motors off, a screwdriver on each microswitch in turn. Safe, about 15 minutes.
-2. **SCORBASE capture** (T10): Home, then one waist jog. Needs the capture setup already described in `docs/archive/lab/S1_CAPTURE_ADDENDUM.md`.
+2. **SCORBASE capture** (T10): Home, then one waist jog. Needs the capture setup already described in `lab/S1_CAPTURE_ADDENDUM.md (in git history)`.
 3. **Repeat the legacy shoulder search only with the new T4 logging**, hand at the stop, from a pose near home (never from folded down), to see error words over time.

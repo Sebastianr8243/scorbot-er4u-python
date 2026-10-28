@@ -1,6 +1,6 @@
 """The exceptions Scorbot raises.
 
-Moved out of robot.py unchanged (docs/archive/specs/2026-10-12-code-health-design.md); robot.py still exports
+Moved out of robot.py unchanged (specs/2026-10-12-code-health-design.md (in git history)); robot.py still exports
 the names, so ``from scorbot.robot import ScorbotError`` keeps working. Only ``state`` (stdlib only) is
 imported, for ``MotionStopped``'s annotation, which must still resolve at run time.
 """

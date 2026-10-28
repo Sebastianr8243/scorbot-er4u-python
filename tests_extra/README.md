@@ -1,6 +1,6 @@
 # tests_extra/
 
-Tests for code that is off the first-trial path (connect, state, home, small jogs). Moved out of `tests/` on 2026-10-08 so the lab-visit gate (`tests/`) stays small. Same rules as [../tests/CLAUDE.md](../tests/CLAUDE.md): never open USB, never move the arm. CI runs this folder too.
+Tests for code that is off the first-trial path (connect, state, home, small jogs). Moved out of `tests/` on 2026-10-08 so the lab-visit gate (`tests/`) stays small. Same rules as [../tests/README.md](../tests/README.md): never open USB, never move the arm. CI runs this folder too.
 
 ```powershell
 python -m pytest -n 2 tests tests_extra       # everything

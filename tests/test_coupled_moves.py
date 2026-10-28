@@ -3,7 +3,7 @@
 The simulator obeys jogs exactly and has no stops or coupling of its own, so these tests check
 the plumbing and the gates, and that the motors asked for are the ones the vendor's joint
 formulas call for. Whether the wrist signs are right on the arm is for the first supervised
-trial (docs/archive/lab/SESSION_PROCESS.md). No USB.
+trial (lab/SESSION_PROCESS.md (in git history)). No USB.
 """
 
 import unittest

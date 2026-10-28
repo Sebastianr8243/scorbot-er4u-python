@@ -1,6 +1,6 @@
 # tests/
 
-`unittest` suite. It must never open USB, enumerate a real device, or move the arm. Root rules in [../CLAUDE.md](../CLAUDE.md) apply.
+`unittest` suite. It must never open USB, enumerate a real device, or move the arm. Root rules in [../CONTRIBUTING.md](../CONTRIBUTING.md) apply.
 
 ```powershell
 python -m pytest -n 2 tests                                  # the lab-visit gate: about 645 tests, under 2 min
@@ -10,7 +10,7 @@ python -m unittest tests.test_simulated -v                   # one module
 python -m unittest tests.test_python_api.CommandTests -v     # one class
 ```
 
-`tests/` is the gate: connect, state, home, jog, the safety invariants, the packet pins, the lab session and the evidence path. `tests_extra/` (see [../tests_extra/CLAUDE.md](../tests_extra/CLAUDE.md)) holds tests for code that is off the first-trial path; CI runs both, the lab-visit check is `tests/` only.
+`tests/` is the gate: connect, state, home, jog, the safety invariants, the packet pins, the lab session and the evidence path. `tests_extra/` (see [../tests_extra/README.md](../tests_extra/README.md)) holds tests for code that is off the first-trial path; CI runs both, the lab-visit check is `tests/` only.
 
 Run from the repo root. Tests import `scripts.<name>` and `examples.<name>` as namespace packages, and `scorbot` from the editable install or the current directory. CI runs the same command on Windows and Linux, Python 3.10 and 3.13, with `.[dev]` (Hypothesis) and, on Linux only, `.[kinematics]`. Optional dependencies skip cleanly (`hypothesis`, `roboticstoolbox`, `usb`); a skipped test is not a pass, so install them locally before trusting a green run.
 
@@ -62,7 +62,8 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_fit_calibration.py` | `scripts/fit_calibration.py:fit` pinned exactly (2026-10-12), because it decides the soft limits the arm is jogged inside: every refusal with the input that triggers it and the exact message, the order the checks run in (so two wrong things at once still report the first), the boundaries, and the full output for a clean and a noisy dataset (3 home, 4 fit, 5 verify, 6 move rows, so mixed-up counts or a mean/median swap show). Mutation-checked: 53 changes to `fit` (every guard, limit and output field), each caught |
 | `test_review_session_rows.py` | `scorbot.lab.review.review_session_rows` pinned (2026-10-12): every problem message with the log row that triggers it, the tolerance and sign boundaries, report shape and defaults, sorted and deduplicated problems. Mutation-checked: 20 changes, each caught |
 | `test_hand_sweep_analyse.py` | `scripts/hand_sweep_report.py:analyse` pinned (2026-10-12): every refusal and the order they run in, each warning with its boundary (jump, coarse, motors on, unknown bits), unwrapped counts, switch bands and their edges, the roll-axis band and the wrist-motors-apart note. Mutation-checked: 31 changes, 30 caught, the last is equivalent (the `, 1` floor only matters when both ends are 0) |
-| `test_docs_index.py` | Every module, test file and script has a row in its folder's index (the `CLAUDE.md` beside it); fails and names the file when one is added without a row. Matches whole file names or a pattern row such as `test_camera_*.py`, not a bare word |
+| `test_docs_index.py` | Every module, test file and script has a row in its folder's index (the `README.md` beside it); fails and names the file when one is added without a row. Matches whole file names or a pattern row such as `test_camera_*.py`, not a bare word |
+| `test_check_docs.py` | `scripts/check_docs.py` finds each known problem in a small bad tree and passes a clean one: names, tracked local-notes files, control characters, `venv` without the dot, duplicate IDs, missing links, code-fence handling. |
 | `test_coupled_moves.py` | Coupled joint moves on the facade (the pre-home move and the park) against the simulator: the plumbing, the gates, and that the motors asked for are the ones the vendor's joint formulas call for. Whether the wrist signs are right on the arm is for the first supervised trial |
 | `test_joint_move.py` | `scorbot.joint_move` on its own: the vectors from the vendor's joint formulas, the cumulative-target ledger, roll drift, single-motor targets. Checks the arithmetic, not the arm |
 | `test_inch_home.py` | `scorbot.inch_home` against a fake switch (positions along the approach direction), its constants, and `Scorbot.home_inch` through the simulator |

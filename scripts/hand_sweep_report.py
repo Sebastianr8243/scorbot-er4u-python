@@ -116,7 +116,7 @@ def _roll_notes(bands):
             notes.append(f"wrist roll switch stayed on for at most {upper} counts, narrower than that: {need}. "
                          "The home pose is zeroed 690 counts past the switch edge; a narrower switch leaves it off "
                          "the switch, the main pass cannot find it again and the home faults on the travel bound "
-                         "(a safe stop). Tell the owner before running the vendor home")
+                         "(a safe stop). Tell the supervisor before running the vendor home")
         elif lower >= ROLL_MIN_ON_COUNTS:
             notes.append(f"wrist roll switch stayed on for at least {lower} counts: wide enough ({need})")
         else:
