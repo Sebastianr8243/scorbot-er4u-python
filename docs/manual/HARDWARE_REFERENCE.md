@@ -1,5 +1,7 @@
 # ER-4U hardware reference
 
+Purpose: look up manual facts (limits, LEDs, homing) and what each means for this code.
+
 Facts from the Intelitek manuals for the lab's arms, with what each one means for this code. Page numbers are the manuals' own. **Manual values are nominal; calibration still needs measurement on each arm**.
 
 | Manual | Catalog | Date | Local file (not in git) |

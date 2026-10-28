@@ -30,10 +30,9 @@ with Arm() as arm:                     # needs the arm server (below); FakeArm n
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-python -c "from scorbot.bridge import FakeArm; a = FakeArm(); a.move_by(dz=20); print(a.where())"
-python -m pytest -n 2 tests          # about 15 seconds; never opens USB or moves the arm
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -c "from scorbot.bridge import FakeArm; a = FakeArm(); a.move_by(dz=20); print(a.where())"
+.\.venv\Scripts\python.exe -m pytest -n 2 tests          # about 15 seconds; never opens USB or moves the arm
 ```
 
 Expected: the one-liner prints a `Position` with `z=220.0` (the fake arm starts at `z=200.0`), and the tests pass.
@@ -88,7 +87,10 @@ A hardware claim stays "unverified" until a bench log backs it.
 
 - Never commit Intelitek files: `USBC.dll`, its ini files, manuals, captures. The repository is public.
 - Tests and CI never open USB or move the arm.
+- The lab PC installs exact versions with `uv sync --locked --extra dev`. After you edit dependencies in `pyproject.toml`, run `uv lock`; CI fails if `uv.lock` is out of date.
 - Before you submit a change, run `ruff check . && python -m compileall -q scorbot scripts examples tests tools plugins && python -m pytest -q tests`. `python scripts/check_docs.py` checks the documentation.
+
+Documentation follows [docs/STYLE.md](docs/STYLE.md).
 
 ## Original project
 

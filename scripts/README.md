@@ -9,4 +9,4 @@ Helper scripts. None of them opens USB or commands the arm.
 | `check_docs.py` | Fails on broken documentation: names or tool references that do not belong in the repo, control characters in Markdown, a mistyped venv path, duplicate requirement IDs, links to missing files. Runs in CI and as a pre-commit hook |
 | `setup_windows.ps1` | Creates `.venv`, installs `.[dev]`, runs `pip check` and the tests. No USB access, no driver change |
 
-Usage: [docs/lab/RUN_THE_ARM.md](../docs/lab/RUN_THE_ARM.md), "Before you start".
+Usage: [docs/lab/RUN_THE_ARM.md](../docs/lab/RUN_THE_ARM.md), section 1.

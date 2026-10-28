@@ -25,7 +25,7 @@ Order of the day, with expected numbers and stop conditions: [LAB_RUN_SHEET.md](
    Invoke-WebRequest https://www.python.org/ftp/python/3.13.5/python-3.13.5-embed-win32.zip -OutFile $env:TEMP\py32.zip
    Expand-Archive $env:TEMP\py32.zip -DestinationPath C:\scratch\bin -Force
    ```
-4. Create the 64-bit environment (`.venv`, with the tests run) with `powershell -File scripts\setup_windows.ps1`, then set the variables (in every new terminal):
+4. Create the 64-bit environment `.venv` with exact versions from `uv.lock`: `uv sync --locked --extra dev`. Without `uv`, run `powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1` (it installs without pinned versions). Then set the variables (in every new terminal):
    ```powershell
    $bin = "C:\scratch\bin"
    $py = "$bin\python.exe"

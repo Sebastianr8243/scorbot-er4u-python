@@ -1,5 +1,7 @@
 # Status and roadmap
 
+Purpose: what works, how sure we are, what is unknown, and the order of the work ahead.
+
 As of 2026-10-26, `main`. Update this page whenever a result changes a row.
 
 **Goal:** drive all of the ScorBot ER-4U from a PC, safely: the tool position (x, y, z), the wrist pitch and roll, each joint on its own and the gripper. Control it from Python, from the keyboard and later by holding a key. Then record what the arm does so a robot can learn from it.

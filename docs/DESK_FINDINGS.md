@@ -1,5 +1,7 @@
 # Desk findings: what the vendor DLL asks for (2026-10-25)
 
+Purpose: results of running the vendor DLL against a fake controller, so the first lab run starts from stated expectations.
+
 Answers to the unknowns in [STATUS.md](STATUS.md) that can be read without the arm. **None of this was measured on the arm.** The numbers come from running the vendor `USBC.dll` against a fake controller that follows the DLL's own setpoints exactly (`tools/usbc_fake/fake_oracle.py`, 44 small moves from three poses), so they show what the DLL asks the motors to do, not how the real arm responds. The fake's switch model is a guess, so the Home pose below is the DLL's own bookkeeping after Home, not a measured pose.
 
 ## What the DLL's arrays are

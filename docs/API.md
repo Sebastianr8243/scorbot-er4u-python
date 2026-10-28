@@ -1,5 +1,7 @@
 # Arm API reference
 
+Purpose: look up every call of `scorbot.bridge.Arm`, its units, and when it refuses or raises.
+
 `scorbot.bridge.Arm` is a client of `tools/usbc_server`, which keeps one homed vendor-DLL session open. It uses only the standard library. `FakeArm` has the same calls, keeps positions in memory and needs no server.
 
 Before you call anything on the real arm: start the server ([lab/RUN_THE_ARM.md](lab/RUN_THE_ARM.md), section 3) and keep a hand near the red stop. The red stop is the only emergency stop.
