@@ -62,3 +62,4 @@ A research pass was asked for the driver framework and Microsoft's URB layout (c
 2. Wire proof at the lab (needs you): a USBPcap capture while the vendor software runs, compared with what `USBC.dll` says it sends. This is what turns "read from code" into "seen on the cable".
 3. Re-label `VENDOR_DLL_PROTOCOL.md` items the real-arm Home has confirmed.
 4. Callee-identity check on the 18 differing DLL functions, only if a difference starts to matter.
+5. Desk byte check (done 2026-10-26): Stack 2's messages against the lab DLL's, no arm. Result and the two differences it found: [DESK_BYTE_CHECK.md](DESK_BYTE_CHECK.md).
