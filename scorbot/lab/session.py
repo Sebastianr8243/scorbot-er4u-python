@@ -341,7 +341,12 @@ class LabSession:
         command = self.rec.log_command("home", {"method": "vendor", **confirmed})
         self.robot.vendor_home(**confirmed)
         self.rec.log_command_result(command, "completed", completion_source="vendor_home() returned")
-        state = self._state("home_complete", method="vendor")
+        self._home_done(self._state("home_complete", method="vendor"))
+        self.op.show("First move after this home: a 1 degree jog on one joint, and check which way "
+                     "it went before anything else.", "warn")
+
+    def _home_done(self, state):
+        """Keep the home counts, then ask the operator whether the home looked right."""
         self.home_counts = dict(state.encoder_counts)
         self.last_counts = dict(state.encoder_counts)
         self.homed = True
@@ -352,8 +357,6 @@ class LabSession:
         self._write("home_ok", answer=answer)
         if answer != "yes":
             raise Declined("stopped after homing; no jog requested")
-        self.op.show("First move after this home: a 1 degree jog on one joint, and check which way "
-                     "it went before anything else.", "warn")
 
     def _home(self):
         if self.vendor_home:
@@ -396,16 +399,7 @@ class LabSession:
             self.rec.log_command_result(command, "completed",
                                         completion_source="home() returned")
             state = self._state("home_complete")
-        self.home_counts = dict(state.encoder_counts)
-        self.last_counts = dict(state.encoder_counts)
-        self.homed = True
-        self._write("home_observation", text=self.op.text(
-            "Describe what moved during homing and the final pose: ") or "not recorded")
-        answer = self.op.choose("Did home look right, and is the travel path clear? [y/n] ",
-                                {"y": "yes", "n": "no"})
-        self._write("home_ok", answer=answer)
-        if answer != "yes":
-            raise Declined("stopped after homing; no jog requested")
+        self._home_done(state)
         if self.inch_home:
             # The inch search moves the wrist pitch with the forearm and never homes it, so its
             # angle at home is only what the search left; the wrist-pitch limit checks assume it
@@ -754,11 +748,8 @@ class LabSession:
                      "stop is the stop.", "warn")
         self._disarm("plan stopped")
 
-    def _run_plan(self, name, moves, how, target_counts, confirm_text) -> bool:
-        """Show a multi-step move, confirm once, run it step by step, then check arrival.
-
-        True only when every step ran and the operator confirmed the arm is there.
-        """
+    def _run_plan(self, name, moves, how, target_counts, confirm_text):
+        """Show a multi-step move, confirm once, run it step by step, then check arrival."""
         try:
             state = self.robot.get_state()
         except Exception as error:
@@ -770,7 +761,7 @@ class LabSession:
         self._write("plan_shown", name=name, moves=labels)
         if not moves:
             self.op.show(f"Already at {name}.")
-            return True
+            return
         if self.op.can_stop_on_key():
             stop_text = ("Any key during the move stops it after the current step (a "
                          "software pause, not an emergency stop; the physical stop is "
@@ -811,7 +802,6 @@ class LabSession:
                     count_differences=differences, keys_during_last_step=ignored)
         self.op.show(f"At {name}: count differences from the target "
                      f"{ {m: d for m, d in differences.items() if d} or 'none'}.")
-        return answer == "yes"
 
     def _jog_failed(self, n, error):
         self.fault = str(error)
