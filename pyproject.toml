@@ -42,7 +42,7 @@ kinematics = ["roboticstoolbox-python>=1.1,<2"]
 packages = ["scorbot", "scorbot.session", "scorbot.lab", "scorbot.transport", "scorbot.camera", "openScorbot"]
 
 [tool.setuptools.package-data]
-openScorbot = ["*.ui", "*.png"]
+# openScorbot/ ships only its protocol modules; the GUI file and images stay in the source checkout.
 "scorbot.session" = ["*.json"]
 
 [tool.pytest.ini_options]
