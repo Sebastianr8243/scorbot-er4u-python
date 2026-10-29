@@ -1,11 +1,17 @@
 name: Tests
 
-# Every push and pull request, on the robot PC's OS (Windows) and Linux, at the
+# Pushes to main and stack2 and every pull request, on the robot PC's OS (Windows) and Linux, at the
 # oldest and newest supported Python. The suite never opens USB or moves the arm.
 on:
   push:
+    branches: [main, stack2]
   pull_request:
   workflow_dispatch:
+
+# A newer push to the same branch or pull request replaces the run still going.
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
