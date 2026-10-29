@@ -12,13 +12,13 @@ from scorbot.state import JOINTS, decode_state
 
 
 def state(index, base=100):
-    raw = {joint: 100 for joint in JOINTS}
+    raw = dict.fromkeys(JOINTS, 100)
     raw["base"] = base
     return {
         "packet_index": index, "fault": None, "enabled": False,
         "encoder_counts": raw,
         "signed_encoder_counts": raw.copy(),
-        "encoder_sign_bytes": {joint: 128 for joint in JOINTS},
+        "encoder_sign_bytes": dict.fromkeys(JOINTS, 128),
     }
 
 

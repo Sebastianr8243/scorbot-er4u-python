@@ -251,8 +251,7 @@ class CalibrationTests(unittest.TestCase):
         # may be jogged back in, never further out.
         from types import SimpleNamespace
         robot = Scorbot()
-        robot._home_counts = {m: 0 for m in ("base", "shoulder", "elbow",
-                                             "wrist_motor_1", "wrist_motor_2")}
+        robot._home_counts = dict.fromkeys(("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2"), 0)
         outside = SimpleNamespace(encoder_counts=dict(robot._home_counts, elbow=5400))
         robot._refuse_past_joint_limit(outside, {"elbow": -568})        # toward home
         with self.assertRaises(ValueError):

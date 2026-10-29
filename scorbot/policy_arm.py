@@ -80,7 +80,7 @@ class PolicyArm:
                                 for m in MOTORS}
             self._stream = stack.enter_context(self.robot.start_stream(
                 travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG))
-            self.target = {m: 0.0 for m in MOTORS}
+            self.target = dict.fromkeys(MOTORS, 0.0)
             self._stack = stack.pop_all()
 
     def _disable(self) -> None:

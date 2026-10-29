@@ -42,7 +42,7 @@ class ProportionalJogsTests(unittest.TestCase):
 
     def test_nothing_to_do_gives_nothing(self):
         errors = dict.fromkeys(("base", "shoulder", "elbow", "wrist_pitch"), 3.0)
-        self.assertEqual(joint_move.proportional_jogs(errors, {k: 100 for k in errors}), [])
+        self.assertEqual(joint_move.proportional_jogs(errors, dict.fromkeys(errors, 100)), [])
 
 
 class CoupledMoveTests(SimulatedRobotCase):

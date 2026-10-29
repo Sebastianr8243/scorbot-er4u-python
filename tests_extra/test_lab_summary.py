@@ -12,10 +12,10 @@ from scorbot.state import JOINTS
 
 
 def counts(**moved):
-    raw = {j: 1000 for j in JOINTS}
+    raw = dict.fromkeys(JOINTS, 1000)
     raw.update({j: 1000 + c for j, c in moved.items()})
     return {"packet_index": 1, "fault": None, "enabled": True, "encoder_counts": raw,
-            "signed_encoder_counts": raw.copy(), "encoder_sign_bytes": {j: 128 for j in JOINTS}}
+            "signed_encoder_counts": raw.copy(), "encoder_sign_bytes": dict.fromkeys(JOINTS, 128)}
 
 
 def bench(folder, name, joint="base", delta=1.0, moved=142, others=None):

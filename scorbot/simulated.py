@@ -143,9 +143,9 @@ class SimulatedController:
         self.link_up = False
         self._moving = False
         self._rng = random.Random(self.profile.seed)
-        self.home_counts = {name: 0 for name in JOINTS}
+        self.home_counts = dict.fromkeys(JOINTS, 0)
         self.home_counts.update(home_counts or {})
-        self.counts = {name: 0 for name in JOINTS}
+        self.counts = dict.fromkeys(JOINTS, 0)
         self.counts.update(start_counts or {})
         self.step_delay_s = step_delay_s
         self.drop_motors_after_home = drop_motors_after_home

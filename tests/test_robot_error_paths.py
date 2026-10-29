@@ -184,7 +184,7 @@ class StreamErrorPaths(SimulatedRobotCase):
 
     def test_a_home_the_counts_cannot_be_compared_with_refuses_the_stream(self):
         robot = self.robot()
-        robot._home_counts = {name: 32767 for name in JOINTS}      # half the counter range from the arm: ambiguous
+        robot._home_counts = dict.fromkeys(JOINTS, 32767)      # half the counter range from the arm: ambiguous
         before = len(robot.sim.commands)
         with self.assertRaisesRegex(ScorbotError, "Cannot place the arm relative to home"):
             robot.start_stream()

@@ -649,10 +649,10 @@ class SetpointConversionTests(unittest.TestCase):
         from scorbot.simulated import encode_packet
         from scorbot.state import decode_state
         from scorbot.streaming import MOTORS, Stream, StreamCore
-        home = decode_state(encode_packet({m: home_signed for m in MOTORS}), connected=True,
+        home = decode_state(encode_packet(dict.fromkeys(MOTORS, home_signed)), connected=True,
                             enabled=True, homed=True, fault=None).encoder_counts
-        core = StreamCore({m: 0 for m in MOTORS}, travel_cap={m: cap for m in MOTORS},
-                          lead_limit={m: 100.0 for m in MOTORS}, period_s=0.001,
+        core = StreamCore(dict.fromkeys(MOTORS, 0), travel_cap=dict.fromkeys(MOTORS, cap),
+                          lead_limit=dict.fromkeys(MOTORS, 100.0), period_s=0.001,
                           now=time.monotonic())
         self.robot = _QuietRobot()
         stream = Stream(self.robot, core, home, None)
@@ -662,7 +662,7 @@ class SetpointConversionTests(unittest.TestCase):
     def drive(self, stream, encode, home_signed, target, steps=400):
         """A perfect arm: what was sent is what the next reply reports."""
         from scorbot.streaming import MOTORS
-        signed = {m: home_signed for m in MOTORS}
+        signed = dict.fromkeys(MOTORS, home_signed)
         sent = []
         for _ in range(steps):
             if stream.core.state in ("tracking", "holding"):

@@ -736,7 +736,7 @@ class LabSession:
         if not self.armed:
             self.op.show("DISARMED: press a to arm.")
             return
-        start = {joint: 0.0 for joint in self.travel}
+        start = dict.fromkeys(self.travel, 0.0)
         self._run_plan("start", plan_moves(self.travel, start), "back",
                        self.home_counts, "BACK")
 

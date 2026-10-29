@@ -94,13 +94,13 @@ def counts_to_deg(counts, per_degree):
 
 def run_policy(stream, policy, per_degree, *, steps, rate_hz, cap_deg, write):
     """The control loop. Returns the list of per-tick rows. Never raises for a policy fault."""
-    target = {m: 0.0 for m in MOTORS}
+    target = dict.fromkeys(MOTORS, 0.0)
     rows, errors_in_row, started = [], 0, time.monotonic()
     for i in range(steps):
         tick_end = time.monotonic() + 1.0 / rate_hz
         seen = stream.steps
         counts = ({m: int(seen[-1]["measured"][m]) for m in MOTORS} if seen
-                  else {m: 0 for m in MOTORS})
+                  else dict.fromkeys(MOTORS, 0))
         measured = counts_to_deg(counts, per_degree)
         obs = {"step": i, "t": round(time.monotonic() - started, 3), "deg": measured,
                "target_deg": dict(target), "counts": counts}
@@ -135,7 +135,7 @@ def go_home(stream):
     deadline = time.monotonic() + HOME_TIMEOUT_S
     while time.monotonic() < deadline:
         try:
-            stream.set_target({m: 0 for m in MOTORS})
+            stream.set_target(dict.fromkeys(MOTORS, 0))
         except StreamRefused:
             return False
         seen = stream.steps
@@ -278,7 +278,7 @@ def _run() -> int:
                                           write=write)
                         go_home(stream)
                 except (Exception, KeyboardInterrupt):
-                    write("policy_failed", result=summarize(rows, {m: 0 for m in MOTORS}))
+                    write("policy_failed", result=summarize(rows, dict.fromkeys(MOTORS, 0)))
                     raise
                 after = stream.final_state
                 try:

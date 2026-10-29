@@ -303,7 +303,7 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
         self.assertEqual(codec.MAX_SEQUENCE + 1, self.conf.readData("general", "MAX_COUNT"))
 
     def test_next_sequence_matches_countByte1(self):
-        for seq in range(0, 256):
+        for seq in range(256):
             self.assertEqual(codec.next_sequence(seq), self.lib.countByte1(seq), seq)
 
     def test_codec_tables_cover_every_legacy_table_entry(self):
@@ -376,7 +376,7 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
                 self.legacy_packet(self.hex.get_msg2(84).format(f(seq))))
 
     def assert_count_matches_legacy(self, count, sign):
-        buffer = _response({name: (count, sign) for name in JOINTS})
+        buffer = _response(dict.fromkeys(JOINTS, (count, sign)))
         field = self.lib.detrans(count) + self.lib.get_signo(ENCODER_OFFSETS[0] + 2, buffer)
         self.assertEqual(codec.encode_count(count, sign), bytes.fromhex(field), (count, sign))
 
@@ -386,7 +386,7 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
                 self.assert_count_matches_legacy(count, sign)
 
     def test_encode_count_matches_legacy_for_every_count(self):
-        for count in range(0, 65536):
+        for count in range(65536):
             sign = 128 if count % 2 else 127
             self.assertEqual(codec.encode_count(count, sign),
                              bytes.fromhex(self.lib.detrans(count) + SIGN_TEXT[sign]), count)

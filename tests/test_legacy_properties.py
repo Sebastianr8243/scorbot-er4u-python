@@ -126,7 +126,7 @@ class LegacyLibdefProperties(unittest.TestCase):
     @given(raw16, signs, steps)
     def test_suma_stays_in_range_and_moves_by_step(self, raw, sign, step):
         out = self.lib.suma([raw, sign], 1, 20, 100, step=step)
-        self.assertIn(out[0], range(0, 65536))
+        self.assertIn(out[0], range(65536))
         self.assertIn(out[1], ("0000", "ffff"))
         self.assertEqual(len(self.lib.detrans(out[0])), 4)
         # Same distance as the calibration helper (mod-65535 arithmetic).
@@ -136,7 +136,7 @@ class LegacyLibdefProperties(unittest.TestCase):
     @given(raw16, signs, steps)
     def test_resta_stays_in_range_and_moves_by_step(self, raw, sign, step):
         out = self.lib.resta([raw, sign], 1, 20, 100, step=step)
-        self.assertIn(out[0], range(0, 65536))
+        self.assertIn(out[0], range(65536))
         self.assertIn(out[1], ("0000", "ffff"))
         self.assertEqual(len(self.lib.detrans(out[0])), 4)
         self.assertEqual(signed_count_delta(out[0], raw), -step)
@@ -169,10 +169,10 @@ class LegacyLibdefProperties(unittest.TestCase):
     def test_speed_profile_increments_are_int_and_bounded(self, raw, sign, vel, ite, cont):
         inc = self.lib.incremento(cont, vel, ite)
         self.assertIs(type(inc), int)
-        self.assertIn(inc, range(0, vel + 1))
+        self.assertIn(inc, range(vel + 1))
         for fn in (self.lib.suma, self.lib.resta):
             out = fn([raw, sign], cont, vel, ite)
-            self.assertIn(out[0], range(0, 65536))
+            self.assertIn(out[0], range(65536))
 
     @PROFILE
     @given(st.lists(raw16, min_size=6, max_size=6), st.lists(raw16, min_size=6, max_size=6))
@@ -247,7 +247,7 @@ class LegacyKnownBugs(unittest.TestCase):
         # wrap, so no byte sent for a real move changes. Checked around both seams for
         # every step size up to one full turn.
         for start in (0, 1, 20, 100, 32767, 65434, 65515, 65534, 65535):
-            for step in list(range(0, 130)) + [1000, 32767, 32768, 65534, 65535]:
+            for step in list(range(130)) + [1000, 32767, 32768, 65534, 65535]:
                 with self.subTest(start=start, step=step):
                     value, sign = self.old_suma(start, step)
                     got = self.lib.suma([start, "AAAA"], 1, 20, 100, step=step)
@@ -364,7 +364,7 @@ class StateCodecProperties(unittest.TestCase):
         self.assertEqual(state.home_switch_bits, switches)
         for name, value in signed.items():
             raw = state.encoder_counts[name]
-            self.assertIn(raw, range(0, 65536))
+            self.assertIn(raw, range(65536))
             self.assertEqual(state.encoder_sign_bytes[name], 128 if value >= 0 else 127)
             self.assertEqual(raw, value if value >= 0 else value + MAX_COUNT)
 

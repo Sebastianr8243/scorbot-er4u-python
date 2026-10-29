@@ -80,7 +80,7 @@ class FakeArm:
 
     def __init__(self, seed=0, start=None):
         self.rng = random.Random(seed)
-        self.counts = {m: 40000 for m in MOTORS}           # away from the 0/65535 seam
+        self.counts = dict.fromkeys(MOTORS, 40000)           # away from the 0/65535 seam
         self.counts.update(start or {})
         self.jogs = []
 
