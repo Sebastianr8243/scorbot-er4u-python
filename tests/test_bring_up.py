@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -23,6 +24,13 @@ def options(**overrides):
 
 
 class BringUpTests(unittest.TestCase):
+    def setUp(self):
+        # Each ladder's dry probe runs the legacy handshake, whose delays are real.
+        real_sleep = time.sleep
+        sleeping = mock.patch("time.sleep", lambda seconds: real_sleep(seconds / 20))
+        sleeping.start()
+        self.addCleanup(sleeping.stop)
+
     def run_ladder(self, args=None, factory=None, ask=None):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
