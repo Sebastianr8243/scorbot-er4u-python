@@ -11,6 +11,7 @@ python -m unittest discover -s tests
 |---|---|
 | `test_usbc_server.py` | `tools/usbc_server` through `scorbot.bridge.Arm` on a real localhost socket against a fake library: refusals, stop during a move, reconnect, a hung call, the `simulated` flag in `ping`, every reply written to the log, a second client told the server is busy |
 | `test_arm_api.py` | `FakeArm`, the `Arm` client against a stand-in server, taught points and the box, `examples/arm_characterise.py`, `examples/pick_place.py` |
+| `test_arm_contract.py` | `FakeArm` has the same public calls and arguments as `Arm`, so a call added to one cannot be missing from the other |
 | `test_record_episode.py` | `examples/record_episode.py` against `FakeArm` and `FakeSource` |
 | `test_teleop.py` | `examples/teleop.py` against `FakeArm` and a scripted key stream |
 | `test_lerobot_stack1.py` | `plugins/lerobot_robot_scorbot_stack1` and `examples/sim_demo.py` on `FakeArm`: step cap, box, Home, error latch, real-server flag, `simulate`, cameras (a stand-in camera), data source, dataset writer; a socket guard makes any connection attempt fail |
