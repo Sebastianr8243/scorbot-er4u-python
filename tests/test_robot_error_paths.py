@@ -76,8 +76,9 @@ class CommandErrorPaths(unittest.TestCase):
         self.assertIn("command_interrupted", [r["event"] for r in self.rows()])
 
     def test_disable_best_effort_swallows_a_refusal(self):
-        with mock.patch.object(self.robot, "_command", side_effect=ScorbotError("faulted")):
+        with mock.patch.object(self.robot, "_command", side_effect=ScorbotError("faulted")) as command:
             self.robot._disable_best_effort()           # must not raise: it runs while a fault is being handled
+        command.assert_called_once_with([16, 1, 1])
 
     def test_abandoning_a_stream_that_cannot_stop_carries_on(self):
         stream = types.SimpleNamespace(stop=mock.Mock(side_effect=ScorbotError("latched")))

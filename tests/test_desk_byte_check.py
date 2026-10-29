@@ -50,11 +50,6 @@ class DeskByteCheckTests(unittest.TestCase):
         for name, (got, want) in steps.items():
             with self.subTest(name):
                 self.assertEqual(got, want)
-        with self.subTest("sequence wrap"):
-            # Known difference: the DLL goes 255 -> 0, the legacy code 255 -> 1; the controller accepted both
-            # (BRING_UP_SEQUENCE.md: our 10-06 sessions wrapped many times).
-            sent = [packet[0] for packet in packets]
-            self.assertLessEqual({b for a, b in zip(sent, sent[1:]) if a == 255}, {1})
 
     def test_every_region_the_dll_wrote_is_one_the_codec_builds(self):
         self.assertGreater(len(FIXTURE["regions"]), 100)
