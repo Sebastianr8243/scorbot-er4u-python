@@ -201,7 +201,9 @@ class VendorHomeRunTests(unittest.TestCase):
 
     def test_the_legacy_delays_are_the_idle_pair(self):
         sleeps = []
-        with mock.patch("time.sleep", side_effect=sleeps.append):
+        me = threading.get_ident()
+        # time.sleep is patched for every thread, so a worker left running by an earlier test would add to the list.
+        with mock.patch("time.sleep", side_effect=lambda s: sleeps.append(s) if threading.get_ident() == me else None):
             self.run_order(Scripted(3, ("end",)))
         self.assertEqual(sleeps, [self.comm.WRITE, self.comm.READ] * 3)
 
