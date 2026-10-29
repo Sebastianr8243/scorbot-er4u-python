@@ -2,7 +2,7 @@
 
 Each USB message used to cost several json parses (about 0.3 ms each, measured) on top of the 8 to 19 ms
 sleeps. Only the TIME_OUT_R read inside the write-to-read gap stays, because shortening that gap needs a
-capture (openScorbot/CLAUDE.md). No USB is opened.
+capture (openScorbot/README.md). No USB is opened.
 """
 
 import importlib.util

@@ -1,6 +1,6 @@
 # Stack 2 research: what is known before the first lab run
 
-Written 2026-10-26. A Gemini pass over `docs/protocol/*.md` and a Codex claim check of its five key claims against the source files. Both worked from our own protocol docs, not from the Ghidra export, the GPL source or the manuals, so this is a summary of what the repo already knew, checked, not new evidence. Nothing here is verified on the arm.
+Written 2026-10-26. A research pass over `docs/protocol/*.md` and an independent claim check of its five key claims against the source files. Both worked from our own protocol docs, not from the Ghidra export, the GPL source or the manuals, so this is a summary of what the repo already knew, checked, not new evidence. Nothing here is verified on the arm.
 
 ## Established (documented disassembly or configuration)
 
@@ -16,13 +16,13 @@ Written 2026-10-26. A Gemini pass over `docs/protocol/*.md` and a Codex claim ch
 - **6500 counts per second.** The source leaves speed units unresolved (`VENDOR_DLL_PROTOCOL.md` line 317). Treat it as a prior.
 - **IN byte 60 as a queue tail, the exact comms-loss timeout, the `4D` PWM scale.** Unproven.
 
-## Second pass: raw thesis and legacy source (Gemini, 2026-10-26)
+## Second pass: raw thesis and legacy source (2026-10-26)
 
-Read from the thesis PDF (`references/`, not committed) and `openScorbot/`. Unchecked by a second model; the figure numbers below are Gemini's reading.
+Read from the thesis PDF (`references/`, not committed) and `openScorbot/`. Unchecked by a second model; the figure numbers below are that pass's reading.
 
 - **Timing is real after all, but one capture.** Thesis Figure 18 (p. 25, USBTrace, idle after Home): OUT packets 29.3 to 31.3 ms apart, OUT-to-IN latency 15.9 to 17.6 ms. So the 16.9 ms mean is a figure in the thesis, from a single idle capture, not a motion trace.
 - **Stream loss.** The thesis (pp. 25, 26, 30, 110) says control is lost, the LED goes green to orange, and a new `control-on` is needed. No timeout figure, and the word "watchdog" is not used.
-- **IN byte 0.** Gemini says Figure 18 refutes "IN byte 0 echoes the OUT ID" (OUT 0x20 pairs with IN 0xF3). The gap is 45 on the 256 ring, which matches the Buffers limit (45), so it reads as a lagged echo. That is our reading, not Gemini's; the lag measure in `vendor_home_source.py` already assumes it.
+- **IN byte 0.** The pass says Figure 18 refutes "IN byte 0 echoes the OUT ID" (OUT 0x20 pairs with IN 0xF3). The gap is 45 on the 256 ring, which matches the Buffers limit (45), so it reads as a lagged echo. That is our reading, not the pass's; the lag measure in `vendor_home_source.py` already assumes it.
 - **Our sleeps.** Write 8 ms, read 5 ms idle, 12 ms base/shoulder/elbow, 13 ms wrist, 19 ms gripper (`conf.py`), about 20 to 27 ms per message against a ~16 ms controller cadence. `countByte1` wraps 255 to 1; the vendor and thesis wrap 255 to 0, and both are reported to be accepted.
 - **Possible gaps in `docs/protocol/PROTOCOL.md`** (to check, not yet fixed): the IN byte 59 collision flag, the 8-motor setpoint layout, the `0x48` counter reset, and I/O opcodes `0x44` and `0x41`. Also a claimed `FF FF F7` versus `FF FF 7F` mismatch in `ULPGC_THESIS_FINDINGS.md`.
 

@@ -1,6 +1,6 @@
 # Stack 2 lab checklist (one page)
 
-For the first Stack 2 visit. The ladder itself is in [BRING_UP_RUNBOOK.md](BRING_UP_RUNBOOK.md). Everything about the arm here is unverified until a bench log backs it. Sebastian is present, the red stop is in reach, nothing runs without his go.
+For the first Stack 2 visit. The ladder itself is in [BRING_UP_RUNBOOK.md](BRING_UP_RUNBOOK.md). Everything about the arm here is unverified until a bench log backs it. A person is present, the red stop is in reach, nothing runs without their go.
 
 ## 1. Pick the driver path first (no swap is the default)
 

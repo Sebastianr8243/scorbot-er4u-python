@@ -1,6 +1,6 @@
 # Physical joint calibration data
 
-The [supervised bench procedure](ARM_CONTROL_BENCH.md) establishes USB feedback, homing and small relative jogs first. No published count-to-angle scale or travel range is applied as calibration. Determine the physical angle and safe region from independent measurements on this arm. Homed shoulder and elbow angles are not assumed to be zero.
+The supervised bench procedure establishes USB feedback, homing and small relative jogs first. No published count-to-angle scale or travel range is applied as calibration. Determine the physical angle and safe region from independent measurements on this arm. Homed shoulder and elbow angles are not assumed to be zero.
 
 ## Before measuring
 

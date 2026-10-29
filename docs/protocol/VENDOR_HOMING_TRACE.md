@@ -368,7 +368,7 @@ Read from `openScorbot/setHome.py` (pitch at lines 272-370, roll at 413-505) and
 Three questions were left open by the first version of this comparison; reasoning from the code settles two of them:
 
 - **Which edge.** The same one, given the direction in counts. The vendor's fine search backs out of the switch and creeps back in the final-approach direction until the bit is set again, which is the first contact in that direction; the legacy search stops at the first sample with the bit set while moving the same way. The legacy sample is up to one message late (about 10 counts on the wrist), so the two edges agree to within that.
-- **Switch width.** Cancels out of the comparison above, because both homes are measured from the same edge. It is not measured anywhere: the real logs in `docs/archive/evidence/2026-10-06-lab-logs/` contain no homing traffic (every switch reading is 0), and the 2026-09-29 homing logs stayed on the lab PC. It would matter only for how far a coarse search must travel to cross the switch.
+- **Switch width.** Cancels out of the comparison above, because both homes are measured from the same edge. It is not measured anywhere: the real logs in `evidence/2026-10-06-lab-logs/ (in git history)` contain no homing traffic (every switch reading is 0), and the 2026-09-29 homing logs stayed on the lab PC. It would matter only for how far a coarse search must travel to cross the switch.
 - **The sign of `4D` against the counts.** Not in the code, but three checks support it ("Direction in counts"), and two do not depend on the legacy code: the fine search returns to the same edge only with that sign, and the gripper opens with drive -165 into a count range of -200 to 6000 (zeroed closed), so a negative drive raises the counts. What stays open is that the gripper is another axis: a wiring convention that differs per axis would break the step from the gripper to the wrist. Five axes agreeing under one global sign is itself evidence against that (a per-axis coin flip would line up about 6 percent of the time), but it is the legacy agreement, which is the circular part. A capture of a SCORBASE home would show the sign directly; it does not block the first trial, because the legacy home's directions are the ones tried on the arm on 2026-09-29. Before this comparison the table above said the legacy code has no offset; it does, for the wrist only.
 
 Only the vendor sends:
@@ -386,7 +386,7 @@ Only the legacy code sends:
 - an `0D` stream for the search itself;
 - the 12 overshoot messages and the 20 idle messages between axes.
 
-**Bytes a full vendor-style home would need, classified under the packet rule (root `CLAUDE.md`):**
+**Bytes a full vendor-style home would need, classified under the packet rule (root `CONTRIBUTING.md`):**
 
 | Bytes | Class |
 |---|---|
@@ -424,7 +424,7 @@ The vendor's edge finding and back-off use only legacy bytes: `47`, `4F FF 53` a
 
 Safety points before any of this runs on the arm:
 
-- The vendor's wrist offsets are about 25-38 degrees and the shoulder offset moves three motors. All of them exceeded the SDK's travel cap (`limits.TRAVEL_CAP_DEG`) when this was written, at 10 degrees. The cap has been 180 degrees since 2026-10-06, so they are now inside it; the owner still decides whether to allow them.
+- The vendor's wrist offsets are about 25-38 degrees and the shoulder offset moves three motors. All of them exceeded the SDK's travel cap (`limits.TRAVEL_CAP_DEG`) when this was written, at 10 degrees. The cap has been 180 degrees since 2026-10-06, so they are now inside it; the supervisor still decides whether to allow them.
 - The fine search moves the arm with no speed limit other than the planner's step size.
 - The 2018 vendor rewrites servo parameters with the motors on; a Python home should not.
 

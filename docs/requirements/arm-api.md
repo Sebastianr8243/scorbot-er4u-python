@@ -1,5 +1,5 @@
 # Arm API requirements
-Status: draft 2026-10-20 (plan approved by Sebastian; baseline pending his yes)
+Status: draft 2026-10-20 (plan approved; baseline pending)
 
 ## Goal
 A Python API (`scorbot.bridge.Arm`) that scripts, and later cameras or a VLA, use to move the ER-4U through the vendor DLL session in `tools/usbc_server`. Every claim about where the arm goes is checked against something other than the code: a grid mat, raw encoder counts, SCORBASE.

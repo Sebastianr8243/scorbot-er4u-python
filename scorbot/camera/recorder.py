@@ -1,4 +1,4 @@
-"""Capture frames on one thread, write them on another, never block the owner.
+"""Capture frames on one thread, write them on another, never block the consumer.
 
 The reader thread stamps each frame with the session clock right after
 ``read()`` returns (read-return time, not exposure time) and puts it on a
@@ -7,7 +7,7 @@ The writer thread drops frames older than ``max_latency_s``, JPEG-encodes the
 rest and writes them; it is the only thread that writes the stream. ``stop()``
 closes the stream once the writer has finished, recording any capture failure
 (including a stuck reader) in the sidecar so the file never reads as clean
-after a failed capture. Health rows go to a bounded deque that the owner
+after a failed capture. Health rows go to a bounded deque that the consumer
 drains on its own thread. ``stop()`` is bounded and never raises: closing the
 camera runs on a helper thread, and a thread that will not stop is left behind
 (daemon) and reported as stuck.
@@ -135,7 +135,7 @@ class CameraRecorder:
             pass
 
     def drain_health(self) -> list[dict]:
-        """Health rows since the last call, oldest first. Call from the owner's thread."""
+        """Health rows since the last call, oldest first. Call from the consumer's thread."""
         rows = []
         while self._health:
             rows.append(self._health.popleft())

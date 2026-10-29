@@ -2,7 +2,7 @@
 ``Scorbot.start_stream`` through the simulator. No USB, no hardware.
 
 Requirement numbers are from
-docs/archive/specs/2026-10-04-streaming-driver-requirements.md.
+specs/2026-10-04-streaming-driver-requirements.md (in git history).
 """
 
 from importlib.util import find_spec

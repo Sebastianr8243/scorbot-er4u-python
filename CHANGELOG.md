@@ -20,7 +20,7 @@
 
 - README rewritten around the arm API (`scorbot.bridge.Arm`); the old text is `docs/STACK2_SDK.md`.
 - `docs/API.md`: every call, unit, refusal and error.
-- `scorbot/` marked experimental except `bridge.py`; `docs/archive/README.md` indexes the archive.
+- `scorbot/` marked experimental except `bridge.py`; `README.md (in git history)` indexes the archive.
 - `bridge.py`: type hints and docstrings; `XYZ_UNITS_PER_MM` comment cites the 2026-10-20 reading (9,996 units for a 10 mm step on the fake controller).
 - Tests for the `Arm` client against a stand-in server.
 

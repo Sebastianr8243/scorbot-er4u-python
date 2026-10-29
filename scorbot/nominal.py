@@ -289,7 +289,7 @@ CONTRADICTIONS = (
         "elbow span", "260 degrees (manual), the calibration gate",
         "275 degrees (vendor INI angle limits +160/-115)", "adopted",
         "The manual's 260 stays the gate because it is the tighter bound; a "
-        "calibration may not exceed the manual's travel (CLAUDE.md)."),
+        "calibration may not exceed the manual's travel (CONTRIBUTING.md)."),
     Contradiction(
         "shoulder span", "165 degrees (manual), the calibration gate",
         "158 (datasheet), 155 (vendor INI angle limits)", "both kept",

@@ -44,7 +44,7 @@ class LegacyGripperTests(unittest.TestCase):
         cls.lib = robot._legacy("libdef")
 
     def setUp(self):
-        # Which messages are sent is the subject, not when (tests/CLAUDE.md).
+        # Which messages are sent is the subject, not when (tests/README.md).
         sleeping = mock.patch("time.sleep")
         sleeping.start()
         self.addCleanup(sleeping.stop)

@@ -7,10 +7,10 @@ counts and joint angles, read from ``USBC.dll`` (``vendor_model.py``), with
 the vendor's parameter files. It reproduces the home position the USNA
 ScorBot Toolbox publishes to within 0.3 mm (``tests/test_source_model.py``).
 
-The owner allowed this tier to drive motion on 2026-10-05, **inside the
+This tier was allowed to drive motion on 2026-10-05, **inside the
 travel cap only** (``limits.TRAVEL_CAP_DEG`` from the session home, base,
 shoulder and elbow), until a lab acceptance run confirms or corrects it.
-On 2026-10-06 the owner lifted the cap from 10 to 180 degrees without that
+On 2026-10-06 the cap was lifted from 10 to 180 degrees without that
 run, so the joint limits below are the real travel bound and the whole pose
 is checked (``pose_limit_excess``). ``outside_window`` is the simulator's
 check. It is a model of the arm, not a

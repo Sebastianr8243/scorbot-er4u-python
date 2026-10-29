@@ -6,7 +6,7 @@ it and says what to send. ``Scorbot.start_stream`` connects this to the arm
 through the legacy worker; the simulator drives the same code.
 
 Requirements and decisions:
-docs/archive/specs/2026-10-04-streaming-driver-requirements.md (R1-R12).
+specs/2026-10-04-streaming-driver-requirements.md (in git history) (R1-R12).
 **Never run on the arm.** Every limit and period here is a prior.
 
 Smoothing uses Ruckig (jerk-limited online trajectory generation). It is an
