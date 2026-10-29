@@ -1,6 +1,6 @@
 """Keep one vendor USBC.dll session open and run arm commands sent over a local socket. Lab tool, standard library only.
 
-Plan: docs/requirements/arm-api.md. Needs a 32-bit Python. The Python API (scorbot/bridge.py, any Python) is the
+Requirements: docs/requirements/arm-api.md. Needs a 32-bit Python. The Python API (scorbot/bridge.py, any Python) is the
 client. One session: Initialization, Control on, Home, then serve commands until "quit"; Control off and CloseUSBC
 on every exit (tools/usbc_home run()). A client that disconnects leaves the session open for the next one, so the
 arm homes once and many scripts can follow.
@@ -37,8 +37,11 @@ home, jog = move.home, move.jog
 PORT = 8765
 HOST = "127.0.0.1"              # never another interface: anyone who can connect can move the arm
 MAX_STEP_MM = 50.0              # largest move_by on one axis
+MAX_WRIST_UNITS = 10000         # largest wrist_by on one axis, DLL units (probably 0.001 degree each; unverified on the arm)
 GRIPPER_CALL_S = 10.0           # whether OpenGripper returns before the jaws stop is unread
 IDLE_POLL_S = 0.2
+MAX_TURNED_AWAY = 4       # busy refusals per idle poll
+REPLY_LOGGED = ("id", "ok", "code", "error", "timing_s", "xyz")      # the reply fields the log keeps: enough to read a run back
 UM_PER_MM = 1000                # Teach's unit, micrometres (RobotDll.h; decided 2026-10-20, unverified on the arm)
 
 SIGNATURES = {**{name: home.SIGNATURES[name] for name in
@@ -187,6 +190,8 @@ class Server:
             return self._move_by(command), None
         if op == "move_to":
             return self._move_to(command), None
+        if op == "wrist_by":
+            return self._wrist_by(command), None
         raise Refused(f"unknown op {op!r}")
 
     def _position(self):
@@ -222,6 +227,16 @@ class Server:
         return self._move(lambda: self.dll.teach_relative(move.VECTOR, move.POINT, values),
                           {"delta_um": values, "relative": True}, {"op": "move_by", "mm": delta})
 
+    def _wrist_by(self, command):
+        """A relative pitch and roll step in the DLL's own units; the tool tip stays put. The box does not apply."""
+        values = [round(_number(command, key, 0)) for key in ("dpitch", "droll")]
+        if not any(values):
+            raise Refused("wrist_by needs a dpitch or droll of at least one whole unit")
+        if max(abs(v) for v in values) > MAX_WRIST_UNITS:
+            raise Refused(f"dpitch and droll must each be at most {MAX_WRIST_UNITS} units")
+        return self._move(lambda: self.dll.teach_relative(move.VECTOR, move.POINT, [0, 0, 0, *values]),
+                          {"delta_units": values, "relative": True}, {"op": "wrist_by", "units": values})
+
     def _check_box_for_step(self, delta):
         """With a box file, a step may not end further outside it than it starts (no box file: the step cap only)."""
         box = load_box(self.box_path)
@@ -245,7 +260,7 @@ class Server:
             raise Refused("move_to needs a Home in this session first")
         box = load_box(self.box_path)
         if box is None:
-            raise Refused(f"no box file at {self.box_path}: run examples/arm_characterise.py first")
+            raise Refused(f"no box file at {os.path.abspath(self.box_path)}: run examples/arm_characterise.py first (the server and the script must start in the same folder)")
         target = {axis: _number(command, axis) for axis in "xyz"}
         outside = [axis for axis in "xyz" if not box[axis][0] <= target[axis] <= box[axis][1]]
         if outside:
@@ -256,6 +271,8 @@ class Server:
         pitch = round(_number(command, "pitch", now["xyz"][3]))
         roll = round(_number(command, "roll", now["xyz"][4]))
         values = [round(target[axis] * UM_PER_MM) for axis in "xyz"] + [pitch, roll]
+        if not all(-2 ** 31 <= value < 2 ** 31 for value in values):    # ctypes would wrap it to another target
+            raise Refused("target does not fit the DLL's 32-bit units")
         return self._move(lambda: self.dll.teach_absolute(move.VECTOR, move.POINT, values),
                           {"point_um": values, "relative": False}, {"op": "move_to", "mm": target})
 
@@ -293,7 +310,7 @@ def serve(server, listener, log):
         channel = Channel(conn)
         server.console.channel = channel
         try:
-            code = _serve_client(server, channel, log)
+            code = _serve_client(server, channel, log, listener)
         finally:
             server.console.channel = None
             conn.close()
@@ -302,13 +319,42 @@ def serve(server, listener, log):
             return code
 
 
-def _serve_client(server, channel, log):
+def _turn_away_waiting_clients(listener, log):
+    """Between commands only: a second client gets one busy line and is closed. Never while a DLL call runs.
+
+    At most MAX_TURNED_AWAY per call so reconnecting clients cannot keep the first one waiting, and any accept
+    error (a client that gave up while connecting) just ends the call: it must never end the first client's session."""
+    listener.settimeout(0)
+    try:
+        for _ in range(MAX_TURNED_AWAY):
+            try:
+                conn, peer = listener.accept()
+            except OSError:         # nothing waiting (BlockingIOError, timeout) or a client that already left
+                return
+            with conn:
+                Channel(conn).send({"ok": False, "busy": True, "error": "busy: another client is connected to this arm server"})
+                try:
+                    conn.shutdown(socket.SHUT_WR)
+                    conn.settimeout(0.01)
+                    conn.recv(4096)         # read what it already sent, so closing does not reset the connection before it reads the line
+                except OSError:
+                    pass
+            try:
+                log.event("client_turned_away", peer=list(peer))
+            except OSError as error:        # a full disk must not cost the first client its session
+                print(f"warning: could not log a turned-away client: {error}", file=sys.stderr)
+    finally:
+        listener.settimeout(IDLE_POLL_S)
+
+
+def _serve_client(server, channel, log, listener):
     while True:
         try:
             line = channel.next_line(IDLE_POLL_S)
         except EOFError:
             return None
         if line is None:
+            _turn_away_waiting_clients(listener, log)
             continue
         request_id = None
         log.event("command", line=line.decode("utf-8", "replace"))     # raw: client fields never reach event()'s kwargs
@@ -329,6 +375,10 @@ def _serve_client(server, channel, log):
         reply.setdefault("ok", True)
         if request_id is not None:
             reply["id"] = request_id
+        try:
+            log.event("reply", **{key: reply[key] for key in REPLY_LOGGED if key in reply})     # before the send: the log never lags the client
+        except OSError as error:        # a full disk must not cost the client its reply: the arm may already have moved
+            print(f"warning: could not log a reply: {error}", file=sys.stderr)
         channel.send(reply)
         if server.state["busy"]:        # a call may still run inside the DLL: stop serving, run() skips shutdown
             log.event("serve_ended_busy")

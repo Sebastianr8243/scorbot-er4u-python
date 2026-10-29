@@ -19,6 +19,7 @@ import argparse
 import json
 import socket
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +28,22 @@ XYZ_UNITS_PER_MM = 1000     # the DLL's xyz unit: a 10 mm move_by read back as 9
 POSITIONS = Path("calibration") / "positions.json"
 BOX = Path("calibration") / "arm.json"
 REPLY_TIMEOUT_S = 900.0     # a Home takes about 135 s on the lab arm; the server bounds every call itself
+POLL_S = 0.2                # a read that blocks for the whole timeout is not woken by Ctrl+C on Windows (checked 2026-10-26), so wake this often
+LINE_END = bytes([10])      # one JSON object per line
+
+
+# The server's exit codes (tools/usbc_home, tools/usbc_move) as plain words.
+FAILURE_CODES = {
+    4: "the DLL refused to set the move up",
+    6: "it ran past its time limit; Stop was asked for but is not confirmed, so the arm may still be moving: use the physical stop",
+    7: "it was refused or stopped (not homed, outside the DLL's workspace, or Stop was pressed)",
+    8: "a DLL call did not return: the arm may still be moving, use the physical stop",
+}
+
+
+def describe_failure(op, reply):
+    code = reply.get("code")
+    return f"{op} failed: {FAILURE_CODES[code]} (code {code})" if code in FAILURE_CODES else f"{op} failed (code {code})"
 
 
 class ArmError(Exception):
@@ -70,12 +87,11 @@ class Arm:
             self._sock = socket.create_connection((host, port), timeout=10)
         except OSError as error:
             raise ArmError(f"no arm server on {host}:{port} ({error}); start tools/usbc_server first") from None
-        self._sock.settimeout(timeout)
-        self._reader = self._sock.makefile("rb")
+        self._sock.settimeout(POLL_S)
+        self._reply_timeout, self._buffer = timeout, b""
         self._next_id = 0
 
     def close(self):
-        self._reader.close()
         self._sock.close()
 
     def __enter__(self):
@@ -87,23 +103,43 @@ class Arm:
     def _write(self, command):
         self._sock.sendall((json.dumps(command, allow_nan=False) + "\n").encode("utf-8"))
 
+    def _readline(self) -> bytes:
+        """The next line from the server. Polls in POLL_S slices so Ctrl+C is seen while a move runs."""
+        deadline = time.monotonic() + self._reply_timeout
+        while LINE_END not in self._buffer:
+            try:
+                data = self._sock.recv(4096)
+            except socket.timeout:
+                if time.monotonic() > deadline:
+                    raise ArmError(f"no reply from the arm server in {self._reply_timeout:g} s; the arm may still be moving: use the physical stop") from None
+                continue
+            if not data:
+                raise ArmError("the arm server closed the connection")
+            self._buffer += data
+        line, self._buffer = self._buffer.split(LINE_END, 1)
+        return line
+
     def send(self, op: str, **fields) -> dict:
         """One command and its reply. Raises ArmError when the reply is not ok."""
         self._next_id += 1
         self._write({"op": op, "id": self._next_id, **fields})
         try:
             while True:
-                line = self._reader.readline()
-                if not line:
-                    raise ArmError("the arm server closed the connection")
-                reply = json.loads(line)
+                reply = json.loads(self._readline())
+                if reply.get("busy"):       # another client holds the server; the line has no id
+                    raise ArmError(reply.get("error") or "the arm server is busy", reply)
                 if reply.get("id") == self._next_id:     # anything else answers an earlier stop
                     break
         except KeyboardInterrupt:       # Ctrl+C while the arm moves: stop it before giving up the call
             self.stop()
             raise
         if not reply.get("ok"):
-            raise ArmError(reply.get("error") or f"{op} failed (code {reply.get('code')})", reply)
+            detail, message = reply.get("error"), describe_failure(op, reply)
+            if detail and reply.get("code") not in FAILURE_CODES:
+                message = detail
+            elif detail:    # keep the mapped warning (code 8 says use the physical stop) and add the server's own words
+                message = f"{message}; server said: {detail}"
+            raise ArmError(message, reply)
         return reply
 
     def _position(self, op: str, **fields) -> Position:
@@ -132,6 +168,10 @@ class Arm:
     def move_by(self, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> Position:
         """Relative move in mm; the server refuses more than 50 mm on any axis, or a step that leaves the measured box."""
         return self._position("move_by", dx=dx, dy=dy, dz=dz)
+
+    def wrist_by(self, dpitch: float = 0.0, droll: float = 0.0) -> Position:
+        """Relative wrist step in the DLL's own pitch and roll units (probably 0.001 degree; unverified). At most 10000 per axis."""
+        return self._position("wrist_by", dpitch=dpitch, droll=droll)
 
     def move_to(self, x: float, y: float, z: float, pitch: int | None = None, roll: int | None = None) -> Position:
         """Absolute move in mm. Refused before a Home, without a box file, or outside the box."""
@@ -169,6 +209,7 @@ class FakeArm:
 
     def __init__(self, start=(300.0, 0.0, 200.0), homed=True):
         self.x, self.y, self.z = start
+        self.pitch = self.roll = 0
         self.homed, self.open, self.commands = homed, True, []
 
     def close(self):
@@ -181,7 +222,7 @@ class FakeArm:
         pass
 
     def where(self):
-        return Position(self.x, self.y, self.z)
+        return Position(self.x, self.y, self.z, self.pitch, self.roll)
 
     def home(self):
         self.commands.append(("home",))
@@ -196,11 +237,18 @@ class FakeArm:
         self.x, self.y, self.z = self.x + dx, self.y + dy, self.z + dz
         return self.where()
 
+    def wrist_by(self, dpitch=0.0, droll=0.0):
+        self.commands.append(("wrist_by", dpitch, droll))
+        self.pitch, self.roll = self.pitch + dpitch, self.roll + droll
+        return self.where()
+
     def move_to(self, x, y, z, pitch=None, roll=None):
         if not self.homed:
             raise ArmError("move_to needs a Home in this session first")
         self.commands.append(("move_to", x, y, z))
         self.x, self.y, self.z = x, y, z
+        self.pitch = self.pitch if pitch is None else pitch
+        self.roll = self.roll if roll is None else roll
         return self.where()
 
     def gripper(self, open):        # noqa: A002
@@ -271,26 +319,30 @@ def go(arm, name, positions=POSITIONS):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="One command to the arm server")
     parser.add_argument("--port", type=int, default=PORT)
-    parser.add_argument("command", choices=("where", "by", "to", "open", "close", "speed", "home",
+    parser.add_argument("--calibration-dir", default="calibration",
+                        help="folder for positions.json and arm.json used by teach and go (one per arm; default calibration)")
+    parser.add_argument("command", choices=("where", "by", "wrist", "to", "open", "close", "speed", "home",
                                             "teach", "go", "stop", "quit"))
     parser.add_argument("args", nargs="*")
     args = parser.parse_args(argv)
-    needs = {"by": 3, "to": 3, "speed": 1, "teach": 1, "go": 1}.get(args.command, 0)
+    needs = {"by": 3, "wrist": 2, "to": 3, "speed": 1, "teach": 1, "go": 1}.get(args.command, 0)
     if len(args.args) != needs:
         parser.error(f"{args.command} takes {needs} value(s)")
+    positions, box = Path(args.calibration_dir) / POSITIONS.name, Path(args.calibration_dir) / BOX.name
     numbers = args.args if args.command in ("teach", "go") else [float(value) for value in args.args]
     try:
         with Arm(port=args.port) as arm:
             result = {
                 "where": lambda: arm.where(),
                 "by": lambda: arm.move_by(*numbers),
+                "wrist": lambda: arm.wrist_by(*numbers),
                 "to": lambda: arm.move_to(*numbers),
                 "open": lambda: arm.gripper(open=True),
                 "close": lambda: arm.gripper(open=False),
                 "speed": lambda: arm.speed(int(numbers[0])),
                 "home": lambda: arm.home(),
-                "teach": lambda: arm.teach(numbers[0]),
-                "go": lambda: arm.go(numbers[0]),
+                "teach": lambda: arm.teach(numbers[0], positions, box),
+                "go": lambda: arm.go(numbers[0], positions),
                 "stop": lambda: arm.stop(),
                 "quit": lambda: arm.quit(),
             }[args.command]()
