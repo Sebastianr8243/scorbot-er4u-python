@@ -90,7 +90,7 @@ def record_session():
     """OUT packets per call, ``{"connect": [...], "enable": [...], "disable": [...], "disconnect": [...]}``."""
     wire, real_sleep, calls = FakeWire(), time.sleep, {}
     with tempfile.TemporaryDirectory() as folder:
-        robot = Scorbot(log_path=Path(folder) / "run.controller.jsonl", command_timeout=30)
+        robot = Scorbot(log_path=Path(folder) / "run.controller.jsonl", command_timeout=120)   # the session takes 35 s on a loaded Windows runner; 30 s made it fail there
         for name in ("conf", "libdef", "libcomm", "libsync"):
             robot._legacy(name)             # import numpy and the legacy modules before sys.modules is patched
         with mock.patch.dict(sys.modules, fake_usb_modules(FakeDevice(), wire)), \
