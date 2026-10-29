@@ -50,11 +50,11 @@ def _legacy(name):
 if HAVE_HYPOTHESIS:
     from hypothesis import assume, given, settings, strategies as st
 
-    # 100 examples each. Several of these call legacy functions that re-read
-    # data.json on every call, so the count is most of this file's run time.
+    # 100 examples each, except the large-count profile: it builds a step list of up to
+    # 70,000 entries per example, so 20 keep the boundaries at a fifth of the cost.
     # The known-bug tests below use fixed inputs and do not depend on it.
     PROFILE = settings(deadline=None, max_examples=100)
-    SLOW = settings(deadline=None, max_examples=100)
+    SLOW = settings(deadline=None, max_examples=20)
 
     raw16 = st.integers(0, 65535)
     signed_counts = st.integers(-MAX_COUNT, MAX_COUNT)
