@@ -1,6 +1,6 @@
 """Starting, following and ending a stream: the streaming methods of Scorbot.
 
-Moved out of robot.py unchanged (docs/archive/specs/2026-10-12-code-health-design.md): every method body is
+Moved out of robot.py unchanged (specs/2026-10-12-code-health-design.md (in git history)): every method body is
 identical to the one that was in ``Scorbot``. ``Scorbot`` takes them from ``StreamMixin``; they use the
 session state, ``_command``-side queues, ``_latch_fault``, ``_motion_state``, ``_record`` and the stop
 events through ``self``. The class constant below moved with ``start_stream``, whose default argument needs it.
@@ -11,7 +11,7 @@ import queue
 import time
 from dataclasses import asdict
 
-from . import limits, source_model
+from . import limits, pacing, source_model
 from .calibration import signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .state import RobotState
@@ -30,7 +30,8 @@ class StreamMixin:
                      lead_limit_deg: float = 2.0,
                      hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
                      period_s: float = DEFAULT_PERIOD_S,
-                     use_emergency_bit: bool = False) -> Stream:
+                     use_emergency_bit: bool = False,
+                     adaptive_pacing: bool = False) -> Stream:
         """Start following a stream of targets for base, shoulder and elbow.
 
         Returns a ``Stream``: call ``set_target`` with motor counts from home as
@@ -39,6 +40,8 @@ class StreamMixin:
         the period, limits and stop sequence are priors, so the first trials
         are one motor, about a degree, supervised. Not an emergency stop;
         the physical stop is authoritative. Needs the ``planning`` extra.
+        ``adaptive_pacing`` replaces the fixed read delay with the vendor's echoed-ID rule
+        (``scorbot/pacing.py``); off by default, unverified on the arm.
         """
         with self._motion_lock:
             if self._device is None:
@@ -93,13 +96,15 @@ class StreamMixin:
             self._record("stream_start", travel_cap_deg=travel_cap_deg,
                          speed_fraction=speed_fraction, lead_limit_deg=lead_limit_deg,
                          hold_timeout_s=hold_timeout_s, period_s=period_s,
-                         use_emergency_bit=use_emergency_bit, start_counts_from_home=start,
+                         use_emergency_bit=use_emergency_bit, adaptive_pacing=adaptive_pacing,
+                         start_counts_from_home=start,
                          state=asdict(before))
             if self._trace is not None:
                 self._trace.start()
             with self._lock:
                 self._stream = stream
-                self._commands.put([STREAM_ORDER, stream.source, 0])
+                self._commands.put([STREAM_ORDER, stream.source,
+                                       pacing.make_pace() if adaptive_pacing else 0])
             return stream
 
     def _stream_faulted(self, stream: Stream) -> None:

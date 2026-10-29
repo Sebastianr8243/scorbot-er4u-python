@@ -10,7 +10,7 @@ zeroing follow ``docs/protocol/VENDOR_HOMING_TRACE.md``. The command sequence wa
 recording of Intelitek's own ``USBC.dll`` running ``Home('A')`` against a fake controller
 (``tests/fixtures/vendor_home_trace04.json``, ``tests/test_vendor_home.py``). The OUT bytes are the
 vendor's; the replies in that recording were a model of the arm, and the real controller's
-acceptance is unverified (root ``CLAUDE.md``, changed 2026-10-08 by the owner).
+acceptance is unverified (root ``CONTRIBUTING.md``, changed 2026-10-08).
 
 Where it differs from the vendor, on purpose (a safety margin, not a port):
 

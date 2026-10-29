@@ -50,12 +50,12 @@ What the handlers do:
 Not covered: what the USB stack and the controller do below the URB (outside these files); the device-control IOCTL path (the DLL uses ReadFile and WriteFile, per `VENDOR_DLL_PROTOCOL.md`).
 
 ## Independent check
-Codex (read-only, given only `erusb.c` and `erusb.asm` and the five questions, no conclusions from me) reached the same transfer-path result on its own: function 9, direct buffer, no framing, read capped to MaximumTransferSize, endpoints `0x02` and `0x83`. It could not resolve the dispatch chain, because the export it was given held no stub body or vtable data; I resolved that from the listing and file bytes (table at `0x1a7a0`, vtable at `0x18ec0`). One wording note: it labelled C5 "contradicted"; it means it found no framing.
+An independent reader (read-only, given only `erusb.c` and `erusb.asm` and the five questions, no conclusions from me) reached the same transfer-path result on its own: function 9, direct buffer, no framing, read capped to MaximumTransferSize, endpoints `0x02` and `0x83`. It could not resolve the dispatch chain, because the export it was given held no stub body or vtable data; I resolved that from the listing and file bytes (table at `0x1a7a0`, vtable at `0x18ec0`). One wording note: it labelled C5 "contradicted"; it means it found no framing.
 
-## Gemini cross-check (research, 2026-10-26)
-Gemini was asked for the driver framework and Microsoft's URB layout (citation checker: 11 cited, 8 reachable, 2 dead).
+## Research cross-check (research, 2026-10-26)
+A research pass was asked for the driver framework and Microsoft's URB layout (citation checker: 11 cited, 8 reachable, 2 dead).
 - URB layout: Microsoft's x64 `_URB_BULK_OR_INTERRUPT_TRANSFER` is 0x80 bytes with `Hdr.Function` +0x02, `PipeHandle` +0x18, `TransferFlags` +0x20, `TransferBufferLength` +0x24, `TransferBuffer` +0x28, `TransferBufferMDL` +0x30. This matches what `FUN_00016550` writes, so my offset reading holds. Function codes 0x0 (select configuration), 0x9 (bulk or interrupt), 0xB (get descriptor from device) also match; `FUN_00016a00` and `FUN_00016be0` are the 0xB descriptor requests (URB size 0x88).
-- Framework: Gemini says Compuware DriverWorks (C++ KDriver/KDevice classes, default pool tag `Wdm `). Treat as a lead: the sources that carry it are dead or do not contain the claim. It does not change any verdict above.
+- Framework: the pass says Compuware DriverWorks (C++ KDriver/KDevice classes, default pool tag `Wdm `). Treat as a lead: the sources that carry it are dead or do not contain the claim. It does not change any verdict above.
 
 ## Next
 1. (Optional) Read the device descriptor once with a USB tree viewer to confirm bulk and 64 bytes first-hand; passive, arm not moved. Already settled by the thesis dump and our own arm runs.

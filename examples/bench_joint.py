@@ -300,7 +300,7 @@ def connect_and_home(robot, write, rec, prompt, command: OpenCommand, declined_a
     """Connected robot to a home the operator accepted. Returns the home state.
 
     Every prompt, row and LED step here is shared by the jog and the stream
-    procedures; docs/archive/design/OPERATOR_UX.md and the review script depend on them.
+    procedures; design/OPERATOR_UX.md (in git history) and the review script depend on them.
     ``inch`` homes with ``Scorbot.home_inch`` (any start pose, small jogs, shoulder,
     elbow and base only) instead of the legacy search; the typed words are the same.
     """

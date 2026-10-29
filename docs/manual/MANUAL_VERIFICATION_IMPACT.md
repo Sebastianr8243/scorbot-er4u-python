@@ -1,7 +1,7 @@
 # What the manual verification changes
 
 Status: analysis, 2026-09-30. Inputs: `docs/manual/SCORBOT_Manual_Verification.md` and
-`docs/manual/SCORBOT_Numeric_Facts.yaml` (main, e3ce4c6), `docs/archive/design/DEPLOYMENT_OPTIONS.md`, and a
+`docs/manual/SCORBOT_Numeric_Facts.yaml` (main, e3ce4c6), `design/DEPLOYMENT_OPTIONS.md (in git history)`, and a
 read-only audit of this repo. "The manual says" means the Intelitek PDFs say it. That
 is still **not** hardware evidence. Nothing here was run on the arm.
 
@@ -32,7 +32,7 @@ is still **not** hardware evidence. Nothing here was run on the arm.
 | Soft-limit checks compare spans only, never zero or sign | The manual gives travel ranges but no zero position and no positive direction (I-2) | `scorbot/nominal.py:check_soft_limit_span`, `calibration.py` |
 | Wrist jogs stay locked | The manual gives the 4/5 differential only qualitatively. Ratio and signs are absent (I-10) | `Scorbot.jog_joint`, HZ-14 |
 | Counts per degree is measured, never derived | Decode mode is absent and the arm gear ratio conflicts (127.1 vs 127.7) (I-1, C1) | `PHYSICAL_CALIBRATION.md`, `fit_calibration.py` needs physical reference data |
-| `disable()` is never called an e-stop | The e-stop cuts motor power in hardware. Software disable is queued | `CLAUDE.md`, README |
+| `disable()` is never called an e-stop | The e-stop cuts motor power in hardware. Software disable is queued | `CONTRIBUTING.md`, README |
 | Homing description | It matches the manual's text: "move until switch activates, then slightly until it shuts off" | `HARDWARE_REFERENCE.md:69-71` |
 | An idle keepalive exists | The controller cuts power on communication failure. The legacy sync thread keeps sending idle packets | `openScorbot/libsync.py` |
 | SDK `speed` 1-20 is not the controller's speed level | Traced: it is the most encoder counts added per host packet, never a packet byte. Not a bug | `openScorbot/motion_profile.py:increments_for_counts` |
@@ -145,7 +145,7 @@ is still **not** hardware evidence. Nothing here was run on the arm.
   - full parts tables (T1, 167 rows);
   - wiring tables (F, about 14 KB);
   - panel legends and I/O tables (T2-T6).
-- `CLAUDE.md` bans committing the manuals for exactly this reason, and the repo is
+- `CONTRIBUTING.md` bans committing the manuals for exactly this reason, and the repo is
   public.
 - Option: keep the findings, verdicts and page citations. Move H, F and T1-T6 to a
   gitignored local file.

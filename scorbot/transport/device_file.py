@@ -7,21 +7,23 @@ Read from the DLL's communication thread (``FUN_1003bc88`` in the 2008 build, se
 anywhere in the DLL. A read that returns zero bytes is retried, ten times in a row at most. The device
 name is the ``DriverLink`` entry of ``USBC.INI`` (``\\\\.\\ERUSBDevice0`` in the shipped file).
 
-This module does the same in Python so our code could run on Intelitek's driver and skip the Zadig swap.
-Not used by ``Scorbot`` yet, never run against a device, unverified on the arm: whether the driver honours
-``CancelSynchronousIo`` (used for the timeout) is not known, and the exclusive open means SCORBASE and
-``usbc_home`` must be closed first. The endpoints mimic what ``openScorbot`` calls on pyusb's endpoints:
+This module does the same in Python so our code runs on Intelitek's driver and skips the Zadig swap.
+``Scorbot(transport="device_file"|"auto")`` uses it. Never run against a device, unverified on the arm:
+whether the driver honours ``CancelSynchronousIo`` (used for the timeout) is not known, and the exclusive
+open means SCORBASE and ``usbc_home`` must be closed first. The endpoints mimic what ``openScorbot`` calls on pyusb's endpoints:
 ``write(data, timeout_ms)`` and ``read(buffer, timeout_ms)`` filling the buffer in place.
 
 Standard library only. ``import`` opens nothing; the real Windows layer is built only when no fake is given.
 """
 
 from array import array
+import sys
 import threading
 
 DEFAULT_PATH = "\\\\.\\ERUSBDevice0"
 PACKET_SIZE = 64
 MAX_EMPTY_READS = 10   # the DLL counts consecutive zero-byte reads and gives up at 10
+CANCEL_RETRY_S = 0.01  # a cancel sent before the read is pending is lost, so the watchdog repeats it
 
 ERROR_FILE_NOT_FOUND = 2
 ERROR_PATH_NOT_FOUND = 3
@@ -46,10 +48,16 @@ class DeviceLinkError(RuntimeError):
     """The link to the controller failed or was used wrongly."""
 
 
+class DeviceNotFoundError(DeviceLinkError):
+    """The device name does not exist: the driver is not bound, or the controller is absent."""
+
+
 class Win32Api:
     """kernel32, as little of it as the DLL uses. Built only by ``DeviceLink`` when no fake is passed."""
 
     def __init__(self):
+        if sys.platform != "win32":
+            raise DeviceNotFoundError("Intelitek's driver link exists only on Windows")
         import ctypes
         from ctypes import wintypes
         self._c = ctypes
@@ -128,7 +136,8 @@ class DeviceLink:
         try:
             self._handle = self._api.create_file(path)
         except Win32Error as error:
-            raise DeviceLinkError(_open_message(error, path)) from error
+            kind = DeviceNotFoundError if error.code in (ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND)                 else DeviceLinkError
+            raise kind(_open_message(error, path)) from error
         self.endpoint_out = _OutEndpoint(self)
         self.endpoint_in = _InEndpoint(self)
 
@@ -145,21 +154,25 @@ class DeviceLink:
 
     def _timed(self, call, timeout_ms):
         """Run a blocking call; after ``timeout_ms`` cancel it from a timer thread and raise ``TimeoutError``."""
-        state = {"active": True, "fired": False}
+        state = {"fired": False}
+        done = threading.Event()
         guard = threading.Lock()
         thread_id = threading.get_native_id()
 
-        def fire():
-            with guard:
-                if state["active"]:
+        def watchdog():
+            if done.wait(timeout_ms / 1000.0):
+                return
+            while True:
+                with guard:
+                    if done.is_set():
+                        return
                     state["fired"] = True
                     self._api.cancel_io(thread_id)
+                if done.wait(CANCEL_RETRY_S):
+                    return
 
-        timer = None
         if timeout_ms and timeout_ms > 0:
-            timer = threading.Timer(timeout_ms / 1000.0, fire)
-            timer.daemon = True
-            timer.start()
+            threading.Thread(target=watchdog, daemon=True).start()
         try:
             return call()
         except Win32Error as error:
@@ -168,9 +181,7 @@ class DeviceLink:
             raise DeviceLinkError(f"USB I/O failed: {error}") from error
         finally:
             with guard:
-                state["active"] = False
-            if timer is not None:
-                timer.cancel()
+                done.set()
 
 
 class _OutEndpoint:

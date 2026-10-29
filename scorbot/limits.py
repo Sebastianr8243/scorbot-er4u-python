@@ -6,7 +6,7 @@ and nowhere else. Pure: standard library only, and nothing in ``scorbot`` is
 imported, so any module may import it.
 
 None of these is measured on our arm. Raising a limit needs lab evidence and
-an entry in docs/archive/project/PROJECT_LOG.md.
+an entry in project/PROJECT_LOG.md (in git history).
 """
 
 # The motors a motion command may move. Wrist jogs stay disabled: the two
@@ -21,9 +21,9 @@ RECORDED_MOTORS = ARM_MOTORS + WRIST_MOTORS
 MAX_JOG_DEG = 5.0
 
 # Travel from this session's home, in degrees, for a stream, the lab session
-# and the follower. Lifted from 10 on 2026-10-06 by the owner, without the lab
+# and the follower. Lifted from 10 on 2026-10-06 without the lab
 # evidence the staged widening in
-# docs/archive/specs/2026-10-04-streaming-driver-requirements.md asks for: the cap is
+# specs/2026-10-04-streaming-driver-requirements.md (in git history) asks for: the cap is
 # now past every joint's range, so the joint limits of the source model
 # (source_model.LIMITS_DEG, unmeasured) are the only travel bound. The 5 degree
 # jog ceiling and the stream's lead limit still apply.

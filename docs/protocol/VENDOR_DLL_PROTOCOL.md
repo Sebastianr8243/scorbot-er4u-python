@@ -2,7 +2,7 @@
 
 What Intelitek's own DLL sends to and reads from the Controller-USB, worked out by static decompilation. Companion to [PROTOCOL.md](PROTOCOL.md), which describes what our legacy code (`openScorbot/`) sends.
 
-**Status: from disassembly, unverified.** The DLL was read, never loaded or run, and nothing here has been checked against a controller or a USB capture. It describes what the vendor software would send, not what the lab's controller accepts. Project rule (root `CLAUDE.md`, changed 2026-10-04): a sequence built only from command bytes the legacy code already sends may be changed on the strength of this document, and is tried first on a 1 degree jog. Bytes the legacy code never sends still need a capture.
+**Status: from disassembly, unverified.** The DLL was read, never loaded or run, and nothing here has been checked against a controller or a USB capture. It describes what the vendor software would send, not what the lab's controller accepts. Project rule (root `CONTRIBUTING.md`, changed 2026-10-04): a sequence built only from command bytes the legacy code already sends may be changed on the strength of this document, and is tried first on a 1 degree jog. Bytes the legacy code never sends still need a capture.
 
 Labels: **V** = read directly from the vendor code. **I** = our inference from it.
 
@@ -156,9 +156,9 @@ With count = raw24 - `0x7FFFFF`, what the legacy code calls a "sign byte" is the
 
 So the legacy decoder is exact on the negative side and one count low on the positive side, which amounts to having two zeros. That is where the 65535 modulus in `scorbot.calibration.signed_count_delta` comes from (I). It also means counts beyond +/-65535 are legal for the controller (top byte `81`, `7E`, ...), where `scorbot/state.py:decode_state` raises on any sign byte other than 127/128.
 
-Real data, consistent but not proof: the 2026-09-29 idle capture from the arm (`docs/archive/evidence/`), taken after power-on and before homing, has the six joints at raw `0x7FFFFE`, `0x7FFFFF`, `0x7FFFFF`, `0x7FFFFF`, `0x7FFFFE` and `0x800001` in all 20 samples. A controller that has not moved since power-on reading within 2 counts of `0x7FFFFF` is what a zero at `0x7FFFFF` predicts. The legacy reading fits the same numbers, so this does not separate the two.
+Real data, consistent but not proof: the 2026-09-29 idle capture from the arm (`evidence/ (in git history)`), taken after power-on and before homing, has the six joints at raw `0x7FFFFE`, `0x7FFFFF`, `0x7FFFFF`, `0x7FFFFF`, `0x7FFFFE` and `0x800001` in all 20 samples. A controller that has not moved since power-on reading within 2 counts of `0x7FFFFF` is what a zero at `0x7FFFFF` predicts. The legacy reading fits the same numbers, so this does not separate the two.
 
-How each claim here gets confirmed on the controller: [VENDOR_PROTOCOL_LAB_PLAN.md](../lab/VENDOR_PROTOCOL_LAB_PLAN.md).
+How each claim here gets confirmed on the controller: VENDOR_PROTOCOL_LAB_PLAN.md.
 
 ## 7. The two builds compared
 
@@ -195,7 +195,7 @@ Nothing in the code yet. Candidates, each needing a capture before it touches `o
 
 ## 10. Counts, joint angles and the wrist
 
-Desk analysis, 2026-10-04 (plan: `docs/archive/specs/2026-10-04-vendor-desk-analysis-plan.md`, questions C and B). Re-implemented in `scorbot/vendor_model.py`, tested in `tests/test_vendor_model.py`. **A prior from disassembly, not measured on our arm.**
+Desk analysis, 2026-10-04 (plan: `specs/2026-10-04-vendor-desk-analysis-plan.md (in git history)`, questions C and B). Re-implemented in `scorbot/vendor_model.py`, tested in `tests/test_vendor_model.py`. **A prior from disassembly, not measured on our arm.**
 
 Labels here: **V** read from the instructions; **E** the Python version agrees with the vendor function run in Ghidra's emulator; **S** agrees with a second source that never went through our emulator.
 
@@ -266,7 +266,7 @@ The legacy code and the vendor agree on which way the wrist motors move for pitc
 
 ### 10.6 Still to confirm on the arm
 
-Reviewed by Codex against the disassembly and INI files: the gearing branches, pitch signs and truncation were confirmed; two statements were narrowed as a result (the orientation property holds for the default parameters only, and zero counts is the nominal pose, not a measured home).
+Reviewed independently against the disassembly and INI files: the gearing branches, pitch signs and truncation were confirmed; two statements were narrowed as a result (the orientation property holds for the default parameters only, and zero counts is the nominal pose, not a measured home).
 
 Added to the lab plan as V16-V18: the counts per degree of base, shoulder and elbow against a physical angle; that the forearm keeps its orientation during a shoulder jog; and, when wrist jogs are bench-tested, the 27.9 scale and the difference/sum mixing.
 
@@ -359,7 +359,7 @@ A second pass, by following only the code that touches the values in question. R
 - The rest of the lifecycle (queue limit handling inside the tick, late or missing reply, emergency) beyond what sections 2 and 5 already record. By decision this is not being pursued: our streaming driver is a different design, and the controller's own reactions can only be measured.
 - Linear, circular and spline moves.
 
-Reviewed by Codex against the disassembly and INI files. The INI table and the profile formulas held. Five statements were corrected: the velocity jog multiplies by the magnitude of the percentage and takes its direction from the sign of the INI value; the encoder limits are diagnostic priors, not limits in our coordinates; the Ruckig agreement is about the curve's shape only; the speed factor is a stored number, not a known speed; and `setpoints` could stop short of the target when the period did not divide the duration.
+Reviewed independently against the disassembly and INI files. The INI table and the profile formulas held. Five statements were corrected: the velocity jog multiplies by the magnitude of the percentage and takes its direction from the sign of the INI value; the encoder limits are diagnostic priors, not limits in our coordinates; the Ruckig agreement is about the curve's shape only; the speed factor is a stored number, not a known speed; and `setpoints` could stop short of the target when the period did not divide the duration.
 
 ### 11.8 What this means for us
 

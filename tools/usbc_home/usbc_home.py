@@ -1,6 +1,6 @@
 """Run the vendor's USBC.dll Home and nothing else. Lab tool, standard library only.
 
-Spec: docs/archive/specs/2026-10-08-vendor-dll-home-plan.md. Needs a 32-bit Python (the
+Spec: specs/2026-10-08-vendor-dll-home-plan.md (in git history). Needs a 32-bit Python (the
 DLL is 32-bit). From disassembly and unverified on the arm.
 
     python32 usbc_home.py --dll-dir DIR --probe

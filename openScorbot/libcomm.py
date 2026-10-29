@@ -530,7 +530,9 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 # From the vendor disassembly (docs/protocol/VENDOR_DLL_PROTOCOL.md); never run on the arm.
 #
 # source -> callable described above; it must not raise
-def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source):
+# pace   -> None (the base's fixed read delay, the default) or pace(sent_id, reply) -> seconds, which
+#           replaces that delay after each setpoint reply (scorbot/pacing.py); never run on the arm
+def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace=None):
 	write = conf.readData("cadera","write")
 	read = conf.readData("cadera","read")
 	media = cola_read.get()
@@ -551,7 +553,11 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 		cadena = libdef.fill_msg(cadena, 24)
 		msg = libdef.get_encoder(buffer, media)
 		cadena += libdef.getStruct(20, signal_out, msg)
-		libdef.set_msg(cadena, epout, epin, buffer, write, read)
+		if pace is None:
+			libdef.set_msg(cadena, epout, epin, buffer, write, read)
+		else:
+			libdef.set_msg(cadena, epout, epin, buffer, write, 0)
+			time.sleep(pace(b_1, bytes(buffer)))
 		media = libdef.get_media(buffer, media)
 
 	if stopped or signal_out == '':
@@ -675,7 +681,7 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 				elif orden == 14 or orden == 15:
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read, cola_result, stop_event)
 				elif orden == STREAM:
-					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
+					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1], ite if callable(ite) else None)
 				elif orden == VENDOR_HOME:
 					b_1 = vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:

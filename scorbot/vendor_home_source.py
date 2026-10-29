@@ -23,11 +23,10 @@ import dataclasses
 import time
 
 from . import vendor_home as vh
+from .pacing import ID_RING, echo_lag
 
 VENDOR_HOME_ORDER = 22
 """Command code queued to the worker (21 is the stream, 18 the legacy home)."""
-ID_RING = 255
-"""The legacy message IDs run 1 to 255 and wrap to 1 (``libdef.countByte1``); an IN packet's byte 0 echoes the ID it answers."""
 TOTAL_SECONDS = 800.0
 """Bound on the whole home: every axis' ``max_time`` in both passes adds up to about 730 seconds."""
 
@@ -82,11 +81,9 @@ class VendorHomeSource:
 
     def _measure_lag(self, reply_bytes, sequence):
         """Sent ID minus the ID the reply echoes, on the 1..255 ring; ``None`` if the reply echoes nothing usable."""
-        previous = sequence - 1 if sequence > 1 else ID_RING
-        echo = reply_bytes[0] if reply_bytes else 0
-        if not 1 <= echo <= ID_RING:
+        lag = echo_lag(sequence - 1 if sequence > 1 else ID_RING, reply_bytes)
+        if lag is None:
             return None
-        lag = (previous - echo) % ID_RING
         if self.lag_first is None:
             self.lag_first = lag
         self.lag_max = lag if self.lag_max is None else max(self.lag_max, lag)

@@ -1,7 +1,7 @@
 """The homing methods of Scorbot: the legacy home, the pre-home jogs, the park, home by inching and
 the vendor home.
 
-Moved out of robot.py unchanged (docs/archive/specs/2026-10-12-code-health-design.md): every method body is
+Moved out of robot.py unchanged (specs/2026-10-12-code-health-design.md (in git history)): every method body is
 identical to the one that was in ``Scorbot``. ``Scorbot`` takes them from ``HomingMixin``; they use the
 session state, ``_command``, ``_latch_fault`` and the stop events through ``self``.
 """

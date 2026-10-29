@@ -1,4 +1,4 @@
-"""Every module, test file and script has a row in the index of its folder (the CLAUDE.md beside it).
+"""Every module, test file and script has a row in the index of its folder (the README.md beside it).
 
 These indexes are how a person, or an agent, finds out what a file is for. They drift quietly: a file is
 added in a hurry and nobody writes its row. This fails the moment that happens, and names the file.
@@ -14,15 +14,15 @@ SKIP = {"__init__.py", "__main__.py"}
 
 # (folder, the index that must describe its files, which files count)
 INDEXES = (
-    ("scorbot", "scorbot/CLAUDE.md", "*.py"),
-    ("scorbot/session", "scorbot/CLAUDE.md", "*.py"),
-    ("scorbot/lab", "scorbot/CLAUDE.md", "*.py"),
-    ("scorbot/camera", "scorbot/CLAUDE.md", "*.py"),
-    ("scorbot/transport", "scorbot/CLAUDE.md", "*.py"),
-    ("tests", "tests/CLAUDE.md", "test_*.py"),
-    ("tests_extra", "tests_extra/CLAUDE.md", "test_*.py"),
-    ("scripts", "scripts/CLAUDE.md", "*.py"),
-    ("examples", "examples/CLAUDE.md", "*.py"),
+    ("scorbot", "scorbot/README.md", "*.py"),
+    ("scorbot/session", "scorbot/README.md", "*.py"),
+    ("scorbot/lab", "scorbot/README.md", "*.py"),
+    ("scorbot/camera", "scorbot/README.md", "*.py"),
+    ("scorbot/transport", "scorbot/README.md", "*.py"),
+    ("tests", "tests/README.md", "test_*.py"),
+    ("tests_extra", "tests_extra/README.md", "test_*.py"),
+    ("scripts", "scripts/README.md", "*.py"),
+    ("examples", "examples/README.md", "*.py"),
 )
 
 

@@ -2,9 +2,9 @@
 
 Status: describes the code as of 2026-09-29. Nothing here is verified on hardware; see section 10.
 
-> **2026-10-20:** this page describes Stack 2 (our own USB protocol), which has not moved the arm. The arm runs through Stack 1, Intelitek's `USBC.dll` driven by `tools/usbc_*` and the Python API `scorbot/bridge.py` (the vendor Home ran on 2026-10-20). Map of both: root `CLAUDE.md`, "Layers".
+> **2026-10-20:** this page describes Stack 2 (our own USB protocol), which has not moved the arm. The arm runs through Stack 1, Intelitek's `USBC.dll` driven by `tools/usbc_*` and the Python API `scorbot/bridge.py` (the vendor Home ran on 2026-10-20). Map of both: root `CONTRIBUTING.md`, "Layers".
 
-Related: [PROTOCOL.md](../protocol/PROTOCOL.md) (packet layout), [SAFETY_CASE.md](SAFETY_CASE.md) (hazards and controls), [HARDWARE_REFERENCE.md](../manual/HARDWARE_REFERENCE.md) (manual facts), [EXPERIMENT_RECORDING.md](EXPERIMENT_RECORDING.md) (MCAP sessions), [USB_CAPTURE.md](../lab/USB_CAPTURE.md) (USBPcap traces).
+Related: [PROTOCOL.md](../protocol/PROTOCOL.md) (packet layout), SAFETY_CASE.md (hazards and controls), [HARDWARE_REFERENCE.md](../manual/HARDWARE_REFERENCE.md) (manual facts), EXPERIMENT_RECORDING.md (MCAP sessions), [USB_CAPTURE.md](../lab/USB_CAPTURE.md) (USBPcap traces).
 
 ## 1. Purpose and scope
 
@@ -273,7 +273,7 @@ Public API (`scorbot/__init__.py`: `Scorbot`, `ScorbotError`, `RobotState`, `Sim
 | `move_joint(joint, target, speed)` | One bounded absolute step | Needs calibration; at most one jog of travel |
 | `SimulatedScorbot(controller=...)`, `SimulatedController.inject(kind)` | Same facade, no USB; kinds: `timeout`, `late_answer`, `controller_error`, `worker_crash`, `stale_feedback`, `corrupt_packet` | States and log rows marked simulated |
 
-Files: bench JSONL (`--output`) plus `<stem>.controller.jsonl` (SDK events: `command_start`, `command_error`, `feedback_fault`, `sync_worker_crashed` and others) plus one MCAP session. Formats: [EXPERIMENT_RECORDING.md](EXPERIMENT_RECORDING.md).
+Files: bench JSONL (`--output`) plus `<stem>.controller.jsonl` (SDK events: `command_start`, `command_error`, `feedback_fault`, `sync_worker_crashed` and others) plus one MCAP session. Formats: EXPERIMENT_RECORDING.md.
 
 ## 10. Verification status
 
