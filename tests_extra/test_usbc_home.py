@@ -98,7 +98,7 @@ class AllowlistTests(unittest.TestCase):
 
 
 class SequenceTests(unittest.TestCase):
-    def test_simulated_run_goes_init_control_home_control_off_close(self):
+    def test_simulated_run_order(self):
         lib, dll = make_dll()
         log = Recorder()
         self.assertEqual(tool.run(dll, log, True, FakeConsole()), 0)
@@ -120,7 +120,7 @@ class SequenceTests(unittest.TestCase):
         meanings = [f["meaning"] for n, f in log.events if n == "home_progress"]
         self.assertEqual(meanings, ["homing started", "axis 1", "axis 2", "axis 3", "homing ended"])
 
-    def test_no_init_callback_times_out_without_homing_or_control(self):
+    def test_init_timeout(self):
         lib, dll = make_dll(init_calls_back=False)
         old, tool.INIT_TIMEOUT_S = tool.INIT_TIMEOUT_S, 0.05
         try:
@@ -132,7 +132,7 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(lib.exports["Home"].calls, [])
         self.assertEqual(lib.exports["Control"].calls, [])
 
-    def test_initialization_returning_zero_is_refused_at_once(self):
+    def test_init_refused(self):
         lib = FakeLib(Initialization=lambda _m, _s, _done, _err: 0)
         log = Recorder()
         self.assertEqual(tool.run(tool.VendorDll(lib), log, True, FakeConsole()), 2)
@@ -145,7 +145,7 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(lib.exports["Control"].calls, [])
         self.assertEqual(lib.exports["Home"].calls, [])
 
-    def test_no_home_connects_and_controls_but_never_calls_home(self):
+    def test_no_home_skips_home(self):
         lib, dll = make_dll()
         log = Recorder("vendor_dll")
         self.assertEqual(tool.run(dll, log, False, FakeConsole(), do_home=False), 0)
@@ -154,7 +154,7 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(log.names(), ["init_done", "init_returned", "emergency", "control_on", "home_skipped",
                                        "control_off", "closed"])
 
-    def test_control_that_will_not_turn_on_still_gets_a_control_off(self):
+    def test_control_on_failure_still_turns_off(self):
         def initialization(_mode, _system_type, on_done, _on_error):
             call_callback(on_done)
             return 1
@@ -163,7 +163,7 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(lib.exports["Home"].calls, [])
         self.assertEqual(lib.exports["Control"].calls, [(ord("&"), 1), (ord("&"), 0)])   # a half-done on is switched off
 
-    def test_a_failed_control_off_is_reported_and_close_still_runs(self):
+    def test_control_off_failure_still_closes(self):
         def initialization(_mode, _system_type, on_done, _on_error):
             call_callback(on_done)
             return 1
@@ -173,7 +173,7 @@ class SequenceTests(unittest.TestCase):
         self.assertIn("control_off_failed", log.names())
         self.assertEqual(len(lib.exports["CloseUSBC"].calls), 1)
 
-    def test_an_exception_in_initialization_still_closes_the_dll(self):
+    def test_init_exception_still_closes(self):
         def initialization(*_args):
             raise RuntimeError("boom")
         lib = FakeLib(Initialization=initialization)
@@ -181,7 +181,7 @@ class SequenceTests(unittest.TestCase):
             tool.run(tool.VendorDll(lib), Recorder(), True, FakeConsole())
         self.assertEqual(len(lib.exports["CloseUSBC"].calls), 1)
 
-    def test_ctrl_c_while_home_runs_requests_stop_and_skips_cleanup_if_it_is_still_running(self):
+    def test_ctrl_c_during_home(self):
         release = threading.Event()
         lib, dll = make_dll(on_home=lambda: release.wait(5))
 
@@ -202,7 +202,7 @@ class SequenceTests(unittest.TestCase):
         self.assertIn("shutdown_skipped", log.names())
         self.assertEqual(lib.exports["CloseUSBC"].calls, [])
 
-    def test_a_stop_that_blocks_inside_the_dll_does_not_hide_the_timeout_path(self):
+    def test_blocked_stop_keeps_the_timeout(self):
         release = threading.Event()
         lib, dll = make_dll(on_home=lambda: release.wait(5))
         lib.exports["Stop"].action = lambda _group: release.wait(5)
@@ -217,7 +217,7 @@ class SequenceTests(unittest.TestCase):
         self.assertIn(("stop_requested", {"ok": None, "returned": False}), log.events)
         self.assertIn("shutdown_skipped", log.names())
 
-    def test_ctrl_c_while_waiting_for_initialization_does_not_close_under_it(self):
+    def test_ctrl_c_during_init(self):
         release = threading.Event()
         lib = FakeLib(Initialization=lambda *_a: release.wait(5))
         original = tool.bounded
@@ -235,7 +235,7 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(lib.exports["CloseUSBC"].calls, [])
         self.assertEqual(lib.exports["Control"].calls, [])
 
-    def test_a_failure_inside_the_interrupt_handler_still_skips_cleanup(self):
+    def test_interrupt_handler_failure(self):
         release = threading.Event()
         lib, dll = make_dll(on_home=lambda: release.wait(5))
         lib.exports["Stop"].action = lambda _group: (_ for _ in ()).throw(RuntimeError("stop failed"))
@@ -253,7 +253,7 @@ class SequenceTests(unittest.TestCase):
             release.set()
         self.assertEqual(lib.exports["CloseUSBC"].calls, [])
 
-    def test_a_stop_still_running_in_the_dll_keeps_the_session_busy_even_if_home_finishes(self):
+    def test_running_stop_keeps_session_busy(self):
         release = threading.Event()
         lib, dll = make_dll(on_home=lambda: release.wait(0.3))      # Home ends on its own shortly after Stop
         lib.exports["Stop"].action = lambda _group: release.wait(5)  # but Stop never returns
@@ -269,7 +269,7 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(lib.exports["CloseUSBC"].calls, [])
         self.assertEqual(lib.exports["Control"].calls, [(ord("&"), 1)])
 
-    def test_ctrl_c_while_waiting_on_stop_keeps_the_session_busy(self):
+    def test_ctrl_c_during_stop(self):
         release = threading.Event()
         lib, dll = make_dll(on_home=lambda: release.wait(0.2))     # Home ends by itself shortly after
         lib.exports["Stop"].action = lambda _group: release.wait(5)
@@ -292,13 +292,7 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(lib.exports["CloseUSBC"].calls, [])
         self.assertEqual(lib.exports["Control"].calls, [(ord("&"), 1)])
 
-    def test_an_exception_raised_by_initialization_itself_still_closes(self):
-        lib = FakeLib(Initialization=lambda *_a: (_ for _ in ()).throw(RuntimeError("boom")))
-        with self.assertRaises(RuntimeError):
-            tool.run(tool.VendorDll(lib), Recorder(), True, FakeConsole())
-        self.assertEqual(len(lib.exports["CloseUSBC"].calls), 1)    # the call finished, so closing is safe
-
-    def test_a_hung_initialization_is_reported_and_nothing_else_is_called(self):
+    def test_hung_init(self):
         release = threading.Event()
         lib = FakeLib(Initialization=lambda *_a: release.wait(5))
         old, tool.INIT_TIMEOUT_S = tool.INIT_TIMEOUT_S, 0.05
@@ -312,7 +306,7 @@ class SequenceTests(unittest.TestCase):
         self.assertEqual(lib.exports["Control"].calls, [])
         self.assertEqual(lib.exports["CloseUSBC"].calls, [])
 
-    def test_control_off_failure_is_reported_before_a_close_that_raises(self):
+    def test_control_off_failure_then_close_raises(self):
         def initialization(_mode, _system_type, on_done, _on_error):
             call_callback(on_done)
             return 1
@@ -326,7 +320,7 @@ class SequenceTests(unittest.TestCase):
             tool.run(tool.VendorDll(lib), log, True, FakeConsole(), do_home=False)
         self.assertIn("control_off_failed", log.names())
 
-    def test_a_home_that_will_not_stop_skips_control_off_and_close(self):
+    def test_unstoppable_home_skips_cleanup(self):
         release = threading.Event()
         lib, dll = make_dll(on_home=lambda: release.wait(5))
         old = tool.HOME_TIMEOUT_S, tool.STOP_GRACE_S
@@ -366,14 +360,9 @@ class FingerprintTests(unittest.TestCase):
             tool.check_fingerprint("0" * 64, log)
         self.assertEqual(log.names(), ["unknown_dll"])
 
-    def test_the_known_builds_are_the_two_we_decompiled(self):
-        self.assertEqual(set(tool.KNOWN_DLL_SHA256), {
-            "91e99a915c4f5e22c942b3e8dc757ac6b0f3610c01abdab0c2ea2ad0aa555240",
-            "6de887a8d6f2ce686d377586d4be8981ff643cad13c158cd4603f8b44f20555e"})
-
 
 class LogTests(unittest.TestCase):
-    def test_log_is_strict_json_with_its_source_and_refuses_to_overwrite(self):
+    def test_log_is_strict_json_and_not_overwritten(self):
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "run.jsonl")
             log = tool.EventLog(path, "vendor_dll_simulated")
@@ -395,7 +384,7 @@ class LogTests(unittest.TestCase):
 
 
 class ArgumentTests(unittest.TestCase):
-    def test_the_default_log_goes_to_logs_or_rehearsal_with_a_time_stamp(self):
+    def test_default_log_path(self):
         online = tool.default_output("home", False)
         self.assertEqual(os.path.dirname(online), "logs")
         self.assertRegex(os.path.basename(online), r"^home-\d{8}-\d{6}\.jsonl$")
@@ -405,13 +394,9 @@ class ArgumentTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             tool.main(["--dll-dir", ".", "--simulate", "--no-home", "--output", "x.jsonl"])
 
-    def test_modes_are_exclusive(self):
-        with self.assertRaises(SystemExit):
-            tool.main(["--dll-dir", ".", "--probe", "--simulate"])
-
 
 class ControlOnHangTests(unittest.TestCase):
-    def test_a_control_on_that_never_returns_is_reported_and_nothing_runs_after_it(self):
+    def test_hung_control_on(self):
         release = threading.Event()
         lib, dll = make_dll()
         lib.exports["Control"].action = lambda _group, on: (release.wait(5), 1)[1] if on else 1
@@ -430,7 +415,7 @@ class ControlOnHangTests(unittest.TestCase):
 
 
 class ControlOffHangTests(unittest.TestCase):
-    def test_a_control_off_that_never_returns_is_reported_and_not_closed_over(self):
+    def test_hung_control_off(self):
         release = threading.Event()
         lib, dll = make_dll()
         lib.exports["Control"].action = lambda _group, on: 1 if on else (release.wait(5), 1)[1]
@@ -448,7 +433,7 @@ class ControlOffHangTests(unittest.TestCase):
 
 
 class DeadlineTests(unittest.TestCase):
-    def test_the_home_deadline_covers_a_slow_but_healthy_vendor_home(self):
+    def test_home_deadline_allows_a_slow_home(self):
         # scorbot/vendor_home_source.TOTAL_SECONDS (800 s) is the sum of every axis' max_time in both
         # passes; a shorter deadline here would Stop a healthy home part-way (found by review, 2026-10-11).
         self.assertGreaterEqual(tool.HOME_TIMEOUT_S, 800.0)

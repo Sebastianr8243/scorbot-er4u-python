@@ -1,10 +1,12 @@
 """scorbot.bridge's FakeArm, taught points and box, and the two arm-server example scripts. No server, no DLL."""
 
+import _thread
 import json
 import math
 import socket
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -19,7 +21,7 @@ class TaughtPointTests(unittest.TestCase):
         self.positions = Path(self.dir.name) / "positions.json"
         self.box = Path(self.dir.name) / "arm.json"
 
-    def test_teach_saves_the_point_and_grows_the_box_and_go_returns_there(self):
+    def test_teach_then_go_returns_to_the_point(self):
         arm = bridge.FakeArm(start=(300, 10, 150))
         arm.teach("above_a", self.positions, self.box)
         arm.move_by(dz=-40)
@@ -27,6 +29,28 @@ class TaughtPointTests(unittest.TestCase):
         self.assertEqual(json.loads(self.box.read_text())["box_mm"]["z"], [110, 150])
         arm.go("above_a", self.positions)
         self.assertEqual((arm.x, arm.y, arm.z), (300, 10, 150))
+
+    def test_cli_calibration_dir_keeps_one_arms_files_apart(self):
+        from unittest import mock
+        arm = bridge.FakeArm(start=(300, 10, 150))
+        with mock.patch.object(bridge, "Arm", return_value=arm), mock.patch("builtins.print"):
+            self.assertEqual(bridge.main(["--calibration-dir", str(Path(self.dir.name) / "arm3"), "teach", "p"]), 0)
+            arm.move_by(dz=-40)
+            self.assertEqual(bridge.main(["--calibration-dir", str(Path(self.dir.name) / "arm3"), "go", "p"]), 0)
+        self.assertEqual(arm.z, 150)
+        self.assertTrue((Path(self.dir.name) / "arm3" / "positions.json").exists())
+        self.assertTrue((Path(self.dir.name) / "arm3" / "arm.json").exists())
+
+    def test_go_restores_the_wrist(self):
+        arm = bridge.FakeArm()
+        arm.wrist_by(dpitch=200)
+        arm.teach("tilted", self.positions, self.box)
+        arm.wrist_by(dpitch=200, droll=50)
+        arm.go("tilted", self.positions)
+        self.assertEqual((arm.pitch, arm.roll), (200, 0))
+        arm.wrist_by(droll=50)
+        arm.move_to(300, 0, 200)            # no pitch or roll given: the wrist stays
+        self.assertEqual((arm.pitch, arm.roll), (200, 50))
 
     def test_go_to_an_unknown_name_is_refused(self):
         with self.assertRaisesRegex(bridge.ArmError, "no taught position"):
@@ -39,7 +63,7 @@ class TaughtPointTests(unittest.TestCase):
         self.assertEqual(data["note"], "kept")
         self.assertEqual(data["box_mm"], {"x": [-1, 1], "y": [2, 5], "z": [0, 3]})
 
-    def test_the_measured_flag_is_set_only_by_a_measuring_caller_and_survives_teach(self):
+    def test_measured_flag_survives_teach(self):
         bridge.widen_box(self.box, [(1, 2, 3)])
         self.assertFalse(json.loads(self.box.read_text())["measured"])
         bridge.widen_box(self.box, [(1, 2, 3)], measured=True)
@@ -103,9 +127,50 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.requests[0], {"op": "move_by", "id": 1, "dx": 60, "dy": 0.0, "dz": 0.0})
         self.assertFalse(caught.exception.reply["ok"])
 
+    def test_a_dll_hang_reply_keeps_the_physical_stop_warning(self):
+        # the server sends code 8 together with its own short error text; the warning must not be lost
+        port = self.serve([lambda r: [{"id": r["id"], "ok": False, "code": 8, "error": "a DLL call did not return"}]])
+        with bridge.Arm(port=port, timeout=5) as arm, self.assertRaises(bridge.ArmError) as caught:
+            arm.move_by(dx=1)
+        self.assertRegex(str(caught.exception), "(?i)physical stop")
+        self.assertIn("a DLL call did not return", str(caught.exception))
+        self.assertEqual(caught.exception.reply["code"], 8)
+
+    def test_a_busy_server_is_reported_as_busy(self):
+        port = self.serve([lambda r: [{"ok": False, "busy": True, "error": "busy: another client is connected"}]])
+        with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "busy: another client"):
+            arm.where()
+
     def test_a_closed_connection_raises(self):
         port = self.serve([lambda r: []])
         with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "closed the connection"):
+            arm.where()
+
+    def test_ctrl_c_interrupts_a_wait_and_asks_for_stop(self):
+        # A socket read that blocks for the whole timeout is not woken by Ctrl+C on Windows (checked 2026-10-26,
+        # Python 3.13), so a move could not be stopped from the keyboard. The client has to wake up often.
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        port = self.serve([lambda r: (gate.wait(5), [])[1], lambda r: []])
+        started = time.monotonic()
+        with bridge.Arm(port=port, timeout=30) as arm:
+            threading.Timer(0.3, _thread.interrupt_main).start()
+            with self.assertRaises(KeyboardInterrupt):
+                arm.where()
+            elapsed = time.monotonic() - started
+            gate.set()
+            for _ in range(40):
+                if len(self.requests) > 1:
+                    break
+                time.sleep(0.05)
+        self.assertLess(elapsed, 2.0)
+        self.assertEqual([request["op"] for request in self.requests], ["where", "stop"])
+
+    def test_a_reply_that_never_comes_times_out_as_an_arm_error(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        port = self.serve([lambda r: (gate.wait(5), [])[1]])
+        with bridge.Arm(port=port, timeout=0.5) as arm, self.assertRaisesRegex(bridge.ArmError, "no reply"):
             arm.where()
 
     def test_no_server_says_to_start_it(self):
@@ -140,7 +205,7 @@ class CharacteriseTests(unittest.TestCase):
         self.assertAlmostEqual(arm_characterise.spread_mm([(0, 0, 0), (2, 0, 0)]), 1.0)
         self.assertEqual(len(arm_characterise.grid_offsets(40)), 9)
 
-    def test_a_run_measures_the_scale_and_comes_back_to_the_start(self):
+    def test_characterise_returns_to_the_start(self):
         arm = ScaledArm(units_per_mm=1000)
         report, reached = arm_characterise.characterise(arm, grid_mm=30, repeats=4, read=lambda _prompt: "")
         for axis in "xyz":
@@ -150,11 +215,39 @@ class CharacteriseTests(unittest.TestCase):
         self.assertLess(max(g["dll_error_mm"] for g in report["grid"]), 1e-9)
         self.assertIn((330, 30, 200), [tuple(round(v) for v in p) for p in reached])
 
-    def test_a_wrong_unit_shows_up_as_a_scale_away_from_the_assumption(self):
+    def test_wrong_unit_shows_in_the_scale(self):
         report, _ = arm_characterise.characterise(ScaledArm(units_per_mm=100), grid_mm=10, repeats=2,
                                                   read=lambda _prompt: "")
         self.assertAlmostEqual(report["frame"]["z"]["units_per_mm"], 100)
         self.assertTrue(math.isclose(report["grid"][0]["dll_error_mm"], math.hypot(9, 9), rel_tol=1e-6))
+
+    def test_summarise_turns_mat_numbers_into_a_scale_and_worst_errors(self):
+        report = {"step_mm": 20.0,
+                  "frame": {"x": {"units_per_mm": 1000.0, "mat_mm": 19.0}, "y": {"units_per_mm": 1000.0, "mat_mm": 20.0},
+                            "z": {"units_per_mm": 1000.0, "mat_mm": None}},
+                  "repeatability": {"spread_mm": 0.0, "readings": [{"mat_mm": 0.5}, {"mat_mm": None}, {"mat_mm": 1.5}]},
+                  "grid": [{"mat_error_mm": 2.0, "dll_error_mm": 0.0}, {"mat_error_mm": None, "dll_error_mm": 0.0}]}
+        result = arm_characterise.summarise(report)
+        self.assertAlmostEqual(result["mat_mm_per_commanded_mm"]["x"], 0.95)
+        self.assertAlmostEqual(result["suggested_units_per_mm"]["x"], 1000 * 20 / 19)
+        self.assertNotIn("z", result["mat_mm_per_commanded_mm"])
+        self.assertEqual(result["worst_repeat_mat_mm"], 1.5)
+        self.assertEqual(result["worst_grid_mat_mm"], 2.0)
+
+    def test_summarise_compares_offsets_by_size_not_sign(self):
+        report = {"step_mm": 20.0, "frame": {},
+                  "repeatability": {"readings": [{"mat_mm": -3.0}, {"mat_mm": 0.5}]},
+                  "grid": [{"mat_error_mm": -2.5}, {"mat_error_mm": 1.0}]}
+        result = arm_characterise.summarise(report)
+        self.assertEqual(result["worst_repeat_mat_mm"], 3.0)
+        self.assertEqual(result["worst_grid_mat_mm"], 2.5)
+
+    def test_summarise_with_no_mat_answers_says_so(self):
+        report = {"step_mm": 20.0, "frame": {"x": {"units_per_mm": 1000.0, "mat_mm": None}},
+                  "repeatability": {"readings": []}, "grid": []}
+        result = arm_characterise.summarise(report)
+        self.assertEqual(result["mat_mm_per_commanded_mm"], {})
+        self.assertIsNone(result["worst_repeat_mat_mm"])
 
     def test_mat_answers_are_recorded_and_bad_ones_skipped(self):
         self.assertEqual(arm_characterise.ask("q", read=lambda _p: "1.5"), 1.5)
@@ -193,7 +286,7 @@ class PickPlaceTests(unittest.TestCase):
 
 
 class ArmLatencyTests(unittest.TestCase):
-    def test_every_call_is_timed_in_order_and_the_arm_ends_where_it_started(self):
+    def test_latency_times_each_call_in_order(self):
         arm, rows = bridge.FakeArm(), []
         ticks = iter(range(0, 1000, 2))          # a fake clock: every call takes 2 s
         result = arm_latency.run(arm, rows.append, speed=30, pairs=2, sizes=(5, 10), reads=3,
@@ -205,12 +298,12 @@ class ArmLatencyTests(unittest.TestCase):
         self.assertEqual(arm.commands[0], ("speed", 30))
         self.assertEqual((arm.x, arm.y, arm.z), (300.0, 0.0, 200.0))
 
-    def test_summary_gives_median_worst_and_calls_per_second(self):
+    def test_latency_summary(self):
         rows = [{"kind": "move_by_5mm", "seconds": s} for s in (0.5, 1.0, 4.0)]
         self.assertEqual(arm_latency.summary(rows),
                          {"move_by_5mm": {"n": 3, "median_s": 1.0, "worst_s": 4.0, "per_second": 1.0}})
 
-    def test_the_servers_split_of_a_call_is_kept_and_summarised(self):
+    def test_server_timing_is_summarised(self):
         ticks = iter(range(0, 100, 2))
         row = arm_latency.timed("move_by_5mm", lambda: bridge.Position(0, 0, 0, timing={"teach": 0.1, "move": 0.9}),
                                 clock=lambda: next(ticks))

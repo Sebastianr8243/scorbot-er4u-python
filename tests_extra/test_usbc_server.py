@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scorbot import bridge
 
@@ -132,7 +133,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(running.result["code"], 0)
         self.assertEqual(len(running.lib.calls("Home")), 1)
 
-    def test_move_by_teaches_micrometres_relative_and_defines_the_vector_once(self):
+    def test_move_by_teaches_micrometres(self):
         running = self.start()
         with running.arm() as arm:
             position = arm.move_by(dx=5, dz=-2.5)
@@ -146,7 +147,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(len(running.lib.calls("MoveJoint")), 2)
         self.assertAlmostEqual(position.x, 300.0)       # the fake's xyz, read after the move
 
-    def test_move_and_gripper_replies_say_where_the_time_went(self):
+    def test_replies_carry_timing(self):
         running = self.start()
         with running.arm() as arm:
             moved = arm.move_by(dx=5)
@@ -160,7 +161,56 @@ class ServerTests(unittest.TestCase):
             self.assertGreaterEqual(seconds, 0)
         self.assertGreater(moved.timing["settle"], 0)       # settle sleeps SETTLE_S between reads
 
-    def test_a_second_move_does_not_define_the_vector_and_says_so(self):
+    def test_every_reply_is_logged(self):
+        running = self.start()
+        with running.arm() as arm:
+            arm.move_by(dx=5)
+            with self.assertRaises(bridge.ArmError):
+                arm.send("move_by", dx=0)       # refused by the server, no DLL call
+            arm.send("where")
+            arm.quit()
+        events = [(name, fields) for name, fields in running.log.events if name in ("command", "reply")]
+        self.assertEqual([name for name, _ in events], ["command", "reply"] * (len(events) // 2))
+        replies = [fields for name, fields in events if name == "reply"]
+        moved, refused, where, quit_ = replies[-4:]
+        self.assertTrue(moved["ok"])
+        self.assertEqual(moved["code"], 0)
+        self.assertGreaterEqual(len(moved["xyz"]), 5)       # x, y, z, pitch, roll
+        self.assertEqual(set(moved["timing_s"]), {"read", "define", "teach", "move", "settle"})
+        self.assertFalse(refused["ok"])
+        self.assertIn("non-zero", refused["error"])
+        self.assertNotIn("code", refused)
+        self.assertNotIn("timing_s", where)
+        self.assertEqual([moved["id"], refused["id"], where["id"], quit_["id"]], sorted({moved["id"], refused["id"], where["id"], quit_["id"]}))
+
+    def test_a_log_write_error_does_not_drop_the_reply(self):
+        class FailingLog(Log):
+            def event(self, name, **fields):
+                if name == "reply":
+                    raise OSError("disk full")
+                super().event(name, **fields)
+
+        with mock.patch(__name__ + ".Log", FailingLog):
+            running = self.start()
+        with running.arm() as arm:
+            moved = arm.move_by(dx=5)       # the reply still arrives
+            self.assertAlmostEqual(arm.where().x, moved.x)
+            arm.quit()
+        running.thread.join(5)
+        self.assertEqual(running.result["code"], 0)
+        self.assertEqual(len(running.lib.calls("Teach")), 1)
+
+    def test_logging_does_not_change_the_reply(self):
+        running = self.start()
+        with socket.create_connection(("127.0.0.1", running.port), timeout=5) as raw:
+            raw.sendall(b'{"op": "where", "id": 7}\n')
+            reply = json.loads(raw.makefile("rb").readline())
+            raw.sendall(b'{"op": "quit"}\n')
+        self.assertEqual(set(reply), {"ok", "encoder", "joint", "xyz", "id"})     # no log fields leak into the reply
+        (logged,) = [fields for name, fields in running.log.events if name == "reply" and fields.get("id") == 7]
+        self.assertEqual({key: logged[key] for key in ("ok", "xyz")}, {key: reply[key] for key in ("ok", "xyz")})
+
+    def test_vector_is_defined_once(self):
         running = self.start()
         with running.arm() as arm:
             arm.move_by(dx=1)
@@ -183,7 +233,26 @@ class ServerTests(unittest.TestCase):
             reader.readline()
         self.assertEqual(running.lib.calls("Teach"), [])
 
-    def test_move_to_needs_a_home_and_a_box_and_stays_inside_it(self):
+    def test_wrist_by_teaches_pitch_and_roll(self):
+        running = self.start()
+        with running.arm() as arm:
+            arm.wrist_by(dpitch=200, droll=-300.4)
+            arm.quit()
+        (_name, _point, array, _count, flag), = running.lib.calls("Teach")
+        self.assertEqual(flag, move.RELATIVE_FLAG)
+        self.assertEqual(list(array.contents), [0, 0, 0, 200, -300])     # whole units, position untouched
+        self.assertEqual(len(running.lib.calls("MoveJoint")), 1)
+
+    def test_bad_wrist_steps_are_refused(self):
+        running = self.start()
+        with running.arm() as arm:
+            for fields in ({}, {"dpitch": 0.4}, {"droll": 10001}, {"dpitch": "5"}, {"droll": None}):
+                with self.assertRaises(bridge.ArmError):
+                    arm.send("wrist_by", **fields)
+            arm.quit()
+        self.assertEqual(running.lib.calls("Teach"), [])
+
+    def test_move_to_needs_home_and_box(self):
         running = self.start(do_home=False, box=BOX)
         with running.arm() as arm:
             with self.assertRaisesRegex(bridge.ArmError, "Home"):
@@ -197,7 +266,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(flag, move.ABSOLUTE_FLAG)
         self.assertEqual(list(array.contents), [310000, 20000, 100000, -63000, 0])   # pitch and roll kept
 
-    def test_move_by_stays_inside_the_box_when_there_is_one(self):
+    def test_move_by_stays_in_the_box(self):
         lib = FakeLib()
         lib.xyz = [390000, 0, 200000, -63000, 0]        # 10 mm from the x = 400 wall
         running = self.start(lib, box=BOX)
@@ -210,7 +279,7 @@ class ServerTests(unittest.TestCase):
             arm.quit()
         self.assertEqual(len(lib.calls("Teach")), 1)
 
-    def test_move_by_from_outside_the_box_may_only_go_back_toward_it(self):
+    def test_move_by_outside_the_box(self):
         lib = FakeLib()
         lib.xyz = [410000, 0, 200000, -63000, 0]        # 10 mm past the x = 400 wall
         running = self.start(lib, box=BOX)
@@ -248,6 +317,16 @@ class ServerTests(unittest.TestCase):
                 arm.move_to(300, 0, 100)
             arm.quit()
 
+    def test_a_target_that_overflows_the_dll_integer_is_refused_not_wrapped(self):
+        running = self.start(box=BOX)
+        with running.arm() as arm:
+            with self.assertRaisesRegex(bridge.ArmError, "outside the box"):
+                arm.move_to(4295267.296, 0, 100)        # would wrap to x = 300 mm in a c_long; the box stops it first
+            with self.assertRaisesRegex(bridge.ArmError, "32-bit"):
+                arm.move_to(300, 0, 100, pitch=2 ** 31)     # inside the box, so only the range check can stop it
+            arm.quit()
+        self.assertEqual(running.lib.calls("Teach"), [])
+
     def test_a_stop_line_during_a_move_calls_stop(self):
         release = threading.Event()
         running = self.start(FakeLib(MoveJoint=lambda *args: release.wait(0.8) and 1))
@@ -259,6 +338,32 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(caught.exception.reply["code"], 7)
             arm.quit()
         self.assertEqual(running.lib.calls("Stop"), [(ord("&"),)])
+
+    def test_a_failed_move_says_what_the_code_means(self):
+        running = self.start(FakeLib(MoveJoint=lambda *args: 0))
+        with running.arm() as arm:
+            with self.assertRaises(bridge.ArmError) as caught:
+                arm.move_by(dx=5)
+            arm.quit()
+        self.assertEqual(caught.exception.reply["code"], 7)
+        self.assertRegex(str(caught.exception), "move_by failed.*refused or stopped")
+
+    def test_a_timeout_never_claims_the_arm_stopped(self):
+        # code 6 is returned after Stop was only requested; Stop can fail and the move can still be running
+        text = bridge.describe_failure("move_by", {"code": 6})
+        self.assertNotRegex(text, r"(?i)was stopped|has stopped|stopped")
+        self.assertRegex(text, r"(?i)time limit.*not confirmed.*physical stop")
+
+    def test_an_unknown_failure_code_is_still_reported(self):
+        self.assertEqual(bridge.describe_failure("move_by", {"code": 99}), "move_by failed (code 99)")
+
+    def test_the_no_box_message_names_the_full_path(self):
+        running = self.start()
+        with running.arm() as arm:
+            with self.assertRaises(bridge.ArmError) as caught:
+                arm.move_to(300, 0, 100)
+            arm.quit()
+        self.assertIn(str(running.box), str(caught.exception))
 
     def test_the_emergency_stop_refuses_moves(self):
         running = self.start(FakeLib(IsEmergency=lambda: 1))
@@ -282,7 +387,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual((len(running.lib.calls("CloseGripper")), len(running.lib.calls("OpenGripper"))), (1, 1))
         self.assertEqual(running.lib.calls("Speed"), [(ord("A"), 20)])
 
-    def test_a_client_that_disconnects_leaves_the_session_for_the_next(self):
+    def test_disconnect_keeps_the_session(self):
         running = self.start()
         with running.arm() as arm:
             arm.where()
@@ -293,7 +398,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(running.result["code"], 0)
         self.assertEqual(len(running.lib.calls("Home")), 1)
 
-    def test_a_move_call_that_never_returns_ends_serving_busy(self):
+    def test_hung_move_call(self):
         release = threading.Event()
         saved = home.STOP_GRACE_S
         home.STOP_GRACE_S = 0.05
@@ -321,7 +426,7 @@ class ServerTests(unittest.TestCase):
         running.thread.join(5)
         self.assertEqual(running.result["code"], 0)
 
-    def test_a_client_that_vanishes_mid_move_gets_the_arm_stopped(self):
+    def test_vanishing_client_stops_the_arm(self):
         release = threading.Event()
         running = self.start(FakeLib(MoveJoint=lambda *args: release.wait(0.8) and 1))
         raw = socket.create_connection(("127.0.0.1", running.port), timeout=5)
@@ -337,7 +442,98 @@ class ServerTests(unittest.TestCase):
             self.assertTrue(arm.ping()["homed"])
             arm.quit()
 
-    def test_garbage_lines_get_an_error_reply_and_serving_goes_on(self):
+    def test_a_second_client_is_told_the_server_is_busy(self):
+        running = self.start()
+        with running.arm() as first:
+            first.where()
+            with socket.create_connection(("127.0.0.1", running.port), timeout=5) as second:
+                second.sendall(b'{"op": "where", "id": 1}\n')      # a client that already asked something must still read the line
+                reply = json.loads(second.makefile("rb").readline())      # within the 5 s socket timeout, or the test fails
+            self.assertEqual((reply["ok"], reply["busy"]), (False, True))
+            self.assertIn("busy", reply["error"])
+            first.quit()
+
+    def test_a_second_client_does_not_disturb_the_first(self):
+        running = self.start()
+        with running.arm() as first:
+            first.where()
+            with socket.create_connection(("127.0.0.1", running.port), timeout=5) as second:
+                second.makefile("rb").readline()
+            first.move_by(dx=1)              # the first client still gets its own reply
+        with running.arm() as next_client:   # and its disconnect still keeps the session
+            next_client.quit()
+        running.thread.join(5)
+        self.assertEqual((running.result["code"], len(running.lib.calls("Home")), running.lib.calls("Stop")), (0, 1, []))
+
+    def test_a_second_client_waits_for_a_running_move(self):
+        release = threading.Event()
+        running = self.start(FakeLib(MoveJoint=lambda *args: release.wait(5) and 1))
+        first = running.arm()
+        first._write({"op": "move_by", "dx": 5, "id": 1})
+        for _ in range(100):
+            if running.lib.calls("MoveJoint"):
+                break
+            threading.Event().wait(0.02)
+        second = socket.create_connection(("127.0.0.1", running.port), timeout=0.3)
+        with self.assertRaises(socket.timeout):     # nothing is answered while the DLL call runs
+            second.makefile("rb").readline()
+        self.assertEqual(running.lib.calls("Stop"), [])
+        release.set()
+        self.assertTrue(json.loads(first._readline())["ok"])      # the move's own reply comes first
+        second.settimeout(5)
+        self.assertTrue(json.loads(second.makefile("rb").readline())["busy"])
+        second.close()
+        first.quit()
+        first.close()
+        self.assertEqual(running.lib.calls("Stop"), [])
+
+    def test_an_accept_error_does_not_end_the_first_clients_session(self):
+        class Aborting:
+            timeouts = []
+
+            def settimeout(self, value):
+                self.timeouts.append(value)
+
+            def accept(self):
+                raise ConnectionAbortedError("a client gave up while connecting")
+
+        server._turn_away_waiting_clients(Aborting(), Log())       # must return, not raise
+        self.assertEqual(Aborting.timeouts[-1], server.IDLE_POLL_S)
+
+    def test_reconnecting_clients_cannot_hold_the_server_in_the_busy_loop(self):
+        class Peer:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                self.closed = True
+
+            def sendall(self, _data):
+                pass
+
+            def shutdown(self, _how):
+                pass
+
+            def settimeout(self, _value):
+                pass
+
+            def recv(self, _size):
+                return b""
+
+        class Endless:
+            accepted = 0
+
+            def settimeout(self, _value):
+                pass
+
+            def accept(self):
+                Endless.accepted += 1
+                return Peer(), ("127.0.0.1", 50000 + Endless.accepted)
+
+        server._turn_away_waiting_clients(Endless(), Log())       # a client always waiting: it must still return
+        self.assertEqual(Endless.accepted, server.MAX_TURNED_AWAY)
+
+    def test_garbage_lines(self):
         running = self.start()
         with socket.create_connection(("127.0.0.1", running.port), timeout=5) as raw:
             raw.sendall(b"not json\n[1]\n")

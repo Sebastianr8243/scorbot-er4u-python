@@ -92,7 +92,7 @@ class MoveTests(unittest.TestCase):
                                                 "GetCurrentPosition", "DefineVector", "Teach", "MoveJoint"})
         self.assertFalse(set(FORBIDDEN) & set(move.SIGNATURES))
 
-    def test_the_call_order_is_define_teach_move_then_the_position_delta(self):
+    def test_call_order(self):
         lib = FakeLib(GetCurrentPosition=position())
         code, log, state = self.go(lib, axis="y", mm=-5)
         self.assertEqual(code, 0)
@@ -115,14 +115,14 @@ class MoveTests(unittest.TestCase):
             self.assertEqual(lib.calls("MoveJoint"), [])
             self.assertFalse(state["busy"])
 
-    def test_a_refused_move_is_reported_and_leaves_the_session_clean(self):
+    def test_move_refused(self):
         lib = FakeLib(MoveJoint=lambda *args: 0)
         code, log, state = self.go(lib)
         self.assertEqual(code, 7)
         self.assertFalse(log.first("move_returned")["ok"])
         self.assertFalse(state["busy"])
 
-    def test_the_stop_key_calls_stop_and_ends_with_a_nonzero_code(self):
+    def test_stop_key(self):
         release = threading.Event()
         lib = FakeLib(MoveJoint=lambda *args: release.wait(0.5) and 1)
         try:
@@ -133,7 +133,7 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(lib.calls("Stop"), [(ord("&"),)])
         self.assertIn("stop_requested", log.names())
 
-    def test_a_move_that_runs_past_the_timeout_is_stopped_and_stays_busy_while_it_runs(self):
+    def test_move_timeout(self):
         release = threading.Event()
         lib = FakeLib(MoveJoint=lambda *args: release.wait(5))
         saved = move.home.STOP_GRACE_S
@@ -148,7 +148,7 @@ class MoveTests(unittest.TestCase):
         self.assertEqual(len(lib.calls("Stop")), 1)
         self.assertTrue(state["busy"])
 
-    def test_a_position_call_that_never_returns_leaves_the_session_busy(self):
+    def test_hung_position_call(self):
         release = threading.Event()
         lib = FakeLib(GetCurrentPosition=lambda *args: release.wait(5))
         try:
@@ -160,7 +160,7 @@ class MoveTests(unittest.TestCase):
         self.assertIn("PHYSICAL STOP", state["busy_note"])
         self.assertEqual(lib.calls("MoveJoint"), [])
 
-    def test_a_whole_simulated_run_turns_control_on_then_off(self):
+    def test_simulated_run(self):
         done_calls = []
         lib = FakeLib(Initialization=lambda mode, kind, done, error: (done_calls.append(mode), done(None), 1)[2],
                       GetCurrentPosition=position())
