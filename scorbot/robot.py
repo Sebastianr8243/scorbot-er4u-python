@@ -208,7 +208,7 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
                 self._device = device
                 self.transport_used = "pyusb"
                 # Kept on purpose: ERUSB.sys never resets, but a reset may also clear a stale reply that the
-                # handshake would accept as fresh (Codex review, unverified on hardware). Drop it only after a lab test.
+                # handshake would accept as fresh (review finding, unverified on hardware). Drop it only after a lab test.
                 device.reset()
                 try:
                     interface_number = device[0].interfaces()[0].bInterfaceNumber
