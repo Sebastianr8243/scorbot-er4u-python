@@ -6,7 +6,6 @@ import io
 import json
 from pathlib import Path
 import tempfile
-import time
 import unittest
 from unittest import mock
 
@@ -35,13 +34,6 @@ def connection_commands():
 
 
 class ProbeTests(unittest.TestCase):
-    def setUp(self):
-        # The handshake's legacy delays are real; these tests check bytes, not timing.
-        real_sleep = time.sleep
-        sleeping = mock.patch("time.sleep", lambda seconds: real_sleep(seconds / 20))
-        sleeping.start()
-        self.addCleanup(sleeping.stop)
-
     def test_probe_has_exact_connect_command_set_and_pinned_full_handshake(self):
         sets = []
         for use_probe in (False, True):
