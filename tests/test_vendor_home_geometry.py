@@ -54,7 +54,6 @@ class NarrowSwitchTests(unittest.TestCase):
 
     def test_the_roll_requirement_is_the_vendors_offset_not_an_accident_of_the_model(self):
         self.assertEqual(vh.AXES[vh.WRIST_M2].offset, -690)
-        self.assertLess(690, 800)
 
 
 class ZeroLandsAtEdgePlusOffsetTests(unittest.TestCase):

@@ -8,6 +8,13 @@ not cover a ctypes DLL load or a plain `python -m unittest` run (no conftest the
 import pytest
 
 
+def pytest_configure(config):
+    # Create the git-ignored data.json once, before xdist starts its workers: workers that
+    # create it together can read a half-written file.
+    from openScorbot import conf
+    conf.setup()
+
+
 def _no_real_usb(*args, **kwargs):
     raise AssertionError("a test reached real USB discovery (conftest.py backstop)")
 

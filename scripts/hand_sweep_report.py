@@ -141,7 +141,7 @@ def _recorded_states(rows, angles):
 def _unwrap_counts(states):
     """Each joint's counts relative to the first sample, the largest step per joint and the jumps skipped."""
     relative = {j: [0] for j in JOINTS}
-    steps = {j: 0 for j in JOINTS}
+    steps = dict.fromkeys(JOINTS, 0)
     jumps = 0
     for previous, current in zip(states, states[1:]):
         for joint in JOINTS:

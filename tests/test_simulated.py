@@ -22,7 +22,7 @@ class EncoderTests(unittest.TestCase):
         from scorbot.simulated import encode_packet
         from scorbot.state import JOINTS, decode_state
         for value in (0, 1, -1, 142, -142, -65535, 65535):
-            counts = {name: 0 for name in JOINTS}
+            counts = dict.fromkeys(JOINTS, 0)
             counts["base"] = value
             state = decode_state(encode_packet(counts, switch_bits=5), connected=True,
                                  enabled=False, homed=False, fault=None)

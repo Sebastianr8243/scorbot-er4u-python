@@ -184,6 +184,7 @@ class RecorderTests(unittest.TestCase):
 
     def test_stuck_writer_leaves_no_sidecar_and_stop_returns(self):
         never = threading.Event()
+        self.addCleanup(never.set)
 
         entered = threading.Event()
 
@@ -203,10 +204,12 @@ class RecorderTests(unittest.TestCase):
 
     def test_stop_is_bounded_even_if_closing_the_camera_hangs(self):
         import time
+        release = threading.Event()
+        self.addCleanup(release.set)
 
         class HangingClose(FakeSource):
             def close(self):
-                threading.Event().wait()
+                release.wait()
         recorder = self.recorder(HangingClose())
         recorder.start()
         started = time.monotonic()
@@ -225,6 +228,7 @@ class RecorderTests(unittest.TestCase):
     def test_stream_close_hang_does_not_block_stop(self):
         import time
         never = threading.Event()
+        self.addCleanup(never.set)
         self.stream.close = lambda: never.wait()
         recorder = self.recorder(FakeSource())
         recorder.start()

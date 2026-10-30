@@ -154,7 +154,9 @@ class ClientTests(unittest.TestCase):
         port = self.serve([lambda r: (gate.wait(5), [])[1], lambda r: []])
         started = time.monotonic()
         with bridge.Arm(port=port, timeout=30) as arm:
-            threading.Timer(0.3, _thread.interrupt_main).start()
+            timer = threading.Timer(0.3, _thread.interrupt_main)
+            self.addCleanup(timer.cancel)       # a setup failure must not leave it to interrupt the next test
+            timer.start()
             with self.assertRaises(KeyboardInterrupt):
                 arm.where()
             elapsed = time.monotonic() - started

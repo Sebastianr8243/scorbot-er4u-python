@@ -10,13 +10,13 @@ from scorbot.state import JOINTS
 
 
 def state(index, base=100, switches=0, fault=None):
-    raw = {joint: 100 for joint in JOINTS}
+    raw = dict.fromkeys(JOINTS, 100)
     raw["base"] = base
     return {
         "packet_index": index, "fault": fault, "enabled": True, "homed": True,
         "encoder_counts": raw, "signed_encoder_counts": raw.copy(),
-        "encoder_sign_bytes": {joint: 128 for joint in JOINTS},
-        "controller_error_counts": {joint: 0 for joint in JOINTS},
+        "encoder_sign_bytes": dict.fromkeys(JOINTS, 128),
+        "controller_error_counts": dict.fromkeys(JOINTS, 0),
         "home_switch_bits": switches,
     }
 
