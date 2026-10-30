@@ -207,8 +207,9 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
                     raise ScorbotError("ER-4U USB controller 09F1:0007 was not found")
                 self._device = device
                 self.transport_used = "pyusb"
-                # No device.reset(): ERUSB.sys never resets the port (LAB_BUILD_FINDINGS.md, C2). Unverified
-                # whether the reset caused the 2026-10-06 failure; this only removes the difference.
+                # Kept on purpose: ERUSB.sys never resets, but a reset may also clear a stale reply that the
+                # handshake would accept as fresh (Codex review, unverified on hardware). Drop it only after a lab test.
+                device.reset()
                 try:
                     interface_number = device[0].interfaces()[0].bInterfaceNumber
                     if device.is_kernel_driver_active(interface_number):

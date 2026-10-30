@@ -97,7 +97,7 @@ class ConnectTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, fake_usb(device)):
             robot.connect()
         self.assertIs(robot._device, device)
-        self.assertEqual(device.resets, 0)                # ERUSB.sys never resets the port; neither do we
+        self.assertEqual(device.resets, 1)                # kept: the reset may clear a stale reply before the handshake
         self.assertFalse(robot._enabled)
         robot._command.assert_called_with([16, 1, 1])     # the handshake energises, so it disables at once
         events = robot.log_path.read_text(encoding="utf-8").splitlines()
@@ -169,7 +169,7 @@ class ConnectTests(unittest.TestCase):
             robot.connect()
             with self.assertRaisesRegex(ScorbotError, "Already connected"):
                 robot.connect()
-        self.assertEqual(device.resets, 0)
+        self.assertEqual(device.resets, 1)
 
 
 if __name__ == "__main__":
