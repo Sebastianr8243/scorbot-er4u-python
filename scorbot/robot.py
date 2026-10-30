@@ -207,6 +207,8 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
                     raise ScorbotError("ER-4U USB controller 09F1:0007 was not found")
                 self._device = device
                 self.transport_used = "pyusb"
+                # Kept on purpose: ERUSB.sys never resets, but a reset may also clear a stale reply that the
+                # handshake would accept as fresh (review finding, unverified on hardware). Drop it only after a lab test.
                 device.reset()
                 try:
                     interface_number = device[0].interfaces()[0].bInterfaceNumber
@@ -216,12 +218,11 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
                     # Kernel driver management is unavailable on some Windows backends.
                     pass
                 interface = device.get_active_configuration()[(0, 0)]
+                # The driver pins OUT 0x02 and IN 0x83 (LAB_BUILD_FINDINGS.md, C3); do the same, never "first of each".
                 endpoint_in = usb.util.find_descriptor(
-                    interface, custom_match=lambda endpoint:
-                    usb.util.endpoint_direction(endpoint.bEndpointAddress) == usb.util.ENDPOINT_IN)
+                    interface, custom_match=lambda endpoint: endpoint.bEndpointAddress == 0x83)
                 endpoint_out = usb.util.find_descriptor(
-                    interface, custom_match=lambda endpoint:
-                    usb.util.endpoint_direction(endpoint.bEndpointAddress) == usb.util.ENDPOINT_OUT)
+                    interface, custom_match=lambda endpoint: endpoint.bEndpointAddress == 0x02)
                 if endpoint_in is None or endpoint_out is None:
                     raise ScorbotError("The USB controller endpoints were not found")
             # Copies packets during jogs (motion_trace); packets are unchanged.

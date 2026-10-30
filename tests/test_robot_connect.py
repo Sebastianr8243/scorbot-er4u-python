@@ -18,13 +18,14 @@ class FakeEndpoint:
         self.wMaxPacketSize = 64
 
 
-def fake_usb(device, in_endpoint=True, out_endpoint=True):
+def fake_usb(device, in_endpoint=True, out_endpoint=True, decoys=()):
     class USBError(Exception):
         pass
 
     core = types.SimpleNamespace(find=lambda **kw: device, USBError=USBError)
-    endpoints = {0x83: FakeEndpoint(0x83) if in_endpoint else None,
-                 0x02: FakeEndpoint(0x02) if out_endpoint else None}
+    endpoints = {address: FakeEndpoint(address) for address in decoys}   # listed first, like a first-match picker would hit
+    endpoints.update({0x83: FakeEndpoint(0x83) if in_endpoint else None,
+                      0x02: FakeEndpoint(0x02) if out_endpoint else None})
 
     def find_descriptor(interface, custom_match):
         for endpoint in (e for e in endpoints.values() if e is not None):
@@ -96,7 +97,7 @@ class ConnectTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, fake_usb(device)):
             robot.connect()
         self.assertIs(robot._device, device)
-        self.assertEqual(device.resets, 1)
+        self.assertEqual(device.resets, 1)                # kept: the reset may clear a stale reply before the handshake
         self.assertFalse(robot._enabled)
         robot._command.assert_called_with([16, 1, 1])     # the handshake energises, so it disables at once
         events = robot.log_path.read_text(encoding="utf-8").splitlines()
@@ -120,6 +121,23 @@ class ConnectTests(unittest.TestCase):
                     with self.assertRaisesRegex(ScorbotError, "endpoints were not found"):
                         robot.connect()
                 self.assertIsNotNone(robot._fault)
+
+    def test_endpoints_are_the_driver_pair_not_the_first_of_each_direction(self):
+        # ERUSB.sys hard-codes OUT 0x02 and IN 0x83 (docs/protocol/LAB_BUILD_FINDINGS.md, C3).
+        robot, device = self.robot(), FakeDevice()
+        with mock.patch.dict(sys.modules, fake_usb(device, decoys=(0x81, 0x01))):
+            robot.connect()
+        self.assertEqual(robot._input.bEndpointAddress, 0x83)
+        robot._sync_thread.join(1)
+        endpoint_out = robot._run_sync_worker.call_args.args[3]   # the worker is patched; it got the OUT endpoint
+        self.assertEqual(endpoint_out.bEndpointAddress, 0x02)
+
+    def test_a_device_without_the_driver_endpoints_is_refused_not_guessed(self):
+        robot = self.robot()
+        with mock.patch.dict(sys.modules, fake_usb(FakeDevice(), in_endpoint=False, decoys=(0x81,))):
+            with self.assertRaisesRegex(ScorbotError, "endpoints were not found"):
+                robot.connect()
+        self.assertIsNotNone(robot._fault)
 
     def test_a_failed_disable_after_the_handshake_latches_cleans_up_and_refuses_a_retry(self):
         # The handshake energises the motors; if the disable that follows fails, the session must say so.
