@@ -219,7 +219,7 @@ sequenceDiagram
     participant F as Scorbot.connect
     participant M as libsync.msg_start
     participant U as USB controller
-    F->>U: find 09F1:0007, reset, detach kernel driver, find endpoints
+    F->>U: find 09F1:0007, detach kernel driver, find endpoints 0x83 and 0x02 (no reset)
     F->>M: msg_start with wrapped IN endpoint
     M->>U: pkt1 six-byte commands until sequence byte reaches 4
     M->>U: send_wait idle packets until buffer byte 1 equals 13

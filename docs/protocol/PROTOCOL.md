@@ -14,7 +14,7 @@ Conventions:
 | Item | Value | Status | Source |
 |---|---|---|---|
 | Device | VID:PID 09F1:0007 | K | `scorbot/robot.py:connect`, `openScorbot/gui.py` |
-| Interface / endpoints | Interface 0, alt 0 of the active configuration. First endpoint with direction IN and first with direction OUT. Addresses, transfer type and `wMaxPacketSize` are not in the code | K (selection), U (addresses, type, size) | `scorbot/robot.py:connect` |
+| Interface / endpoints | Interface 0, alt 0 of the active configuration. Endpoints pinned by address to match `ERUSB.sys`: IN `0x83`, OUT `0x02` (LAB_BUILD_FINDINGS.md C3, C4); a device without both is refused. Transfer type is bulk and size 64, from the thesis dump and bring-up step 1, not from the code | K (selection), U (type, size) | `scorbot/robot.py:connect` |
 | Read buffer | `usb.util.create_buffer(wMaxPacketSize)`, zero-filled, reused for every read; one shared buffer for both worker threads | K | `scorbot/robot.py:connect` |
 | OUT message length | `MSG_LEN = 128` **hex characters**; `fill_msg` pads with `'0'` characters and `bytes.fromhex` gives **64 bytes** | K | `openScorbot/conf.py:setup`, `libdef.py:set_msg` |
 | Exchange | Strict lockstep: one write, sleep `WRITE`, one read into the shared buffer, sleep `READ`. No message is sent before the previous read returns | K | `libdef.py:check` |
