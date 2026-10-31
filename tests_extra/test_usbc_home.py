@@ -8,6 +8,8 @@ import os
 import tempfile
 import threading
 import unittest
+import unittest.mock
+import contextlib
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -393,6 +395,53 @@ class ArgumentTests(unittest.TestCase):
     def test_no_home_needs_online(self):
         with self.assertRaises(SystemExit):
             tool.main(["--dll-dir", ".", "--simulate", "--no-home", "--output", "x.jsonl"])
+
+
+class PauseBeforeInitTests(unittest.TestCase):
+    """--pause-before-init stops after the DLL is loaded and before Initialization, so a hook can attach first."""
+
+    def run_main(self, extra, typed):
+        """Run main() against a fake library; ``typed`` is what input() does: a string, or an exception to raise."""
+        calls = []
+        lib = FakeLib(Initialization=lambda *_a: calls.append("init") or 1)
+
+        def fake_input(_prompt=""):
+            if isinstance(typed, BaseException):
+                raise typed
+            return typed
+
+        with tempfile.TemporaryDirectory() as folder,                 unittest.mock.patch.object(tool, "load_library", return_value=(lib, str(Path(folder) / "USBC.dll"))),                 unittest.mock.patch.object(tool, "file_facts", return_value={"sha256": "0" * 64}),                 unittest.mock.patch.object(tool, "run", side_effect=lambda *a, **k: calls.append("run") or 0),                 unittest.mock.patch("builtins.input", fake_input),                 redirect_stdout(io.StringIO()) as out:
+            code = tool.main(["--dll-dir", folder, "--simulate", "--output", str(Path(folder) / "log.jsonl")] + extra)
+            events = [json.loads(line)["event"] for line in (Path(folder) / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+        return code, calls, events, out.getvalue()
+
+    def test_enter_releases_the_pause_and_the_run_starts(self):
+        code, calls, events, out = self.run_main(["--pause-before-init"], "")
+        self.assertEqual((code, calls), (0, ["run"]))
+        self.assertLess(events.index("paused"), events.index("pause_released"))
+        self.assertIn(str(os.getpid()), out)
+
+    def test_ctrl_c_at_the_pause_never_runs_the_controller(self):
+        code, calls, events, _ = self.run_main(["--pause-before-init"], KeyboardInterrupt())
+        self.assertEqual((code, calls), (1, []))
+        self.assertIn("pause_cancelled", events)
+        self.assertNotIn("pause_released", events)
+
+    def test_closed_stdin_at_the_pause_never_runs_the_controller(self):
+        code, calls, events, _ = self.run_main(["--pause-before-init"], EOFError())
+        self.assertEqual((code, calls), (1, []))
+        self.assertIn("pause_cancelled", events)
+
+    def test_without_the_flag_nothing_waits(self):
+        code, calls, events, _ = self.run_main([], EOFError())      # input() would raise if it were called
+        self.assertEqual((code, calls), (0, ["run"]))
+        self.assertNotIn("paused", events)
+
+    def test_the_pause_does_not_apply_to_probe(self):
+        err = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+            tool.main(["--dll-dir", ".", "--probe", "--pause-before-init"])
+        self.assertIn("--pause-before-init only applies", err.getvalue())
 
 
 class ControlOnHangTests(unittest.TestCase):
