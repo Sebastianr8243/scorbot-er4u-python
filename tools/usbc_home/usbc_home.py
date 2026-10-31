@@ -239,6 +239,25 @@ class Console:
         return msvcrt.kbhit() and msvcrt.getwch().lower() == "s"
 
 
+def wait_for_go(log):
+    """Wait for Enter before Initialization. False (nothing started) on Ctrl+C or a closed stdin."""
+    log.event("paused", pid=os.getpid())
+    print(f"Process id {os.getpid()}. Attach the capture hook now, then press Enter to initialise the controller "
+          "(online, this energises the motors and homes). Ctrl+C cancels.")
+    # Only a bare Enter on a terminal releases it. input() is not used: at end of input it returns a final
+    # line that has no newline, so piped text such as "cancel" would have started the motors.
+    try:
+        line = sys.stdin.readline() if sys.stdin.isatty() else None
+    except (EOFError, KeyboardInterrupt, ValueError, OSError):
+        line = None
+    if line not in ("\n", "\r\n"):
+        log.event("pause_cancelled")
+        print("Cancelled before Initialization (only Enter on a terminal continues); the controller was not touched.")
+        return False
+    log.event("pause_released")
+    return True
+
+
 def run(dll, log, simulate, console, do_home=True, action=None):
     """Initialization, control on, Home, control off, close. Returns an exit code.
 
@@ -378,9 +397,14 @@ def main(argv=None):
     parser.add_argument("--operator", help="initials, written to the log")
     parser.add_argument("--no-home", action="store_true",
                         help="with --online: connect, read emergency, control on then off, close; never call Home")
+    parser.add_argument("--pause-before-init", action="store_true",
+                        help="after the DLL is loaded and before Initialization, print the process id and wait for Enter "
+                             "(Ctrl+C or a closed stdin cancels), so a capture hook can attach first")
     args = parser.parse_args(argv)
     if args.no_home and not args.online:
         parser.error("--no-home only applies to --online")
+    if args.pause_before_init and args.probe:
+        parser.error("--pause-before-init only applies to --online or --simulate")
     if not args.probe and not args.output:
         args.output = default_output("home", args.simulate)
     source = {True: "vendor_dll_simulated"}.get(args.simulate, "vendor_dll")
@@ -395,6 +419,8 @@ def main(argv=None):
         log.event("dll", **facts, python=sys.version.split()[0], ini=ini_facts(args.dll_dir))
         if args.online:
             check_fingerprint(facts["sha256"], log)
+        if args.pause_before_init and not wait_for_go(log):
+            return 1
         return run(VendorDll(lib), log, args.simulate, Console(), not args.no_home)
     except ToolError as error:
         log.event("error", message=str(error))

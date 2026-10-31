@@ -8,6 +8,8 @@ import os
 import tempfile
 import threading
 import unittest
+import unittest.mock
+import contextlib
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -393,6 +395,90 @@ class ArgumentTests(unittest.TestCase):
     def test_no_home_needs_online(self):
         with self.assertRaises(SystemExit):
             tool.main(["--dll-dir", ".", "--simulate", "--no-home", "--output", "x.jsonl"])
+
+
+class FakeStdin:
+    """What the pause reads: a terminal (or not) that yields these lines, then end of input."""
+
+    def __init__(self, lines, tty=True, raises=None):
+        self.lines = list(lines)
+        self.tty = tty
+        self.raises = raises
+
+    def isatty(self):
+        return self.tty
+
+    def readline(self):
+        if self.raises:
+            raise self.raises
+        return self.lines.pop(0) if self.lines else ""
+
+
+class PauseBeforeInitTests(unittest.TestCase):
+    """--pause-before-init stops after the DLL is loaded and before Initialization, so a hook can attach first.
+
+    These run the real main() and the real run() against a fake library, so "never reaches the controller"
+    means no export of the library was called at all.
+    """
+
+    def run_main(self, extra, stdin):
+        lib, _ = make_dll()
+        with tempfile.TemporaryDirectory() as folder, \
+                unittest.mock.patch.object(tool, "load_library", return_value=(lib, str(Path(folder) / "USBC.dll"))), \
+                unittest.mock.patch.object(tool, "file_facts", return_value={"sha256": "0" * 64}), \
+                unittest.mock.patch("sys.stdin", stdin), \
+                redirect_stdout(io.StringIO()) as out:
+            code = tool.main(["--dll-dir", folder, "--simulate", "--output", str(Path(folder) / "log.jsonl")] + extra)
+            events = [json.loads(line)["event"]
+                      for line in (Path(folder) / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+        called = sorted(name for name, export in lib.exports.items() if export.calls)
+        return code, called, events, out.getvalue()
+
+    def assert_cancelled_before_the_controller(self, result):
+        code, called, events, _ = result
+        self.assertEqual((code, called), (1, []))                  # no export of the DLL was touched
+        self.assertIn("pause_cancelled", events)
+        self.assertNotIn("pause_released", events)
+        self.assertNotIn("init_returned", events)
+
+    def test_enter_releases_the_pause_and_initialization_follows_it(self):
+        code, called, events, out = self.run_main(["--pause-before-init"], FakeStdin(["\n"]))
+        self.assertEqual(code, 0)
+        self.assertIn("Initialization", called)
+        self.assertLess(events.index("dll"), events.index("paused"))
+        self.assertLess(events.index("paused"), events.index("pause_released"))
+        self.assertLess(events.index("pause_released"), events.index("init_returned"))
+        self.assertIn(str(os.getpid()), out)
+
+    def test_ctrl_c_at_the_pause_never_reaches_the_controller(self):
+        self.assert_cancelled_before_the_controller(
+            self.run_main(["--pause-before-init"], FakeStdin([], raises=KeyboardInterrupt())))
+
+    def test_end_of_input_at_the_pause_never_reaches_the_controller(self):
+        self.assert_cancelled_before_the_controller(self.run_main(["--pause-before-init"], FakeStdin([])))
+
+    def test_text_that_ends_without_a_newline_does_not_release_the_pause(self):
+        # input() returns such a partial line at end of input instead of raising, which once released the gate.
+        self.assert_cancelled_before_the_controller(self.run_main(["--pause-before-init"], FakeStdin(["cancel"])))
+
+    def test_typed_text_is_not_an_enter_press(self):
+        self.assert_cancelled_before_the_controller(self.run_main(["--pause-before-init"], FakeStdin(["go\n"])))
+
+    def test_input_that_is_not_a_terminal_never_releases_the_pause(self):
+        self.assert_cancelled_before_the_controller(
+            self.run_main(["--pause-before-init"], FakeStdin(["\n"], tty=False)))
+
+    def test_without_the_flag_nothing_waits_and_stdin_is_not_read(self):
+        code, called, events, _ = self.run_main([], FakeStdin([], raises=AssertionError("stdin was read")))
+        self.assertEqual(code, 0)
+        self.assertIn("Initialization", called)
+        self.assertNotIn("paused", events)
+
+    def test_the_pause_does_not_apply_to_probe(self):
+        err = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+            tool.main(["--dll-dir", ".", "--probe", "--pause-before-init"])
+        self.assertIn("--pause-before-init only applies", err.getvalue())
 
 
 class ControlOnHangTests(unittest.TestCase):

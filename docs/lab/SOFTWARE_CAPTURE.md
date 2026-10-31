@@ -2,7 +2,7 @@
 
 Goal: get one real recording of what the vendor's `USBC.dll` sends the controller and what the controller answers during Home, then compare it with what Stack 2's port of Home sends. Everything about the arm is unverified until a bench log backs it.
 
-This is the same recording [USB_CAPTURE.md](USB_CAPTURE.md) makes with USBPcap, taken from inside the vendor process instead. The hook needs no extra driver and no Wireshark, but it cannot be used for a real run until the Home tool can pause (see Steps). Until then use USBPcap.
+This is the same recording [USB_CAPTURE.md](USB_CAPTURE.md) makes with USBPcap, taken from inside the vendor process instead. The hook needs no extra driver and no Wireshark. It needs the Home tool started with `--pause-before-init` (see Steps); USBPcap is the fallback.
 
 ## What runs the arm and what does not
 
@@ -25,14 +25,12 @@ The hook only watches. The arm moves because the vendor tool is told to home.
 
 ## Steps
 
-**Blocked until the Home tool can pause.** `tools/usbc_home/usbc_home.py --online` has no pause: it loads the DLL, initialises the controller, turns control on and starts Home in one go. If it is started first, the motors are energised and Home begins before the hook can be attached, and the hook then misses the device open. Do not run it for this capture as it is. The capture needs a tool that loads the DLL, prints its process id and waits for a keypress before Initialization. That is a change to a hardware tool and needs its own tests and review; it is not part of this page. Until then, USBPcap ([USB_CAPTURE.md](USB_CAPTURE.md)) is the way to record the vendor Home.
+**Always pass `--pause-before-init`.** Without it, `tools/usbc_home/usbc_home.py --online` loads the DLL, initialises the controller, turns control on and starts Home in one go: the motors are energised and Home begins before the hook can be attached, and the hook misses the device open. With the flag, the tool loads the DLL, prints its process id and waits for Enter before Initialization. Only Enter typed at a terminal continues; Ctrl+C, end of input, piped input or any other text cancels with nothing started. The flag is unit-tested with a fake library only; it has not been run against the arm or against the real DLL with the hook.
 
-Once such a pause exists, the order is:
-
-1. Start the Home tool so it stops at the pause. Note its process id (`Get-Process python`).
+1. Start the Home tool with the flag: `python32 tools\usbc_home\usbc_home.py --dll-dir DIR --online --pause-before-init`. It stops at the pause and prints its process id.
 2. **Attach the hook while it waits**: `frida -p <pid> -l tools\usbc_capture\hook_io.js`. Only handles opened after the attach are logged.
 3. Check the hook's first message says `loaded: true` and `arch: ia32`.
-4. With the person running the lab present and saying go, press the key to continue. Watch the arm and keep a hand by the red stop.
+4. With the person running the lab present and saying go, press Enter to continue. Watch the arm and keep a hand by the red stop.
 5. When Home finishes or fails, wait 5 seconds, then stop the hook (Ctrl+C in the frida window).
 6. Look at the log: the first line must be an `open` with a path containing `ERUSBDevice0`. If there is no `open` line, the DLL opened the device another way or the hook attached too late. Do not use the capture; run USBPcap instead ([USB_CAPTURE.md](USB_CAPTURE.md) recipe A).
 7. Copy `frida_io.jsonl` to a folder outside the repository and record the DLL's size and SHA-256 next to it.
