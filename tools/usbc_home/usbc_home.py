@@ -244,11 +244,15 @@ def wait_for_go(log):
     log.event("paused", pid=os.getpid())
     print(f"Process id {os.getpid()}. Attach the capture hook now, then press Enter to initialise the controller "
           "(online, this energises the motors and homes). Ctrl+C cancels.")
+    # Only a bare Enter on a terminal releases it. input() is not used: at end of input it returns a final
+    # line that has no newline, so piped text such as "cancel" would have started the motors.
     try:
-        input()
-    except (EOFError, KeyboardInterrupt):
+        line = sys.stdin.readline() if sys.stdin.isatty() else None
+    except (EOFError, KeyboardInterrupt, ValueError, OSError):
+        line = None
+    if line not in ("\n", "\r\n"):
         log.event("pause_cancelled")
-        print("Cancelled before Initialization; the controller was not touched.")
+        print("Cancelled before Initialization (only Enter on a terminal continues); the controller was not touched.")
         return False
     log.event("pause_released")
     return True

@@ -25,7 +25,7 @@ The hook only watches. The arm moves because the vendor tool is told to home.
 
 ## Steps
 
-**Always pass `--pause-before-init`.** Without it, `tools/usbc_home/usbc_home.py --online` loads the DLL, initialises the controller, turns control on and starts Home in one go: the motors are energised and Home begins before the hook can be attached, and the hook misses the device open. With the flag, the tool loads the DLL, prints its process id and waits for Enter before Initialization. Ctrl+C or a closed stdin cancels with nothing started. The flag is unit-tested with a fake library only; it has not been run against the arm or against the real DLL with the hook.
+**Always pass `--pause-before-init`.** Without it, `tools/usbc_home/usbc_home.py --online` loads the DLL, initialises the controller, turns control on and starts Home in one go: the motors are energised and Home begins before the hook can be attached, and the hook misses the device open. With the flag, the tool loads the DLL, prints its process id and waits for Enter before Initialization. Only Enter typed at a terminal continues; Ctrl+C, end of input, piped input or any other text cancels with nothing started. The flag is unit-tested with a fake library only; it has not been run against the arm or against the real DLL with the hook.
 
 1. Start the Home tool with the flag: `python32 tools\usbc_home\usbc_home.py --dll-dir DIR --online --pause-before-init`. It stops at the pause and prints its process id.
 2. **Attach the hook while it waits**: `frida -p <pid> -l tools\usbc_capture\hook_io.js`. Only handles opened after the attach are logged.
