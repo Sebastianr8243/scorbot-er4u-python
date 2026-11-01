@@ -41,6 +41,7 @@
 | Packet codec (`scorbot/transport/`) | E3 | no | `tests/test_transport_codec.py` | Not wired into `Scorbot` |
 | Joint jog, streaming, gripper, inch home, software stop | E2 | no | `tests/`, `tests_extra/` | Never ran on the arm |
 | Simulator, recording, replay (`scorbot/session/`) | E2 | no | `tests/` | Offline only |
+| LeRobot plugin (`plugins/lerobot_robot_scorbot`) | E2 | no | `examples/lerobot_sim_check.py` against lerobot 0.6.1 in its own venv (2026-11-01: `lerobot-record`, reload, replay), `tests_extra/test_lerobot_scorbot_plugin.py` | Simulator only, real arm refused; no gripper yet |
 
 ## Critical path
 
@@ -59,7 +60,7 @@ Steps and pass lines: [`lab/LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) section 3b.
 | Decision | Needed before |
 |---|---|
 | Driver for the visit: Intelitek's (`--transport auto`) or WinUSB via Zadig (`pyusb`, swap back before leaving) | The 2026-11-02 visit |
-| Installing `lerobot` (new dependency) | The LeRobot wrapper |
+| Installing `lerobot` (new dependency) | The LeRobot wrapper (done in a separate venv for the simulator check; the repo itself still does not depend on it) |
 | Near-home confirmation, shoulder travel bound, BACKLOG 20 (`project/BACKLOG.md (in git history)`) | Stack 2 streaming on the arm |
 
 ## Not covered here
