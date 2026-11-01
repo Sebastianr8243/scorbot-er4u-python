@@ -19,7 +19,7 @@ This is an engineering lab. The red physical stop is the only emergency stop.
 
 ## Layers
 
-Two stacks. **Stack 1 (vendor DLL) is how the arm moves today.** Stack 2 (our own USB protocol) is the long-term no-DLL goal and has never moved the arm; its one real home attempt failed (2026-10-06).
+Two stacks. **Stack 2 (our own USB protocol) is the main path** (decision 2026-10-31: LeRobot VLAs as a teaching tool, no vendor DLL). It has not moved the arm yet; its one real home attempt failed (2026-10-06), and the next try is the 2026-11-02 lab visit. **Stack 1 (vendor DLL) is the backup**, and the only path that has moved the arm (vendor Home, 2026-10-20).
 
 Stack 1:
 

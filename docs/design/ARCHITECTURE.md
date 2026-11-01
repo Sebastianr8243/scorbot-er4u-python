@@ -2,7 +2,7 @@
 
 Status: describes the code as of 2026-09-29. Nothing here is verified on hardware; see section 10.
 
-> **2026-10-20:** this page describes Stack 2 (our own USB protocol), which has not moved the arm. The arm runs through Stack 1, Intelitek's `USBC.dll` driven by `tools/usbc_*` and the Python API `scorbot/bridge.py` (the vendor Home ran on 2026-10-20). Map of both: root `CONTRIBUTING.md`, "Layers".
+> **2026-11-01:** this page describes Stack 2 (our own USB protocol), the main path since 2026-10-31. It has not moved the arm yet. Stack 1, Intelitek's `USBC.dll` driven by `tools/usbc_*` and `scorbot/bridge.py`, is the backup and the only path that has (vendor Home, 2026-10-20). The newer parts (`scorbot/vendor_home.py`, `scorbot/transport/`) are described in `docs/protocol/LEDGER.md`, not here. Map of both: root `CONTRIBUTING.md`, "Layers".
 
 Related: [PROTOCOL.md](../protocol/PROTOCOL.md) (packet layout), SAFETY_CASE.md (hazards and controls), [HARDWARE_REFERENCE.md](../manual/HARDWARE_REFERENCE.md) (manual facts), EXPERIMENT_RECORDING.md (MCAP sessions), [USB_CAPTURE.md](../lab/USB_CAPTURE.md) (USBPcap traces).
 

@@ -1,6 +1,6 @@
 # Stack 2: our own USB protocol (`scorbot.Scorbot`)
 
-> **Experimental.** This is the long-term no-DLL path. It has never moved the arm; its one real home attempt (2026-10-06) failed. To move the arm today use the vendor-DLL path: [lab/RUN_THE_ARM.md](lab/RUN_THE_ARM.md) and [API.md](API.md). Moved here from the old README unchanged apart from this banner and link paths.
+> **The main path since 2026-10-31, not yet run on the arm.** Its one real home attempt (2026-10-06) failed; the next try is the 2026-11-02 lab visit ([lab/LAB_CHECKLIST.md](lab/LAB_CHECKLIST.md), `scripts/lab_day.py`). The vendor-DLL path stays as the backup: [lab/RUN_THE_ARM.md](lab/RUN_THE_ARM.md) and [API.md](API.md). The rest of this page moved here from the old README with only link paths changed.
 
 This repository contains the original OpenScorbot USB controller code and a small Python adapter for the **Intelitek ScorBot ER-4U**. The current milestone is supervised Python control through the original controller. The adapter exposes fresh raw USB responses, legacy homing, and small **relative** joint jogs. Calibrated absolute base/shoulder/elbow moves are gated behind per-arm physical measurements and a validated calibration file. It does not provide Cartesian motion, a verified software stop, or autonomous control.
 
@@ -16,7 +16,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m scorbot.preflight
 ```
 
-Going to the lab? Start with lab/LAB_VISIT_HANDOFF.md (in git history). To move this working version to the robot PC, clone or download the branch you intend to test, or build a ZIP with `python scripts/build_bench_kit.py`. For the first lab visit, keep the short G1 lab card open or printed. The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`.
+Going to the lab? Start with lab/LAB_VISIT_HANDOFF.md (in git history). To move this working version to the robot PC, clone or download the branch you intend to test, or build a ZIP with `python scripts/build_bench_kit.py`. For a lab visit, keep [lab/LAB_CHECKLIST.md](lab/LAB_CHECKLIST.md) open or printed. The kit includes the verified Zadig 2.9 USB driver tool when it is present under `dist/usb-tools/`.
 
 The preflight only enumerates USB; it does not reset or command the robot. The original controller is identified in the legacy code as USB vendor/product `09F1:0007`. PyUSB also needs a libusb backend and a compatible Windows device driver. The `windows` extra supplies a libusb library, but it does not change the device driver. See the [PyUSB Windows FAQ](https://github.com/pyusb/pyusb/blob/master/docs/faq.rst) if discovery fails. Confirm the driver choice for your lab setup before changing it, since it may affect the Intelitek software. Follow the [Windows bench runbook](lab/WINDOWS_BENCH_RUN.md) on the robot PC.
 

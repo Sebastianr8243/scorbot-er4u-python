@@ -10,7 +10,7 @@ Written 2026-10-26. A research pass over `docs/protocol/*.md` and an independent
 
 ## Not established
 
-- **Whether `ERUSB.sys` honours `CancelSynchronousIo`.** Unknown (line 429). The research pass said "no native driver timeout"; the source says only that any bound lives in the unexamined driver. `DeviceLink`'s timeout depends on this.
+- **Whether `ERUSB.sys` honours `CancelSynchronousIo`.** Answered at the desk on 2026-10-31 (`docs/protocol/LEDGER.md` PL30 to PL32): the driver waits up to 5 s itself, then returns no bytes, and the request is never cancellable. Unverified on the arm (lab step T).
 - **Reply latency 15.9 to 17.6 ms (mean 16.9).** Attributed to Figure 18 of the ULPGC thesis's SCORBASE capture (`BRING_UP_SEQUENCE.md` line 45). No raw capture is in the repo and `references/` is absent, so it cannot be recomputed. It is a secondary-source number; the interpretation that it is the controller's 16 ms cadence is an inference.
 - **What the controller does when the stream stops.** The thesis reports control loss and the POWER LED going green to orange (`ULPGC_THESIS_FINDINGS.md` line 21, "qualitative support", no timeout). The research pass called this capture-observed; it is not. The host must therefore stop on its own (hold, then stop) and must not rely on a controller watchdog.
 - **6500 counts per second.** The source leaves speed units unresolved (`VENDOR_DLL_PROTOCOL.md` line 317). Treat it as a prior.
@@ -29,6 +29,6 @@ Read from the thesis PDF (`references/`, not committed) and `openScorbot/`. Unch
 ## What this means for the build
 
 - The fake controller's latency model is a thesis number plus the vendor's own pacing, not a measurement. Timing from it is not evidence about the real controller, and must never be compared with a real session (repo rule: real and simulated data never share a comparison).
-- `tests/fixtures/vendor_home_trace04.json` is the vendor DLL recorded against a fake (`vendor_home_model.Plant`). Byte matching against it is valid; its timing is not.
+- `tests/fixtures/vendor_home_trace05.json` (the lab DLL, with gripper end stops; it replaced `trace04` on 2026-10-31) is the vendor DLL recorded against a fake (`vendor_home_model.Plant`). Byte matching against it is valid; its timing is not.
 - Adaptive pacing stays off by default. The echoed-ID lag is already measured by `vendor_home_source.py` (`lag_first`, `lag_max`); reuse that.
 - Safe-stop is host-side. Do not design around the controller dropping power.
