@@ -64,9 +64,10 @@ class ClampTests(unittest.TestCase):
 
     def test_bad_state_or_cap_holds_the_motor(self):
         for bad in (math.nan, math.inf, -math.inf):
-            for target, measured in (({**ZERO, "base": bad}, ZERO), (ZERO, {**ZERO, "base": bad})):
-                new, clamped = self.clamp({"base": 0.3}, target=target, measured=measured)
-                self.assertEqual((new["base"], clamped), (target["base"], ["base"]), bad)
+            new, clamped = self.clamp({"base": 0.3}, measured={**ZERO, "base": bad})
+            self.assertEqual((new["base"], clamped), (0.0, ["base"]), bad)
+            with self.assertRaises(ValueError):
+                self.clamp({"base": 0.3}, target={**ZERO, "base": bad})
             new, clamped = self.clamp({"base": 0.3}, cap_deg=bad)
             self.assertEqual((new["base"], clamped), (0.0, ["base"]), bad)
 

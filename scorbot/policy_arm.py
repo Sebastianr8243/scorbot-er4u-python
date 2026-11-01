@@ -29,14 +29,18 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX
     home, and kept within lead_margin_deg of the measured position. The step limit always wins:
     when feedback jumps or the last target sits past the cap, the target walks back one step at a
     time (the lead and the overshoot only shrink). Unknown motors, non-finite numbers (delta,
-    target, measured or cap) and missing motors are ignored (the motor holds).
-    Returns (target, clamped_motors).
+    measured or cap) and missing motors are ignored (the motor holds). A non-finite last target
+    raises ``ValueError``: holding it would hand it on. Returns (target, clamped_motors).
     """
+    def finite(v):
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
     out, clamped = dict(target_deg), []
     for motor, asked in (delta_deg or {}).items():
-        if motor not in MOTORS or not all(isinstance(v, (int, float)) and not isinstance(v, bool)
-                                          and math.isfinite(v) for v in (asked, target_deg.get(motor),
-                                          measured_deg.get(motor), cap_deg)) or cap_deg < 0:
+        if motor in MOTORS and not finite(target_deg.get(motor)):
+            raise ValueError(f"last target for {motor} is not a finite number: {target_deg.get(motor)!r}")
+        if motor not in MOTORS or not all(finite(v) for v in (asked, measured_deg.get(motor), cap_deg)) \
+                or cap_deg < 0:
             clamped.append(motor)
             continue
         base = target_deg[motor]
