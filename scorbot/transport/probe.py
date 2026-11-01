@@ -28,8 +28,11 @@ def read_status(robot):
 
 
 def summarise(rows):
-    """Reply spacing and echo lag from ``PacketTrace`` rows (``out``/``in``, host ns, hex); pure."""
+    """Reply spacing, echo lag and repeated replies from ``PacketTrace`` rows (``out``/``in``, host ns, hex); pure.
+
+    ``repeats`` counts replies whose echoed ID equals the previous reply's, and the longest run of them."""
     sent_id, lags, times = None, Counter(), []
+    last_echo, run, repeats = None, 0, {"count": 0, "longest": 0}
     for row in rows:
         data = bytes.fromhex(row["hex"])
         if row["direction"] == "out":
@@ -37,12 +40,18 @@ def summarise(rows):
         else:
             times.append(row["host_monotonic_ns"])
             lags[echo_lag(sent_id, data) if sent_id else None] += 1
+            echo = data[0] if data else None
+            run = run + 1 if echo is not None and echo == last_echo else 0
+            repeats["count"] += run > 0
+            repeats["longest"] = max(repeats["longest"], run)
+            last_echo = echo
     gaps = sorted((b - a) / 1e6 for a, b in zip(times, times[1:]))
     if not gaps:
-        return {"replies": len(times), "lag": dict(lags)}
+        return {"replies": len(times), "lag": dict(lags), "repeats": repeats}
     return {"replies": len(times), "lag": dict(sorted(lags.items(), key=lambda kv: (kv[0] is None, kv[0]))),
             "gap_ms": {"min": gaps[0], "median": statistics.median(gaps),
-                       "p95": gaps[int(0.95 * (len(gaps) - 1))], "max": gaps[-1]}}
+                       "p95": gaps[int(0.95 * (len(gaps) - 1))], "max": gaps[-1]},
+            "repeats": repeats}
 
 
 def measure(robot, reads, log=None, timeout_s=None):

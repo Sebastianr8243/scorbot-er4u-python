@@ -89,7 +89,17 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result["replies"], 3)
         self.assertEqual(result["lag"], {0: 1, 2: 1, None: 1})        # echo 0 is unreadable
         self.assertEqual(result["gap_ms"], {"min": 10.0, "median": 16.0, "p95": 10.0, "max": 22.0})
-        self.assertEqual(probe.summarise([row("in", 5, 3)]), {"replies": 1, "lag": {None: 1}})
+        self.assertEqual(result["repeats"], {"count": 0, "longest": 0})
+        self.assertEqual(probe.summarise([row("in", 5, 3)]), {"replies": 1, "lag": {None: 1},
+                                                              "repeats": {"count": 0, "longest": 0}})
+
+    def test_summarise_counts_replies_that_repeat_the_last_echoed_id(self):
+        # The vendor-home gripper drive skips such replies and stops after 10 in a row (lab step P measures it).
+        def row(direction, first):
+            return {"direction": direction, "host_monotonic_ns": 0, "hex": bytes([first] + [0] * 63).hex()}
+        echoes = [5, 6, 6, 6, 7, 8, 8]
+        rows = [r for e in echoes for r in (row("out", e), row("in", e))]
+        self.assertEqual(probe.summarise(rows)["repeats"], {"count": 3, "longest": 2})
 
     def test_reads_times_idle_replies_and_logs_to_a_new_file_only(self):
         with tempfile.TemporaryDirectory() as folder:
