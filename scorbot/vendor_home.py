@@ -8,7 +8,7 @@ transport; ``encode_out`` and ``decode_reply`` turn the two ends into the 64-byt
 Where it comes from. The order, the per-axis search types, the coupled-motor drives and the ``48``
 zeroing follow ``docs/protocol/VENDOR_HOMING_TRACE.md``. The command sequence was checked against a
 recording of Intelitek's own ``USBC.dll`` running ``Home('A')`` against a fake controller
-(``tests/fixtures/vendor_home_trace04.json``, ``tests/test_vendor_home.py``). The OUT bytes are the
+(``tests/fixtures/vendor_home_trace05.json``, ``tests/test_vendor_home.py``). The OUT bytes are the
 vendor's; the replies in that recording were a model of the arm, and the real controller's
 acceptance is unverified (root ``CONTRIBUTING.md``, changed 2026-10-08).
 
@@ -23,8 +23,10 @@ Where it differs from the vendor, on purpose (a safety margin, not a port):
 * An impact flag during a search is a fault (a type 14 or 15 search treats it as a hard stop and
   reverses, like a stall). A switch that is not found, a move that does not settle, and a gripper
   that never reaches an end stop are faults; the vendor would carry on and zero the counts.
-* The gripper drives end on a stall (after ``GRIPPER_MIN_TRAVEL``) or an impact flag. The vendor's
-  rule for ending a gripper move was not traced.
+* The gripper drives end on the vendor's stall check (``docs/protocol/LEDGER.md``: every ``impact_ticks``
+  cycles, at most ``impact_enc`` counts of motion, then ``47`` before ``4D 0``) or an impact flag, after
+  ``GRIPPER_MIN_TRAVEL``. The check starts after the vendor's 10 cycles plus the measured lag. The vendor
+  also ends a gripper move after 120 ticks with no stall and carries on; here that is ``ERR_GRIPPER``.
 * On any ``HomeError`` the generator first yields the stop (``47``, ``4D 0`` to every motor, two
   cycles, hold the setpoints at the measured position, ``4F FF 53``) and only then raises. The caller must keep driving it until it raises,
   then switch the motors off. None of these errors is an emergency stop. A caller that abandons the
@@ -85,8 +87,8 @@ TICK_STALL_LIMIT = 4
 """Stalled ticks in a row that end a type 16 search (the types 14 and 15 use their own, 4 and 1, and reverse)."""
 GRIPPER_MAX_CYCLES = 600
 GRIPPER_MAX_SECONDS = 30.0
-GRIPPER_STALL_CYCLES = 25
-GRIPPER_STALL_COUNTS = 4
+GRIPPER_GRACE_CYCLES = 10
+"""Cycles after a gripper drive before its stall check starts, plus the measured lag (the vendor: 10 ticks)."""
 GRIPPER_MIN_TRAVEL = 200
 """A gripper drive must travel this far before a stall counts as the end of its travel."""
 
@@ -445,7 +447,7 @@ class _Run:
     def gripper_drive(self, value, *, at_end_ok=False):
         """Drive the gripper to the end of its travel: it stalls, or flags an impact.
 
-        Motor on, mode T, the drive, ``4D 0``, then the gripper switched off again (``73 20``, ``42 20``).
+        Motor on, mode T, the drive, ``47``, ``4D 0``, then the gripper switched off again (``73 20``, ``42 20``).
         Raises ``HomeError`` for: moving against the drive, travelling past ``max_distance`` or taking
         longer than ``GRIPPER_MAX_SECONDS`` or ``GRIPPER_MAX_CYCLES``, and a stall or impact before
         ``GRIPPER_MIN_TRAVEL`` (the gripper's count is zeroed afterwards, so a half-finished move would
@@ -456,9 +458,10 @@ class _Run:
         yield from self.modes(MODE_T, (GRIPPER,))
         yield from self.send(MOVE, 1 << GRIPPER, 0, value)
         self.driven = {GRIPPER: value}
+        cfg = AXES[GRIPPER]
         start, t_start = self.reply.counts[GRIPPER], self.reply.now
-        window_start, window_cycles = start, 0
-        for _ in range(GRIPPER_MAX_CYCLES):
+        sample = start
+        for n in range(1, GRIPPER_MAX_CYCLES + 1):
             yield from self.cycle()
             position = self.reply.counts[GRIPPER]
             travelled = abs(position - start)
@@ -471,19 +474,17 @@ class _Run:
             ended = None
             if self.reply.impact & 0x20:
                 ended = "impact"
-            else:
-                window_cycles += 1
-                if window_cycles >= GRIPPER_STALL_CYCLES:
-                    if abs(position - window_start) < GRIPPER_STALL_COUNTS:
-                        ended = "stall"
-                    else:
-                        window_start, window_cycles = position, 0
+            elif n % cfg.impact_ticks == 0:
+                if n >= GRIPPER_GRACE_CYCLES + self.reply.lag and abs(position - sample) <= cfg.impact_enc:
+                    ended = "stall"
+                sample = position
             if ended:
                 if travelled < GRIPPER_MIN_TRAVEL and not at_end_ok:
                     raise HomeError(ERR_GRIPPER, f"gripper {ended} before it moved", GRIPPER)
                 break
         else:
             raise HomeError(ERR_GRIPPER, "gripper never reached the end of its travel", GRIPPER)
+        yield from self.send(CLEAR)
         yield from self.send(MOVE, 1 << GRIPPER, 0, 0)
         self.driven = {}
         yield from self.gripper_off()

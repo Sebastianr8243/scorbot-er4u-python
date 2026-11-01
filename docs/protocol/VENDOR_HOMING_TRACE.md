@@ -192,7 +192,7 @@ So homing m1 is a pitch motion (motors opposite) and homing m2 is a roll motion 
   2. Mode H, drive -V, wait on. Stop.
 
   This type has no stall or distance check.
-- **Type 17** (gripper): open, wait for the gripper routine to report done, wait 15 cycles, close, wait, wait 20. What ends a gripper move (`0x10023e7e`) was not traced.
+- **Type 17** (gripper): open, wait for the gripper routine to report done, wait 15 cycles, close, wait, wait 20. What ends a gripper move was traced on 2026-10-31 in another build (`LEDGER.md` PL20 to PL25): a stall check or a 120-reply countdown, and neither wait fails the home.
 - Types 10, 18 and 19 exist (other robots) and are not used on an ER-4u.
 
 **Stall and distance reversal (types 14 and 15).** On each pass the search loop does two checks:

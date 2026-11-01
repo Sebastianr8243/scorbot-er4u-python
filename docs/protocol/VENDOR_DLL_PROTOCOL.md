@@ -385,7 +385,7 @@ Read on 2026-10-05 from the 2018 build. Everything here is read from the decompi
 | 3 | `4D 20` + a signed 32-bit value | `0x1003f89c` | Move with a drive value. With the shipped `ER4Ax6.ini` open sends -165 and close +165 (correction from `VENDOR_HOMING_TRACE.md`) |
 
 - The value in message 3 is a signed 16-bit per-axis parameter (at offset `0x3d6` of the axis block). The same builder is what the exported `MoveTorque` uses, so mode `T` plus `4D` reads as "drive the motor with this torque", not "go to this position". Which INI key holds the value was not traced.
-- A countdown is then set to `0x78` (120); its unit, and what ends the move, were not traced. Elsewhere the DLL raises an "End of Gripper movement" notification and re-enables control.
+- A countdown is then set to `0x78` (120). Traced 2026-10-31 (`LEDGER.md` PL20 to PL25): it drops by one per controller reply, and the move ends on a stall (at most `ImpactCondEnc` counts of motion in `ImpactCondTicks` ticks; `47` first) or when it runs out, which is not an error.
 - If the gripper is already at the requested end (its percentage is 0 or 100 and every axis is in position), nothing is sent.
 - On an ER-4u (`SystemType` `0x29`, which is also the default when the key is missing), `OpenGripper` may call `JawMetric` instead when a condition (`0x10023b1e`, not traced) holds. Correction from `VENDOR_HOMING_TRACE.md`: `0x29` is the ER-4u type, not a servo gripper.
 
@@ -397,7 +397,7 @@ Read on 2026-10-05 from the 2018 build. Everything here is read from the decompi
 | Extra command | none | `4C 20 00` ("Slave Cmd"; the vendor has a builder for it at `0x1003f96a`, but the gripper routine does not call it) |
 | Motor on | `42 20 01` | `42 20 01` |
 | Motion | one `4D` message with a drive value | about 45 `0D` messages ramping the gripper position setpoint by a fixed 2700 counts |
-| End | not traced | `73 20`, `42 20` |
+| End | stall or countdown: `47` (stall only), `4D 20 0`, `73 20`, `42 20`, and `48 20 0` after a close (`LEDGER.md` PL22 to PL24) | `73 20`, `42 20` |
 
 So the two close the gripper by different means: the vendor pushes with a set drive for a time, the legacy code asks for a position. The vendor's way has a natural grip force (the drive value). The legacy way has none: against an object the setpoint runs far past where the jaws stopped.
 
@@ -406,7 +406,7 @@ So the two close the gripper by different means: the vendor pushes with a set dr
 - `Scorbot.move_gripper` uses the **legacy** sequence, fixed (`tests_extra/test_gripper.py`). Every command byte in it is already in `openScorbot/libhex.py`, which the packet rule allows; `4C` has not yet been sent to the arm by this project.
 - The vendor's sequence needs `4D` and a single-axis mode `T`, which the legacy code never sends. Under the packet rule it needs a capture first (S1 card: one open and one close in SCORBASE).
 - First trials on the arm are with empty jaws, then a soft object (lab day card, step F).
-- Still to read: what ends the vendor's gripper move, the drive value's INI key, and the gripper's count limits in the vendor's terms (section 11.5 lists -200 to 6000).
+- Still to read: the gripper's count limits in the vendor's terms (section 11.5 lists -200 to 6000). What ends the move and the drive value's INI key (`[Homing] Velocity`) are now known (`LEDGER.md`).
 
 ## 13. Homing: the counters are zeroed
 

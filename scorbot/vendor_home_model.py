@@ -3,7 +3,7 @@
 Used by the simulator (``SimulatedController`` runs the vendor home against it) and by the tests.
 
 It is the same model that stood in for the controller when Intelitek's ``USBC.dll`` ran its Home
-against a named pipe (``tests/fixtures/vendor_home_trace04.json`` was recorded with it), so the
+against a named pipe (``tests/fixtures/vendor_home_trace05.json`` was recorded with it), so the
 port can be checked against that recording. It is a model, not the arm:
 
 * 6 axes: 0 base, 1 shoulder, 2 elbow, 3 wrist m1, 4 wrist m2, 5 gripper. Bit N of an OUT mask and
@@ -11,6 +11,9 @@ port can be checked against that recording. It is a model, not the arm:
 * Mode ``T``/``H``: a ``4D`` value moves the axis every message, and a positive value LOWERS the counts.
 * Mode ``S``: the axis follows the setpoint in OUT bytes ``12 + 4N`` at a limited rate.
 * ``48``: re-zero the reported count (reported = physical + offset).
+* The gripper starts half open, stops at its ends (the vendor's -200 to 6000 counts) and moves at its own
+  gain, so a stroke is shorter than the vendor's 120-tick gripper timer and ends on the vendor's stall check
+  (``tests/fixtures/vendor_home_trace05.json``; the same model as ``tools/usbc_fake/pipe_server.py``).
 * Each axis has a switch band in JOINT coordinates (shoulder S, elbow E + S/2, pitch (m1 - m2)/2 - E/2,
   roll (m1 + m2)/2), set while the joint is inside it. The shoulder's band is above the start, the
   others below.
@@ -23,6 +26,9 @@ from . import vendor_home as vh
 DRIVE_GAIN = 0.1
 FOLLOW_STEP = 400
 BANDS = {0: (-4500, -2500), 1: (2500, 4500), 2: (-4500, -2500), 3: (-4500, -2500), 4: (-4500, -2500)}
+GRIPPER_GAIN = 0.5
+GRIPPER_STOPS = (-200, 6000)
+GRIPPER_START = 3000
 
 
 def s32(data, at):
@@ -30,15 +36,17 @@ def s32(data, at):
 
 
 class Plant:
-    def __init__(self, bands=None, start=None, gain=None, frozen=(), gripper_range=(-3000, 3000)):
-        """``gain`` is counts per message per unit of drive (negative flips the drive sign), ``frozen``
-        axes never move, ``gripper_range`` are the gripper's end stops in physical counts."""
+    def __init__(self, bands=None, start=None, gain=None, frozen=(), gripper_range=GRIPPER_STOPS):
+        """``gain`` is counts per message per unit of drive (negative flips the drive sign; the gripper
+        moves ``GRIPPER_GAIN / DRIVE_GAIN`` times faster), ``frozen`` axes never move, ``gripper_range``
+        are the gripper's end stops in physical counts. The gripper reads 0 at the start."""
         self.bands = dict(BANDS if bands is None else bands)
         self.gain = DRIVE_GAIN if gain is None else gain
+        self.gripper_gain = self.gain * GRIPPER_GAIN / DRIVE_GAIN
         self.frozen = set(frozen)
         self.gripper_range = gripper_range
-        self.phys = [float(x) for x in (start or (0,) * 6)]
-        self.off = [0.0] * 6
+        self.phys = [float(x) for x in (start or (0,) * 5 + (GRIPPER_START,))]
+        self.off = [0.0] * 5 + [-self.phys[5]]
         self.mode = ["P"] * 6
         self.drive = [0] * 6
         self.impact = 0
@@ -78,7 +86,7 @@ class Plant:
             if n in self.frozen:
                 continue
             if self.mode[n] in "TH" and self.drive[n]:
-                self.phys[n] -= self.drive[n] * self.gain
+                self.phys[n] -= self.drive[n] * (self.gripper_gain if n == 5 else self.gain)
             elif self.mode[n] == "S":
                 target = s32(data, 12 + 4 * n) - self.off[n]
                 self.phys[n] += max(-FOLLOW_STEP, min(FOLLOW_STEP, target - self.phys[n]))

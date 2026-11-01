@@ -19,7 +19,7 @@ from scorbot.robot import Scorbot
 from scorbot.vendor_home_source import VENDOR_HOME_ORDER, VendorHomeSource
 from tests.vendor_home_plant import Plant
 
-FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "vendor_home_trace04.json").read_text(encoding="utf-8"))
+FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "vendor_home_trace05.json").read_text(encoding="utf-8"))
 
 
 class Wire:

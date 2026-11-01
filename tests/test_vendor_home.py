@@ -1,6 +1,6 @@
 """scorbot.vendor_home: the vendor's Home as a pure state machine, checked against a recording.
 
-``tests/fixtures/vendor_home_trace04.json`` is every command Intelitek's own ``USBC.dll`` sent while
+``tests/fixtures/vendor_home_trace05.json`` is every command Intelitek's own ``USBC.dll`` sent while
 running ``Home('A')`` against a model of the arm on a named pipe (``tests/vendor_home_plant.py`` is
 that model). The port must send the same non-``0D`` commands in the same order. That proves the OUT
 bytes are the vendor's; the replies were a model, and the real controller's acceptance is unverified.
@@ -15,7 +15,9 @@ from pathlib import Path
 from scorbot import vendor_home as vh
 from tests.vendor_home_plant import Plant, commands, run, run_generator
 
-FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "vendor_home_trace04.json").read_text(encoding="utf-8"))
+FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "vendor_home_trace05.json").read_text(encoding="utf-8"))
+"""The lab DLL against the gripper-stop model: trace04 (2008 build, no gripper stops, so its gripper moves
+ended on the vendor's timer) plus a ``47`` before each gripper ``4D 0``, which the vendor sends on a stall."""
 
 
 def as_lists(steps):
@@ -184,7 +186,7 @@ class SafetyTests(unittest.TestCase):
         with self.assertRaises(vh.HomeError) as caught:
             run(plant, max_cycles=5000)
         self.assertEqual(caught.exception.code, vh.ERR_DIRECTION)
-        self.assertLess(max(abs(x) for x in plant.phys), 600)      # far less than one switch band
+        self.assertLess(max(abs(x) for x in plant.phys[:5]), 600)  # far less than one switch band (the gripper starts at 3000)
 
     def test_a_stalled_type_16_search_is_caught_within_about_two_seconds_not_after_the_150_cycle_window(self):
         # Shoulder and wrist roll are type 16: the vendor has no stall check for them at all. The stall
@@ -351,6 +353,24 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
         outs, _ = run_generator(make(True), Plant(), on_cycle=lambda n, p: setattr(p, "impact", 0x20))
         self.assertEqual(outs[-1].cmd, vh.MOTORS)                          # ended and switched off normally
+
+    def test_a_gripper_stall_ends_like_the_vendor_clear_first_and_within_a_few_cycles(self):
+        # The lab DLL checks every ImpactCondTicks (2) cycles for at most ImpactCondEnc (2) counts of motion,
+        # then sends 47 before 4D 0 (trace05; docs/protocol/LEDGER.md). Half open to the open stop is 3000 counts.
+        outs, _ = run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Plant())
+        cmds = [o.cmd for o in outs]
+        drive, stop = cmds.index(vh.MOVE), len(cmds) - 1 - cmds[::-1].index(vh.MOVE)
+        self.assertEqual(cmds[stop - 1], vh.CLEAR)
+        stroke = -(-3000 // int(165 * 0.5))
+        self.assertLessEqual(stop - drive, stroke + 8)
+
+    def test_a_late_controller_does_not_make_a_gripper_look_stalled(self):
+        plant = Plant()
+
+        def late(n, p):
+            p.frozen = {vh.GRIPPER} if n < 45 else set()     # the replies show no motion for the first 40 cycles
+        run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), plant, on_cycle=late, lag=40)
+        self.assertEqual(plant.reported(vh.GRIPPER), 3000)                   # half open to the open stop
 
     def test_a_gripper_that_keeps_moving_hits_its_travel_bound(self):
         import dataclasses
