@@ -83,7 +83,7 @@ Never mix real and SIMULATED sessions or compare their timing.
 
 ## Open unknowns
 
-- Does ERUSB honour `CancelSynchronousIo`? DeviceLink's timeout depends on it; no bench answer exists.
+- ERUSB and `CancelSynchronousIo`: read from the driver (2026-10-31, `docs/protocol/LEDGER.md` PL30 to PL32), a read waits about 5 s inside the driver and the cancel almost certainly cannot end it sooner; `device_file` raises that empty read as a timeout. Unverified on the arm: lab step T measures it.
 - What happens when the stream stops? No controller timeout figure exists. Stop is host-side;
   never depend on a controller watchdog to cut power.
 - Zadig/WinUSB breaks the Intelitek vendor path until its driver is restored. Prefer ERUSB first.

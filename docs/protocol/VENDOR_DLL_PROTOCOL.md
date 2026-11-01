@@ -404,8 +404,8 @@ So the two close the gripper by different means: the vendor pushes with a set dr
 ### 12.3 What this means for us
 
 - `Scorbot.move_gripper` uses the **legacy** sequence, fixed (`tests_extra/test_gripper.py`). Every command byte in it is already in `openScorbot/libhex.py`, which the packet rule allows; `4C` has not yet been sent to the arm by this project.
-- The vendor's sequence needs `4D` and a single-axis mode `T`, which the legacy code never sends. Under the packet rule it needs a capture first (S1 card: one open and one close in SCORBASE).
-- First trials on the arm are with empty jaws, then a soft object (lab day card, step F).
+- The vendor's sequence needs `4D` and a single-axis mode `T`, which the legacy code never sends. Under the packet rule it needs a capture first (one open and one close in SCORBASE, recorded).
+- First trials on the arm are with empty jaws, then a soft object (the empty-jaws rule is lab step G in `docs/lab/LAB_CHECKLIST.md`).
 - Still to read: the gripper's count limits in the vendor's terms (section 11.5 lists -200 to 6000). What ends the move and the drive value's INI key (`[Homing] Velocity`) are now known (`LEDGER.md`).
 
 ## 13. Homing: the counters are zeroed
@@ -426,7 +426,7 @@ The whole homing routine and the coupled-motor arithmetic are traced in `VENDOR_
 
 **Transport (V, 2008 build, communication thread `FUN_1003bc88`).** The DLL opens the driver's device name (the `DriverLink` entry of `USBC.INI`, `\.\ERUSBDevice0` in the shipped file) with `CreateFileA`: access `0xC0000000` (read and write), share mode **0** (exclusive), `OPEN_EXISTING`, flags **0** (not overlapped). It then calls `WriteFile` with 64 bytes and, after a sleep of half the PC period, `ReadFile` for 64 bytes, both with a NULL `OVERLAPPED`. A write that is not 64 bytes, or a read that is neither 0 nor 64 bytes, is an error; **a zero-byte read is counted and retried, and ten in a row end the attempt.** No `DeviceIoControl`, `CreateEvent`, `GetOverlappedResult` or `CancelIo` appears anywhere in the DLL. The consequences: only one program can hold the device (SCORBASE, `usbc_home` and our own code exclude each other), and a read has no timeout of its own: whatever bounds it lives in Intelitek's driver (`ERUSB.sys`), which we have not read.
 
-`scorbot/transport/device_file.py` does the same in Python (blocking 64-byte `WriteFile`/`ReadFile`, same retry rule, a `CancelSynchronousIo` watchdog for the timeout the pyusb path had). Unit-tested against a fake kernel32 only; never opened a device; whether `ERUSB.sys` honours the cancel is unknown.
+`scorbot/transport/device_file.py` does the same in Python (blocking 64-byte `WriteFile`/`ReadFile`, same retry rule, a `CancelSynchronousIo` watchdog for the timeout the pyusb path had). Unit-tested against a fake kernel32 only; never opened a device. Read from `ERUSB.sys` since (2026-10-31, `LEDGER.md` PL30 to PL32): the driver waits about 5 s itself and the cancel cannot end it sooner, so `device_file` raises an empty read that took the whole timeout as `TimeoutError`.
 
 **Intelitek's own SDK (V, `scorbase_files/Programming Interface/`, local only, never committed).** The SCORBASE package ships `USBC.h`, `USBCDEF.h`, `USBC.lib` and a C++/MFC demo, `Demo application1/ManualMove` (header date 2003, readme 2001). What it shows:
 

@@ -23,6 +23,8 @@ Only the last link differs. The AI side talks to a `Robot` interface (`get_obser
 
 ## Decision (2026-10-26, proposed)
 
+> **Superseded 2026-10-31:** Stack 2 is the main path (LeRobot VLAs with no vendor DLL); Stack 1 is the backup. Kept below as it was proposed.
+
 1. Stack 1 first: a LeRobot-style `Robot` class over `bridge.py`, tested with `FakeArm`, then run at the lab with a person present at the arm.
 2. Stack 2 step zero in the same visit if time allows: read state and make one 1 degree jog.
 3. Stack 2 streaming and speed only after step 2 works.
@@ -31,5 +33,5 @@ Only the last link differs. The AI side talks to a `Robot` interface (`get_obser
 
 - **Done (`stack2-optimize`, f22ed65):** `libdef` reads `MAX_COUNT`, `MSG_LEN`, `TIME_OUT_W` once at import instead of parsing `data.json` per USB message. About 1.7 ms of a ~21 ms cycle (estimate from 0.33 ms per read; the old code was not timed). Bytes and sleeps unchanged. An independent review found nothing; the tests ran: 1434 passed.
 - **Bigger speed gain:** the 8 to 19 ms sleeps. The vendor DLL waits half of `PCPeriod` (8 ms) between write and read, and only 1 ms before the next message when the controller's queue is shallow (`VENDOR_DLL_PROTOCOL.md` section 5). An off-by-default adaptive pacing is possible at the desk; turning it on needs a 1 degree jog on the arm and a `scripts/usb_trace.py compare` capture.
-- **Driver conflict:** pyusb needs WinUSB (Zadig), which removes ERUSB and breaks Stack 1 (what happened 2026-10-20). `scorbot/transport/device_file.py` opens `\\.\ERUSBDevice0` the way the DLL does, so Stack 2 could run on Intelitek's driver. Tested against a fake only; whether ERUSB honours the timeout cancel is unknown.
+- **Driver conflict:** pyusb needs WinUSB (Zadig), which removes ERUSB and breaks Stack 1 (what happened 2026-10-20). `scorbot/transport/device_file.py` opens `\\.\ERUSBDevice0` the way the DLL does, so Stack 2 could run on Intelitek's driver. Tested against a fake only. Read from `ERUSB.sys` since (2026-10-31, `docs/protocol/LEDGER.md` PL30 to PL32): the driver waits about 5 s itself and the cancel cannot cut it short.
 - **LeRobot:** branch `lerobot-adapter` has a plugin over `PolicyArm`, simulator only, built on Stack 2 streaming and unverified against an installed LeRobot.
