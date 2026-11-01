@@ -16,6 +16,7 @@ Run from the repo root: these files import helpers as `tests.<name>`.
 | `test_gripper.py`, `test_bench_gripper.py` | The gripper: legacy `clamp` loop, `move_gripper`, the bench trial |
 | `test_camera_*.py` | Webcam capture |
 | `test_rerun_view.py`, `test_plot.py`, `test_arm_chain.py`, `test_notes.py` | Viewers, plots, the link chain, the notes sheet |
+| `test_mujoco_twin.py` | The MuJoCo twin's tool tip, joint spans and pose hold against `arm_chain` and the manual; skips without `mujoco` |
 | `test_build_calibration_csv.py`, `test_kinematics.py` | Offline calibration and kinematics tools |
 | `test_usbc_peread.py`, `test_usbc_query.py` | Ghidra dump tools |
 | `test_usbc_fake.py` | `tools/usbc_fake`: the fake arm's switch bands and drives, and the guards that refuse a `DriverLink` that is not the pipe |
