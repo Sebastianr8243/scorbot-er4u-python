@@ -35,16 +35,26 @@ class ReadTimeoutCheckTests(unittest.TestCase):
         self.assertFalse([c for c in api.calls if c[0] == "write"])
         self.assertEqual(api.calls[-1][0], "close")
 
-    def test_a_read_that_ends_in_five_seconds_passes(self):
+    def timed(self, error):
         times = iter([100.0, 105.0])
         original = rtc.time.monotonic
         rtc.time.monotonic = lambda: next(times)
         try:
-            seconds, outcome = rtc.check(_Link(TimeoutError("driver gave up")), 1500)
+            return rtc.check(_Link(error), 1500)
         finally:
             rtc.time.monotonic = original
-        self.assertEqual(seconds, 5.0)
-        self.assertIn("timeout", outcome)
+
+    def test_a_timeout_that_ends_in_five_seconds_passes(self):
+        seconds, kind, _ = self.timed(TimeoutError("driver gave up"))
+        self.assertEqual((seconds, kind), (5.0, "timeout"))
+        self.assertTrue(rtc.passed(seconds, kind))
+
+    def test_only_a_timeout_passes_however_long_it_took(self):
+        for error, kind in ((rtc.device_file.DeviceLinkError("device not functioning"), "link error"), (None, "answered")):
+            with self.subTest(kind=kind):
+                seconds, got, _ = self.timed(error)
+                self.assertEqual(got, kind)
+                self.assertFalse(rtc.passed(seconds, got))
 
 
 class _Link:
@@ -53,7 +63,9 @@ class _Link:
         self.error = error
 
     def read(self, buffer, timeout):
-        raise self.error
+        if self.error is not None:
+            raise self.error
+        return 64
 
 
 if __name__ == "__main__":

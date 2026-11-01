@@ -6,7 +6,8 @@ Opens the driver link exactly as ``device_file`` does (exclusive, so close SCORB
 writes nothing, does one read, prints how long it took and how it ended, and closes. The controller answers
 messages; with no message it should not answer, so the read shows the driver's own timeout. Read from
 ``ERUSB.sys`` (``docs/protocol/LEDGER.md`` PL30, PL31): it waits about 5 s and then returns no bytes, which
-``device_file`` raises as ``TimeoutError``. Pass: it ends by itself in 4 to 6 s (``docs/lab/LAB_CHECKLIST.md``).
+``device_file`` raises as ``TimeoutError``. Pass: a ``TimeoutError`` that ends by itself in 4 to 6 s
+(``docs/lab/LAB_CHECKLIST.md``); any other ending fails, however long it took.
 
 Sends no packet, so it commands nothing. Refuses to run without ``--online``.
 """
@@ -19,16 +20,20 @@ from scorbot.transport import device_file
 
 
 def check(link, timeout_ms):
-    """One read with nothing written. Returns ``(seconds, outcome)``; the caller owns the link."""
+    """One read with nothing written. Returns ``(seconds, kind, detail)``; the caller owns the link."""
     started = time.monotonic()
     try:
         link.endpoint_in.read(bytearray(64), timeout_ms)
-        outcome = "answered with 64 bytes (unexpected: nothing was sent)"
+        kind, detail = "answered", "64 bytes, unexpected: nothing was sent"
     except TimeoutError as error:
-        outcome = f"timeout: {error}"
+        kind, detail = "timeout", str(error)
     except device_file.DeviceLinkError as error:
-        outcome = f"link error: {error}"
-    return time.monotonic() - started, outcome
+        kind, detail = "link error", str(error)
+    return time.monotonic() - started, kind, detail
+
+
+def passed(seconds, kind):
+    return kind == "timeout" and 4.0 <= seconds <= 6.0
 
 
 def main(argv=None, *, api=None):
@@ -42,11 +47,11 @@ def main(argv=None, *, api=None):
         return 2
     link = device_file.DeviceLink(args.path, api=api)
     try:
-        seconds, outcome = check(link, args.timeout_ms)
+        seconds, kind, detail = check(link, args.timeout_ms)
     finally:
         link.close()
-    verdict = "PASS" if 4.0 <= seconds <= 6.0 else "FAIL"
-    print(f"{verdict} read took {seconds:.2f} s: {outcome}")
+    verdict = "PASS" if passed(seconds, kind) else "FAIL"
+    print(f"{verdict} read took {seconds:.2f} s, ended as {kind}: {detail}")
     return 0 if verdict == "PASS" else 1
 
 
