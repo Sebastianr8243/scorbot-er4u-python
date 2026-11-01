@@ -19,7 +19,7 @@ def options(**overrides):
     return argparse.Namespace(**dict({"simulate": True, "transport": "auto", "logs": "unused",
                                      "online": False, "joint": "base", "legacy_home": False,
                                      "stream": False, "stream_seconds": 1, "adaptive_pacing": False,
-                                     "latency_ms": 0}, **overrides))
+                                     "latency_ms": 0, "speed_pct": 25}, **overrides))
 
 
 class BringUpTests(unittest.TestCase):
@@ -47,8 +47,21 @@ class BringUpTests(unittest.TestCase):
         self.assertEqual(passed, ["probe", "enable motors", "Home", "base +1 degree",
                                   "base back 1 degree", "1 degree sine stream", "disable motors"])
         self.assertTrue(any(row["event"] == "home_complete" and row["method"] == "vendor" for row in rows))
-        stream.assert_called_once_with(adaptive_pacing=False)
+        stream.assert_called_once_with(adaptive_pacing=False, speed_fraction=0.25)
         self.assertFalse(robot.sim.motors_on)
+
+    def test_the_stream_runs_at_the_operators_speed(self):
+        robot = SimulatedScorbot()
+        with mock.patch.object(robot, "start_stream", wraps=robot.start_stream) as stream:
+            result, lines, _ = self.run_ladder(options(stream=True, speed_pct=100), lambda **kw: robot)
+        self.assertEqual(result, 0, lines)
+        stream.assert_called_once_with(adaptive_pacing=False, speed_fraction=1.0)
+
+    def test_the_speed_flag_is_a_percent_from_1_to_100(self):
+        for bad in ("0", "101", "nan", "fast"):
+            with self.subTest(bad=bad), contextlib.redirect_stderr(io.StringIO()),                     self.assertRaises(SystemExit):
+                bring_up.parse_args(["--simulate", "--logs", "x", "--speed-pct", bad])
+        self.assertEqual(bring_up.parse_args(["--simulate", "--logs", "x"]).speed_pct, 25)
 
     def test_a_collision_flag_during_the_stream_aborts_the_ladder(self):
         robot = SimulatedScorbot()

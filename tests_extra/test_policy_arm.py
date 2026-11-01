@@ -32,6 +32,19 @@ class PolicyArmTests(unittest.TestCase):
             target = self.arm.act({"base": 90.0})
         self.assertLessEqual(target["base"], 2.0)
 
+    def test_speed_is_the_operators_percent_and_can_change_live(self):
+        from scorbot.streaming import VENDOR_MAX_SPEED_COUNTS_S
+        speed = lambda: self.arm._stream.core._input.max_velocity[0]    # noqa: E731
+        self.assertEqual(self.arm.speed_pct, 25)
+        self.assertAlmostEqual(speed(), VENDOR_MAX_SPEED_COUNTS_S * 0.25)
+        self.arm.set_speed(100)
+        self.assertEqual(self.arm.speed_pct, 100)
+        self.assertAlmostEqual(speed(), VENDOR_MAX_SPEED_COUNTS_S)
+        for bad in (0, 101, -5, float("nan"), True, "50"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.arm.set_speed(bad)
+        self.assertEqual(self.arm.speed_pct, 100)
+
     def test_bad_values_and_unknown_motors_hold(self):
         target = self.arm.act({"base": float("nan"), "shoulder": "x", "wrist": 1.0, "elbow": True})
         self.assertEqual(target, {"base": 0.0, "shoulder": 0.0, "elbow": 0.0})

@@ -36,6 +36,7 @@ PERIOD_RANGE_S = (0.01, 0.05)
 HOLD_TIMEOUT_RANGE_S = (0.05, 2.0)
 DEFAULT_ERROR_LIMIT = 40          # openScorbot conf MAX_ERROR, the legacy joint-limit threshold
 VENDOR_MAX_SPEED_COUNTS_S = 6500.0   # ER4AxN.ini MaxSpeed; counts/s is inferred from the DLL
+VENDOR_MAX_ACCEL_COUNTS_S2 = 11000.0  # ER4AxN.ini MaxAccel; the DLL's check was not read, counts/s^2 assumed
 DEFAULT_SPEED_FRACTION = 0.25     # ours: start at a quarter of the vendor limit
 STREAM_ORDER = 21                 # openScorbot/libcomm.py:STREAM
 MAX_STREAM_STEPS = 20000          # step records kept for the log (8 minutes at 24 ms)
@@ -69,7 +70,8 @@ def prior_limits(speed_fraction: float = DEFAULT_SPEED_FRACTION) -> StreamLimits
     Acceleration and jerk use the times of the vendor's velocity-jog profile
     (``vendor_profile.py``: acceleration fraction 0.3, jerk fraction 0.05) for
     a one-second move: acceleration = speed / 0.285 s, jerk = acceleration /
-    0.015 s. All priors.
+    0.015 s, with acceleration never above the vendor's MaxAccel (from about
+    48 percent speed up). All priors.
     """
     if isinstance(speed_fraction, bool) or not isinstance(speed_fraction, (int, float)) \
             or not 0 < speed_fraction <= 1:
@@ -77,7 +79,7 @@ def prior_limits(speed_fraction: float = DEFAULT_SPEED_FRACTION) -> StreamLimits
     velocity = VENDOR_MAX_SPEED_COUNTS_S * speed_fraction
     jerk_up, _, speeding_up, *_ = VendorProfile(1.0, MANUAL_ACCEL_FRACTION,
                                                 MANUAL_JERK_FRACTION).times
-    acceleration = velocity / (speeding_up - jerk_up)
+    acceleration = min(velocity / (speeding_up - jerk_up), VENDOR_MAX_ACCEL_COUNTS_S2)
     return StreamLimits(velocity, acceleration, acceleration / jerk_up)
 
 
@@ -185,6 +187,20 @@ class StreamCore:
             self._input.target_velocity = [0.0] * len(MOTORS)
             self._last_target_time = now
             self.state = TRACKING
+
+    def set_speed(self, speed_fraction: float) -> None:
+        """Change the speed (a fraction of the vendor's MaxSpeed) from the next period on.
+
+        Slowing down mid-move brakes within the new limits. Refused once the stream has stopped,
+        faulted or ended.
+        """
+        limits = prior_limits(speed_fraction)
+        with self._lock:
+            if self.state not in (TRACKING, HOLDING):
+                raise StreamRefused(f"the stream is {self.state}; its speed is fixed")
+            self._input.max_velocity = [limits.max_velocity] * len(MOTORS)
+            self._input.max_acceleration = [limits.max_acceleration] * len(MOTORS)
+            self._input.max_jerk = [limits.max_jerk] * len(MOTORS)
 
     def request_stop(self) -> None:
         with self._lock:
@@ -299,6 +315,11 @@ class Stream:
 
     def set_target(self, target: dict) -> None:
         self.core.set_target(target, time.monotonic())
+
+    def set_speed(self, speed_fraction: float) -> None:
+        """Change the speed while streaming: a fraction of the vendor's MaxSpeed, above 0 to 1."""
+        self.core.set_speed(speed_fraction)
+        self.robot._record("stream_speed", speed_fraction=speed_fraction)
 
     def request_stop(self) -> None:
         self.core.request_stop()

@@ -40,13 +40,13 @@ def _check_move(before, after, expected):
 SETTLE_SECONDS = 3.0    # the follower trails its target; the end-of-stream drift check waits for it
 
 
-def _sine(robot, joint, seconds, adaptive_pacing):
+def _sine(robot, joint, seconds, adaptive_pacing, speed_fraction):
     before = robot._motion_state()
     home = robot._home_counts
     start = {m: signed_count_delta(before.encoder_counts[m], home[m])
              for m in ("base", "shoulder", "elbow")}
     scale = robot.preview_jog(joint, 1)["motor_count_deltas"][joint]
-    with robot.start_stream(adaptive_pacing=adaptive_pacing) as stream:
+    with robot.start_stream(adaptive_pacing=adaptive_pacing, speed_fraction=speed_fraction) as stream:
         started = time.monotonic()
         while True:
             elapsed = time.monotonic() - started
@@ -180,7 +180,7 @@ def run(args, handle, *, robot_factory=None, ask=None, emit=print):
         perform(f"{args.joint} back 1 degree", back)
         if args.stream:
             perform("1 degree sine stream", lambda: _sine(robot, args.joint, args.stream_seconds,
-                                                          args.adaptive_pacing))
+                                                          args.adaptive_pacing, args.speed_pct / 100))
         perform("disable motors", robot.disable)
     except (Exception, KeyboardInterrupt) as exc:
         failed = True
@@ -213,7 +213,7 @@ def run(args, handle, *, robot_factory=None, ask=None, emit=print):
     return 1 if failed else 0
 
 
-def main(argv=None):
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--transport", choices=("auto", "device_file", "pyusb"), default="auto")
@@ -225,11 +225,20 @@ def main(argv=None):
     parser.add_argument("--stream-seconds", type=float, default=3)
     parser.add_argument("--adaptive-pacing", action="store_true")
     parser.add_argument("--latency-ms", type=float, default=0, help="SIMULATED dry-link reply latency only")
+    parser.add_argument("--speed-pct", type=float, default=25,
+                        help="stream speed, percent of the vendor's MaxSpeed (1 to 100; default 25)")
     args = parser.parse_args(argv)
     if not math.isfinite(args.stream_seconds) or not 1 <= args.stream_seconds <= 10:
         parser.error("--stream-seconds must be 1 through 10 seconds")
     if not math.isfinite(args.latency_ms) or args.latency_ms < 0:
         parser.error("--latency-ms must be finite and non-negative")
+    if not math.isfinite(args.speed_pct) or not 1 <= args.speed_pct <= 100:
+        parser.error("--speed-pct must be 1 through 100")
+    return args
+
+
+def main(argv=None):
+    args = parse_args(argv)
     label = "SIMULATED" if args.simulate else "REAL"
     try:
         folder = Path(args.logs)
