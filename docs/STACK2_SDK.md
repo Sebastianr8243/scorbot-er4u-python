@@ -69,7 +69,7 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/RE
 | `examples/bench_stream.py` | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
 | `examples/bench_gripper.py` | Yes, unless `--simulate` | One gripper trial (never run on the arm) |
 | `examples/policy_loop.py` | Yes, unless `--simulate` | A bounded, clamped multi-joint policy run (never run on the arm); `scripts/export_policy_dataset.py` turns it into a dataset |
-| `scripts/lab_day.ps1` | Yes, unless `-Simulate` or `-DryRun` | Runs the one-arm lab day in order (card); `scripts/lab_summary.py` reads the logs back (offline) |
+| `scripts/lab_day.py` | Yes, unless `--simulate` | Runs lab steps T, S, P (X) and G of `docs/lab/LAB_CHECKLIST.md` in order, each against its pass line |
 | `examples/record_raw_state.py` | Connects, no motion, unless `--simulate` | Idle state recording |
 | `tools/usbc_home/` | `--online` only | Vendor-DLL home; needs a 32-bit Python and the vendor DLL |
 | `tools/usbc_server/` + `python -m scorbot.bridge` | `--online` only | One homed DLL session serving the Python API (`scorbot.bridge.Arm`); see [RUN_THE_ARM](lab/RUN_THE_ARM.md) |

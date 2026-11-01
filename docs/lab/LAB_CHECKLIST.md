@@ -29,6 +29,8 @@ Any fault latches the session. After a fault, build a new instance; do not force
 
 ## 3b. Pass and fail, written before the visit
 
+`python scripts/lab_day.py --online --transport <auto|pyusb>` runs T, S, P (add `--x` for X) and G in this order (T first, as its row says) and checks each against the line below; rehearse it first with `--simulate`. H stays by hand. On the WinUSB plan run T on Intelitek's driver before Zadig (`--transport auto`; at P's GO prompt type anything else to stop there), because the runner skips T on `pyusb`.
+
 Each step has its pass line fixed now, so the result cannot be argued afterwards. Stop at the first fail and write it down. The rows marked "no motion" command nothing; the rest move the arm and need a go each time.
 
 | Step | What | Pass | Fail means |
