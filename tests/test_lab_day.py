@@ -97,15 +97,20 @@ class RunnerTests(unittest.TestCase):
     def test_every_connecting_step_waits_for_go(self):
         ran, steps = self.recorder()
         code, out = self.run_main(["--online"], ["GO", "go"], steps)
-        self.assertEqual((code, ran), (3, ["S", "T"]))      # T connects to nothing, so it needs no GO
+        self.assertEqual((code, ran), (3, ["T", "S"]))      # T connects to nothing, so it needs no GO
         self.assertIn("Stopped by you before P", out)
 
     def test_it_stops_at_the_first_fail_and_says_where_to_resume(self):
         ran, steps = self.recorder({"P": ["gap median 30 ms"]})
-        code, out = self.run_main(["--online", "--from", "T"], ["GO", "GO"], steps)
-        self.assertEqual((code, ran), (1, ["T", "P"]))
+        code, out = self.run_main(["--online", "--from", "S"], ["GO", "GO"], steps)
+        self.assertEqual((code, ran), (1, ["S", "P"]))
         self.assertIn("FAIL P: gap median 30 ms", out)
         self.assertIn("--from P", out)
+
+    def test_a_failed_t_stops_before_anything_connects(self):
+        ran, steps = self.recorder({"T": ["read_timeout_check did not PASS"]})
+        code, _ = self.run_main(["--online"], ["GO", "GO", "GO"], steps)
+        self.assertEqual((code, ran), (1, ["T"]))
 
     def test_an_exception_is_a_fail_not_a_traceback(self):
         def boom():
@@ -143,6 +148,18 @@ class StepTests(unittest.TestCase):
             self.assertEqual(lab_day.step_p(args, Path(folder), run), [])
             args.x = True
             self.assertIn("re-zeroed", lab_day.step_p(args, Path(folder), run)[0])
+
+    def test_g_passes_only_when_the_operator_types_aligned(self):
+        run = lambda argv, capture: (0, "")                              # noqa: E731
+        args = SimpleNamespace(simulate=False, transport="pyusb")
+        with tempfile.TemporaryDirectory() as folder, redirect_stdout(io.StringIO()):
+            self.assertEqual(lab_day.step_g(args, Path(folder), run, ask=lambda _: "ALIGNED"), [])
+            for answer in ("", "aligned", "no"):
+                self.assertIn("tape mark", lab_day.step_g(args, Path(folder), run, ask=lambda _, a=answer: a)[0])
+            failed = lambda argv, capture: (1, "")                       # noqa: E731
+            asked = []
+            self.assertIn("bring_up exited 1", lab_day.step_g(args, Path(folder), failed, ask=asked.append)[0])
+            self.assertEqual(asked, [])                                  # a failed Home is never "aligned"
 
     def test_s_watches_switches_then_disconnects(self):
         bits = iter([0, 1, 0, 2, 4, 8, 16])

@@ -1,4 +1,4 @@
-"""Stack 2 lab day: steps S, T, P (and X) and G of docs/lab/LAB_CHECKLIST.md section 3b, in order, with their pass lines.
+"""Stack 2 lab day: steps T, S, P (and X) and G of docs/lab/LAB_CHECKLIST.md section 3b, in order, with their pass lines.
 
     python scripts/lab_day.py --simulate                      # rehearsal: no arm, no USB
     python scripts/lab_day.py --online --transport pyusb      # on WinUSB (Zadig)
@@ -25,7 +25,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-STEPS = ("S", "T", "P", "G")
+STEPS = ("T", "S", "P", "G")      # T first: the checklist wants it before any Stack 2 connect
 SWITCH_BITS = {1: "base", 2: "shoulder", 4: "elbow", 8: "pitch", 16: "roll"}
 SWITCH_SECONDS = 180
 X_COUNTS = 100          # "some joint still reads hundreds of counts from 0"
@@ -177,7 +177,7 @@ def step_p(args, folder, run=run_tool):
     return problems
 
 
-def step_g(args, folder, run=run_tool):
+def step_g(args, folder, run=run_tool, ask=input):
     argv = [sys.executable, "scripts/bring_up.py", "--logs", str(folder / "bring-up")]
     argv += ["--simulate"] if args.simulate else ["--online", "--transport", args.transport]
     code, _ = run(argv, capture=False)
@@ -188,7 +188,11 @@ def step_g(args, folder, run=run_tool):
               else "  no vendor Home packet trace in the log")
     if code != 0:
         return [f"bring_up exited {code}: note the error number it printed (574 is the gripper budget; do not raise it here)"]
-    print("  Now check every joint against its tape mark from step H: within about 2 degrees, or no streaming.")
+    if args.simulate:
+        return []
+    answer = ask("Check every joint against its tape mark from step H. All within about 2 degrees? Type ALIGNED: ")
+    if answer.strip() != "ALIGNED":
+        return ["a joint is off its tape mark (or not checked): Stack 2's zero is not the vendor's; no streaming"]
     return []
 
 
@@ -205,7 +209,7 @@ def main(argv=None, *, ask=input, steps=None):
     mode.add_argument("--simulate", action="store_true", help="rehearsal: no arm, no USB")
     mode.add_argument("--online", action="store_true", help="the real controller")
     parser.add_argument("--transport", choices=("auto", "device_file", "pyusb"), default="auto")
-    parser.add_argument("--from", dest="start", choices=STEPS, default="S", help="first step to run")
+    parser.add_argument("--from", dest="start", choices=STEPS, default=STEPS[0], help="first step to run")
     parser.add_argument("--x", action="store_true", help="P also judges X: Stack 1 left the arm off home first")
     parser.add_argument("--logs", help="parent folder (default: logs, or rehearsal when simulated)")
     args = parser.parse_args(argv)
@@ -214,7 +218,7 @@ def main(argv=None, *, ask=input, steps=None):
     folder = ROOT / (args.logs or ("rehearsal" if args.simulate else "logs")) / f"lab-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}"
     folder.mkdir(parents=True, exist_ok=False)
     runners = steps or {"S": lambda: step_s(args), "T": lambda: step_t(args),
-                        "P": lambda: step_p(args, folder), "G": lambda: step_g(args, folder)}
+                        "P": lambda: step_p(args, folder), "G": lambda: step_g(args, folder, ask=ask)}
     label = "SIMULATED" if args.simulate else "REAL"
     print(f"{label} lab day, transport {args.transport}; logs in {folder}")
     print("Step H (the vendor Home, Stack 1) is done by hand first. The red physical stop is the only emergency stop.")
