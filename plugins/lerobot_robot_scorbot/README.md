@@ -16,6 +16,8 @@ C:\envs\lerobot-stack2\Scripts\python.exe examples/lerobot_sim_check.py         
 
 Without the `dataset` extra, `lerobot.datasets` refuses to import. On Windows set `$env:PYTHONUTF8 = "1"` before calling `lerobot-record` yourself. A `torchcodec` load error is printed and LeRobot falls back to PyAV; it does not matter without cameras.
 
+The keyboard teleoperator needs `pynput` even to be built (`pip install "lerobot[pynput-dep]"` in the same venv; 1.8.2 was used). Its map from LeRobot's keyboard action is tested; it has never run under `lerobot-record` or with a person at the keys.
+
 ```powershell
 lerobot-record --robot.type=scorbot --robot.simulate=true --teleop.type=scorbot_joint_keys `
   --dataset.repo_id=local/my_first_demo --dataset.root=rehearsal/my_first_demo --dataset.single_task="move the arm" `
@@ -47,4 +49,4 @@ Named apart from the Stack 1 teleoperators (`scorbot_keys`, `scorbot_scripted` o
 
 ## Tests
 
-`tests_extra/test_lerobot_scorbot_plugin.py`: without lerobot it uses stand-in base classes (refusal, features, a simulated drive, both teleoperator maps, the check's record command); with lerobot importable it also checks registration and `make_robot_from_config`.
+`tests_extra/test_lerobot_scorbot_plugin.py`: without lerobot it uses stand-in base classes (refusal, features, a simulated drive, both teleoperator maps, the check's record command); with lerobot importable it also checks registration, `make_robot_from_config` and both teleoperators. Run the repository's full suite in the lab `.venv`: in the lerobot venv, draccus 0.11.6 installs its own top-level `tests` package, which hides this repository's `tests/` (8 modules fail to import there). In the lerobot venv run only this file.

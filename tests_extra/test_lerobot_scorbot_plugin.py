@@ -159,6 +159,19 @@ class WithLerobotTests(unittest.TestCase):
         self.assertEqual(teleop.get_action(), {"base.pos": 0.5, "shoulder.pos": 0.0, "elbow.pos": 0.0})
         teleop.disconnect()
 
+    @unittest.skipUnless(find_spec("pynput"), "LeRobot's keyboard teleoperator needs pynput even to construct")
+    def test_keys_teleop_maps_lerobots_keyboard_action_to_joint_targets(self):
+        from unittest import mock
+        from lerobot.teleoperators.keyboard import KeyboardEndEffectorTeleop
+        from lerobot_robot_scorbot import ScorbotJointKeys
+        from lerobot_robot_scorbot.teleop import ScorbotJointKeysConfig
+        teleop = ScorbotJointKeys(ScorbotJointKeysConfig())     # no connect: that needs pynput and a keyboard
+        self.assertEqual(teleop.action_features, dict.fromkeys(KEYS, float))
+        raw = {"delta_x": 1, "delta_y": 0, "delta_z": -1}
+        with mock.patch.object(KeyboardEndEffectorTeleop, "get_action", return_value=raw):
+            self.assertEqual(teleop.get_action(), {"base.pos": 0.5, "shoulder.pos": 0.0, "elbow.pos": -0.5})
+            self.assertEqual(teleop.get_action(), {"base.pos": 1.0, "shoulder.pos": 0.0, "elbow.pos": -1.0})
+
 
 if __name__ == "__main__":
     unittest.main()
