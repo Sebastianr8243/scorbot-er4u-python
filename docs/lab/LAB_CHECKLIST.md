@@ -8,7 +8,7 @@ For the first Stack 2 visit. The ladder itself is in [BRING_UP_RUNBOOK.md](BRING
 
 What the driver package says (`Driver/ERUSB.inf` and `ERUSB.sys` from the private repo, read at the desk, not run):
 - Matches `USB\VID_09F1&PID_0007`; service `ERUSB`, demand start, binary `System32\drivers\ERUSB.sys`, class "Intelitek USB robot controllers", 2009 vintage, x64.
-- It is a plain WDM driver (no KMDF). Its imports include `IoAcquireCancelSpinLock`, `IoReleaseCancelSpinLock`, `IoCancelIrp` and `KeRemoveEntryDeviceQueue`, so it queues requests the old way and probably honours cancellation. **That is not proof.** `IoSetCancelRoutine` is an inline function in the Windows headers, so it never appears in an import list, and its absence says nothing. Whether `CancelSynchronousIo` cancels a blocked `ReadFile` is a lab question: the probe's first timeout shows it (a read that never returns means use overlapped I/O with `CancelIoEx` instead).
+- It is a plain WDM driver (no KMDF). Read on 2026-10-31 (`docs/protocol/LEDGER.md` PL30 to PL32): reads and writes are served inside the dispatch routine, which waits up to 5 s for the controller itself and then completes the request with `STATUS_TIMEOUT` and no bytes. Our request is never pending, so neither `CancelSynchronousIo` nor overlapped I/O with `CancelIoEx` can end it sooner. **Expect a silent controller to cost about 5 s per read**, and a stop sent from another thread to wait behind it. `device_file` raises that empty 5 s read as a timeout. Unverified on the arm: step T below measures it.
 
 ## 2. Lab-PC prep (before the arm is touched)
 
@@ -26,6 +26,19 @@ What the driver package says (`Driver/ERUSB.inf` and `ERUSB.sys` from the privat
 4. Stream only after the ladder passes.
 
 Any fault latches the session. After a fault, build a new instance; do not force-close.
+
+## 3b. Pass and fail, written before the visit
+
+Each step has its pass line fixed now, so the result cannot be argued afterwards. Stop at the first fail and write it down. The rows marked "no motion" command nothing; the rest move the arm and need a go each time.
+
+| Step | What | Pass | Fail means |
+|---|---|---|---|
+| H | Stack 1 health: `tools/usbc_home`, then `where`, `speed 20`, `by 2 0 0`, gripper open and close (moves) | Home OK; the 2 mm move reads back within 0.2 mm; both gripper moves end | The arm or controller is not healthy today; no Stack 2 at all |
+| S | Microswitches: press each with a screwdriver, arm off (no motion) | IN byte 5 shows base 1, shoulder 2, elbow 4, pitch 8, roll 16, one at a time | The bit map in `vendor_home.py` is wrong for this arm; stop |
+| P | Stack 2 probe, 200 reads (step 2 above; connect pulses the motors) | 200 of 200 reads; gap median 14 to 25 ms; no `None` echo; worst echo lag at most 60 | Pacing or echo is not what the desk assumes; record and stop |
+| T | Timeout: `python scripts/read_timeout_check.py --online`, one read with no write first (no motion) | Ends by itself in 4 to 6 s with an empty read, now a `TimeoutError` (ledger PL31) | Over 10 s, or a hang: no Stack 2 motion this visit |
+| X | Hand-over: right after H's Home, close Stack 1, run P again (no motion) | All six counts within 50 of 0: the vendor's zero survives the switch | Stack 2 cannot start from a vendor Home; note the counts |
+| G | Only if H, S, P and T pass and the operator says go: `bring_up.py` (vendor Home, 1 degree jog, then stop) | Home completes; each of the three gripper drives ends on a stall within 120 replies; final counts within 50 of the vendor's zeros | Note the error number. 574 "did not stall within the vendor's gripper budget" means the real gripper is slower than the vendor's 120 replies: stop, do not raise the limit at the bench |
 
 ## 4. If you did swap to WinUSB: get Intelitek's driver back
 

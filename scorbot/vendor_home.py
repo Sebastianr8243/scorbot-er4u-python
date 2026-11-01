@@ -94,6 +94,8 @@ GRIPPER_STALL_CHECKS = 2
 """Quiet checks in a row that end a gripper drive (the vendor: 1), so one stale sample cannot end it."""
 GRIPPER_STALE_LIMIT = 10
 """Repeated replies (the same echoed ID) in a row that stop a gripper drive: its feedback is not live."""
+GRIPPER_CLOSE_SLACK = 0.05
+"""How much shorter than the open the homing close may be (or ``GRIPPER_MIN_TRAVEL``, if larger)."""
 GRIPPER_MIN_TRAVEL = 200
 """A gripper drive must travel this far before a stall counts as the end of its travel."""
 
@@ -508,17 +510,24 @@ class _Run:
         yield from self.send(MOVE, 1 << GRIPPER, 0, 0)
         self.driven = {}
         yield from self.gripper_off()
+        return travelled
 
     def gripper_off(self):
         yield from self.send(CONTROL_OFF, 1 << GRIPPER)
         yield from self.send(MOTORS, 1 << GRIPPER)
 
     def coarse_17(self, a):
-        """Open, wait, close; the gripper has no switch."""
+        """Open, wait, close; the gripper has no switch.
+
+        The close starts at the open stop, so it must travel at least as far as the open did (less
+        ``GRIPPER_CLOSE_SLACK``); a close that stops short would be zeroed part way, whatever ended it."""
         v = AXES[a].velocity
-        yield from self.gripper_drive(v)
+        opened = yield from self.gripper_drive(v)
         yield from self.wait(15)
-        yield from self.gripper_drive(-v)
+        closed = yield from self.gripper_drive(-v)
+        if closed < opened - max(GRIPPER_MIN_TRAVEL, opened * GRIPPER_CLOSE_SLACK):
+            raise HomeError(ERR_GRIPPER, f"gripper closed {closed} counts after opening {opened}: "
+                                         "it stopped short of its closed end", a)
 
     COARSE = {14: coarse_14, 15: coarse_15, 16: coarse_16, 17: coarse_17}
 

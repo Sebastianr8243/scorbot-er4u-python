@@ -424,6 +424,29 @@ class SafetyTests(unittest.TestCase):
             run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Stuck())
         self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
 
+    def test_a_final_close_that_stops_short_of_its_open_travel_is_a_fault_before_the_zero(self):
+        # An outside review: gripper counts held for 6 replies while the echoed IDs still advance pass every
+        # freshness check, and the last close would zero the gripper half way. The close back from the open
+        # stop must travel at least as far as the open did, whatever the replies looked like.
+        class HeldCounts(Plant):
+            drives, since, held = 0, 0, None
+
+            def exchange(self, data):
+                if data[4] == vh.MOVE and data[5] == 0x20 and data[8:12] != bytes(4):
+                    self.drives, self.since = self.drives + 1, 0
+                reply = bytearray(super().exchange(data))
+                self.since += 1
+                at = 19 + 5 * vh.GRIPPER
+                if self.drives == 3 and 20 <= self.since < 26:          # the third drive is the final close
+                    self.held = self.held or bytes(reply[at:at + 3])
+                    reply[at:at + 3] = self.held
+                return bytes(reply)
+        with self.assertRaises(vh.HomeError) as caught:
+            run(HeldCounts())
+        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_GRIPPER, vh.GRIPPER))
+        zeroings = [o for o in caught.exception.outs if o.cmd == vh.SET_POSITION and o.mask == 0x20]
+        self.assertEqual(len(zeroings), 1)                                   # only the pre-pass zero
+
     def test_the_reply_carries_the_echoed_id(self):
         packet = bytearray(64)
         packet[0] = 77
