@@ -284,6 +284,45 @@ class StreamCoreTests(unittest.TestCase):
         with self.assertRaises(StreamRefused):
             core.set_speed(0.5)
 
+    def test_slowing_down_mid_acceleration_never_passes_the_vendors_max_speed(self):
+        from scorbot.streaming import VENDOR_MAX_SPEED_COUNTS_S, prior_limits
+        cap = {m: 50000.0 for m in ZERO}
+        for switch_at in (2, 5, 10, 15, 24, 40):
+            for new in (0.05, 0.25, 0.6):
+                with self.subTest(switch_at=switch_at, new=new):
+                    core, arm = make(travel_cap=cap, lead_limit=cap), Arm()
+                    core.set_speed(1.0)
+                    far = {"base": 40000}
+                    records = run(core, arm, switch_at, on_step=keep_alive(core, far))
+                    core.set_speed(new)
+                    records += run(core, arm, 300, start=switch_at, on_step=keep_alive(core, far))
+                    self.assertEqual(core.state, "tracking")
+                    positions = [r.commanded["base"] for r in records]
+                    speeds = [abs(b - a) / PERIOD for a, b in zip(positions, positions[1:])]
+                    self.assertLessEqual(max(speeds), VENDOR_MAX_SPEED_COUNTS_S + 1 / PERIOD)
+                    self.assertLessEqual(max(speeds[-20:]), prior_limits(new).max_velocity + 1 / PERIOD)
+
+    def test_slowing_down_then_finishing_or_while_braking_stays_under_max_speed(self):
+        from scorbot.streaming import VENDOR_MAX_SPEED_COUNTS_S
+        cap = {m: 50000.0 for m in ZERO}
+        for case in ("finish", "braking"):
+            with self.subTest(case=case):
+                core, arm = make(travel_cap=cap, lead_limit=cap), Arm()
+                core.set_speed(1.0)
+                goal = {"base": 40000} if case == "finish" else {"base": 2500}
+                records = run(core, arm, 30 if case == "finish" else 40, on_step=keep_alive(core, goal))
+                core.set_speed(0.05)
+                if case == "finish":
+                    core.finish()
+                    records += run(core, arm, 400, start=30)
+                    self.assertEqual(core.state, "ended")
+                else:
+                    records += run(core, arm, 300, start=40, on_step=keep_alive(core, goal))
+                    self.assertEqual(records[-1].commanded["base"], 2500)
+                positions = [r.commanded["base"] for r in records]
+                speeds = [abs(b - a) / PERIOD for a, b in zip(positions, positions[1:])]
+                self.assertLessEqual(max(speeds), VENDOR_MAX_SPEED_COUNTS_S + 1 / PERIOD)
+
     def test_the_core_has_no_wait_action(self):
         # Pacing on the echoed message number was removed until the lab confirms
         # that byte: as built it could never be fed and would have stalled.

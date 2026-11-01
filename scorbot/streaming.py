@@ -199,8 +199,11 @@ class StreamCore:
             if self.state not in (TRACKING, HOLDING):
                 raise StreamRefused(f"the stream is {self.state}; its speed is fixed")
             self._input.max_velocity = [limits.max_velocity] * len(MOTORS)
-            self._input.max_acceleration = [limits.max_acceleration] * len(MOTORS)
-            self._input.max_jerk = [limits.max_jerk] * len(MOTORS)
+            # Never lower acceleration or jerk mid-stream: with less jerk, an acceleration already
+            # under way takes longer to end and the speed overshoots past MaxSpeed (review 2026-11-01).
+            self._input.max_acceleration = [max(a, limits.max_acceleration)
+                                            for a in self._input.max_acceleration]
+            self._input.max_jerk = [max(j, limits.max_jerk) for j in self._input.max_jerk]
 
     def request_stop(self) -> None:
         with self._lock:
