@@ -15,6 +15,9 @@ One row per claim Stack 2 relies on, with how we know it. Started 2026-10-31. Ad
 | PL03 | Pacing compares sent ID minus echoed ID with the queue limit (45, 20 while homing, 4 manual, 6 pendant) | reversed | E3 | `VENDOR_DLL_PROTOCOL.md` section 5 |
 | PL04 | The handshake, control on and off, and the setpoint region bytes Stack 2 builds equal the DLL's | desk | E3 | `DESK_BYTE_CHECK.md` |
 | PL05 | The controller answers on a cadence of about 16 ms | thesis capture | E3 | `BRING_UP_SEQUENCE.md`, "Reply timing" |
+| PL06 | At the legacy idle pace (one write and one read per message, 18.8 ms per reply over 505 replies), the echoed ID advanced 329 over 431 replies: at least about a quarter of real replies do not echo a newer ID than the last one | arm log, re-read 2026-10-31 | E4 | `docs/evidence/2026-10-06-lab-logs/idle-01.jsonl` (git history, before `a3af270`): 20 samples' `raw_hex` byte 0 against `packet_index`, which counts reads |
+| PL07 | At that pace the lag (sent minus echoed ID) climbs about 7 per 27 replies to about 46, then the echo leaps about 48 ahead in one sample interval (twice in 505 replies). Reading: the controller holds about 47 queued messages and drops the backlog when the host gets further ahead (inference, not reversed) | arm log | E4 (pattern), E0 (reading) | same log |
+| PL08 | IN byte 60 equals the echoed ID plus 47 in all 20 samples | arm log | E4 | same log |
 
 ## Home
 
@@ -53,6 +56,6 @@ One row per claim Stack 2 relies on, with how we know it. Started 2026-10-31. Ad
 |---|---|---|
 | PL90 | What the drive value of `4D` means physically | Arm: the gripper's count rate at -165 |
 | PL91 | Desk half answered (PL30, PL31). Still open: what `ReadFile` really returns after the driver's 5 s, and how long a stop waits behind a blocked read | Lab, no motion: open `device_file`, read once without writing first, time it and log the result |
-| PL92 | How far behind the real controller answers while homing | Arm: the Stack 2 probe's echo lag |
+| PL92 | How far behind the real controller answers while homing (at idle, PL07 shows a sawtooth up to about 46). Also how long the runs of non-advancing replies are under the homing pace: the gripper drive stops at 10 in a row (PL27) | Arm: the Stack 2 probe's echo lag and `repeats`; the Home log in step G |
 | PL93 | Whether the controller accepts Stack 2's Home at all | Arm, after the gates in the lab plan |
 | PL94 | What the per-axis flag word at `+0x83e` holds (PL24, PL28) | Ghidra: its writers |
