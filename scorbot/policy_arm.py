@@ -26,18 +26,31 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX
     """The new commanded target (degrees from home) per motor. Pure.
 
     Each delta is cut to +-step_max_deg, added to the last commanded target, cut to +-cap_deg from
-    home, and kept within lead_margin_deg of the measured position. Unknown motors, non-finite
-    numbers and missing motors are ignored (the motor holds). Returns (target, clamped_motors).
+    home, and kept within lead_margin_deg of the measured position. The step limit always wins:
+    when feedback jumps or the last target sits past the cap, the target walks back one step at a
+    time (the lead and the overshoot only shrink). Unknown motors, non-finite numbers (delta,
+    measured or cap) and missing motors are ignored (the motor holds). A non-finite last target
+    raises ``ValueError``: holding it would hand it on. Returns (target, clamped_motors).
     """
+    def finite(v):
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
     out, clamped = dict(target_deg), []
     for motor, asked in (delta_deg or {}).items():
-        if motor not in MOTORS or isinstance(asked, bool) or not isinstance(asked, (int, float)) \
-                or not math.isfinite(asked):
+        if motor in MOTORS and not finite(target_deg.get(motor)):
+            raise ValueError(f"last target for {motor} is not a finite number: {target_deg.get(motor)!r}")
+        if motor not in MOTORS or not all(finite(v) for v in (asked, measured_deg.get(motor), cap_deg)) \
+                or cap_deg < 0:
             clamped.append(motor)
             continue
+        base = target_deg[motor]
         step = max(-step_max_deg, min(step_max_deg, asked))
-        wanted = max(-cap_deg, min(cap_deg, target_deg[motor] + step))
+        wanted = max(-cap_deg, min(cap_deg, base + step))
         lo, hi = measured_deg[motor] - lead_margin_deg, measured_deg[motor] + lead_margin_deg
+        wanted = max(lo, min(hi, wanted))
+        # One allowed range that always holds the last target: one step from it, never further past the cap.
+        lo = max(base - step_max_deg, min(-cap_deg, base))
+        hi = min(base + step_max_deg, max(cap_deg, base))
         wanted = max(lo, min(hi, wanted))
         if abs(wanted - (target_deg[motor] + asked)) > 1e-9:
             clamped.append(motor)
