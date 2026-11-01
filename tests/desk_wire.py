@@ -102,6 +102,24 @@ def record_session():
                     calls[name] = wire.out_packets[start:]
             finally:
                 start = len(wire.out_packets)
-                robot.disconnect()
+                try:
+                    robot.disconnect()
+                except Exception:
+                    stop_workers(robot)
+                    raise
                 calls["disconnect"] = wire.out_packets[start:]
     return calls
+
+
+def stop_workers(robot, timeout=30):
+    """After a failed disconnect, end the legacy workers so they cannot send and sleep into later tests.
+
+    The SDK leaves a stuck worker running on purpose (the session is faulted); a test must not. EXIT goes to
+    both queues; whichever worker takes the sync queue's copy as a sequence byte only sends to the fake wire.
+    """
+    for _ in range(3):
+        robot._commands.put([528, 1, 1])
+        robot._sync.put(528)
+    for thread in (robot._command_thread, robot._sync_thread):
+        if thread is not None:
+            thread.join(timeout)

@@ -202,12 +202,14 @@ class LegacyGripperTests(unittest.TestCase):
         sync, orders, reads, results = (queue.Queue() for _ in range(4))
         reads.put([START] * len(JOINTS))
         sync.put(1)
-        self.addCleanup(lambda: orders.put([528, 1, 1]))
         orders.put([OPEN_ORDER, 1, 1])
         worker = threading.Thread(
             target=self.comm.execute,
             args=(sync, orders, reads, controller, controller, buffer, results), daemon=True)
         worker.start()
+        # Wait for the exit too: left running, it sends and sleeps into the next test.
+        self.addCleanup(worker.join, 30)
+        self.addCleanup(orders.put, [528, 1, 1])
         self.assertEqual(results.get(timeout=10), 0)
         self.assertEqual(controller.position[GRIPPER], START + self.travel())
 
