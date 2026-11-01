@@ -1,6 +1,8 @@
 """scorbot.pacing (pure lag arithmetic) and its opt-in hook in the legacy stream loop. No USB, no real sleeps."""
 
 import queue
+import threading
+import time
 import unittest
 from importlib.util import find_spec
 from unittest import mock
@@ -81,15 +83,27 @@ class HookTests(unittest.TestCase):
             for offset in ENCODER_OFFSETS:
                 buffer[offset + 2] = 128       # a valid sign byte per joint
 
+        # Both patches reach every thread (self.comm.time is the time module): record only this thread's calls,
+        # and give a worker left running by another test the real ones, not a busy loop.
+        me, real_sleep, real_set_msg = threading.get_ident(), time.sleep, self.lib.set_msg
+
         def fake_set_msg(cadena, epout, epin, buffer, write, read):
+            if threading.get_ident() != me:
+                return real_set_msg(cadena, epout, epin, buffer, write, read)
             read_args.append(read)
             fill(buffer)
 
         buffer = bytearray(64)
         fill(buffer)
 
+        def sleep(seconds):
+            if threading.get_ident() == me:
+                sleeps.append(seconds)
+            else:
+                real_sleep(seconds)
+
         with mock.patch.object(self.lib, "set_msg", fake_set_msg), \
-                mock.patch.object(self.comm.time, "sleep", sleeps.append):
+                mock.patch.object(self.comm.time, "sleep", sleep):
             self.comm.stream_targets(1, None, None, buffer, reads, results,
                                      lambda _reply: next(steps), **kwargs)
         return read_args, sleeps
