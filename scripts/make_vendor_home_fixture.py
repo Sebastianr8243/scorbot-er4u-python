@@ -52,9 +52,9 @@ def reduce_recording(commands):
     """Cut the home out of the whole session and build the two lists."""
     first = next(i for i, c in enumerate(commands)
                  if c[1] == CMD_MODE and c[3] == MODE_T and c[2] == 0x02 and c[0] > 100)
-    # The home ends with the sweep's gripper-off pair; Control off (47, 73 3F ...) follows it.
+    # The home ends with the sweep's gripper-off pair; Control off (47, 73 3F or 73 FF in the lab build) follows it.
     stop = next(i for i, c in enumerate(commands) if i > first and c[1] == 0x47
-                and commands[i + 1][1:4] == (0x73, 0x3F, 0))
+                and commands[i + 1][1:4] in ((0x73, 0x3F, 0), (0x73, 0xFF, 0)))
     steps = collapse([c[1:] for c in commands[first:stop]])
     while steps and steps[-1][0] not in (0x42,):        # keep through the last 42 20 of the sweep
         steps.pop()
@@ -64,9 +64,10 @@ def reduce_recording(commands):
 
 def main(argv):
     source, target = argv[1], argv[2]
+    note = argv[3] if len(argv) > 3 else "vendor USBC.dll Home('A') against a fake controller on a named pipe, 2026-10-08"
     steps, recipe = reduce_recording(load_commands(source))
     with open(target, "w", encoding="utf-8", newline="\n") as handle:
-        json.dump({"source": "vendor USBC.dll Home('A') against a fake controller on a named pipe, 2026-10-08",
+        json.dump({"source": note,
                    "fields": ["cmd", "mask", "arg16", "arg32"],
                    "steps": steps, "recipe": recipe}, handle, indent=0, separators=(",", ":"))
         handle.write("\n")

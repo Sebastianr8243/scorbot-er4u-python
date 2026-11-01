@@ -1,6 +1,6 @@
 """scorbot.vendor_home: the vendor's Home as a pure state machine, checked against a recording.
 
-``tests/fixtures/vendor_home_trace04.json`` is every command Intelitek's own ``USBC.dll`` sent while
+``tests/fixtures/vendor_home_trace05.json`` is every command Intelitek's own ``USBC.dll`` sent while
 running ``Home('A')`` against a model of the arm on a named pipe (``tests/vendor_home_plant.py`` is
 that model). The port must send the same non-``0D`` commands in the same order. That proves the OUT
 bytes are the vendor's; the replies were a model, and the real controller's acceptance is unverified.
@@ -15,7 +15,9 @@ from pathlib import Path
 from scorbot import vendor_home as vh
 from tests.vendor_home_plant import Plant, commands, run, run_generator
 
-FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "vendor_home_trace04.json").read_text(encoding="utf-8"))
+FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "vendor_home_trace05.json").read_text(encoding="utf-8"))
+"""The lab DLL against the gripper-stop model: trace04 (2008 build, no gripper stops, so its gripper moves
+ended on the vendor's timer) plus a ``47`` before each gripper ``4D 0``, which the vendor sends on a stall."""
 
 
 def as_lists(steps):
@@ -184,7 +186,7 @@ class SafetyTests(unittest.TestCase):
         with self.assertRaises(vh.HomeError) as caught:
             run(plant, max_cycles=5000)
         self.assertEqual(caught.exception.code, vh.ERR_DIRECTION)
-        self.assertLess(max(abs(x) for x in plant.phys), 600)      # far less than one switch band
+        self.assertLess(max(abs(x) for x in plant.phys[:5]), 600)  # far less than one switch band (the gripper starts at 3000)
 
     def test_a_stalled_type_16_search_is_caught_within_about_two_seconds_not_after_the_150_cycle_window(self):
         # Shoulder and wrist roll are type 16: the vendor has no stall check for them at all. The stall
@@ -351,6 +353,104 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
         outs, _ = run_generator(make(True), Plant(), on_cycle=lambda n, p: setattr(p, "impact", 0x20))
         self.assertEqual(outs[-1].cmd, vh.MOTORS)                          # ended and switched off normally
+
+    def test_a_gripper_stall_ends_like_the_vendor_clear_first_and_within_a_few_cycles(self):
+        # The lab DLL checks every ImpactCondTicks (2) cycles for at most ImpactCondEnc (2) counts of motion,
+        # then sends 47 before 4D 0 (trace05; docs/protocol/LEDGER.md). Half open to the open stop is 3000 counts.
+        outs, _ = run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Plant())
+        cmds = [o.cmd for o in outs]
+        drive, stop = cmds.index(vh.MOVE), len(cmds) - 1 - cmds[::-1].index(vh.MOVE)
+        self.assertEqual(cmds[stop - 1], vh.CLEAR)
+        stroke = -(-3000 // int(165 * 0.5))
+        self.assertLessEqual(stop - drive, stroke + 8)
+
+    def test_a_late_controller_does_not_make_a_gripper_look_stalled(self):
+        plant = Plant()
+
+        def late(n, p):
+            p.frozen = {vh.GRIPPER} if n < 45 else set()     # the replies show no motion for the first 40 cycles
+        run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), plant, on_cycle=late, lag=40)
+        self.assertEqual(plant.reported(vh.GRIPPER), 3000)                   # half open to the open stop
+
+    def test_repeated_replies_mid_travel_are_not_a_gripper_stall(self):
+        # A controller that sends the same reply twice (same echoed ID, same counts) after the gripper has moved
+        # far enough must not end the drive and zero the gripper half way.
+        class Repeats(Plant):
+            n, last = 0, None
+
+            def exchange(self, data):
+                self.n += 1
+                fresh = super().exchange(data)
+                if self.last is not None and self.n in (19, 20, 21):
+                    return self.last
+                self.last = fresh
+                return fresh
+        plant = Repeats()
+        run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), plant)
+        self.assertEqual(plant.reported(vh.GRIPPER), 3000)                   # it reached the open stop
+
+    def test_one_quiet_check_is_not_a_stall_but_two_are(self):
+        frozen = set(range(20, 23))                  # 3 fresh replies standing still: one whole quiet 2-reply check
+        plant = Plant()
+        run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), plant,
+                      on_cycle=lambda n, p: setattr(p, "frozen", {vh.GRIPPER} if n in frozen else set()))
+        self.assertEqual(plant.reported(vh.GRIPPER), 3000)
+
+    def test_a_gripper_that_jitters_at_its_stop_is_stopped_at_the_vendors_budget(self):
+        # Feedback that moves 3 counts every reply never meets the 2-count stall rule. The vendor stops after
+        # 120 replies anyway; here that is ERR_GRIPPER, raised before any 48.
+        def jitter(n, p):
+            p.off[vh.GRIPPER] = -3000 + (3 if n // 2 % 2 else 0)            # 2-reply samples always 3 apart
+        with self.assertRaises(vh.HomeError) as caught:
+            run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Plant(), on_cycle=jitter)
+        self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
+        outs = caught.exception.outs
+        drive = next(i for i, o in enumerate(outs) if o.cmd == vh.MOVE and o.arg32)
+        self.assertLessEqual(len(outs) - drive, vh.GRIPPER_MAX_CYCLES + 12)  # the budget plus the stop messages
+        self.assertNotIn(vh.SET_POSITION, [o.cmd for o in outs])
+
+    def test_many_stale_replies_in_a_row_stop_the_gripper_drive(self):
+        class Stuck(Plant):
+            n, last = 0, None
+
+            def exchange(self, data):
+                self.n += 1
+                fresh = super().exchange(data)
+                if self.last is not None and self.n > 15:
+                    return self.last
+                self.last = fresh
+                return fresh
+        with self.assertRaises(vh.HomeError) as caught:
+            run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Stuck())
+        self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
+
+    def test_a_final_close_that_stops_short_of_its_open_travel_is_a_fault_before_the_zero(self):
+        # An outside review: gripper counts held for 6 replies while the echoed IDs still advance pass every
+        # freshness check, and the last close would zero the gripper half way. The close back from the open
+        # stop must travel at least as far as the open did, whatever the replies looked like.
+        class HeldCounts(Plant):
+            drives, since, held = 0, 0, None
+
+            def exchange(self, data):
+                if data[4] == vh.MOVE and data[5] == 0x20 and data[8:12] != bytes(4):
+                    self.drives, self.since = self.drives + 1, 0
+                reply = bytearray(super().exchange(data))
+                self.since += 1
+                at = 19 + 5 * vh.GRIPPER
+                if self.drives == 3 and 20 <= self.since < 26:          # the third drive is the final close
+                    self.held = self.held or bytes(reply[at:at + 3])
+                    reply[at:at + 3] = self.held
+                return bytes(reply)
+        with self.assertRaises(vh.HomeError) as caught:
+            run(HeldCounts())
+        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_GRIPPER, vh.GRIPPER))
+        zeroings = [o for o in caught.exception.outs if o.cmd == vh.SET_POSITION and o.mask == 0x20]
+        self.assertEqual(len(zeroings), 1)                                   # only the pre-pass zero
+
+    def test_the_reply_carries_the_echoed_id(self):
+        packet = bytearray(64)
+        packet[0] = 77
+        self.assertEqual(vh.decode_reply(bytes(packet), 0.0).echo, 77)
 
     def test_a_gripper_that_keeps_moving_hits_its_travel_bound(self):
         import dataclasses

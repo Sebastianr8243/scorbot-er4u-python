@@ -137,7 +137,7 @@ class RunTests(Case):
         robot = self.robot()
         robot.vendor_home(**CONFIRMED)
         packets = robot.sim.vendor_packets
-        fixture = json.loads((Path(__file__).parent / "fixtures" / "vendor_home_trace04.json").read_text(encoding="utf-8"))
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "vendor_home_trace05.json").read_text(encoding="utf-8"))
         items = [[p[4], p[5], int.from_bytes(p[6:8], "little"), int.from_bytes(p[8:12], "little", signed=True)]
                  for p in packets if p[4] != vh.NOP]
         collapsed = [item for i, item in enumerate(items) if i == 0 or item != items[i - 1]]
@@ -235,7 +235,7 @@ class FailureTests(Case):
         plant = Plant(gain=-0.1)
         robot, error = self.fail(plant=plant)
         self.check_failure(robot, error, vh.ERR_DIRECTION, "moves against its drive")
-        self.assertLess(max(abs(x) for x in plant.phys), 600)
+        self.assertLess(max(abs(x) for x in plant.phys[:5]), 600)      # the gripper starts at 3000
 
     def test_a_jammed_wrist_motor_is_a_stall(self):
         robot, error = self.fail(plant=Plant(frozen={vh.WRIST_M1}))

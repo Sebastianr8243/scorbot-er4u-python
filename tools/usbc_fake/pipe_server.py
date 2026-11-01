@@ -9,6 +9,9 @@ controller stopping a mode-H drive in hardware when a switch trips):
   - 6 axes: 0 base, 1 shoulder, 2 elbow, 3 wrist m1, 4 wrist m2, 5 gripper. Bit N of the OUT mask and of
     IN byte 5 is axis N.
   - Mode T/H: a `4D` drive value moves the axis every message; a positive drive LOWERS the counts.
+  - The gripper stops at its ends (the vendor's count limits, -200 to 6000 from closed) and moves at its own
+    gain, so a full stroke takes about 75 messages: shorter than the DLL's 120-tick gripper timer, so both the
+    DLL and Stack 2 end on the stall, not on a timer (docs/protocol/LEDGER.md).
   - Mode S: the axis follows the setpoint in OUT bytes 12 + 4N, at a limited rate.
   - `48 mask value`: re-zero the reported count (reported = physical + offset).
   - Each axis has a switch band in joint counts; IN byte 5 has the axis bit set while inside it. The
@@ -31,6 +34,10 @@ PIPE = r"\\.\pipe\scorbot_fake"
 NAMES = ("base", "shoulder", "elbow", "wrist_m1", "wrist_m2", "gripper")
 DRIVE_GAIN = 0.1          # counts per message per unit of drive value
 FOLLOW_STEP = 400         # counts per message an axis can follow a setpoint
+GRIPPER = 5
+GRIPPER_GAIN = 0.5        # drive 165 is about 82 counts per message
+GRIPPER_STOPS = (-200.0, 6000.0)
+GRIPPER_START = 3000.0    # half open, so the first close has somewhere to go
 ZERO24 = 0x7FFFFF
 EDGE = 2500               # the switch edge every band shares (shoulder: lower edge, others: upper edge)
 ARM_QUERY = ("Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match 'VID_09F1' } "
@@ -62,8 +69,8 @@ def s32(data, at):
 class Plant:
     def __init__(self, width=2000, roll_width=None):
         self.bands = bands(width, width if roll_width is None else roll_width)
-        self.phys = [0.0] * 6
-        self.off = [0] * 6
+        self.phys = [0.0] * 5 + [GRIPPER_START]
+        self.off = [0.0] * 5 + [-GRIPPER_START]
         self.mode = ["P"] * 6
         self.drive = [0] * 6
         self.events = []
@@ -105,10 +112,11 @@ class Plant:
         before = self.switch_bits()
         for n in range(6):                                # integrate one message of motion
             if self.mode[n] in "TH" and self.drive[n]:
-                self.phys[n] -= self.drive[n] * DRIVE_GAIN
+                self.phys[n] -= self.drive[n] * (GRIPPER_GAIN if n == GRIPPER else DRIVE_GAIN)
             elif self.mode[n] == "S":
                 target = s32(data, 12 + 4 * n) - self.off[n]
                 self.phys[n] += max(-FOLLOW_STEP, min(FOLLOW_STEP, target - self.phys[n]))
+        self.phys[GRIPPER] = max(GRIPPER_STOPS[0], min(GRIPPER_STOPS[1], self.phys[GRIPPER]))
         after = self.switch_bits()
         if after != before:
             self.events.append({"event": "switches", "before": before, "after": after, "phys": list(self.phys)})

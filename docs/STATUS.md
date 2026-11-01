@@ -37,7 +37,7 @@
 |---|---|---|---|---|
 | Connect, handshake, raw state read | E4 | no | `evidence/2026-09-29-idle-capture-handoff.md (in git history)` | Only one idle capture |
 | Legacy home | E4 (failed) | no | `evidence/2026-10-06-lab-logs/ANALYSIS.md (in git history)` | Failed at 4.2 s |
-| Vendor-home port (`scorbot/vendor_home.py`) | E3 | yes (4 rounds) | `specs/2026-10-08-vendor-home-port.md (in git history)`, `tests/test_thesis_crosscheck.py` | Needs a USBPcap capture of Stack 1 to replay against |
+| Vendor-home port (`scorbot/vendor_home.py`) | E3 | no (gripper end changed 2026-10-31; 3 review rounds, the last still open on ledger PL29) | `tests/fixtures/vendor_home_trace05.json` (lab DLL on the fake, command for command), the full Stack 2 bring-up on the pipe fake, [`protocol/LEDGER.md`](protocol/LEDGER.md) | Lab visit: steps T, P, X, G in `lab/LAB_CHECKLIST.md`; a USBPcap capture of Stack 1 to replay against |
 | Packet codec (`scorbot/transport/`) | E3 | no | `tests/test_transport_codec.py` | Not wired into `Scorbot` |
 | Joint jog, streaming, gripper, inch home, software stop | E2 | no | `tests/`, `tests_extra/` | Never ran on the arm |
 | Simulator, recording, replay (`scorbot/session/`) | E2 | no | `tests/` | Offline only |

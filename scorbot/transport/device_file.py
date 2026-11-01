@@ -8,9 +8,13 @@ anywhere in the DLL. A read that returns zero bytes is retried, ten times in a r
 name is the ``DriverLink`` entry of ``USBC.INI`` (``\\\\.\\ERUSBDevice0`` in the shipped file).
 
 This module does the same in Python so our code runs on Intelitek's driver and skips the Zadig swap.
-``Scorbot(transport="device_file"|"auto")`` uses it. Never run against a device, unverified on the arm:
-whether the driver honours ``CancelSynchronousIo`` (used for the timeout) is not known, and the exclusive
-open means SCORBASE and ``usbc_home`` must be closed first. The endpoints mimic what ``openScorbot`` calls on pyusb's endpoints:
+``Scorbot(transport="device_file"|"auto")`` uses it. Never run against a device, unverified on the arm.
+The exclusive open means SCORBASE and ``usbc_home`` must be closed first. ``ERUSB.sys`` serves each read
+and write inside its dispatch routine and waits up to 5 s for the controller itself, then completes the
+request with ``STATUS_TIMEOUT`` (a success status) and whatever bytes arrived; the request is never pending
+and has no cancel routine, so ``CancelSynchronousIo`` (the watchdog below) most likely cannot end it early
+(``docs/protocol/LEDGER.md`` PL30, read from the driver, unverified on the arm). An empty read that took the
+caller's whole timeout is therefore raised as ``TimeoutError`` at once, not retried ten times. The endpoints mimic what ``openScorbot`` calls on pyusb's endpoints:
 ``write(data, timeout_ms)`` and ``read(buffer, timeout_ms)`` filling the buffer in place.
 
 Standard library only. ``import`` opens nothing; the real Windows layer is built only when no fake is given.
@@ -19,11 +23,14 @@ Standard library only. ``import`` opens nothing; the real Windows layer is built
 from array import array
 import sys
 import threading
+import time
 
 DEFAULT_PATH = "\\\\.\\ERUSBDevice0"
 PACKET_SIZE = 64
 MAX_EMPTY_READS = 10   # the DLL counts consecutive zero-byte reads and gives up at 10
 CANCEL_RETRY_S = 0.01  # a cancel sent before the read is pending is lost, so the watchdog repeats it
+EMPTY_READ_TIMEOUT_MS = 4000
+"""With no caller timeout, an empty read this slow is ERUSB.sys's own 5 s timeout, not a quick retry."""
 
 ERROR_FILE_NOT_FOUND = 2
 ERROR_PATH_NOT_FOUND = 3
@@ -207,10 +214,14 @@ class _InEndpoint:
     def read(self, buffer, timeout=None):
         handle = self._link._live()
         for _ in range(MAX_EMPTY_READS):
+            started = time.monotonic()
             data = self._link._timed(lambda: self._link._api.read_file(handle, PACKET_SIZE), timeout)
             if len(data) == PACKET_SIZE:
                 buffer[0:PACKET_SIZE] = array("B", data) if isinstance(buffer, array) else data
                 return PACKET_SIZE
             if data:
                 raise DeviceLinkError(f"partial read: {len(data)} of {PACKET_SIZE} bytes")
+            if (time.monotonic() - started) * 1000 >= (timeout if timeout and timeout > 0 else EMPTY_READ_TIMEOUT_MS):
+                raise TimeoutError(f"no answer from the controller: the driver gave up after "
+                                   f"{time.monotonic() - started:.1f} s with no bytes")
         raise DeviceLinkError(f"{MAX_EMPTY_READS} empty reads in a row; the controller is not answering")
