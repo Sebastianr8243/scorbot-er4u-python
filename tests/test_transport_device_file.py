@@ -163,6 +163,19 @@ class TimeoutTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 2.0)
         self.assertEqual(len([c for c in api.calls if c[0] == "cancel"]), 3)
 
+    def test_an_empty_read_that_took_the_whole_timeout_is_the_drivers_timeout_not_a_retry(self):
+        # ERUSB.sys waits 5 s for the controller itself, then completes the read with STATUS_TIMEOUT and no
+        # bytes; the cancel cannot reach it (docs/protocol/LEDGER.md PL30). Ten such retries would be 50 s.
+        class SlowEmpty(FakeApi):
+            def read_file(self, handle, size):
+                self.calls.append(("read", handle, size))
+                time.sleep(0.12)
+                return b""
+        api = SlowEmpty()
+        with self.assertRaises(TimeoutError):
+            link(api).endpoint_in.read(bytearray(64), 100)
+        self.assertEqual(len([c for c in api.calls if c[0] == "read"]), 1)
+
     def test_a_read_that_answers_in_time_is_never_cancelled(self):
         api = FakeApi([bytes(64)])
         link(api).endpoint_in.read(bytearray(64), 1500)

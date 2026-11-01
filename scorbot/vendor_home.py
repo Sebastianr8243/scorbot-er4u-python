@@ -85,10 +85,15 @@ COUPLED_FOLLOW_FRACTION = 0.25
 """A coupled motor must have covered this fraction of what its drive ratio to the axis predicts."""
 TICK_STALL_LIMIT = 4
 """Stalled ticks in a row that end a type 16 search (the types 14 and 15 use their own, 4 and 1, and reverse)."""
-GRIPPER_MAX_CYCLES = 600
+GRIPPER_MAX_CYCLES = 120
+"""The vendor's gripper countdown, in replies; plus the measured lag. Running out is ``ERR_GRIPPER`` here."""
 GRIPPER_MAX_SECONDS = 30.0
 GRIPPER_GRACE_CYCLES = 10
-"""Cycles after a gripper drive before its stall check starts, plus the measured lag (the vendor: 10 ticks)."""
+"""Fresh replies after a gripper drive before its stall check starts, plus the measured lag (the vendor: 10 ticks)."""
+GRIPPER_STALL_CHECKS = 2
+"""Quiet checks in a row that end a gripper drive (the vendor: 1), so one stale sample cannot end it."""
+GRIPPER_STALE_LIMIT = 10
+"""Repeated replies (the same echoed ID) in a row that stop a gripper drive: its feedback is not live."""
 GRIPPER_MIN_TRAVEL = 200
 """A gripper drive must travel this far before a stall counts as the end of its travel."""
 
@@ -195,6 +200,8 @@ class Reply:
     emergency: bool = False
     lag: int = 0
     """How many messages the controller is behind (sent ID minus the ID this reply echoes), measured by the caller."""
+    echo: int = -1
+    """The message ID this reply echoes (IN byte 0). The same ID twice in a row is a repeated, stale reply."""
 
 
 @dataclass(frozen=True)
@@ -227,7 +234,8 @@ def decode_reply(packet, now):
     if len(packet) < 60:
         raise ValueError(f"reply too short: {len(packet)} bytes")
     counts = tuple(int.from_bytes(packet[19 + 5 * n:22 + 5 * n], "little") - ZERO24 for n in range(6))
-    return Reply(counts=counts, switches=packet[5], now=now, impact=packet[59], emergency=bool(packet[2] & 1))
+    return Reply(counts=counts, switches=packet[5], now=now, impact=packet[59], emergency=bool(packet[2] & 1),
+                 echo=packet[0])
 
 
 class _Run:
@@ -448,8 +456,11 @@ class _Run:
         """Drive the gripper to the end of its travel: it stalls, or flags an impact.
 
         Motor on, mode T, the drive, ``47``, ``4D 0``, then the gripper switched off again (``73 20``, ``42 20``).
+        The stall is the vendor's check (at most ``impact_enc`` counts in ``impact_ticks`` fresh replies), seen
+        ``GRIPPER_STALL_CHECKS`` times in a row; repeated replies (the same echoed ID) are not counted.
         Raises ``HomeError`` for: moving against the drive, travelling past ``max_distance`` or taking
-        longer than ``GRIPPER_MAX_SECONDS`` or ``GRIPPER_MAX_CYCLES``, and a stall or impact before
+        longer than ``GRIPPER_MAX_SECONDS`` or ``GRIPPER_MAX_CYCLES`` plus the lag, ``GRIPPER_STALE_LIMIT``
+        repeated replies in a row, and a stall or impact before
         ``GRIPPER_MIN_TRAVEL`` (the gripper's count is zeroed afterwards, so a half-finished move would
         zero it in the wrong place). ``at_end_ok`` accepts that early end: the pre-pass closes a
         gripper that may already be closed.
@@ -460,9 +471,16 @@ class _Run:
         self.driven = {GRIPPER: value}
         cfg = AXES[GRIPPER]
         start, t_start = self.reply.counts[GRIPPER], self.reply.now
-        sample = start
-        for n in range(1, GRIPPER_MAX_CYCLES + 1):
+        sample, echo = start, self.reply.echo
+        n = stale = quiet = 0                     # n counts fresh replies, as the vendor's countdown does
+        for _ in range(GRIPPER_MAX_CYCLES + min(self.reply.lag, MAX_LAG)):
             yield from self.cycle()
+            if self.reply.echo == echo and echo >= 0:
+                stale += 1
+                if stale >= GRIPPER_STALE_LIMIT:
+                    raise HomeError(ERR_GRIPPER, f"{stale} repeated replies while driving the gripper", GRIPPER)
+                continue
+            stale, echo, n = 0, self.reply.echo, n + 1
             position = self.reply.counts[GRIPPER]
             travelled = abs(position - start)
             if (position - start) * (-1 if value > 0 else 1) < -DIRECTION_FAULT_COUNTS:
@@ -475,7 +493,9 @@ class _Run:
             if self.reply.impact & 0x20:
                 ended = "impact"
             elif n % cfg.impact_ticks == 0:
-                if n >= GRIPPER_GRACE_CYCLES + self.reply.lag and abs(position - sample) <= cfg.impact_enc:
+                still = abs(position - sample) <= cfg.impact_enc
+                quiet = quiet + 1 if still and n >= GRIPPER_GRACE_CYCLES + self.reply.lag else 0
+                if quiet >= GRIPPER_STALL_CHECKS:
                     ended = "stall"
                 sample = position
             if ended:
@@ -483,7 +503,7 @@ class _Run:
                     raise HomeError(ERR_GRIPPER, f"gripper {ended} before it moved", GRIPPER)
                 break
         else:
-            raise HomeError(ERR_GRIPPER, "gripper never reached the end of its travel", GRIPPER)
+            raise HomeError(ERR_GRIPPER, "gripper did not stall within the vendor's gripper budget", GRIPPER)
         yield from self.send(CLEAR)
         yield from self.send(MOVE, 1 << GRIPPER, 0, 0)
         self.driven = {}

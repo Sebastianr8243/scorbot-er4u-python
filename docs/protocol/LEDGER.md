@@ -34,16 +34,24 @@ One row per claim Stack 2 relies on, with how we know it. Started 2026-10-31. Ad
 | PL23 | With no stall the move ends at the last ticks with the same messages minus the `47`. The type 17 homing step only waits for the countdown, so a gripper that never stalls is not an error: it fails only on emergency (300) or a user abort (569) | reversed, desk | E3 | the type 17 case of the per-axis homing routine `0x10007fbd`; the 2026-10-26 recording |
 | PL24 | After a close, the routine itself sends `48 20 0` (zero the gripper count) at the last tick, when a per-axis flag word (record `+0x83e`, not decoded) is not all set. It never does after an open | reversed, desk | E3 | `0x1002539c`; `48 20` follows only the closes in both recordings |
 | PL25 | The stall check runs only while the DLL's online flag is set (written by the USB loop) and its mode word is 1. Both hold on the fake, since the stall path ran | reversed, desk | E3 | flags `0x1007bfc4`, `0x1007bfbc` |
-| PL26 | Stack 2 ends its gripper drives on the same rule (PL22) and sends the same `47` first. Its check starts 10 cycles plus the measured lag after the drive, where the vendor's starts after 10 | desk | E3 | `scorbot/vendor_home.py` `gripper_drive`; the pipe ladder's three gripper drives last 42, 80 and 80 messages, the same as the DLL's |
-| PL27 | Deviation, on purpose: Stack 2 stops the Home with error 574 when the gripper never stalls within 600 cycles, or stalls before it travelled 200 counts, where the vendor would carry on and zero the count mid-travel | design | E2 | `scorbot/vendor_home.py` docstring |
+| PL26 | Stack 2 ends its gripper drives on the same check (PL22) and sends the same `47` first. Three differences: the check starts 10 fresh replies plus the measured lag after the drive (vendor: 10); it must be quiet twice in a row (vendor: once); and replies that repeat the last echoed ID are not counted | desk | E3 | `scorbot/vendor_home.py` `gripper_drive`; on the pipe its three gripper drives last 44, 82 and 82 messages against the DLL's 42, 80 and 80 |
+| PL27 | Deviation, on purpose: Stack 2 stops the Home with error 574 when the gripper has not stalled within the vendor's 120 replies (plus the lag), stalls before it travelled 200 counts, or sees 10 repeated replies in a row. The vendor carries on and zeroes the count, mid-travel if need be | design | E2 | `scorbot/vendor_home.py` docstring; an outside review (2026-10-31) reproduced a mid-travel zero from two repeated replies, and a 10 s push against a jittering stop, before these limits |
 | PL28 | Once the arm is homed, an ER-4u `OpenGripper` can take `JawMetric` (a 70 mm position move) instead of the drive, when the same per-axis flag word is all set. A lead for a position-controlled gripper action later | reversed | E3 | `OpenGripper` `0x100185b8`, check `0x10023259` |
+
+## Driver (`ERUSB.sys`, sha256 `1da14fca...bdad3`)
+
+| ID | Claim | Status | Level | Source |
+|---|---|---|---|---|
+| PL30 | READ and WRITE are served inside the dispatch routine: the driver sends the URB down on its own IRP and waits for it, non-alertable, for at most 5000 ms. On a timeout it cancels its own IRP, waits for that, and completes our request with `STATUS_TIMEOUT` (`0x102`, a success status) and the URB's byte count | reversed | E3 | `FUN_00010b20` (read), `FUN_00010c80` (write), `FUN_00016610` (submit and wait) |
+| PL31 | Our request is never marked pending and gets no cancel routine, so `CancelSynchronousIo` from user mode cannot end a blocked read; it ends when the controller answers or after the driver's 5 s. Inference: `ReadFile` then returns success with no bytes, and `device_file` now raises that as a timeout instead of retrying ten times (up to 50 s) | reversed, inference | E3 | PL30; `scorbot/transport/device_file.py` |
+| PL32 | Inference: the handle is opened for synchronous I/O, so Windows runs one request at a time on it. A stop written from another thread waits behind a blocked read, up to 5 s. The red stop is the emergency stop for this reason too | inference | E1 | PL30, Windows synchronous file objects |
 
 ## Open
 
 | ID | Question | How it closes |
 |---|---|---|
 | PL90 | What the drive value of `4D` means physically | Arm: the gripper's count rate at -165 |
-| PL91 | The driver's read timeout and what cancels a blocked read | Ghidra on `ERUSB.sys`, then the lab cancel experiment |
+| PL91 | Desk half answered (PL30, PL31). Still open: what `ReadFile` really returns after the driver's 5 s, and how long a stop waits behind a blocked read | Lab, no motion: open `device_file`, read once without writing first, time it and log the result |
 | PL92 | How far behind the real controller answers while homing | Arm: the Stack 2 probe's echo lag |
 | PL93 | Whether the controller accepts Stack 2's Home at all | Arm, after the gates in the lab plan |
 | PL94 | What the per-axis flag word at `+0x83e` holds (PL24, PL28) | Ghidra: its writers |

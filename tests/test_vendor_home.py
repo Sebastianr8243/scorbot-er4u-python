@@ -372,6 +372,63 @@ class SafetyTests(unittest.TestCase):
         run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), plant, on_cycle=late, lag=40)
         self.assertEqual(plant.reported(vh.GRIPPER), 3000)                   # half open to the open stop
 
+    def test_repeated_replies_mid_travel_are_not_a_gripper_stall(self):
+        # A controller that sends the same reply twice (same echoed ID, same counts) after the gripper has moved
+        # far enough must not end the drive and zero the gripper half way.
+        class Repeats(Plant):
+            n, last = 0, None
+
+            def exchange(self, data):
+                self.n += 1
+                fresh = super().exchange(data)
+                if self.last is not None and self.n in (19, 20, 21):
+                    return self.last
+                self.last = fresh
+                return fresh
+        plant = Repeats()
+        run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), plant)
+        self.assertEqual(plant.reported(vh.GRIPPER), 3000)                   # it reached the open stop
+
+    def test_one_quiet_check_is_not_a_stall_but_two_are(self):
+        frozen = set(range(20, 23))                  # 3 fresh replies standing still: one whole quiet 2-reply check
+        plant = Plant()
+        run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), plant,
+                      on_cycle=lambda n, p: setattr(p, "frozen", {vh.GRIPPER} if n in frozen else set()))
+        self.assertEqual(plant.reported(vh.GRIPPER), 3000)
+
+    def test_a_gripper_that_jitters_at_its_stop_is_stopped_at_the_vendors_budget(self):
+        # Feedback that moves 3 counts every reply never meets the 2-count stall rule. The vendor stops after
+        # 120 replies anyway; here that is ERR_GRIPPER, raised before any 48.
+        def jitter(n, p):
+            p.off[vh.GRIPPER] = -3000 + (3 if n // 2 % 2 else 0)            # 2-reply samples always 3 apart
+        with self.assertRaises(vh.HomeError) as caught:
+            run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Plant(), on_cycle=jitter)
+        self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
+        outs = caught.exception.outs
+        drive = next(i for i, o in enumerate(outs) if o.cmd == vh.MOVE and o.arg32)
+        self.assertLessEqual(len(outs) - drive, vh.GRIPPER_MAX_CYCLES + 12)  # the budget plus the stop messages
+        self.assertNotIn(vh.SET_POSITION, [o.cmd for o in outs])
+
+    def test_many_stale_replies_in_a_row_stop_the_gripper_drive(self):
+        class Stuck(Plant):
+            n, last = 0, None
+
+            def exchange(self, data):
+                self.n += 1
+                fresh = super().exchange(data)
+                if self.last is not None and self.n > 15:
+                    return self.last
+                self.last = fresh
+                return fresh
+        with self.assertRaises(vh.HomeError) as caught:
+            run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Stuck())
+        self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
+
+    def test_the_reply_carries_the_echoed_id(self):
+        packet = bytearray(64)
+        packet[0] = 77
+        self.assertEqual(vh.decode_reply(bytes(packet), 0.0).echo, 77)
+
     def test_a_gripper_that_keeps_moving_hits_its_travel_bound(self):
         import dataclasses
         old = vh.AXES
