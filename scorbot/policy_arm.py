@@ -39,6 +39,9 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX
         wanted = max(-cap_deg, min(cap_deg, target_deg[motor] + step))
         lo, hi = measured_deg[motor] - lead_margin_deg, measured_deg[motor] + lead_margin_deg
         wanted = max(lo, min(hi, wanted))
+        # The lead window can sit beyond one step when feedback jumps: walk toward it, a step at a time.
+        base = target_deg[motor]
+        wanted = max(-cap_deg, min(cap_deg, max(base - step_max_deg, min(base + step_max_deg, wanted))))
         if abs(wanted - (target_deg[motor] + asked)) > 1e-9:
             clamped.append(motor)
         out[motor] = wanted

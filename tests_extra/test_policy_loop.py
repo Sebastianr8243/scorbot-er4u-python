@@ -46,6 +46,13 @@ class ClampTests(unittest.TestCase):
         new, _ = self.clamp({"base": 0.5}, target=target, measured=ZERO)
         self.assertLessEqual(new["base"], policy_loop.LEAD_MARGIN_DEG)
 
+    def test_the_lead_correction_never_beats_the_step_limit(self):
+        target = {"base": -1.0, "shoulder": 0.0, "elbow": 0.0}     # the arm reads far from the target
+        measured = {"base": 1.1, "shoulder": 0.0, "elbow": 0.0}
+        new, clamped = self.clamp({"base": 0.0}, target=target, measured=measured)
+        self.assertAlmostEqual(new["base"], -1.0 + policy_loop.STEP_MAX_DEG)
+        self.assertEqual(clamped, ["base"])
+
     def test_bad_input_holds_the_motor(self):
         for bad in (math.nan, math.inf, "1", None, True):
             target, clamped = self.clamp({"base": bad})
