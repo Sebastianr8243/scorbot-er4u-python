@@ -53,6 +53,23 @@ class ClampTests(unittest.TestCase):
         self.assertAlmostEqual(new["base"], -1.0 + policy_loop.STEP_MAX_DEG)
         self.assertEqual(clamped, ["base"])
 
+    def test_a_feedback_jump_only_ever_shrinks_the_lead(self):
+        for t, m in ((-1.0, 1.1), (1.0, -1.2), (0.0, 1.8), (2.0, -2.0), (-2.0, 9.0)):
+            for asked in (-3.0, 0.0, 3.0):
+                target = {"base": t, "shoulder": 0.0, "elbow": 0.0}
+                measured = {"base": m, "shoulder": 0.0, "elbow": 0.0}
+                new, _ = self.clamp({"base": asked}, target=target, measured=measured, cap_deg=0.2)
+                self.assertLessEqual(abs(new["base"] - t), policy_loop.STEP_MAX_DEG + 1e-9)
+                self.assertLessEqual(abs(new["base"] - m), abs(t - m) + 1e-9)
+
+    def test_bad_state_or_cap_holds_the_motor(self):
+        for bad in (math.nan, math.inf, -math.inf):
+            for target, measured in (({**ZERO, "base": bad}, ZERO), (ZERO, {**ZERO, "base": bad})):
+                new, clamped = self.clamp({"base": 0.3}, target=target, measured=measured)
+                self.assertEqual((new["base"], clamped), (target["base"], ["base"]), bad)
+            new, clamped = self.clamp({"base": 0.3}, cap_deg=bad)
+            self.assertEqual((new["base"], clamped), (0.0, ["base"]), bad)
+
     def test_bad_input_holds_the_motor(self):
         for bad in (math.nan, math.inf, "1", None, True):
             target, clamped = self.clamp({"base": bad})
