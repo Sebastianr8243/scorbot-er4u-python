@@ -46,6 +46,16 @@ class GripperMixin:
         """Close the gripper to 0 counts after a vendor Home. See ``move_gripper``."""
         return self.move_gripper("close")
 
+    def move_gripper_mm(self, mm: int) -> GripperMove:
+        """Move the jaw to a width of ``mm`` (0 to 70), the DLL's ``JawMetric`` (``docs/protocol/LEDGER.md`` PL71).
+
+        Same messages, refusals and checks as ``move_gripper``; the direction is "open" when the target is above
+        the gripper's count now. The ramp is Stack 2's full-stroke one, not the DLL's shorter one for short moves.
+        """
+        target = vendor_gripper.metric_target_counts(mm)
+        now = self._motion_state().signed_encoder_counts["gripper"] if self._device is not None else 0
+        return self._move_gripper("open" if target > now else "close", target)
+
     def move_gripper(self, direction: str) -> GripperMove:
         """Open or close the gripper the way the vendor does after a Home. Never run on the arm.
 
@@ -67,9 +77,11 @@ class GripperMixin:
         switches the motors off and latches a fault, as does an arm motor that reads
         differently afterwards or a gripper that moved the wrong way.
         """
+        return self._move_gripper(direction, vendor_gripper.target_counts(direction))
+
+    def _move_gripper(self, direction: str, target: int) -> GripperMove:
         with self._motion_lock:
             self._refuse_if_streaming()
-            target = vendor_gripper.target_counts(direction)
             if self._device is None:
                 raise ScorbotError("Not connected")
             if not self._enabled:
