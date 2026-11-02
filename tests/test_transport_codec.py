@@ -464,11 +464,10 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
         cases = (
             (self.comm.motors_on, [(codec.MOTORS_ON[i], states) for i in range(1, 8)]),
             (self.comm.motors_off, [(codec.MOTORS_OFF[i], states) for i in range(1, 27)]),
-            # scorbotoff: 11 table messages, libsync.send_wait (one idle message
-            # without encoder region, buffer[1] is already 13), get_msg1(4), get_msg1(2).
+            # scorbotoff: libsync.send_wait (one idle message without encoder region,
+            # buffer[1] is already 13), get_msg1(4), get_msg1(2). No SCORBOT_OFF table (PL96).
             (self.comm.scorbotoff,
-             [(codec.SCORBOT_OFF[i], states) for i in range(1, 12)]
-             + [(codec.IDLE, None), (codec.GET_MSG1[4], states), (codec.GET_MSG1[2], states)]),
+             [(codec.IDLE, None), (codec.GET_MSG1[4], states), (codec.GET_MSG1[2], states)]),
         )
         for start in (1, 200, 250):
             for function, commands in cases:
