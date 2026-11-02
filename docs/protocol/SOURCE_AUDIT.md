@@ -23,7 +23,7 @@ Every OUT message reaches the wire through one of two writers: the legacy worker
 | Handshake close: `0D` with header `00 0C 00` | `libsync` | legacy | `libhex.get_msg2(84)`; the vendor writes the same message | `DESK_BYTE_CHECK.md` match |
 | Enable: `0D 47 0D 4F FF 53 42 FF 01 73 20 42 20` (handshake pkt3 tail, `enable()`) | `libcomm.motors_on` | legacy | `libhex.motorson`; vendor `Control('&', 1)` (`0x100226c4`) | `DESK_BYTE_CHECK.md` match (PL04) |
 | Disable: `0D 47 73 FF 42 FF 4F FF 53 73 FF 73 20 42 20`, then `64`/`61` three times (26 messages) | `libcomm.motors_off` | legacy | `libhex.motorsoff`; vendor `Control('&', 0)` | `DESK_BYTE_CHECK.md` "Control off" match |
-| Disconnect: disable, then `47 4F FF 53 73 20 42 20 64 61` group, then `42 FF`, `4F FF 54` | `libcomm.scorbotoff` (order `EXIT`) | legacy | `libhex.get_scorbotoff`, `get_msg1(4)`, `get_msg1(2)` | `DESK_BYTE_CHECK.md` **differs**: the middle group is extra against the DLL; whether the controller needs it is unverified |
+| Disconnect: disable, then `42 FF`, `4F FF 54` | `libcomm.scorbotoff` (order `EXIT`) | legacy | `get_msg1(4)`, `get_msg1(2)` | `DESK_BYTE_CHECK.md` **match** since 2026-11-01: the upstream middle group (`get_scorbotoff`) was dropped (PL96) |
 | Jog: `47`, then `0D` with the target setpoints, then `4F 3F 53`, `73 20`, `42 20` | `libdef.openMov` / `closeMov` (orders 4-9) | legacy | `libhex.mov_comm(1..5)`; the tail is the vendor's end-of-move tail without its leading `47` | region layout: `DESK_BYTE_CHECK.md` match; the setpoint ramp is legacy policy, not compared (**unverified**) |
 | Software stop: `47`, `4F 3F 53`, `73 20`, `42 20`, setpoints held at the measured position | `libdef.stopMov` | ours | added in `2612bd1` (2026-10-04), copied from vendor `Stop('A')` (`0x10021a47`) | `VENDOR_DLL_PROTOCOL.md` section 5; not run on the fake |
 | Stream: `0D` carrying three moving setpoints, one per period (24 ms) | `libcomm.stream_targets` (order 21) | ours | the target-chasing loop is ours (`f4b0613`); the message (`0D` carries the setpoint table) and the period are the vendor's | `VENDOR_DLL_PROTOCOL.md` sections 2, 5, 11.6 |
@@ -52,7 +52,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `transport.codec.GET_MSG2` | 79 three-byte entries | legacy | `libhex.get_msg2(1..79)` | `DESK_BYTE_CHECK.md` match |
 | `transport.codec.MOTORS_ON` | 7 messages | legacy | `libhex.motorson` | `DESK_BYTE_CHECK.md` match |
 | `transport.codec.MOTORS_OFF` | 26 messages | legacy | `libhex.motorsoff` | `DESK_BYTE_CHECK.md` "Control off" match |
-| `transport.codec.SCORBOT_OFF` | 11 messages | legacy | `libhex.get_scorbotoff` | `DESK_BYTE_CHECK.md` **differs** (extra group) |
+| `transport.codec.SCORBOT_OFF` | 11 messages | legacy | `libhex.get_scorbotoff` | no longer sent: `scorbotoff` dropped the group to match the DLL (PL96); kept for the codec-against-`libhex` tests |
 | `transport.codec.CLAMP` | `4F 20 53`, `4C 20 00`, `42 20 01`, `73 20`, `42 20` | legacy | `libhex.clamp` | `VENDOR_DLL_PROTOCOL.md` section 12.2 (vendor differs) |
 | `transport.codec.IDLE`, `transport.codec.MOVE_OPEN`, `transport.codec.MOVE_CLOSE` | `0D`; `47`; the three close messages | legacy | named slices of `MOV_COMM` | as `MOV_COMM` |
 | `transport.codec.PKT2_MODES` | `72`, `64`, `61` | legacy | `libsync.send_pkt2` | `DESK_BYTE_CHECK.md` match; `VENDOR_DLL_PROTOCOL.md` section 5 |
@@ -220,7 +220,7 @@ None of these reach the controller.
 Ranked by whether the gap reaches the controller, then by how soon it runs on the arm.
 
 1. **Pace the vendor Home at `HomingBuffers` (20).** The vendor keeps at most 20 messages in flight while homing (PL03); our Home does not pace that way, and guards the gap with `MAX_LAG` 60 and a lag-based stall grace instead. This is the Home the lab will run. Close it by wiring `pacing` into the order-22 loop with a limit of 20 and checking the trace still matches (PL10).
-2. **Decide on the extra disconnect group.** `scorbotoff` sends `47 4F FF 53 73 20 42 20 64 61` that the DLL does not (`DESK_BYTE_CHECK.md`). It reaches the arm on every disconnect. Either drop it to match the DLL, or keep it and record why. Needs only the desk fake.
+2. **Done 2026-11-01: the extra disconnect group.** `scorbotoff` sent `47 4F FF 53 73 20 42 20 64 61` that the DLL does not. Every command in it repeats the stop group sent just before, so it was dropped and disconnect now matches the DLL's close (PL96, `DESK_BYTE_CHECK.md`).
 3. **Decode the per-axis flag word at `+0x83e` (PL94).** It decides when the vendor zeroes the gripper count after a close (`48 20 0`, PL24) and when `OpenGripper` makes a 70 mm position move instead of a drive (PL28). Close it in Ghidra by reading its writers.
 4. **Settle the gripper `MaxTime` unit** (section 3). Desk only: read the loader at `0x100043b2` for the `MaxTime` field.
 5. **Check our Home fault codes (570-578) against the vendor's error list,** so a log never shows a vendor number with our meaning.
