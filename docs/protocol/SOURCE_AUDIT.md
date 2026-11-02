@@ -8,7 +8,7 @@ Where every value Stack 2 relies on comes from, started 2026-11-01 on top of the
 - `legacy`: from the older openScorbot project (`openScorbot/`), someone else's reverse engineering. A value counts as legacy only if it is in that project's first commit `43b03b1` (2020). Values this project added to files under `openScorbot/` later are `ours`.
 - `ours`: chosen here. The row says why.
 
-**Backed by** names the note in `docs/protocol/` (or `LEDGER.md` ID) that supports the tag. **unverified** means no note in `docs/protocol/` backs it: the tag rests on a code comment or a source outside these notes. Nothing in either table has been seen on the arm yet (`LEDGER.md`: no `arm` rows); "backed" means read from the DLL or matched on the fake.
+**Backed by** names the note in `docs/protocol/` (or `LEDGER.md` ID) that supports the tag; for arm geometry and limits, a note in `docs/manual/` that quotes the value. **unverified** means no such note backs it: the tag rests on a code comment or a source outside these notes. Nothing in either table has been seen on the arm yet (`LEDGER.md`: no `arm` rows); "backed" means read from the DLL or matched on the fake.
 
 Addresses are from the builds named in the cited note (2018 build for `VENDOR_DLL_PROTOCOL.md` and `VENDOR_HOMING_TRACE.md`, SDK Release build for `LEDGER.md`).
 
@@ -102,11 +102,11 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `vendor_home.COUPLED` | coupled motors per axis | vendor | drive scaling `0x100072c9`, `48` with coupling `0x1000758e` | `VENDOR_HOMING_TRACE.md`; `VENDOR_COUPLING_TRACE.md` |
 | `vendor_home.GRIPPER_MAX_CYCLES` | 120 | vendor | gripper countdown `0x78` (`0x1000d693`) | PL20, PL21 |
 | `vendor_home.GRIPPER_GRACE_CYCLES` | 10 | vendor | the stall check runs from 109 ticks left (`0x1002539c`); plus our measured lag | PL22 |
-| `vendor_home.GRIPPER_STALL_CHECKS` | 1 | vendor | one quiet check ends the drive | PL22 (PL26 still says "twice": stale since #72) |
+| `vendor_home.GRIPPER_STALL_CHECKS` | 1 | vendor | one quiet check ends the drive | PL22; PL26 (amended) |
 | `vendor_home.ERR_EMERGENCY`, `vendor_home.ERR_IMPACT`, `vendor_home.ERR_TIMEOUT` | 300, 201, 561 | vendor | the per-axis routine's errors | `VENDOR_HOMING_TRACE.md` section 3 |
 | `vendor_home.ERR_NOT_FOUND` | 563 | vendor | the vendor's "home switch not found" number; the vendor never raises it in these routines, we do | `VENDOR_HOMING_TRACE.md` section 3 |
-| `vendor_home.ERR_STALL`, `vendor_home.ERR_DIRECTION`, `vendor_home.ERR_TRAVEL`, `vendor_home.ERR_GRIPPER`, `vendor_home.ERR_BAD_REPLY`, `vendor_home.ERR_USB`, `vendor_home.ERR_LAG` | 570, 571, 572, 574, 575, 577, 578 | ours | our fault codes, placed in the vendor's 5xx range; not checked against the vendor's own list for clashes | **unverified** |
-| `vendor_home.ERR_STOPPED` | 14 | ours | the worker's `STOPPED`, added to `openScorbot/libcomm.py` in `2612bd1` | n/a |
+| `vendor_home.ERR_STALL`, `vendor_home.ERR_DIRECTION`, `vendor_home.ERR_TRAVEL`, `vendor_home.ERR_GRIPPER`, `vendor_home.ERR_BAD_REPLY`, `vendor_home.ERR_USB`, `vendor_home.ERR_LAG` | 570, 571, 572, 574, 575, 577, 578 | ours | our fault codes, in 570 to 579, a block the vendor's own list leaves unused | PL60 |
+| `vendor_home.ERR_STOPPED` | 14 | ours | the worker's `STOPPED`, added to `openScorbot/libcomm.py` in `2612bd1`; not a vendor number (the vendor's aborted Home is 569) | PL60 |
 | `vendor_home.RAMP_COUNTS_PER_CYCLE` | 6 | ours | planner moves are straight ramps, not the vendor's S-curve (module docstring) | n/a |
 | `vendor_home.SETTLE_COUNTS` | 8 | ours | settle band; the vendor's `ExactEpsilon` is 5 or 20 per axis | **unverified** |
 | `vendor_home.DIRECTION_FAULT_COUNTS` | 150 | ours | stops a wrong `4D` sign within a few degrees | n/a |
@@ -165,8 +165,8 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `vendor_model.STATUS`, `vendor_model.MOTORS`, `vendor_model.JOINTS` | text, names | ours | labels | n/a |
 | `source_model.COUNTS_PER_DEGREE` | from `vendor_model.ER4U` | vendor | `NoEnc90` / 90 | `VENDOR_DLL_PROTOCOL.md` section 10.1 |
 | `source_model.HOME_ANGLES` | angles at zero counts | vendor | the vendor's nominal zero-count pose | `VENDOR_DLL_PROTOCOL.md` section 10.3 |
-| `source_model.DH_OFFSETS_MM`, `source_model.DH_LENGTHS_MM` | 349, 145.125; 16, 221, 221 | vendor | `ROB_4u.INI` and the USNA toolbox `ScorDHtable.m` | **unverified** |
-| `source_model.LIMITS_DEG` | per joint | vendor | the narrower of the USNA toolbox's `ScorBSEPRLimits.m` and `ROB_4u.INI` | **unverified** |
+| `source_model.DH_OFFSETS_MM`, `source_model.DH_LENGTHS_MM` | 349, 145.125; 16, 221, 221 | vendor | `ROB_4u.INI` and the USNA toolbox `ScorDHtable.m` | `docs/manual/MANUAL_AND_PRIOR_ART_FINDINGS.md` "Geometry"; `docs/manual/ER4U_MODEL.md` |
+| `source_model.LIMITS_DEG` | per joint | vendor | the narrower of the USNA toolbox's `ScorBSEPRLimits.m` and `ROB_4u.INI` | `docs/manual/ER4U_MODEL.md` "Joint limits" |
 | `source_model.TIER`, `source_model.STATUS`, `source_model.JOINTS`, `source_model.MOTORS`, `source_model._AXES` | labels, aliases | ours | labels and aliases | n/a |
 | `nominal.ER4U_MANUAL`, `nominal.ER4U_CATALOG`, `nominal.SPECS`, `nominal.SIDE_VIEW`, `nominal.PARTS_LIST` | citations | vendor | the ER-4u user manual #100343 Rev. B | **unverified** (manual, not `docs/protocol/`) |
 | `nominal.GEAR_RATIO_ARM`, `nominal.GEAR_RATIO_ARM_PARTS_LIST`, `nominal.GEAR_RATIO_WRIST`, `nominal.GEAR_RATIO_GRIPPER`, `nominal.AXIS_RANGES`, `nominal.SHOULDER_AXIS_HEIGHT_MM`, `nominal.BASE_PEDESTAL_HEIGHT_MM`, `nominal.UPPER_ARM_MM`, `nominal.FOREARM_MM`, `nominal.VERTICAL_ENVELOPE_MM`, `nominal.MAX_OPERATING_RADIUS_MM`, `nominal.REPEATABILITY_MM`, `nominal.MAX_PAYLOAD_KG`, `nominal.MAX_PATH_SPEED_MM_S`, `nominal.ARM_AMBIENT_MIN_C`, `nominal.ARM_AMBIENT_MAX_C` | manual values | vendor | user manual pp. 4-6 and p. 28, cited per value in `nominal.py` | **unverified** (manual) |
@@ -174,8 +174,8 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `nominal.HYPOTHESIS_COUNTS_PER_MOTOR_REV` | derived | ours | a hypothesis from the legacy scale and the gear ratio | n/a |
 | `nominal.VENDOR_INI`, `nominal.VENDOR_STATUS` | citation, status text | ours | labels | n/a |
 | `nominal.VENDOR_COUNTS_PER_DEGREE` | `NoEnc90` / 90 | vendor | `ER4Ax1-5.ini NoEnc90` | `VENDOR_DLL_PROTOCOL.md` section 10.1 |
-| `nominal.VENDOR_BASE_HEIGHT_MM`, `nominal.VENDOR_UPPER_ARM_MM`, `nominal.VENDOR_FOREARM_MM`, `nominal.VENDOR_GRIPPER_LENGTH_MM` | 349, 221, 221, 145 | vendor | `ROB_4u.INI` | **unverified** |
-| `nominal.VENDOR_JOINT_LIMITS_DEG` | per joint | vendor | `ROB_4u.INI` angle limits | **unverified** |
+| `nominal.VENDOR_BASE_HEIGHT_MM`, `nominal.VENDOR_UPPER_ARM_MM`, `nominal.VENDOR_FOREARM_MM`, `nominal.VENDOR_GRIPPER_LENGTH_MM` | 349, 221, 221, 145 | vendor | `ROB_4u.INI` | `docs/manual/MANUAL_AND_PRIOR_ART_FINDINGS.md` "Geometry" |
+| `nominal.VENDOR_JOINT_LIMITS_DEG` | per joint | vendor | `ROB_4u.INI` angle limits | `docs/manual/MANUAL_AND_PRIOR_ART_FINDINGS.md` "Controller angle limits"; `docs/manual/ER4U_MODEL.md` "Joint limits" |
 | `nominal.VENDOR_ENCODER_SOFT_LIMITS` | per motor | vendor | `ER4AxN.ini EncLimit_1`/`_2` | `VENDOR_DLL_PROTOCOL.md` section 11.5 |
 | `nominal.VENDOR_LIMIT_REPORT_STATUS` | text | ours | label | n/a |
 | `nominal.DATASHEET`, `nominal.DATASHEET_JOINT_SPEED_DEG_S`, `nominal.DATASHEET_PATH_SPEED_MM_S`, `nominal.DATASHEET_SHOULDER_SPAN_DEG` | datasheet values | vendor | ER-4u datasheet 35-1005-8600 Rev K | **unverified** (datasheet) |
@@ -212,7 +212,7 @@ None of these reach the controller.
 
 - **Order 21 (stream) and order 22 (vendor Home) are ours, not legacy.** Both were added to `openScorbot/libcomm.py` by this project (`f4b0613`, `68fe9f1`), as was `STOPPED = 14` (`2612bd1`). None is a wire byte: they are codes on the worker's own queue. `MAX_ERROR = 40` is genuinely legacy (`43b03b1`).
 - **The motors-off gap is closed, shutdown is not.** `DESK_BYTE_CHECK.md` already compared both: the 26-message disable matches the DLL. The shutdown differs by one extra group.
-- **`LEDGER.md` PL26 is stale.** It says the gripper drive must be quiet twice in a row. Since #72 `GRIPPER_STALL_CHECKS` is 1, the vendor's value. The `vendor_home.py` docstring still names `STALL_CYCLES` and `GRIPPER_MIN_TRAVEL`, which #72 removed.
+- **`LEDGER.md` PL26 was stale** ("quiet twice in a row"; since #72 `GRIPPER_STALL_CHECKS` is 1, the vendor's value), and so was most of PL27. Both are now marked amended. The `vendor_home.py` docstring no longer names `STALL_CYCLES` and `GRIPPER_MIN_TRAVEL`, which #72 removed.
 - **Gripper `MaxTime`.** `AXES` turns every other axis's `MaxTime` from milliseconds into seconds (110000 to 110.0), but the gripper's 15 into 15.0 s. Either the file's 15 is seconds for this axis or the gripper gets 1000 times the vendor's bound. The gripper ends on its 120-reply countdown first, so it does not change behaviour today.
 
 ## 4. Ranked to-do
@@ -223,10 +223,10 @@ Ranked by whether the gap reaches the controller, then by how soon it runs on th
 2. **Decide on the extra disconnect group.** `scorbotoff` sends `47 4F FF 53 73 20 42 20 64 61` that the DLL does not (`DESK_BYTE_CHECK.md`). It reaches the arm on every disconnect. Either drop it to match the DLL, or keep it and record why. Needs only the desk fake.
 3. **Decode the per-axis flag word at `+0x83e` (PL94).** It decides when the vendor zeroes the gripper count after a close (`48 20 0`, PL24) and when `OpenGripper` makes a 70 mm position move instead of a drive (PL28). Close it in Ghidra by reading its writers.
 4. **Settle the gripper `MaxTime` unit** (section 3). Desk only: read the loader at `0x100043b2` for the `MaxTime` field.
-5. **Check our Home fault codes (570-578) against the vendor's error list,** so a log never shows a vendor number with our meaning.
+5. Done (PL60): **our Home fault codes (570-578) do not clash** with the vendor's error list, which leaves 570 to 579 unused. Open choice, post-lab: report a Home stopped from outside as the vendor's 569 instead of the legacy 14.
 6. **Compare the legacy gripper sequence with the vendor's on the fake.** Stack 2 still sends `libhex.clamp` (`4F 20 53`, `4C 20 00`, a position ramp). The vendor sends `4F 20 54` and one `4D` drive (`VENDOR_DLL_PROTOCOL.md` section 12.2). Not on the lab plan for this visit.
 7. **Not on the wire, lowest:**
    - The stream's error limit 40 is a threshold on the reply, not a value sent.
    - Orders 21 and 22 are internal.
-   - The "unverified" geometry rows (`ROB_4u.INI` link lengths and angle limits, manual and datasheet values) need a note in `docs/protocol/` or `docs/manual/` that quotes them.
-   - Fix PL26 and the `vendor_home.py` docstring (section 3).
+   - Done for the `ROB_4u.INI` link lengths and angle limits (they cite `docs/manual/` notes that quote them). Still unverified: the manual and datasheet citation rows, whose values no note quotes one by one.
+   - Done: PL26, PL27 and the `vendor_home.py` docstring (section 3).
