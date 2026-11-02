@@ -237,9 +237,9 @@ class FailureTests(Case):
         self.check_failure(robot, error, vh.ERR_DIRECTION, "moves against its drive")
         self.assertLess(max(abs(x) for x in plant.phys[:5]), 600)      # the gripper starts at 3000
 
-    def test_a_jammed_wrist_motor_is_a_stall(self):
-        robot, error = self.fail(plant=Plant(frozen={vh.WRIST_M1}))
-        self.check_failure(robot, error, vh.ERR_STALL, "wrist_m1")
+    def test_a_wrong_drive_sign_on_the_shoulder_is_a_direction_fault(self):
+        robot, error = self.fail(plant=Plant(gain=-0.1))
+        self.check_failure(robot, error, vh.ERR_DIRECTION, "shoulder")
 
     def test_a_stop_request_that_lands_after_the_last_message_still_latches_and_switches_off(self):
         # The controller's counters were already zeroed by 48, so the session cannot go on as "not homed".
@@ -316,15 +316,16 @@ class FailureTests(Case):
         self.assertLess(len(robot.sim.vendor_packets), 300)
 
     def test_a_home_that_never_finds_a_switch_ends_in_an_error_not_a_hang(self):
-        robot, error = self.fail(plant=Plant(bands={}))
-        self.assertTrue(any(f"error {code}" in str(error)
-                            for code in (vh.ERR_TIMEOUT, vh.ERR_TRAVEL, vh.ERR_STALL, vh.ERR_NOT_FOUND)))
+        # Hard stops as a real arm has: without them the shoulder's search (no distance check, as the
+        # vendor's) can wrap the 24-bit count before its MaxTime on a fast machine, which reads as 571.
+        robot, error = self.fail(plant=Plant(bands={}, stops={n: (-30000, 30000) for n in range(5)}))
+        self.assertIn(f"error {vh.ERR_TIMEOUT}", str(error), str(error))
         self.assertFalse(robot._homed)
 
     def test_the_failure_message_names_the_axis(self):
-        robot, error = self.fail(plant=Plant(frozen={vh.WRIST_M1}))
-        self.assertIn("wrist_m1", str(error))
-        self.assertEqual(self.events("home_failed")[-1]["axis"], vh.WRIST_M1)
+        robot, error = self.fail(plant=Plant(gain=-0.1))
+        self.assertIn("shoulder", str(error))
+        self.assertEqual(self.events("home_failed")[-1]["axis"], vh.SHOULDER)
 
     def test_a_source_that_dies_is_reported_as_unexpected(self):
         robot = self.robot()

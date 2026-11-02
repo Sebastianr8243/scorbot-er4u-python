@@ -571,9 +571,10 @@ class HomingMixin:
         wrist roll, the wrist pitch as an axis and the gripper all move here (owner decision
         2026-10-08, and only here: ``jog_joint`` and ``move_gripper`` are unchanged). The command
         bytes are the vendor DLL's own, recorded against a fake controller; the replies in that
-        recording were a model, so **the controller's acceptance is unverified**. Every driven
-        motor is checked for stalls, travel and a wrong drive sign, which stops the home within
-        a few degrees; the thresholds are guesses chosen to fail safe.
+        recording were a model, so **the controller's acceptance is unverified**. It stops only on
+        the vendor's own checks (each axis' ``MaxTime``, emergency, impact, the vendor's stall and
+        distance rules), plus two of ours: a motor moving against its drive (the drive sign is
+        inferred) and a controller more than ``MAX_LAG`` messages behind.
 
         Needs: an operator at the physical stop, empty jaws, a clear wrist path, motors enabled,
         no stream, and switch bits below 32. Any error, a stop request or an interrupt first

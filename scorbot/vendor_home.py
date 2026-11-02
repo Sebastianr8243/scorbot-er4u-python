@@ -54,22 +54,8 @@ NAMES = ("base", "shoulder", "elbow", "wrist_m1", "wrist_m2", "gripper")
 RAMP_COUNTS_PER_CYCLE = 6
 """Largest setpoint change per cycle in any planner move (about 370 counts/s at 16 ms a cycle)."""
 SETTLE_COUNTS = 8
-SETTLE_CYCLE_CAP = 400
-STALL_CYCLES = 150
-"""Every driven motor (the axis and its coupled motors) must move ``STALL_WINDOW_COUNTS`` in each window of this many cycles."""
-STALL_WINDOW_COUNTS = 10
 DIRECTION_FAULT_COUNTS = 150
 """Net counts a driven motor may move AGAINST its drive before the home stops: a wrong drive sign."""
-MAX_CREEPS = 2000
-MAX_LEAD_COUNTS = 400
-"""How far a setpoint may run ahead of the measured count of a motor in a ramp or a creep. The ramp is 6 counts
-a cycle, so 400 allows about 67 cycles of lag (more than the 47-message queue the controller may run behind,
-docs/protocol/BRING_UP_SEQUENCE.md) and still stops a motor that does not follow within about 3.5 degrees,
-not after the whole 1050-count pitch move."""
-COUPLED_MIN_AXIS_COUNTS = 60
-"""A search must have moved its axis this far before the motors driven with it are judged: a shorter
-transition (the arm was already on its switch) predicts only a few counts for the slow wrist motors, which
-gear backlash can hide. A motor that is never judged here is caught later by the offset ramp's settle check."""
 TICK_GRACE_CYCLES = 60
 """Cycles after a search starts before its stall ticks count. The controller may run about 47 messages
 behind (docs/protocol/BRING_UP_SEQUENCE.md), so a healthy drive can show no motion in the replies for that long.
@@ -78,33 +64,22 @@ TICK_GRACE_MARGIN = 15
 MAX_LAG = 60
 """A controller further behind than this is not homed: the vendor never lets more than 45 messages be in
 flight (its queue limits are 4 to 45, 20 while homing), the thesis saw 6 and this arm showed 47. It is also
-the most credit the measured lag can earn: the stall grace is at most 75 cycles and the setpoint lead limit
-at most 400 + 6 x 60 = 760 counts, so an unverified lag cannot let a stuck motor take most of the 1050-count
-pre-pass move."""
-COUPLED_FOLLOW_FRACTION = 0.25
-"""A coupled motor must have covered this fraction of what its drive ratio to the axis predicts."""
+the most credit the measured lag can earn: the stall grace is at most 75 cycles. Ours, not the vendor's: the
+vendor keeps its queue at 20 while homing (``HomingBuffers``) and so never needs this check; ours does not pace
+that way yet."""
 TICK_STALL_LIMIT = 4
 """Stalled ticks in a row that end a type 16 search (the types 14 and 15 use their own, 4 and 1, and reverse)."""
 GRIPPER_MAX_CYCLES = 120
 """The vendor's gripper countdown, in replies; plus the measured lag. Running out is ``ERR_GRIPPER`` here."""
-GRIPPER_MAX_SECONDS = 30.0
 GRIPPER_GRACE_CYCLES = 10
 """Fresh replies after a gripper drive before its stall check starts, plus the measured lag (the vendor: 10 ticks)."""
-GRIPPER_STALL_CHECKS = 2
-"""Quiet checks in a row that end a gripper drive (the vendor: 1), so one stale sample cannot end it."""
-GRIPPER_STALE_LIMIT = 10
-"""Repeated replies (the same echoed ID) in a row that stop a gripper drive: its feedback is not live."""
-GRIPPER_CLOSE_SLACK = 0.05
-"""How much shorter than the open the homing close may be (or ``GRIPPER_MIN_TRAVEL``, if larger)."""
-GRIPPER_MIN_TRAVEL = 200
-"""A gripper drive must travel this far before a stall counts as the end of its travel."""
+GRIPPER_STALL_CHECKS = 1
+"""Quiet checks in a row that end a gripper drive: the vendor's 1."""
 
 ERR_EMERGENCY, ERR_IMPACT, ERR_NOT_FOUND, ERR_TIMEOUT = 300, 201, 563, 561
-ERR_STALL, ERR_DIRECTION, ERR_TRAVEL, ERR_NOT_SETTLED, ERR_GRIPPER = 570, 571, 572, 573, 574
+ERR_STALL, ERR_DIRECTION, ERR_TRAVEL, ERR_GRIPPER = 570, 571, 572, 574
 ERR_BAD_REPLY, ERR_STOPPED = 575, 14
 """A reply that cannot be read; a stop or cancel asked for from outside (14 is the legacy ``STOPPED``)."""
-ERR_FOLLOW = 576
-"""A motor did not follow its setpoint (the lead passed ``MAX_LEAD_COUNTS``)."""
 ERR_USB = 577
 """The USB link failed part-way (raised by the worker through ``VendorHomeSource.interrupt``)."""
 ERR_LAG = 578
@@ -135,17 +110,15 @@ class AxisConfig:
 
 
 AXES = (
-    AxisConfig("base", 14, 110, 2, 5, 110.0, 45000, 0, -12770),
+    AxisConfig("base", 14, 110, 2, 5, 110.0, 99999, 0, -12770),
     AxisConfig("shoulder", 16, 90, 2, 10, 60.0, 30000, -190, -10216),
     AxisConfig("elbow", 14, 100, 2, 10, 90.0, 10000, 45, 10216),
     AxisConfig("wrist_m1", 15, 90, 2, 2, 55.0, 10000, 850, 2511),
     AxisConfig("wrist_m2", 16, -90, 5, 10, 75.0, 10000, -690, 2511),
     AxisConfig("gripper", 17, -165, 2, 2, 15.0, 10000, 0, 0),
 )
-"""The base bound is 310 degrees of travel (manual) at 141.89 counts a degree (about 44,000) plus a little, not
-the vendor file's 99,999 (about 705 degrees): a base that has gone further than it can turn has missed its
-switch and is grinding on a stop. The shoulder's 30,000 counts (about 264 degrees against a 165 degree span)
-is left as the vendor has it for now."""
+"""Every number is the vendor file's, including the base's 99,999 counts: a base that grinds on its stop is
+caught by the vendor's stall reversal (``impact_enc`` in ``impact_ticks``), not by a distance of our own."""
 HOMING_SEQUENCE = (SHOULDER, ELBOW, WRIST_M2, WRIST_M1, BASE, GRIPPER)
 """``HomingSeq`` 2, 3, 5, 4, 1, 6 of ``ROB_4u.INI`` (1-based) as axis numbers."""
 PREPASS_PITCH_COUNTS = 1050
@@ -279,40 +252,6 @@ class _Run:
         if self.reply.now - self.axis_t0 > AXES[axis].max_time_s:
             raise HomeError(ERR_TIMEOUT, f"homing time elapsed on {NAMES[axis]}", axis)
 
-    def check_travel(self, axis, *, coupled_only=False):
-        """Raise if the axis (unless ``coupled_only``) or any motor coupled to it left its travel bound."""
-        for motor in (*COUPLED[axis], *(() if coupled_only else (axis,))):
-            limit = AXES[motor].max_distance
-            if abs(self.reply.counts[motor] - self.axis_origin[motor]) > limit:
-                raise HomeError(ERR_TRAVEL, f"{NAMES[motor]} travelled past {limit} counts", motor)
-
-    def check_lead(self, motors, axis):
-        """Raise if any of ``motors`` has fallen further behind its setpoint than ``MAX_LEAD_COUNTS``."""
-        limit = MAX_LEAD_COUNTS + RAMP_COUNTS_PER_CYCLE * self.reply.lag    # a queue of N messages holds N ramp steps
-        for motor in motors:
-            if abs(self.setp[motor] - self.reply.counts[motor]) > limit:
-                raise HomeError(ERR_FOLLOW, f"{NAMES[motor]} is not following its setpoint", motor)
-
-    def check_coupled_progress(self, axis, drive_start):
-        """Before a search ends in a zeroing: every motor driven with ``axis`` must have moved with it.
-
-        The 150-cycle window of ``wait_switch`` never runs in a search that is shorter than that, and
-        the tick check looks at the axis only, so a coupled motor that is jammed or unplugged would be
-        zeroed. Each motor is compared with what the drive ratio predicts from how far the axis went.
-        """
-        reference = self.driven.get(axis)
-        moved_axis = abs(self.reply.counts[axis] - drive_start[axis])
-        if not reference or moved_axis < COUPLED_MIN_AXIS_COUNTS:
-            return
-        for motor, value in self.driven.items():
-            if motor == axis:
-                continue
-            expected = abs(value / reference) * moved_axis
-            # A positive drive lowers the count, so progress along the drive is the signed change times -sign.
-            along = (self.reply.counts[motor] - drive_start[motor]) * (-1 if value > 0 else 1)
-            if along < COUPLED_FOLLOW_FRACTION * expected:
-                raise HomeError(ERR_STALL, f"{NAMES[motor]} did not move with the {NAMES[axis]}", motor)
-
     def check_impact(self, axis):
         if self.reply.impact:
             raise HomeError(ERR_IMPACT, f"impact flag {self.reply.impact:#04x} on {NAMES[axis]}", axis)
@@ -351,16 +290,18 @@ class _Run:
     def wait_switch(self, axis, want, *, reversal):
         """Cycle until the axis' switch bit equals ``want``.
 
-        Returns True when it did. A type 14 or 15 search that hits a stall, an impact or its distance
-        limit returns False (the vendor then reverses). Every other problem raises ``HomeError``:
-        timeout, a driven motor not moving, a driven motor moving against its drive, travel past
-        ``max_distance`` on a type 16 search, an impact on a type 16 search.
+        Returns True when it did. The vendor's checks only (``VENDOR_HOMING_TRACE.md``, "Search per
+        Type"): a type 14 or 15 search that hits a stall, an impact or its ``MaxDistance`` returns False
+        (the vendor then reverses); in a pass that must find the switch (``reach``) the same stall or
+        distance raises. A type 16 search has no stall or distance check, as the vendor's. Every search
+        raises on the axis' ``MaxTime``, an impact flag it does not reverse on, and one check of ours:
+        a driven motor moving against its drive (the drive sign is inferred, not copied).
         """
         cfg = AXES[axis]
         limit = {14: 4, 15: 1}.get(cfg.type) if reversal else None
         tick_limit = limit if limit is not None else TICK_STALL_LIMIT
+        vendor_checks = cfg.type != 16
         drive_start = {m: self.reply.counts[m] for m in self.driven}
-        window_start, window_cycles = dict(drive_start), 0
         tick_position, tick_cycles, stalled_ticks = self.reply.counts[axis], 0, 0
         cycles_run = 0
         while self.on(axis) != want:
@@ -376,17 +317,12 @@ class _Run:
                 along = (counts[motor] - drive_start[motor]) * (-1 if value > 0 else 1)
                 if along < -DIRECTION_FAULT_COUNTS:
                     raise HomeError(ERR_DIRECTION, f"{NAMES[motor]} moves against its drive", motor)
+            if not vendor_checks:
+                continue
             if abs(counts[axis] - self.axis_origin[axis]) > cfg.max_distance:
                 if limit is not None:
                     return False
                 raise HomeError(ERR_TRAVEL, f"{NAMES[axis]} travelled past {cfg.max_distance} counts", axis)
-            self.check_travel(axis, coupled_only=True)
-            window_cycles += 1
-            if window_cycles >= STALL_CYCLES:
-                for motor in self.driven:
-                    if abs(counts[motor] - window_start[motor]) < STALL_WINDOW_COUNTS:
-                        raise HomeError(ERR_STALL, f"{NAMES[motor]} stopped moving while driven", motor)
-                window_start, window_cycles = {m: counts[m] for m in self.driven}, 0
             if cycles_run <= max(TICK_GRACE_CYCLES, self.reply.lag + TICK_GRACE_MARGIN):
                 tick_position, tick_cycles = counts[axis], 0
                 continue
@@ -399,7 +335,6 @@ class _Run:
                     if limit is not None:
                         return False
                     raise HomeError(ERR_STALL, f"{NAMES[axis]} stopped moving while driven", axis)
-        self.check_coupled_progress(axis, drive_start)
         return True
 
     def reach(self, axis, want):
@@ -407,7 +342,8 @@ class _Run:
 
         The vendor's forward pass reverses on a stall (its tick check, as short as 2 cycles for the wrist);
         this is the pass that must succeed, so a slow start must not read as a missed switch. A real stall
-        still ends it, through the grace-delayed tick check, the 150-cycle window, an impact or the travel bound."""
+        still ends it, through the grace-delayed tick check, an impact or the travel bound (types 14 and 15),
+        or the axis' MaxTime."""
         yield from self.wait_switch(axis, want, reversal=False)
 
     # --- the four search types -----------------------------------------------------------------
@@ -458,14 +394,11 @@ class _Run:
         """Drive the gripper to the end of its travel: it stalls, or flags an impact.
 
         Motor on, mode T, the drive, ``47``, ``4D 0``, then the gripper switched off again (``73 20``, ``42 20``).
-        The stall is the vendor's check (at most ``impact_enc`` counts in ``impact_ticks`` fresh replies), seen
-        ``GRIPPER_STALL_CHECKS`` times in a row; repeated replies (the same echoed ID) are not counted.
-        Raises ``HomeError`` for: moving against the drive, travelling past ``max_distance`` or taking
-        longer than ``GRIPPER_MAX_SECONDS`` or ``GRIPPER_MAX_CYCLES`` plus the lag, ``GRIPPER_STALE_LIMIT``
-        repeated replies in a row, and a stall or impact before
-        ``GRIPPER_MIN_TRAVEL`` (the gripper's count is zeroed afterwards, so a half-finished move would
-        zero it in the wrong place). ``at_end_ok`` accepts that early end: the pre-pass closes a
-        gripper that may already be closed.
+        The vendor's rules: its stall check (at most ``impact_enc`` counts in ``impact_ticks`` fresh replies,
+        once) or the impact flag ends it; running out of ``GRIPPER_MAX_CYCLES`` fresh replies (plus the lag)
+        is ``ERR_GRIPPER``. Repeated replies (the same echoed ID) are not counted. Also raises on the
+        gripper's ``MaxTime`` and on moving against the drive (ours: the drive sign is inferred).
+        ``at_end_ok`` (the pre-pass close) no longer changes anything.
         """
         yield from self.send(MOTORS, 1 << GRIPPER, 1)
         yield from self.modes(MODE_T, (GRIPPER,))
@@ -474,23 +407,21 @@ class _Run:
         cfg = AXES[GRIPPER]
         start, t_start = self.reply.counts[GRIPPER], self.reply.now
         sample, echo = start, self.reply.echo
-        n = stale = quiet = 0                     # n counts fresh replies, as the vendor's countdown does
-        for _ in range(GRIPPER_MAX_CYCLES + min(self.reply.lag, MAX_LAG)):
+        n = quiet = travelled = 0                 # n counts fresh replies, as the vendor's countdown does
+        budget = GRIPPER_MAX_CYCLES + min(self.reply.lag, MAX_LAG)
+        while True:
+            if n >= budget:
+                raise HomeError(ERR_GRIPPER, "gripper did not stall within the vendor's gripper budget", GRIPPER)
             yield from self.cycle()
+            if self.reply.now - t_start > AXES[GRIPPER].max_time_s:
+                raise HomeError(ERR_TIMEOUT, "homing time elapsed on gripper", GRIPPER)
             if self.reply.echo == echo and echo >= 0:
-                stale += 1
-                if stale >= GRIPPER_STALE_LIMIT:
-                    raise HomeError(ERR_GRIPPER, f"{stale} repeated replies while driving the gripper", GRIPPER)
                 continue
-            stale, echo, n = 0, self.reply.echo, n + 1
+            echo, n = self.reply.echo, n + 1
             position = self.reply.counts[GRIPPER]
             travelled = abs(position - start)
             if (position - start) * (-1 if value > 0 else 1) < -DIRECTION_FAULT_COUNTS:
                 raise HomeError(ERR_DIRECTION, "gripper moves against its drive", GRIPPER)
-            if travelled > AXES[GRIPPER].max_distance:
-                raise HomeError(ERR_TRAVEL, "gripper travelled past its bound", GRIPPER)
-            if self.reply.now - t_start > GRIPPER_MAX_SECONDS:
-                raise HomeError(ERR_TIMEOUT, "gripper drive took too long", GRIPPER)
             ended = None
             if self.reply.impact & 0x20:
                 ended = "impact"
@@ -501,11 +432,7 @@ class _Run:
                     ended = "stall"
                 sample = position
             if ended:
-                if travelled < GRIPPER_MIN_TRAVEL and not at_end_ok:
-                    raise HomeError(ERR_GRIPPER, f"gripper {ended} before it moved", GRIPPER)
                 break
-        else:
-            raise HomeError(ERR_GRIPPER, "gripper did not stall within the vendor's gripper budget", GRIPPER)
         yield from self.send(CLEAR)
         yield from self.send(MOVE, 1 << GRIPPER, 0, 0)
         self.driven = {}
@@ -517,17 +444,11 @@ class _Run:
         yield from self.send(MOTORS, 1 << GRIPPER)
 
     def coarse_17(self, a):
-        """Open, wait, close; the gripper has no switch.
-
-        The close starts at the open stop, so it must travel at least as far as the open did (less
-        ``GRIPPER_CLOSE_SLACK``); a close that stops short would be zeroed part way, whatever ended it."""
+        """Open, wait, close; the gripper has no switch. As the vendor's: whatever ends each drive ends it."""
         v = AXES[a].velocity
-        opened = yield from self.gripper_drive(v)
+        yield from self.gripper_drive(v)
         yield from self.wait(15)
-        closed = yield from self.gripper_drive(-v)
-        if closed < opened - max(GRIPPER_MIN_TRAVEL, opened * GRIPPER_CLOSE_SLACK):
-            raise HomeError(ERR_GRIPPER, f"gripper closed {closed} counts after opening {opened}: "
-                                         "it stopped short of its closed end", a)
+        yield from self.gripper_drive(-v)
 
     COARSE = {14: coarse_14, 15: coarse_15, 16: coarse_16, 17: coarse_17}
 
@@ -535,8 +456,8 @@ class _Run:
     def ramp(self, deltas, axis):
         """Move the setpoints of several motors to measured + delta in a straight ramp, then settle.
 
-        Raises ``HomeError`` if a motor has not reached its target ``SETTLE_COUNTS`` after
-        ``SETTLE_CYCLE_CAP`` cycles, or on an impact flag or the axis' timeout.
+        Waits until every motor is within ``SETTLE_COUNTS`` of its target. Raises ``HomeError`` only on the
+        vendor's stops for a planner move: an impact flag or the axis' ``MaxTime``.
         """
         targets = {m: self.reply.counts[m] + d for m, d in deltas.items()}
         start = {m: self.setp[m] for m in deltas}
@@ -548,17 +469,10 @@ class _Run:
             yield from self.cycle()
             self.check_impact(axis)
             self.check_time(axis)
-            self.check_lead(deltas, axis)
-        for i in range(SETTLE_CYCLE_CAP + 1):
-            if all(abs(self.reply.counts[m] - targets[m]) <= SETTLE_COUNTS for m in deltas):
-                break
-            if i == SETTLE_CYCLE_CAP:
-                late = max(deltas, key=lambda m: abs(self.reply.counts[m] - targets[m]))
-                raise HomeError(ERR_NOT_SETTLED, f"{NAMES[late]} did not reach its target", late)
+        while not all(abs(self.reply.counts[m] - targets[m]) <= SETTLE_COUNTS for m in deltas):
             yield from self.cycle()
             self.check_impact(axis)
             self.check_time(axis)
-            self.check_lead(deltas, axis)
         yield from self.send(CLEAR)
 
     def fine(self, a):
@@ -577,21 +491,14 @@ class _Run:
             step = 3 * back if first else back
             first = False
             yield from self.ramp(position_vector(a, back_dir * step), a)
-            self.check_travel(a)
         yield from self.send(MODE, 0xFF, MODE_S)
-        for _ in range(MAX_CREEPS):
-            if self.on(a):
-                break
+        while not self.on(a):           # the vendor's creep: bounded by MaxTime, not by a count of creeps
             for motor, delta in position_vector(a, creep_dir * creep).items():
                 self.setp[motor] += delta
             yield from self.wait(3)
             yield from self.send(CLEAR)
             self.check_impact(a)
             self.check_time(a)
-            self.check_travel(a)
-            self.check_lead(position_vector(a, creep_dir * creep), a)
-        else:
-            raise HomeError(ERR_NOT_FOUND, f"{NAMES[a]} edge not found while creeping", a)
 
     def tail(self, a, offset):
         yield from self.wait(10)

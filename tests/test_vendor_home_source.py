@@ -88,25 +88,25 @@ class NaturalAbortTests(unittest.TestCase):
     """A fault the home found itself (here a stall) starts an abort the source did not ask for."""
 
     def test_a_natural_fault_runs_the_whole_abort_and_keeps_its_own_error(self):
-        step, abort, source = natural_abort(lambda: Plant(gain=0.0))
+        step, abort, source = natural_abort(lambda: Plant(gain=-0.1))
         self.assertEqual(step, ("stop",))
-        self.assertEqual(source.error.code, vh.ERR_STALL)
+        self.assertEqual(source.error.code, vh.ERR_DIRECTION)
         self.assertTrue(any(p[4] == vh.CLEAR for p in abort))
         self.assertGreaterEqual(sum(1 for p in abort if p[4] == vh.MOVE and p[8:12] == bytes(4)), 6)
 
     def test_unreadable_replies_during_a_natural_abort_do_not_cut_it_short(self):
-        clean = natural_abort(lambda: Plant(gain=0.0))[1]
-        step, garbled, source = natural_abort(lambda: Plant(gain=0.0), garble=True)
+        clean = natural_abort(lambda: Plant(gain=-0.1))[1]
+        step, garbled, source = natural_abort(lambda: Plant(gain=-0.1), garble=True)
         self.assertEqual(step, ("stop",))
         self.assertEqual([p[4:12] for p in garbled], [p[4:12] for p in clean])
-        self.assertEqual(source.error.code, vh.ERR_STALL)
+        self.assertEqual(source.error.code, vh.ERR_DIRECTION)
 
     def test_a_stop_request_during_a_natural_abort_does_not_cut_it_short(self):
-        clean = natural_abort(lambda: Plant(gain=0.0))[1]
-        step, stopped, source = natural_abort(lambda: Plant(gain=0.0), stop=True)
+        clean = natural_abort(lambda: Plant(gain=-0.1))[1]
+        step, stopped, source = natural_abort(lambda: Plant(gain=-0.1), stop=True)
         self.assertEqual(step, ("stop",))
         self.assertEqual([p[4:12] for p in stopped], [p[4:12] for p in clean])
-        self.assertEqual(source.error.code, vh.ERR_STALL)
+        self.assertEqual(source.error.code, vh.ERR_DIRECTION)
 
 
 def reply_with_echo(plant, echo):
