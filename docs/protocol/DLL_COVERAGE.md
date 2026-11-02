@@ -7,7 +7,7 @@ The lab build (sha256 `6118465d...bd821`) exports 120 names. 17 of them belong t
 - **build**: the DLL does something on the wire that Stack 2 lacks and should have. Ranked in "Build order" below.
 - **skip**: not worth copying. The row gives the reason.
 
-Totals (overloads counted separately): 22 match, 7 partial, 11 build, 63 skip. The skips are mostly host-side bookkeeping that sends nothing (point store, INI handling, callbacks, simulated inputs).
+Totals (overloads counted separately): 21 match, 8 partial, 11 build, 63 skip. The skips are mostly host-side bookkeeping that sends nothing (point store, INI handling, callbacks, simulated inputs).
 
 ## Method
 
@@ -15,7 +15,7 @@ Totals (overloads counted separately): 22 match, 7 partial, 11 build, 63 skip. T
 - The wire column comes from a desk run, done twice on 2026-11-02. The lab DLL ran online against `tools/usbc_fake/pipe_server.py` (no arm, no USB device; the fake's guards were on). A script outside the repo called each export after a finished `Home('A')`, with a pause between calls, and the OUT messages were matched to the calls by time. Messages are shown from byte 4 (command, mask, bytes 6-7, bytes 8-11).
 - "Nothing" in the wire column means no message other than `0D` setpoints was sent during that call.
 - The raw recordings and the script stay outside the repo, like the DLL.
-- The Intelitek function reference (`USBC-document.pdf`, outside the repo) was digested by Gemini. It leaves most meanings as "?", so it was used only for argument names. Its pages were not opened to check the quotes, because no PDF reader was installed.
+- The Intelitek function reference (`USBC-document.pdf`, outside the repo) gives most meanings as "?", so it was used only for argument names, from a summary. Its pages were not opened to check the quotes.
 
 What this does not prove: that the controller accepts any of it. The fake arm is our model. Every row that touches I/O lines, the jaw or torque is **unverified** on the arm until a dated bench log exists.
 
@@ -46,12 +46,12 @@ What this does not prove: that the controller accepts any of it. The fake arm is
 | `GetMode` | DLL mode (1 = online on the fake) | nothing | none | skip: host state |
 | **Control and safety** | | | | |
 | `Control` | Control on or off for a group | Section 5 sequences | `enable`, `disable` | match (`DESK_BYTE_CHECK.md`) |
-| `Stop` | Arm stop: `47`, `4F 3F 53`, `73 20`, `42 20 00` (seen twice in this run) | as stated | `request_stop` sends the vendor's arm-stop sequence (docstring); no desk pin of it was found | partial: pin it in a test |
+| `Stop` | Arm stop: `47`, `4F 3F 53`, `73 20`, `42 20 00` (seen twice in this run) | as stated | `request_stop` | match (`tests/test_software_stop.py`, `test_stop_mid_jog_sends_clear_buffer_then_close_and_reports_it`) |
 | `IsEmergency` | Reply byte 2 bit 0 | nothing | emergency check in the reply decode | match |
 | `IsTeachMode` | Pendant mode flag from reply byte 3 (PL64) | nothing | raw byte kept in records, not decoded (PL67) | build (with item 1) |
 | `GetTPInfo` | Pendant key text; on the fake: "Code: 0x00 Button: Undefined" | nothing | none | build (item 1) |
 | `Impact` | Takes 8 values and runs them through the planner (`0x1001ca7a`, `0x10024e97`); returned 0 on the fake and sent nothing | nothing | the controller's own impact flag, byte 59, is decoded (`collision_bits`) | skip for now: not decoded, and byte 59 is already covered |
-| `ShowPositErr`, `ClosePositErr` | Callback with each axis's position error, from reply bytes 22 + 5N | nothing | `controller_error_counts` | match |
+| `ShowPositErr`, `ClosePositErr` | Callback with each axis's position error, from reply bytes 22 + 5N | nothing | `controller_error_counts` (`scorbot/state.py` `ERROR_OFFSETS`, 22 + 5N) | match |
 | **Homing and counters** | | | | |
 | `Home` | Vendor Home | 330 commands (PL10) | `vendor_home` | match (`tests/test_vendor_home.py`) |
 | `SetHome` | `'A'`: zero every arm counter where the arm is now, with no switch search (PL72). Single axis 1 was refused | `4F 3F 54`, then for each axis `48 <bit> 0`, `47`, `4F <bit> 53`; last `73 20`, `42 20 00` | the vendor Home's `48` steps | skip: it makes any position "home"; `vendor_home` covers zeroing |
@@ -62,7 +62,7 @@ What this does not prove: that the controller accepts any of it. The fake arm is
 | `SetJoint`, `SetJoints` | Set the planner's target directly | `0D` stream (I) | `start_stream` | partial: same idea, Stack 2's own pacing |
 | `Speed`, `Time` | Store a speed percent or a time for the next move | nothing | `move_joint` arguments | match: host settings (PL55 to PL57 give the math) |
 | `MoveLinear`, `MoveCircularVect`, `SpeedLin` | Cartesian moves through the PC planner | not run (I: `0D` stream like `MoveJoint`) | none; `kinematics.py` has the forward and inverse model | skip for now: Stack 2 can stream Cartesian paths itself |
-| `ShowXYZ`, `CloseXYZ` | Callback with the tool position | nothing | forward kinematics on `get_joint_angles` | match on data |
+| `ShowXYZ`, `CloseXYZ` | Callback with the tool position | nothing | forward kinematics on `get_joint_angles` | partial: never compared with the DLL's xyz |
 | `Velocity` | Constant-velocity move of a peripheral axis | refused on axis 0 with error 910 "Invalid axis type", then `47`, `4F FF 53`, `73 20`, `42 20 00`, `64`, `61` | none | skip: the ER-4u has no peripheral axes here (`'B'` is empty) |
 | `MoveTorque` (2 overloads) | Open-loop PWM drive with no position loop | `4F FF 54` (mode T, all axes), `4D <bit> <value>` (PL73); ended by `Stop('A')` | the vendor Home's `4D` drives | skip: no position control and no stop on reaching anything |
 | `ShowTorque`, `CloseTorque` | Callback with the PWM read back | `57 <mask>` (`57 3F` for `'A'`, `57 01` for axis 0); answer in reply bytes 11-14 (PL74) | none | build (item 6) |
@@ -72,7 +72,7 @@ What this does not prove: that the controller accepts any of it. The fake arm is
 | `GetJaw` | Jaw as percent and mm, from the gripper count (57 % and 40 mm; 14 % and 10 mm) | nothing | `GripperMove` reports counts only | build (item 4) |
 | `SetJawMetric` | Stores a jaw width (`0x10018a5f`); returned 0 on the fake | nothing | none | skip: not traced, and not needed for a move |
 | **Digital and analog I/O** | | | | |
-| `SetDigitalOutput` | Output 0-31 on or off (PL68) | `44 00 00 00 <output word>`: output 1 on gave word `2`, 3 gave `8`. Third argument 1 ("immediate") sends `47` first when a move is running; 0 waits for the queue to drain | none | build (item 2) |
+| `SetDigitalOutput` | Output 0-31 on or off (PL68) | `44 00 00 00 <output word>`: output 1 on gave word `2`, 3 gave `8`. Third argument 1 ("immediate") sends `47` first, but only when the arm is at rest (no move running and every axis within 10 counts of its setpoint); 0 waits for the queue to drain first. SCORBASE passes output number - 1, and 1 at most call sites | none | build (item 2) |
 | `GetDigitalOutputs` | The DLL's own copy of the output word | nothing | none | build (item 7) |
 | `GetDigitalInputs` | Input word from reply byte 6 (PL69) | nothing | not decoded | build (item 3) |
 | `GetAnalogInput` | Input 0-3 from reply bytes 7-10 (PL69) | nothing | not decoded | build (item 3) |
