@@ -228,12 +228,21 @@ class GripperPlanTests(unittest.TestCase):
 
 
 class SdkGripperTests(SimulatedRobotCase):
-    HOMED = False          # the gripper needs motors on, not a homed arm
+    """``open_gripper`` / ``close_gripper`` after a vendor Home (order 23, ``scorbot/vendor_gripper.py``)."""
+    HOMED = False          # the vendor Home below is the one that counts for the gripper
 
     def robot(self, **controller_kwargs):
+        from scorbot import vendor_gripper
         robot = super().robot(**controller_kwargs)
-        self.travel = sum(robot._legacy("motion_profile").gripper_increments(150, 30))
+        robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
+        # The Home leaves the gripper at state count 0, which is controller count 1 (state counts read one low
+        # on the positive side), and RangeEnc 5000 reads back as 4999: the move is 4999 either way.
+        self.travel = vendor_gripper.RANGE_ENC - 1
         return robot
+
+    @staticmethod
+    def gripper_orders(robot):
+        return [c[0] for c in robot.sim.commands if c[0] in (14, 15, 23)]
 
     def assert_latched(self, robot):
         from scorbot import ScorbotError
@@ -253,7 +262,7 @@ class SdkGripperTests(SimulatedRobotCase):
         robot = self.robot()
         robot.sim.gripper_disturbs = {"elbow": 45}
         with self.assertRaises(ScorbotError):
-            robot.close_gripper()                       # faults the session
+            robot.open_gripper()                        # faults the session
 
         def sneaky():
             robot._commands.put([17, 1, 1])
@@ -267,22 +276,28 @@ class SdkGripperTests(SimulatedRobotCase):
         robot = self.robot()
         before = robot.get_state().signed_encoder_counts
         opened = robot.open_gripper()
-        self.assertGreater(self.travel, 1000)
         self.assertEqual((opened.direction, opened.planned_counts, opened.moved_counts,
                           opened.full_travel), ("open", self.travel, self.travel, True))
         closed = robot.close_gripper()
         self.assertEqual((closed.direction, closed.moved_counts, closed.full_travel),
                          ("close", -self.travel, True))
         self.assertEqual(closed.state.signed_encoder_counts, before)
-        self.assertEqual([c for c in robot.sim.commands if c[0] in (14, 15)],
-                         [[14, 1, 1], [15, 1, 1]])
+        self.assertEqual(self.gripper_orders(robot), [23, 23])
         events = self.events()
         self.assertEqual(events.count("gripper_start"), 2)
         self.assertEqual(events.count("gripper_complete"), 2)
         self.assertIsNone(robot._fault)
         self.assertTrue(robot.get_state().enabled)
 
-    def test_it_does_not_need_homing_but_does_need_motors_on(self):
+    def test_a_move_to_where_the_gripper_already_is_sends_nothing(self):
+        robot = self.robot()
+        result = robot.close_gripper()                         # the vendor Home leaves it at 0
+        self.assertEqual((result.planned_counts, result.moved_counts, result.full_travel), (0, 0, True))
+        self.assertEqual(len(robot.sim.vendor_packets), 0)
+        done = [row for row in self.rows() if row["event"] == "gripper_complete"]
+        self.assertTrue(done[-1]["already_there"])
+
+    def test_it_needs_a_vendor_home_and_motors_on(self):
         from scorbot import ScorbotError
         from scorbot.simulated import SimulatedScorbot
         robot = SimulatedScorbot()
@@ -290,14 +305,21 @@ class SdkGripperTests(SimulatedRobotCase):
             robot.close_gripper()                              # not connected
         robot.connect()
         self.addCleanup(self.disconnect, robot)
-        queued = list(robot.sim.commands)
         with self.assertRaises(ScorbotError) as caught:
             robot.close_gripper()                              # motors not enabled
         self.assertIn("Enable", str(caught.exception))
-        self.assertEqual(robot.sim.commands, queued)
         robot.enable()
-        self.assertFalse(robot.get_state().homed)
-        self.assertTrue(robot.close_gripper().full_travel)     # no home needed
+        queued = list(robot.sim.commands)
+        for call in (robot.open_gripper, robot.close_gripper):
+            with self.assertRaises(ScorbotError) as caught:
+                call()                                         # not homed
+            self.assertIn("Home the arm before moving the gripper", str(caught.exception))
+        self.assertEqual(robot.sim.commands, queued, "a refused move queues nothing")
+        robot.home(start_position_confirmed=True)              # the legacy Home does not zero the gripper
+        with self.assertRaises(ScorbotError):
+            robot.open_gripper()
+        robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
+        self.assertTrue(robot.open_gripper().full_travel)
         with self.assertRaises(ValueError):
             robot.move_gripper("squeeze")
 
@@ -305,7 +327,6 @@ class SdkGripperTests(SimulatedRobotCase):
     def test_it_is_refused_while_a_stream_is_active(self):
         from scorbot import ScorbotError
         robot = self.robot()
-        robot.home(start_position_confirmed=True)
         with robot.start_stream():
             queued = len(robot.sim.commands)
             with self.assertRaises(ScorbotError) as caught:
@@ -323,23 +344,19 @@ class SdkGripperTests(SimulatedRobotCase):
         self.assertTrue(robot.get_state().enabled)
         self.assertIn("gripper_complete", self.events())
         robot.sim.gripper_blocked_at = None
-        self.assertEqual(robot.open_gripper().moved_counts, self.travel)
+        self.assertEqual(robot.open_gripper().moved_counts, 1600)   # back to the absolute target
 
     def test_a_stop_request_ends_a_gripper_move_without_a_fault(self):
         from scorbot import MotionStopped
-        try:
-            from tests.test_software_stop import StopAtStep
-        except ImportError:
-            from test_software_stop import StopAtStep
-        robot = self.robot(step_delay_s=0.02)
-        hook = StopAtStep(robot.request_stop, robot.sim.step_delay_s, step=5)
-        hook.start()
-        self.addCleanup(hook.cancel)
+        robot = self.robot()
+        robot.sim.vendor_hook = lambda count, plant: count == 10 and robot.request_stop()
         with self.assertRaises(MotionStopped) as caught:
             robot.open_gripper()
         moved = caught.exception.state.signed_encoder_counts["gripper"]
         self.assertGreater(moved, 0)
         self.assertLess(moved, self.travel)
+        tail = [p[4:6].hex() for p in robot.sim.vendor_packets[-2:]]
+        self.assertEqual(tail, ["7320", "4220"], "the gripper is switched off")
         self.assertIsNone(robot._fault)
         self.assertIn("gripper_stopped", self.events())
         self.assertFalse(robot._stop_event.is_set())
@@ -350,13 +367,13 @@ class SdkGripperTests(SimulatedRobotCase):
         robot.request_stop()
         queued = list(robot.sim.commands)
         with self.assertRaises(MotionStopped) as caught:
-            robot.close_gripper()
+            robot.open_gripper()
         self.assertFalse(caught.exception.started)
         self.assertEqual(robot.sim.commands, queued)
         self.assertTrue(robot.open_gripper().full_travel)
 
     def test_a_gripper_that_goes_the_wrong_way_faults_the_session(self):
-        # Which legacy order opens and which closes is inherited, not measured.
+        # The vendor's open end is RangeEnc counts; on our arm the sign is still unmeasured.
         from scorbot import ScorbotError
         robot = self.robot()
         robot.sim.gripper_reversed = True
@@ -379,41 +396,45 @@ class SdkGripperTests(SimulatedRobotCase):
             return plain(**kwargs)
 
         controller.snapshot = drifting
-        queued = [c for c in controller.commands if c[0] in (14, 15)]
+        queued = self.gripper_orders(robot)
         with self.assertRaises(ScorbotError) as caught:
-            robot.close_gripper()
+            robot.open_gripper()
         controller.snapshot = plain
         self.assertIn("not at rest", str(caught.exception))
-        self.assertEqual([c for c in controller.commands if c[0] in (14, 15)], queued,
-                         "no gripper order may be sent to a moving arm")
+        self.assertEqual(self.gripper_orders(robot), queued, "no gripper order may be sent to a moving arm")
         self.assertIsNotNone(robot._fault)
 
-    def test_a_gripper_that_never_settles_faults_the_session(self):
+    def test_an_emergency_during_a_gripper_move_faults_the_session(self):
         from scorbot import ScorbotError
         robot = self.robot()
-        robot.sim.gripper_never_settles = True
-        with self.assertRaises(ScorbotError):
+        robot.sim.vendor_hook = lambda count, plant: count == 5 and setattr(robot.sim, "stream_emergency", True)
+        with self.assertRaises(ScorbotError) as caught:
             robot.open_gripper()
+        self.assertIn("emergency", str(caught.exception))
+        tail = [p[4:6].hex() for p in robot.sim.vendor_packets[-2:]]
+        self.assertEqual(tail, ["7320", "4220"], "the gripper is switched off before the motors go off")
         self.assert_latched(robot)
+        self.assertIn("gripper_fault", self.events())
 
     def test_an_arm_joint_moving_during_a_gripper_move_faults_the_session(self):
         from scorbot import ScorbotError
         robot = self.robot()
         robot.sim.gripper_disturbs = {"elbow": 45}
         with self.assertRaises(ScorbotError) as caught:
-            robot.close_gripper()
+            robot.open_gripper()
         self.assertIn("elbow", str(caught.exception))
         self.assert_latched(robot)
         self.assertIn("gripper_fault", self.events())
 
-    def test_a_gripper_move_is_logged_with_its_plan_and_its_result(self):
+    def test_a_gripper_move_is_logged_with_its_target_and_its_result(self):
         robot = self.robot()
         robot.open_gripper()
         rows = self.rows()
         start = next(row for row in rows if row["event"] == "gripper_start")
-        self.assertEqual((start["direction"], start["planned_counts"]), ("open", self.travel))
+        self.assertEqual((start["direction"], start["target_counts"]), ("open", self.travel + 1))   # RangeEnc
         done = next(row for row in rows if row["event"] == "gripper_complete")
-        self.assertEqual((done["moved_counts"], done["full_travel"]), (self.travel, True))
+        self.assertEqual((done["planned_counts"], done["moved_counts"], done["full_travel"]),
+                         (self.travel, self.travel, True))
         self.assertTrue(all(row.get("simulated") for row in rows))
 
     def test_the_gripper_call_says_what_it_does_not_do(self):

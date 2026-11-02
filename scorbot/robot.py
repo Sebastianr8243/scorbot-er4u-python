@@ -122,6 +122,9 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
         self._stream = None
         self._enabled = False
         self._homed = False
+        # True only after a vendor Home, which zeroes the gripper; read together with _homed, so every clear of
+        # _homed (a fault, a lost link) also ends it.
+        self._gripper_homed = False
         self._fault = None
 
     def __enter__(self):

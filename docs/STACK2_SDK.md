@@ -67,7 +67,7 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/RE
 | `python -m scorbot.lab` | Yes, unless `--simulate` | The guided lab session: the main entry point |
 | `examples/bench_joint.py` | Yes, unless `--simulate` | One home and one jog of at most 1 degree |
 | `examples/bench_stream.py` | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
-| `examples/bench_gripper.py` | Yes, unless `--simulate` | One gripper trial (never run on the arm) |
+| `examples/bench_gripper.py` | Yes, unless `--simulate` | A vendor Home, then one gripper trial of at most four opens and closes (never run on the arm; the gripper is refused before a vendor Home) |
 | `examples/policy_loop.py` | Yes, unless `--simulate` | A bounded, clamped multi-joint policy run (never run on the arm); `scripts/export_policy_dataset.py` turns it into a dataset |
 | `scripts/lab_day.py` | Yes, unless `--simulate` | Runs lab steps T, S, P (X) and G of `docs/lab/LAB_CHECKLIST.md` in order, each against its pass line |
 | `examples/record_raw_state.py` | Connects, no motion, unless `--simulate` | Idle state recording |

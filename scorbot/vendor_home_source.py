@@ -35,7 +35,10 @@ class VendorHomeSource:
     """One vendor home, seen from the worker thread. Build a new one for every home."""
 
     def __init__(self, *, version=0, axes=None, stop_event=None, cancel_event=None,
-                 clock=time.monotonic, total_seconds=TOTAL_SECONDS):
+                 clock=time.monotonic, total_seconds=TOTAL_SECONDS, start=None):
+        # ``start(first_reply)`` builds the generator to run instead of the home (the post-Home gripper move,
+        # ``scorbot.vendor_gripper``). It may finish before sending anything.
+        self.start = start
         self.version = version
         self.axes = axes
         self.stop_event = stop_event
@@ -116,8 +119,16 @@ class VendorHomeSource:
                                                       f"stale to trust, so nothing was sent")
                 return ("stop",)
             first = self.last_reply = self._decode(reply_bytes, now)
-            self.generator = vh.vendor_home(first, version=self.version, axes=self.axes)
-            return self._send(next(self.generator), sequence)
+            if self.start is None:
+                self.generator = vh.vendor_home(first, version=self.version, axes=self.axes)
+            else:
+                self.generator = self.start(first)
+            try:
+                out = next(self.generator)
+            except StopIteration as done:
+                self.result = done.value
+                return ("end",)
+            return self._send(out, sequence)
         reply = None
         lag = self._measure_lag(reply_bytes, sequence)
         try:

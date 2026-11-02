@@ -23,6 +23,7 @@ class FakeWire:
 
     def __init__(self):
         self.out_packets = []
+        self.gripper = 0                    # the gripper count every reply reports (controller counts)
         self._last = bytes(64)
         self._lock = threading.Lock()
 
@@ -33,7 +34,8 @@ class FakeWire:
         packet[60] = (last[0] + 6) & 0xFF
         packet[61:64] = b"\xff\xff\xff"
         for joint in range(8):
-            packet[19 + 5 * joint:22 + 5 * joint] = (0x7FFFFF).to_bytes(3, "little")
+            count = self.gripper if joint == 5 else 0
+            packet[19 + 5 * joint:22 + 5 * joint] = (0x7FFFFF + count).to_bytes(3, "little")
         return packet
 
     def endpoints(self):
@@ -108,6 +110,42 @@ def record_session():
                     stop_workers(robot)
                     raise
                 calls["disconnect"] = wire.out_packets[start:]
+    return calls
+
+
+def record_gripper(steps, *, homed=True, gripper_homed=True):
+    """OUT packets per step for gripper calls on a connected, enabled ``Scorbot``, plus each step's outcome.
+
+    ``steps`` is a list of ``(name, gripper_count, call)``: the fake reports ``gripper_count`` for the gripper,
+    then ``call(robot)`` runs. The fake cannot run a Home, so the homed state is set directly. Returns
+    ``{name: (packets, result_or_exception)}``.
+    """
+    wire, real_sleep, calls = FakeWire(), time.sleep, {}
+    with tempfile.TemporaryDirectory() as folder:
+        robot = Scorbot(log_path=Path(folder) / "run.controller.jsonl", command_timeout=120)
+        for name in ("conf", "libdef", "libcomm", "libsync"):
+            robot._legacy(name)
+        with mock.patch.dict(sys.modules, fake_usb_modules(FakeDevice(), wire)),                 mock.patch("time.sleep", lambda seconds: real_sleep(seconds / SLEEP_SCALE)):
+            try:
+                robot.connect()
+                robot.enable()
+                robot._homed, robot._gripper_homed = homed, gripper_homed
+                robot._home_counts = robot.get_state().encoder_counts.copy() if homed else None
+                for name, count, call in steps:
+                    wire.gripper = count
+                    robot.get_state(after_index=robot.get_state().packet_index + 2)   # a reply with the new count
+                    start = len(wire.out_packets)
+                    try:
+                        outcome = call(robot)
+                    except Exception as exc:
+                        outcome = exc
+                    calls[name] = (wire.out_packets[start:], outcome)
+            finally:
+                try:
+                    robot.disconnect()
+                except Exception:
+                    stop_workers(robot)
+                    raise
     return calls
 
 
