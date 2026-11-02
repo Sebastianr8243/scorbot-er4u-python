@@ -1,4 +1,4 @@
-"""examples/bench_gripper.py: the supervised first gripper trial, rehearsed
+"""examples/bench_gripper.py: the supervised first gripper trial (vendor Home, then the gripper), rehearsed
 through the simulator. No USB, no hardware."""
 
 import contextlib
@@ -15,9 +15,10 @@ from scorbot import ScorbotError
 from scorbot.preflight import Check
 from scorbot.simulated import SimulatedController, SimulatedScorbot
 
-TO_ENABLE = "n\ng\n" "ENABLE\n" "y\ng\n"
+TO_ENABLE = "n\ng\n" "EMPTY\nCLEAR\nHOME\n" "y\ng\n" "HOME_OK\n"
 AFTER = "y\ng\n" "jaws opened then closed\nnone\nno sounds\nnone\n" "n\ng\n"
-TRAVEL = 2700
+# The Home leaves the gripper at state count 0 (controller count 1); RangeEnc 5000 reads back as 4999.
+OPEN_PLANNED, TRAVEL, CLOSE_PLANNED = 4999, 4999, 5000
 
 
 class BenchGripperTests(unittest.TestCase):
@@ -65,7 +66,7 @@ class BenchGripperTests(unittest.TestCase):
         self.assertEqual(kinds.count("after_gripper"), 2)
         for kind in ("session", "connected", "gripper_plan", "operator_observation", "disabled"):
             self.assertIn(kind, kinds)
-        self.assertNotIn("home_complete", kinds, "the gripper trial does not home the arm")
+        self.assertIn("home_complete", kinds, "the gripper is refused before a vendor Home")
         session = rows[0]
         self.assertEqual((session["procedure"], session["data_source"], session["moves"]),
                          ("gripper_trial", "simulated", ["open", "close"]))
@@ -79,11 +80,11 @@ class BenchGripperTests(unittest.TestCase):
         self.assertIn("SIMULATED", out)
         self.assertIn("no force limit", out)
         self.assertIn("NOT an emergency stop", out)
-        self.assertIn("open: moved +2700 of 2700 counts (full travel)", out)
+        self.assertIn(f"open: moved +{TRAVEL} of {OPEN_PLANNED} counts (full travel)", out)
         commands = self.made[0].sim.commands
-        self.assertEqual([c[0] for c in commands if c[0] in (14, 15)], [14, 15])
+        self.assertEqual([c[0] for c in commands if c[0] in (14, 15, 22, 23)], [22, 23, 23])
         self.assertFalse(any(c[0] == 18 or 4 <= c[0] <= 13 for c in commands),
-                         "no home and no arm jog")
+                         "no legacy home and no arm jog")
         self.checks.assert_not_called()
         from scripts.review_lab_logs import review_bench
         report = review_bench(self.output)
@@ -95,18 +96,28 @@ class BenchGripperTests(unittest.TestCase):
                                sim={"gripper_blocked_at": 1000})
         self.assertEqual(code, 0)
         close = [row["result"] for row in self.rows() if row["type"] == "after_gripper"][1]
-        self.assertEqual((close["moved_counts"], close["full_travel"]), (-1700, False))
-        self.assertIn("close: moved -1700 of 2700 counts (stopped short", self.printed.getvalue())
+        self.assertEqual((close["moved_counts"], close["full_travel"]), (1000 - TRAVEL, False))
+        self.assertIn(f"close: moved {1000 - TRAVEL} of {CLOSE_PLANNED} counts (stopped short",
+                      self.printed.getvalue())
 
     def test_declining_a_move_sends_nothing_more(self):
         self.assertEqual(self.run_script(TO_ENABLE + "GRIP\nno\n"), bench_gripper.EXIT_DECLINED)
         self.assertEqual(self.rows()[-1]["type"], "operator_declined")
-        self.assertEqual([c[0] for c in self.made[0].sim.commands if c[0] in (14, 15)], [14])
+        self.assertEqual([c[0] for c in self.made[0].sim.commands if c[0] in (14, 15, 23)], [23])
 
-    def test_declining_before_enable_moves_nothing(self):
-        self.assertEqual(self.run_script("n\ng\nno\n"), bench_gripper.EXIT_DECLINED)
-        commands = self.made[0].sim.commands
-        self.assertFalse(any(c[0] in (14, 15, 17) for c in commands))
+    def test_declining_before_the_home_moves_nothing(self):
+        for answers in ("n\ng\nno\n", "n\ng\nEMPTY\nno\n", "n\ng\nEMPTY\nCLEAR\nno\n"):
+            with self.subTest(answers=answers):
+                self.assertEqual(self.run_script(answers), bench_gripper.EXIT_DECLINED)
+                commands = self.made[-1].sim.commands
+                self.assertFalse(any(c[0] in (14, 15, 17, 22, 23) for c in commands))
+
+    def test_declining_after_the_home_moves_no_gripper(self):
+        answers = "n\ng\n" "EMPTY\nCLEAR\nHOME\n" "y\ng\n" "no\n"
+        self.assertEqual(self.run_script(answers), bench_gripper.EXIT_DECLINED)
+        commands = [c[0] for c in self.made[0].sim.commands]
+        self.assertIn(22, commands)
+        self.assertNotIn(23, commands)
 
     def test_an_arm_motor_moving_during_the_grip_fails_the_run(self):
         with self.assertRaises(ScorbotError) as caught:
@@ -115,7 +126,7 @@ class BenchGripperTests(unittest.TestCase):
         rows = self.rows()
         self.assertEqual(rows[-1]["type"], "session_failed")
         self.assertIn("physical stop", self.printed.getvalue())
-        self.assertEqual([c[0] for c in self.made[0].sim.commands if c[0] in (14, 15)], [14])
+        self.assertEqual([c[0] for c in self.made[0].sim.commands if c[0] in (14, 15, 23)], [23])
 
     def test_bad_arguments_are_refused_before_preflight_or_any_connection(self):
         for moves in (("open",) * 5, ("squeeze",), ()):

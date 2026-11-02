@@ -35,7 +35,10 @@ class VendorHomeSource:
     """One vendor home, seen from the worker thread. Build a new one for every home."""
 
     def __init__(self, *, version=0, axes=None, stop_event=None, cancel_event=None,
-                 clock=time.monotonic, total_seconds=TOTAL_SECONDS):
+                 clock=time.monotonic, total_seconds=TOTAL_SECONDS, start=None):
+        # ``start(first_reply)`` builds the generator to run instead of the home (the post-Home gripper move,
+        # ``scorbot.vendor_gripper``). It may finish before sending anything.
+        self.start = start
         self.version = version
         self.axes = axes
         self.stop_event = stop_event
@@ -52,6 +55,7 @@ class VendorHomeSource:
         self._thrown = False         # whether ``interrupted`` has been thrown into the generator yet
         self.aborting = False        # the last message the generator gave out belonged to its abort
         self.abandoned = False       # the worker gave up on a dead link before the abort could finish
+        self.bad_while_aborting = None   # the first unreadable reply met during an abort, if any
         self.lag_first = None        # messages the controller was behind on the first reply, if measurable
         self.lag_max = None          # the largest seen
         self.lag = 0                 # the latest, handed to the home on every reply
@@ -116,8 +120,16 @@ class VendorHomeSource:
                                                       f"stale to trust, so nothing was sent")
                 return ("stop",)
             first = self.last_reply = self._decode(reply_bytes, now)
-            self.generator = vh.vendor_home(first, version=self.version, axes=self.axes)
-            return self._send(next(self.generator), sequence)
+            if self.start is None:
+                self.generator = vh.vendor_home(first, version=self.version, axes=self.axes)
+            else:
+                self.generator = self.start(first)
+            try:
+                out = next(self.generator)
+            except StopIteration as done:
+                self.result = done.value
+                return ("end",)
+            return self._send(out, sequence)
         reply = None
         lag = self._measure_lag(reply_bytes, sequence)
         try:
@@ -127,8 +139,9 @@ class VendorHomeSource:
                 # latest reply that decoded, whatever this one is.
                 try:
                     reply = self.last_reply = self._decode(reply_bytes, now)
-                except ValueError:
+                except ValueError as exc:
                     reply = self.last_reply
+                    self.bad_while_aborting = self.bad_while_aborting or str(exc)
                 thrown = None
             else:
                 if self.interrupted is None:
@@ -154,6 +167,11 @@ class VendorHomeSource:
             else:
                 out = self.generator.send(reply)
         except StopIteration as stop:
+            if self.bad_while_aborting:
+                # A run that ends normally after its abort (the gripper's stop) still fails on an unreadable reply.
+                # The home never gets here: its abort always raises.
+                self.error = vh.HomeError(vh.ERR_BAD_REPLY, f"unreadable reply while stopping: {self.bad_while_aborting}")
+                return ("stop",)
             self.result = stop.value
             return ("end",)
         except vh.HomeError as error:
