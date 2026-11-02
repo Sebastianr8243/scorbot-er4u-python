@@ -31,6 +31,7 @@
 | [`design/STACK2_RESEARCH.md`](design/STACK2_RESEARCH.md) | What is established and what is unknown about driving the controller with our own USB code, after an independent claim check |
 | [`protocol/PROTOCOL.md`](protocol/PROTOCOL.md) | Editing packet code, decoding a capture |
 | [`protocol/VENDOR_DLL_PROTOCOL.md`](protocol/VENDOR_DLL_PROTOCOL.md) | What the vendor's `USBC.dll` sends (from disassembly) |
+| [`protocol/SOURCE_AUDIT.md`](protocol/SOURCE_AUDIT.md) | Where each constant and byte sequence in `scorbot/` comes from (vendor, legacy or ours) |
 | [`protocol/BRING_UP_SEQUENCE.md`](protocol/BRING_UP_SEQUENCE.md) | The steps from power-on to a moving arm and how sure we are of each |
 | [`protocol/ULPGC_THESIS_FINDINGS.md`](protocol/ULPGC_THESIS_FINDINGS.md) | The 2017 thesis that decoded SCORBASE's USB traffic |
 | [`manual/ER4U_MODEL.md`](manual/ER4U_MODEL.md) | Every arm number we use and where it comes from |
