@@ -483,17 +483,10 @@ def motors_on(b_1, epout, epin, buffer,cola_read):
 
 # Inicia el cierre de las conexiones entre controladora y host
 def scorbotoff(b_1,epout,epin,buffer,cola_read):
+	# Like USBC.dll's close: motors_off has already sent the stop group, so only 42 FF and
+	# 4F FF 54 follow. The upstream code repeated get_scorbotoff here first; every command in it
+	# is already in the stop group (docs/protocol/LEDGER.md PL96).
 	media = libdef.get_media(buffer,cola_read.get())
-	for i in range(1,12):
-		cadena = libhex.mov_comm(6)
-		b_1 = libdef.countByte1(b_1)
-		cadena = cadena.format(libdef.f_byte(b_1))
-		cadena += libhex.get_scorbotoff(i)
-		cadena = libdef.fill_msg(cadena, 24)
-		media = libdef.get_media(buffer,media)
-		cadena += libdef.get_encoder(buffer,media)
-		libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
-
 	b_1 = libsync.send_wait(b_1,epout,epin,buffer)
 	cadena = libhex.mov_comm(6)
 	b_1 = libdef.countByte1(b_1)

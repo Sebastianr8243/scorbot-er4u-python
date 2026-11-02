@@ -22,10 +22,7 @@ except ImportError:                                     # plain `unittest discov
     from desk_wire import record_session
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "dll_lab_open_loop.json").read_text(encoding="utf-8"))
-DLL_STOP, DLL_CLOSE_TAIL = FIXTURE["control_off"][:-2], FIXTURE["control_off"][-2:]
-# What Stack 2's disconnect sends between the DLL's stop group and its closing pair: 47, 4F FF 53, 73 20, 42 20, 64, 61.
-EXTRA_CLOSE_GROUP = ["0000004700000000000000", "0000004fff530000000000", "0000007320000000000000",
-                     "0000004220000000000000", "0000006400000000000000", "0000006100000000000000"]
+DLL_STOP = FIXTURE["control_off"][:-2]  # the closing 42 FF 00 00, 4F FF 54 are only sent by disconnect
 
 
 class DeskByteCheckTests(unittest.TestCase):
@@ -41,11 +38,8 @@ class DeskByteCheckTests(unittest.TestCase):
             "handshake ends with control on": (reduce.phases(calls["connect"])["control_on"], FIXTURE["control_on"]),
             "enable is control on": (reduce.commands(calls["enable"]), FIXTURE["control_on"]),
             "disable is the stop group": (reduce.commands(calls["disable"]), DLL_STOP),
-            # A difference, pinned so a change shows: the DLL's close is its stop group, then 42 FF 00 00 and
-            # 4F FF 54. Stack 2 inserts one more short group (the legacy close). Whether the controller needs
-            # it is unverified.
-            "disconnect is the close plus one extra group": (reduce.commands(calls["disconnect"]),
-                                                            DLL_STOP + EXTRA_CLOSE_GROUP + DLL_CLOSE_TAIL),
+            # The DLL's close is its stop group, then 42 FF 00 00 and 4F FF 54 (LEDGER.md PL96).
+            "disconnect is the DLL's close": (reduce.commands(calls["disconnect"]), FIXTURE["control_off"]),
         }
         for name, (got, want) in steps.items():
             with self.subTest(name):
