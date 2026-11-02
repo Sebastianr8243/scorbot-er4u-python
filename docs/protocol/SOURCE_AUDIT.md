@@ -238,3 +238,4 @@ Ranked by whether the gap reaches the controller, then by how soon it runs on th
    - Orders 21 and 22 are internal.
    - Done for the `ROB_4u.INI` link lengths and angle limits (they cite `docs/manual/` notes that quote them). Still unverified: the manual and datasheet citation rows, whose values no note quotes one by one.
    - Done: PL26, PL27 and the `vendor_home.py` docstring (section 3).
+8. **Untraced reply bytes: done 2026-11-02** (`LEDGER.md` PL63 to PL67). Bytes 4, 15-18 and 60-63 are unused by the DLL. Byte 3 is the teach pendant, and the DLL acts on it. **Open, post-lab safety follow-up (PL67):** Stack 2 ignores the pendant's Abort key, which the vendor turns into `Stop('&')`. Because it is a stop path, rank it above items 5 to 7 when it is picked up.
