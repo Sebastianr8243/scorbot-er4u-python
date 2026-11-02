@@ -1,13 +1,14 @@
-"""One supervised ER-4U gripper trial: open and close the jaws, at most four moves.
+"""One supervised ER-4U gripper trial: a vendor Home, then open and close the jaws, at most four moves.
 
-The first run of ``Scorbot.move_gripper`` on the arm. It connects, switches
-the motors on (the arm is not homed and no arm joint is commanded), and
-opens or closes the gripper once per move, asking before each one.
+It connects, runs the vendor Home (``Scorbot.vendor_home``: it moves every axis and closes the
+gripper; jaws empty, wrist path clear, operator at the physical stop), then opens or closes the
+gripper once per move, asking before each one. The gripper is refused before a vendor Home, so the
+Home comes first.
 
-The gripper sequence is the legacy one and has never been run by this
-project. It moves a fixed distance with no force limit: closing on an object
-drives the setpoint past it. First trials are with EMPTY JAWS, then something
-soft. Keep fingers out of the jaws.
+The gripper sequence is the vendor's post-Home one (docs/protocol/LEDGER.md PL51, PL61): absolute
+targets, fully open (RangeEnc counts) or closed (0), and has never been run on this arm. There is
+no force limit: closing on an object pushes against it. First trials are with EMPTY JAWS, then
+something soft. Keep fingers out of the jaws.
 
 With --simulate the same procedure runs against the simulated controller, for
 rehearsal away from the lab; every record is then labelled simulated.
@@ -22,6 +23,7 @@ from scorbot import Scorbot, SimulatedScorbot
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder
+from scorbot.state import switch_summary
 
 try:
     from examples import bench_joint as bench
@@ -95,18 +97,37 @@ def _run() -> int:
                 observe_leds("after_connect", write, rec,
                              expect_motors="off", expect_power="green",
                              require_expected=True)
-                print("The motors will be switched on. The arm is NOT homed and no arm "
-                      "joint is commanded; it should hold where it is.")
-                if prompt("Type ENABLE to switch the motors on: ", "ENABLE") != "ENABLE":
-                    raise OperatorDeclined("declined before enabling the motors")
+                print("Vendor Home first: it moves every axis the way Intelitek's software does, "
+                      "CLOSES THE GRIPPER, turns the wrist roll and swings the wrist pitch. Start the "
+                      "arm within a few tens of degrees of its home pose. Hand on the physical stop; "
+                      "the software stop is NOT an emergency stop.")
+                print(switch_summary(robot.get_state().home_switch_bits))
+                if prompt("Type EMPTY to confirm the gripper jaws are empty: ", "EMPTY") != "EMPTY":
+                    raise OperatorDeclined("declined before homing: jaws not confirmed empty")
+                if prompt("Type CLEAR to confirm the wrist and gripper have room to swing: ",
+                          "CLEAR") != "CLEAR":
+                    raise OperatorDeclined("declined before homing: wrist path not confirmed clear")
+                if prompt("Type HOME to enable motors and run the vendor home: ", "HOME") != "HOME":
+                    raise OperatorDeclined("declined before homing")
                 robot.enable()
                 observe_leds("after_enable", write, rec, expect_motors="lit",
                              expect_power="green", require_expected=True)
-                plan = dict(moves=list(args.moves), sequence="legacy clamp (orders 14 and 15)")
+                confirmed = dict(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
+                command.start("home", {"method": "vendor", **confirmed})
+                robot.vendor_home(**confirmed)
+                command_id = command.take()
+                home_state = robot.get_state()
+                write("home_complete", method="vendor", state=asdict(home_state))
+                rec.log_command_result(command_id, "completed", completion_source="vendor_home() returned")
+                rec.log_state(home_state)
+                if prompt("If the home looked correct and the jaws are clear, type HOME_OK: ",
+                          "HOME_OK") != "HOME_OK":
+                    raise OperatorDeclined("declined after the vendor home")
+                plan = dict(moves=list(args.moves), sequence="vendor post-Home gripper (order 23)")
                 write("gripper_plan", **plan)
                 rec.log_note("gripper plan: " + json.dumps(plan))
-                print("The gripper moves a fixed distance with no force limit. Empty jaws for "
-                      "a first trial; keep fingers clear.")
+                print("The gripper goes fully open or fully closed with no force limit. Empty jaws "
+                      "for a first trial; keep fingers clear.")
                 print("This sequence has never been run on this arm. Ctrl-C asks for a "
                       "software stop; it is NOT an emergency stop.")
                 for number, direction in enumerate(args.moves, 1):

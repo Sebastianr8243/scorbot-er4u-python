@@ -44,6 +44,7 @@ from .state import ENCODER_OFFSETS, ERROR_OFFSETS, JOINTS
 from .streaming import MOTORS as STREAM_MOTORS
 from .streaming import STREAM_ORDER
 from .vendor_home_model import Plant
+from .vendor_gripper import GRIPPER_ORDER as VENDOR_GRIPPER_ORDER
 from .vendor_home_source import VENDOR_HOME_ORDER
 
 FAULT_KINDS = ("timeout", "late_answer", "controller_error", "worker_crash",
@@ -301,6 +302,10 @@ class SimulatedController:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
             return self._vendor_home(payload[1])
+        elif order == VENDOR_GRIPPER_ORDER:
+            if not self.motors_on:
+                return _ERROR_MOTORS_OFF
+            return self._vendor_gripper(payload[1])
         elif order in (_GRIPPER_OPEN, _GRIPPER_CLOSE):
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
@@ -376,6 +381,49 @@ class SimulatedController:
             else:
                 self.motors_on = False
         return 0 if succeeded else 1
+
+    def _vendor_gripper(self, source) -> int:
+        """Run the post-Home gripper move the way ``libcomm.vendor_home_run`` does (order 23).
+
+        The gripper count follows the gripper setpoint (OUT bytes 32-35) at once, stopping at
+        ``gripper_blocked_at`` when closing, or mirrored about its start with ``gripper_reversed``;
+        ``gripper_disturbs`` is added to the arm at the end; ``stream_emergency`` sets the emergency bit.
+        ``vendor_hook(n, None)`` runs before message n. A failure switches the motors off and answers 1.
+        """
+        self.vendor_packets = []
+        sequence, count = 1, 0
+        with self._lock:
+            start = self.counts["gripper"]
+        while True:
+            with self._lock:
+                reply = bytearray(encode_packet(self.counts, self.switch_bits))
+                reply[2] |= 1 if self.stream_emergency else 0
+            reply[0] = sequence
+            sequence = sequence % 255 + 1
+            step = source(bytes(reply), sequence)
+            if step[0] == "end":
+                break
+            if step[0] != "send":
+                with self._lock:
+                    self.motors_on = False
+                return 1
+            count += 1
+            self.vendor_packets.append(step[1])
+            if self.vendor_hook is not None:
+                self.vendor_hook(count, None)
+            setpoint = int.from_bytes(step[1][32:36], "little", signed=True)
+            # Setpoints are controller counts; ``counts`` are state counts, one lower on the positive side.
+            value = setpoint - 1 if setpoint > 0 else setpoint
+            if self.gripper_reversed:
+                value = 2 * start - value
+            with self._lock:
+                if self.gripper_blocked_at is not None and value < self.counts["gripper"]:
+                    value = max(value, self.gripper_blocked_at)
+                self.counts["gripper"] = value
+        with self._lock:
+            for motor, counts in self.gripper_disturbs.items():
+                self.counts[motor] += counts
+        return 0
 
     def _gripper(self, sign: int) -> int:
         """Ramp the gripper count like openScorbot/libcomm.py:clamp, with an object model."""

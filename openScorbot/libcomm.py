@@ -44,6 +44,8 @@ STOPPED   = 14
 STREAM    = 21
 # Order for the vendor-style home (SDK only): scorbot/vendor_home.py decides every message
 VENDOR_HOME = 22
+# Order for the post-Home gripper move (SDK only): scorbot/vendor_gripper.py decides every message, same runner
+VENDOR_GRIPPER = 23
 
 #------------------------------ARGUMENTOS USADOS-------------------------------#
 # b_1		-> Byte de secuencia
@@ -483,17 +485,10 @@ def motors_on(b_1, epout, epin, buffer,cola_read):
 
 # Inicia el cierre de las conexiones entre controladora y host
 def scorbotoff(b_1,epout,epin,buffer,cola_read):
+	# Like USBC.dll's close: motors_off has already sent the stop group, so only 42 FF and
+	# 4F FF 54 follow. The upstream code repeated get_scorbotoff here first; every command in it
+	# is already in the stop group (docs/protocol/LEDGER.md PL96).
 	media = libdef.get_media(buffer,cola_read.get())
-	for i in range(1,12):
-		cadena = libhex.mov_comm(6)
-		b_1 = libdef.countByte1(b_1)
-		cadena = cadena.format(libdef.f_byte(b_1))
-		cadena += libhex.get_scorbotoff(i)
-		cadena = libdef.fill_msg(cadena, 24)
-		media = libdef.get_media(buffer,media)
-		cadena += libdef.get_encoder(buffer,media)
-		libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
-
 	b_1 = libsync.send_wait(b_1,epout,epin,buffer)
 	cadena = libhex.mov_comm(6)
 	b_1 = libdef.countByte1(b_1)
@@ -682,7 +677,7 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read, cola_result, stop_event)
 				elif orden == STREAM:
 					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1], ite if callable(ite) else None)
-				elif orden == VENDOR_HOME:
+				elif orden == VENDOR_HOME or orden == VENDOR_GRIPPER:
 					b_1 = vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:
 					b_1 = motors_off(b_1, epout, epin, buffer, cola_read)

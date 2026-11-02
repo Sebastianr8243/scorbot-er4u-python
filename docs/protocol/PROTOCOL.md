@@ -69,7 +69,7 @@ The sequence byte is a single counter shared by both threads: it travels between
 | `get_msg1(1..4)` | `5A`, `4F FF 54`, `73 FF`, `42 FF` | | handshake pkt1 |
 | `motorson(1..7)` | `0D`, `47`, `0D`, `4F FF 53`, `42 FF 01`, `73 20`, `42 20` | | `send_pkt3`, `libcomm.py:motors_on` |
 | `motorsoff(1..26)` | 8 commands `0D 47 73FF 42FF 4FFF53 73FF 7320 4220`, then `64` x3, `61` x3 repeated three times (26 total) | | `libcomm.py:motors_off` |
-| `get_scorbotoff(1..11)` | `47`, `4F FF 53`, `73 20`, `42 20`, `64` x3, `61` x4 | | `libcomm.py:scorbotoff` |
+| `get_scorbotoff(1..11)` | `47`, `4F FF 53`, `73 20`, `42 20`, `64` x3, `61` x4 | | upstream `libcomm.py:scorbotoff`; no longer sent (`LEDGER.md` PL96) |
 
 K for every value above. U for what each command does on the controller. Observation only: several values (`47` 'G', `4F` 'O', `53` 'S', `73` 's', `42` 'B', `64` 'd', `61` 'a') are ASCII letters, and `0D` equals the IN byte 1 value the code waits for (section 3). Neither is used by the code as a decoding.
 
@@ -266,7 +266,7 @@ The command is a list `[code, vel, ang]`; for 19 it is `[19, [x, y, z], vel]`. `
 | 17 | Motors on: 7 messages | `motors_on` | |
 | 18 | Home | `setHome.homing` | Section 9 |
 | 19 | Move to XYZ | `moveXYZ.controlXYZ` | Needs `home == True` else result 5 |
-| 528 (`EXIT`) | Motors off, `scorbotoff`, stop `syncro` (puts 528), put DONE, leave loop | `scorbotoff` | 11 messages, then `send_wait`, then `get_msg1(4)` and `get_msg1(2)` with echo |
+| 528 (`EXIT`) | Motors off, `scorbotoff`, stop `syncro` (puts 528), put DONE, leave loop | `scorbotoff` | `send_wait`, then `get_msg1(4)` and `get_msg1(2)` with echo. Upstream sent the 11 `get_scorbotoff` messages first; dropped to match the DLL (`LEDGER.md` PL96) |
 
 Any code other than 16, 17, 19 clears the host-side `home` flag before running (and 19 only runs if it is set); 18 sets it again on success.
 

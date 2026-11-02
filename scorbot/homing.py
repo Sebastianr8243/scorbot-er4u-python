@@ -41,6 +41,7 @@ class HomingMixin:
                     f"Home switch byte {before.home_switch_bits} has unexpected bits "
                     f"{unknown_bits:#x}; legacy homing would misread the switches")
             self._homed = False
+            self._gripper_homed = False
             self._home_counts = None
             self._record("home_start", state=asdict(before))
             # The legacy search logs nothing between its first and last message. Copy its
@@ -459,6 +460,7 @@ class HomingMixin:
                 raise ScorbotError(f"Home switch byte {before.home_switch_bits} has unexpected "
                                    f"bits {before.home_switch_bits & ~known_bits:#x}")
             self._homed = False
+            self._gripper_homed = False
             self._home_counts = None
             # The wrist is not homed: its counts below are whatever they were, so the
             # pitch and roll limits of the pose checks assume the wrist already stands
@@ -605,6 +607,7 @@ class HomingMixin:
                 raise MotionStopped("A stop was requested before the vendor home started; "
                                     "nothing was sent", state=before, started=False)
             self._homed = False
+            self._gripper_homed = False
             self._home_counts = None
             source = VendorHomeSource(version=controller_version, stop_event=self._stop_event,
                                       cancel_event=self._cancel_event)
@@ -658,6 +661,7 @@ class HomingMixin:
                         raise ScorbotError(self._fault) from exc
                 self._home_counts = after.encoder_counts.copy()
                 self._homed = True
+                self._gripper_homed = True       # the vendor Home zeroes the gripper (48); the others do not
                 self._reset_prehome()
                 result = source.result
                 self._record("home_complete", method="vendor", wrist_homed=True, gripper_homed=True,

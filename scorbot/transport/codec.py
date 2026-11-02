@@ -119,7 +119,7 @@ SCORBOT_OFF = _frozen({
     1: "47", 2: "4FFF53", 3: "7320", 4: "4220", 5: "64", 6: "64", 7: "64",
     8: "61", 9: "61", 10: "61", 11: "61",
 })
-"""``libhex.get_scorbotoff``: ``libcomm.scorbotoff`` shutdown (each with encoder region)."""
+"""``libhex.get_scorbotoff``: the upstream shutdown group. ``libcomm.scorbotoff`` no longer sends it (LEDGER.md PL96)."""
 
 CLAMP = _frozen({1: "4F2053", 2: "4C2000", 3: "422001", 4: "7320", 5: "4220"})
 """``libhex.clamp``: gripper sequence. The SDK never sends it (gripper is disabled)."""
