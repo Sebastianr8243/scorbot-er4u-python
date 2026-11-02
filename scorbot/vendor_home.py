@@ -342,7 +342,8 @@ class _Run:
 
         The vendor's forward pass reverses on a stall (its tick check, as short as 2 cycles for the wrist);
         this is the pass that must succeed, so a slow start must not read as a missed switch. A real stall
-        still ends it, through the grace-delayed tick check, the 150-cycle window, an impact or the travel bound."""
+        still ends it, through the grace-delayed tick check, an impact or the travel bound (types 14 and 15),
+        or the axis' MaxTime."""
         yield from self.wait_switch(axis, want, reversal=False)
 
     # --- the four search types -----------------------------------------------------------------

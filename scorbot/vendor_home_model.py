@@ -36,15 +36,18 @@ def s32(data, at):
 
 
 class Plant:
-    def __init__(self, bands=None, start=None, gain=None, frozen=(), gripper_range=GRIPPER_STOPS):
+    def __init__(self, bands=None, start=None, gain=None, frozen=(), gripper_range=GRIPPER_STOPS, stops=None):
         """``gain`` is counts per message per unit of drive (negative flips the drive sign; the gripper
         moves ``GRIPPER_GAIN / DRIVE_GAIN`` times faster), ``frozen`` axes never move, ``gripper_range``
-        are the gripper's end stops in physical counts. The gripper reads 0 at the start."""
+        are the gripper's end stops in physical counts. The gripper reads 0 at the start. ``stops`` maps a
+        motor to its (low, high) hard stops in physical counts; without one a motor driven long enough
+        wraps the 24-bit count, which a real arm's hard stops never allow."""
         self.bands = dict(BANDS if bands is None else bands)
         self.gain = DRIVE_GAIN if gain is None else gain
         self.gripper_gain = self.gain * GRIPPER_GAIN / DRIVE_GAIN
         self.frozen = set(frozen)
         self.gripper_range = gripper_range
+        self.stops = dict(stops or {})
         self.phys = [float(x) for x in (start or (0,) * 5 + (GRIPPER_START,))]
         self.off = [0.0] * 5 + [-self.phys[5]]
         self.mode = ["P"] * 6
@@ -92,6 +95,8 @@ class Plant:
                 self.phys[n] += max(-FOLLOW_STEP, min(FOLLOW_STEP, target - self.phys[n]))
         low, high = self.gripper_range
         self.phys[5] = max(low, min(high, self.phys[5]))
+        for n, (low, high) in self.stops.items():
+            self.phys[n] = max(low, min(high, self.phys[n]))
 
     def reply(self, data):
         packet = bytearray(64)

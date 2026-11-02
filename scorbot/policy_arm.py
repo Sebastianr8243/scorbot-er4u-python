@@ -19,6 +19,14 @@ DEFAULT_TRAVEL_CAP_DEG = 2.0
 LEAD_LIMIT_DEG = 2.0            # the SDK's own lead limit; our targets stay inside LEAD_MARGIN_DEG of it
 LEAD_MARGIN_DEG = 1.5           # a target never leads the measured position by more than this
 STEP_MAX_DEG = 0.5              # largest delta applied in one call
+DEFAULT_SPEED_PCT = 25          # percent of the vendor's MaxSpeed (streaming.VENDOR_MAX_SPEED_COUNTS_S)
+
+
+def _check_speed(speed_pct):
+    if isinstance(speed_pct, bool) or not isinstance(speed_pct, (int, float)) \
+            or not math.isfinite(speed_pct) or not 1 <= speed_pct <= 100:
+        raise ValueError(f"speed_pct must be a number from 1 to 100, not {speed_pct!r}")
+    return speed_pct
 
 
 def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX_DEG,
@@ -67,10 +75,19 @@ class PolicyArm:
     Needs the ``planning`` extra (Ruckig). ``simulate=False`` runs are the caller's to supervise.
     """
 
-    def __init__(self, robot, *, travel_cap_deg: float = DEFAULT_TRAVEL_CAP_DEG):
+    def __init__(self, robot, *, travel_cap_deg: float = DEFAULT_TRAVEL_CAP_DEG,
+                 speed_pct: float = DEFAULT_SPEED_PCT):
         self.robot, self.cap = robot, travel_cap_deg
+        self.speed_pct = _check_speed(speed_pct)
         self._stack: ExitStack | None = None
         self._stream = None
+
+    def set_speed(self, speed_pct: float) -> None:
+        """Change the speed (percent of the vendor's MaxSpeed, 1 to 100), live if connected."""
+        speed_pct = _check_speed(speed_pct)
+        if self._stream is not None:
+            self._stream.set_speed(speed_pct / 100)
+        self.speed_pct = speed_pct
 
     @property
     def is_connected(self) -> bool:
@@ -92,7 +109,8 @@ class PolicyArm:
             self._per_degree = {m: self.robot.preview_jog(m, 1.0)["motor_count_deltas"][m]
                                 for m in MOTORS}
             self._stream = stack.enter_context(self.robot.start_stream(
-                travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG))
+                travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
+                speed_fraction=self.speed_pct / 100))
             self.target = dict.fromkeys(MOTORS, 0.0)
             self._stack = stack.pop_all()
 
