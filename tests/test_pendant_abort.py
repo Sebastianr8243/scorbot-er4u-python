@@ -115,13 +115,61 @@ class LegacyJogAbortTests(unittest.TestCase):
 
 class ScorbotWiringTests(unittest.TestCase):
 
-    def test_abort_is_a_request_stop_and_is_logged(self):
+    def test_abort_sets_the_stop_and_is_logged(self):
         robot = Scorbot()
-        events = []
-        robot._record = lambda event, **fields: events.append(event)
+        logged = threading.Event()
+        robot._record = lambda event, **fields: logged.set() if event == "pendant_abort" else None
         robot._pendant_abort()
         self.assertTrue(robot._stop_event.is_set())
-        self.assertEqual(events, ["stop_requested", "pendant_abort"])
+        self.assertTrue(logged.wait(2.0))
+
+    def test_a_blocked_log_never_delays_the_stop(self):
+        robot = Scorbot()
+        release = threading.Event()
+        robot._record = lambda event, **fields: release.wait(5.0)
+        caller = threading.Thread(target=robot._pendant_abort)
+        caller.start()
+        caller.join(1.0)
+        self.assertFalse(caller.is_alive(), "the USB read must return while the log write is stuck")
+        self.assertTrue(robot._stop_event.is_set())
+        release.set()
+
+    def test_abort_reaches_an_active_stream(self):
+        robot = Scorbot()
+        robot._record = lambda event, **fields: None
+        robot._stream = mock.Mock()
+        robot._pendant_abort()
+        robot._stream.request_stop.assert_called_once()
+
+    def test_motion_is_refused_while_abort_is_held(self):
+        robot = Scorbot()
+        robot._input = mock.Mock(pendant_abort_held=True)
+        self.assertTrue(robot._consume_stop())
+        self.assertTrue(robot._consume_stop(), "a held key refuses every start, not only the first")
+        robot._input.pendant_abort_held = False
+        self.assertFalse(robot._consume_stop())
+
+    def test_the_endpoint_reports_a_held_key(self):
+        endpoint = TrackedInputEndpoint(Replies([0x21, 0x61]), on_pendant_abort=lambda: None)
+        buffer = bytearray(64)
+        endpoint.read(buffer)
+        self.assertTrue(endpoint.pendant_abort_held)
+        endpoint.read(buffer)
+        self.assertFalse(endpoint.pendant_abort_held)
+
+
+class StreamStartTests(unittest.TestCase):
+
+    def test_a_stop_set_before_the_stream_was_published_still_stops_it(self):
+        from scorbot.streaming import Stream
+        stream = Stream.__new__(Stream)
+        stream.robot = mock.Mock(_fault=None)
+        stream.robot._cancel_event.is_set.return_value = False
+        stream.robot._stop_event.is_set.return_value = True
+        stream.core = mock.Mock()
+        stream._pace = lambda: None
+        stream._step(bytes(64))
+        stream.core.request_stop.assert_called_once()
 
 
 if __name__ == "__main__":

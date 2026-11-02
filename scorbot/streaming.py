@@ -383,6 +383,10 @@ class Stream:
                 # Latched on another thread (lost feedback, say): a faulted
                 # session must not go on following targets.
                 self.core.fail(f"the session faulted while streaming: {self.robot._fault}")
+            if self.robot._stop_event.is_set():
+                # A stop that landed after start_stream consumed the last one but before the stream was
+                # published (request_stop then found no stream): honour it here. Ending clears the event.
+                self.core.request_stop()
             self._pace()
             state = decode_state(reply, connected=True, enabled=None, homed=True, fault=None)
             measured = {m: signed_count_delta(state.encoder_counts[m], self._home[m])

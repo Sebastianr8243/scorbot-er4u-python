@@ -468,12 +468,24 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
     def _pendant_abort(self) -> None:
         """The teach pendant's Abort key was pressed: the same stop as ``request_stop`` (LEDGER.md PL64, PL67).
 
-        The vendor DLL calls ``Stop('&')`` on it. Runs on a USB worker thread. Not an emergency stop.
+        The vendor DLL calls ``Stop('&')`` on it. Runs inside a USB read on a worker thread, and that worker
+        must return to send the stop messages, so nothing here touches the disk: the log row is written on a
+        thread of its own. While the key stays held, ``_consume_stop`` refuses every motion start (ours; the
+        DLL stops once). Not an emergency stop.
         """
+        with self._stop_lock:
+            self._stop_event.set()
+        stream = self._stream
+        if stream is not None:
+            stream.request_stop()
+        threading.Thread(target=self._record_quietly, args=("pendant_abort",), daemon=True,
+                         name="scorbot-pendant-log").start()
+
+    def _record_quietly(self, event: str) -> None:
         try:
-            self.request_stop()     # first: a slow log write must not delay the stop
-        finally:
-            self._record("pendant_abort")
+            self._record(event)
+        except Exception:
+            pass  # a log failure must not hide the stop, which already happened
 
     def _settled_after_stop(self, before: RobotState, *,
                             fault: str = "The arm was still moving after a stop request"
@@ -527,7 +539,7 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
         with self._stop_lock:
             asked = self._stop_event.is_set()
             self._stop_event.clear()
-        return asked
+        return asked or bool(getattr(self._input, "pendant_abort_held", False))
 
     def preview_jog(self, joint: str, delta_degrees: float, *, speed: int = 10,
                     starting_signed_counts: dict[str, int] | None = None) -> dict:

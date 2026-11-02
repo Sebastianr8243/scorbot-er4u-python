@@ -127,6 +127,11 @@ class TrackedInputEndpoint:
                     pass  # the read must go on; request_stop sets its event before it logs
         return result
 
+    @property
+    def pendant_abort_held(self) -> bool:
+        """Whether the last reply had the pendant's Abort key pressed."""
+        return self._pendant in PENDANT_ABORT
+
     def snapshot(self, *, after_index=None, timeout=2.0, max_age=2.0):
         deadline = time.monotonic() + timeout
         with self._condition:
