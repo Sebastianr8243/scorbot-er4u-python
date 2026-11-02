@@ -237,9 +237,9 @@ class FailureTests(Case):
         self.check_failure(robot, error, vh.ERR_DIRECTION, "moves against its drive")
         self.assertLess(max(abs(x) for x in plant.phys[:5]), 600)      # the gripper starts at 3000
 
-    def test_a_jammed_wrist_motor_is_a_stall(self):
-        robot, error = self.fail(plant=Plant(frozen={vh.WRIST_M1}))
-        self.check_failure(robot, error, vh.ERR_STALL, "wrist_m1")
+    def test_a_wrong_drive_sign_on_the_shoulder_is_a_direction_fault(self):
+        robot, error = self.fail(plant=Plant(gain=-0.1))
+        self.check_failure(robot, error, vh.ERR_DIRECTION, "shoulder")
 
     def test_a_stop_request_that_lands_after_the_last_message_still_latches_and_switches_off(self):
         # The controller's counters were already zeroed by 48, so the session cannot go on as "not homed".
@@ -322,9 +322,9 @@ class FailureTests(Case):
         self.assertFalse(robot._homed)
 
     def test_the_failure_message_names_the_axis(self):
-        robot, error = self.fail(plant=Plant(frozen={vh.WRIST_M1}))
-        self.assertIn("wrist_m1", str(error))
-        self.assertEqual(self.events("home_failed")[-1]["axis"], vh.WRIST_M1)
+        robot, error = self.fail(plant=Plant(gain=-0.1))
+        self.assertIn("shoulder", str(error))
+        self.assertEqual(self.events("home_failed")[-1]["axis"], vh.SHOULDER)
 
     def test_a_source_that_dies_is_reported_as_unexpected(self):
         robot = self.robot()

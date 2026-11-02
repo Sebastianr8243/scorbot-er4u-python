@@ -171,15 +171,23 @@ class SafetyTests(unittest.TestCase):
             run(Plant(bands={}), cycle_s=0.05)
         self.assertEqual(caught.exception.code, vh.ERR_TIMEOUT)
 
-    def test_an_axis_that_does_not_move_is_a_stall_not_a_wait_for_the_timeout(self):
+    def test_an_axis_that_does_not_move_ends_on_the_vendors_time_limit(self):
+        # The shoulder searches first and is type 16: the vendor has no stall check there, only MaxTime.
         with self.assertRaises(vh.HomeError) as caught:
-            run(Plant(gain=0.0), max_cycles=5000)
-        self.assertEqual(caught.exception.code, vh.ERR_STALL)
+            run(Plant(gain=0.0), cycle_s=0.1, max_cycles=5000)
+        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_TIMEOUT, vh.SHOULDER))
+        self.assertNotIn(vh.SET_POSITION, [o.cmd for o in caught.exception.outs])
 
-    def test_a_coupled_motor_that_jams_is_a_stall_even_though_the_axis_moves(self):
+    def test_a_missing_shoulder_switch_ends_on_the_time_limit_and_zeroes_nothing(self):
         with self.assertRaises(vh.HomeError) as caught:
-            run(Plant(frozen={vh.WRIST_M1}), max_cycles=5000)      # the shoulder search drives wrist m1 too
-        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_STALL, vh.WRIST_M1))
+            run(Plant(bands={**Plant().bands, 1: (50000, 60000)}), cycle_s=0.1)
+        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_TIMEOUT, vh.SHOULDER))
+        self.assertNotIn(vh.SET_POSITION, [o.cmd for o in caught.exception.outs])
+
+    def test_a_jammed_wrist_motor_never_lets_the_home_finish(self):
+        with self.assertRaises(vh.HomeError) as caught:
+            run(Plant(frozen={vh.WRIST_M1}))
+        self.assertEqual(caught.exception.code, vh.ERR_TIMEOUT)
 
     def test_a_wrong_drive_sign_stops_the_home_within_a_few_degrees(self):
         plant = Plant(gain=-0.1)                                   # a positive 4D RAISES the counts
@@ -187,16 +195,6 @@ class SafetyTests(unittest.TestCase):
             run(plant, max_cycles=5000)
         self.assertEqual(caught.exception.code, vh.ERR_DIRECTION)
         self.assertLess(max(abs(x) for x in plant.phys[:5]), 600)  # far less than one switch band (the gripper starts at 3000)
-
-    def test_a_stalled_type_16_search_is_caught_within_about_two_seconds_not_after_the_150_cycle_window(self):
-        # Shoulder and wrist roll are type 16: the vendor has no stall check for them at all. The stall
-        # ticks start after TICK_GRACE_CYCLES (a controller that answers late), then take 50 cycles.
-        with self.assertRaises(vh.HomeError) as caught:
-            run(Plant(gain=0.0), max_cycles=5000)
-        outs = caught.exception.outs
-        first_drive = next(i for i, o in enumerate(outs) if o.cmd == vh.MOVE and o.arg32 != 0)
-        self.assertEqual(caught.exception.code, vh.ERR_STALL)
-        self.assertLess(len(outs) - first_drive, 140)
 
     def test_a_controller_that_answers_late_does_not_look_like_a_stall(self):
         # The controller may run about 47 messages behind (docs/protocol/BRING_UP_SEQUENCE.md): after a drive
@@ -221,27 +219,7 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(result.axes_done, vh.HOMING_SEQUENCE)
         self.assertEqual(commands(outs), [list(s) for s in FIXTURE["steps"]])
 
-    def test_a_coupled_motor_that_moves_against_its_drive_is_not_following(self):
-        first = vh.Reply(counts=(0, 0, 0, 0, 0, 0), switches=0, now=0.0)
-        run_state = vh._Run(first, 0)
-        run_state.driven = {vh.SHOULDER: 90, vh.ELBOW: -45}      # a positive drive lowers a count
-        start = {vh.SHOULDER: 0, vh.ELBOW: 0}
-        run_state.reply = vh.Reply(counts=(0, -900, -200, 0, 0, 0), switches=0, now=1.0)   # elbow went the wrong way
-        with self.assertRaises(vh.HomeError) as caught:
-            run_state.check_coupled_progress(vh.SHOULDER, start)
-        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_STALL, vh.ELBOW))
-        run_state.reply = vh.Reply(counts=(0, -900, 400, 0, 0, 0), switches=0, now=1.0)    # right way, near the ratio
-        run_state.check_coupled_progress(vh.SHOULDER, start)
-
-    def test_a_short_switch_transition_is_too_small_to_judge_a_coupled_motor(self):
-        first = vh.Reply(counts=(0, 0, 0, 0, 0, 0), switches=0, now=0.0)
-        run_state = vh._Run(first, 0)
-        run_state.driven = {vh.SHOULDER: 90, vh.WRIST_M1: -22}
-        run_state.reply = vh.Reply(counts=(0, -40, 0, 0, 0, 0), switches=0, now=1.0)       # 40 counts: backlash territory
-        run_state.check_coupled_progress(vh.SHOULDER, {vh.SHOULDER: 0, vh.WRIST_M1: 0})
-        self.assertGreaterEqual(vh.COUPLED_MIN_AXIS_COUNTS, 60)
-
-    def test_a_motor_that_runs_away_while_settling_is_stopped_on_its_lead(self):
+    def test_a_motor_that_runs_away_while_settling_ends_on_the_time_limit(self):
         plant = Plant(frozen={vh.SHOULDER})
         plant.mode[vh.SHOULDER] = "S"
 
@@ -250,109 +228,47 @@ class SafetyTests(unittest.TestCase):
                 p.phys[vh.SHOULDER] -= 21
         with self.assertRaises(vh.HomeError) as caught:
             run_generator(lambda first: vh._Run(first, 0).ramp({vh.SHOULDER: 100}, vh.SHOULDER), plant,
-                          on_cycle=runaway)
-        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_FOLLOW, vh.SHOULDER))
-        self.assertLess(len(caught.exception.outs), 100)
-
-    def test_the_stall_grace_follows_the_measured_lag(self):
-        # 125 cycles of silence after a drive is a stall if the controller answers at once, and not one
-        # if it is measured to answer 55 messages late (the grace is then 70 cycles, not 60).
-        def late(n, plant):
-            plant.frozen = set(range(6)) if n < 125 else set()
-        with self.assertRaises(vh.HomeError) as caught:
-            run(Plant(), on_cycle=late, lag=0)
-        self.assertEqual(caught.exception.code, vh.ERR_STALL)
-        outs, result = run(Plant(), on_cycle=late, lag=55)
-        self.assertEqual(result.axes_done, vh.HOMING_SEQUENCE)
+                          on_cycle=runaway, cycle_s=0.1)
+        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_TIMEOUT, vh.SHOULDER))
 
     def test_the_credit_for_a_slow_controller_is_bounded_by_what_the_home_will_accept(self):
         # A stuck motor must not be allowed most of the 1050-count pre-pass move because of an unverified lag.
         self.assertLessEqual(vh.MAX_LAG, 60)
-        self.assertLess(vh.MAX_LEAD_COUNTS + vh.RAMP_COUNTS_PER_CYCLE * vh.MAX_LAG, vh.PREPASS_PITCH_COUNTS * 0.75)
 
-    def test_the_setpoint_lead_limit_follows_the_measured_lag(self):
-        def lead_check(lag, lead):
-            first = vh.Reply(counts=(0, 0, 0, 0, 0, 0), switches=0, now=0.0, lag=lag)
-            state = vh._Run(first, 0)
-            state.setp[vh.SHOULDER] = lead
-            state.check_lead([vh.SHOULDER], vh.SHOULDER)
-        with self.assertRaises(vh.HomeError):
-            lead_check(0, vh.MAX_LEAD_COUNTS + 50)                   # no lag: 450 is too far ahead
-        lead_check(47, vh.MAX_LEAD_COUNTS + 47 * vh.RAMP_COUNTS_PER_CYCLE - 10)    # the lead a 47 message queue builds
-        with self.assertRaises(vh.HomeError):
-            lead_check(47, vh.MAX_LEAD_COUNTS + 47 * vh.RAMP_COUNTS_PER_CYCLE + 50)
-
-    def test_a_frozen_coupled_motor_is_caught_in_a_short_search_before_it_is_zeroed(self):
-        # The shoulder switch is only about 30 cycles away, so the 150-cycle window never ran; the
-        # wrist motor that the shoulder drives with it did not move, and the tail zeroed it anyway.
-        plant = Plant(frozen={vh.WRIST_M1}, start=(0, 2200, 0, 0, 0, 0))
-        with self.assertRaises(vh.HomeError) as caught:
-            run(plant, max_cycles=5000)
-        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_STALL, vh.WRIST_M1))
-        outs = caught.exception.outs
-        self.assertEqual([o for o in outs if o.cmd == vh.SET_POSITION and o.mask == 1 << vh.WRIST_M1], [])
-        self.assertLess(len(outs), 150)
-
-    def test_a_ramp_whose_motor_does_not_follow_stops_when_the_setpoint_leads_too_far(self):
-        plant = Plant(frozen={vh.WRIST_M1})
-        plant.mode[vh.WRIST_M1] = "S"
-        with self.assertRaises(vh.HomeError) as caught:
-            run_generator(lambda first: vh._Run(first, 0).ramp({vh.WRIST_M1: 1050}, vh.WRIST_M1), plant)
-        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_FOLLOW, vh.WRIST_M1))
-        lead = max(abs(o.setpoints[vh.WRIST_M1] - plant.reported(vh.WRIST_M1)) for o in caught.exception.outs)
-        self.assertLessEqual(lead, vh.MAX_LEAD_COUNTS + vh.RAMP_COUNTS_PER_CYCLE)
-
-    def test_a_creep_that_never_moves_the_motor_stops_on_the_lead_not_after_2000_creeps(self):
-        plant = Plant(bands={}, frozen={vh.SHOULDER})
-        plant.mode[vh.SHOULDER] = "S"
-        with self.assertRaises(vh.HomeError) as caught:
-            run_generator(lambda first: vh._Run(first, 0).fine(vh.SHOULDER), plant)
-        self.assertEqual(caught.exception.code, vh.ERR_FOLLOW)
-        self.assertLess(len(caught.exception.outs), 1500)
-
-    def test_the_base_search_is_bounded_by_the_base_travel_not_by_the_vendors_generic_99999(self):
-        base_counts_per_degree = 141.89                      # vendor parameter file, docs/manual/ER4U_MODEL.md
-        span = 310.0 * base_counts_per_degree                # nominal.AXIS_RANGES["base"]: 310 degrees in all
-        self.assertGreaterEqual(vh.AXES[vh.BASE].max_distance, span)
-        self.assertLessEqual(vh.AXES[vh.BASE].max_distance, span * 1.1)
-
-    def test_a_type_16_search_has_a_travel_bound(self):
-        bands = {**Plant().bands, 1: (50000, 60000)}               # a shoulder switch that is not there
-        with self.assertRaises(vh.HomeError) as caught:
-            run(Plant(bands=bands))
-        self.assertEqual(caught.exception.code, vh.ERR_TRAVEL)
-        self.assertIn(caught.exception.axis, (vh.SHOULDER, vh.ELBOW))    # the half-rate elbow can hit its bound first
+    def test_every_axis_uses_the_vendors_own_distance_and_time(self):
+        self.assertEqual([a.max_distance for a in vh.AXES], [99999, 30000, 10000, 10000, 10000, 10000])
+        self.assertEqual([a.max_time_s for a in vh.AXES], [110.0, 60.0, 90.0, 55.0, 75.0, 15.0])
 
     def test_an_impact_during_a_type_16_search_is_a_fault(self):
         with self.assertRaises(vh.HomeError) as caught:
             run(Plant(), on_cycle=lambda n, p: setattr(p, "impact", 0x02 if 60 < n < 70 else 0))
         self.assertEqual(caught.exception.code, vh.ERR_IMPACT)
 
-    def test_a_move_that_never_settles_is_a_fault_not_a_carry_on(self):
+    def test_a_move_that_never_settles_ends_on_the_time_limit(self):
         plant = Plant()
         plant.mode[vh.SHOULDER] = "S"
         plant.frozen = {vh.SHOULDER}
         with self.assertRaises(vh.HomeError) as caught:
-            run_generator(lambda first: vh._Run(first, 0).ramp({vh.SHOULDER: 100}, vh.SHOULDER), plant)
-        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_NOT_SETTLED, vh.SHOULDER))
+            run_generator(lambda first: vh._Run(first, 0).ramp({vh.SHOULDER: 100}, vh.SHOULDER), plant, cycle_s=0.1)
+        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_TIMEOUT, vh.SHOULDER))
 
-    def test_a_gripper_that_does_not_move_is_a_fault_before_the_second_zeroing(self):
-        # The pre-pass closes a gripper that may already be closed, so no movement is accepted there;
-        # the later open drive must move, or the home stops before the gripper is zeroed again.
+    def test_a_creep_that_never_finds_the_edge_ends_on_the_time_limit(self):
+        plant = Plant(bands={}, frozen={vh.SHOULDER})
+        plant.mode[vh.SHOULDER] = "S"
         with self.assertRaises(vh.HomeError) as caught:
-            run(Plant(frozen={vh.GRIPPER}))
-        self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
-        zeroings = [o for o in caught.exception.outs if o.cmd == vh.SET_POSITION and o.mask == 0x20]
-        self.assertEqual(len(zeroings), 1)
+            run_generator(lambda first: vh._Run(first, 0).fine(vh.SHOULDER), plant, cycle_s=0.1)
+        self.assertEqual(caught.exception.code, vh.ERR_TIMEOUT)
 
-    def test_a_gripper_impact_before_it_moved_is_a_fault_unless_the_pre_pass_close(self):
-        def make(at_end_ok):
-            return lambda first: vh._Run(first, 0).gripper_drive(-165, at_end_ok=at_end_ok)
-        with self.assertRaises(vh.HomeError) as caught:
-            run_generator(make(False), Plant(), on_cycle=lambda n, p: setattr(p, "impact", 0x20))
-        self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
-        outs, _ = run_generator(make(True), Plant(), on_cycle=lambda n, p: setattr(p, "impact", 0x20))
-        self.assertEqual(outs[-1].cmd, vh.MOTORS)                          # ended and switched off normally
+    def test_a_gripper_that_does_not_move_ends_its_drives_like_the_vendors(self):
+        # The vendor has no minimum travel: a gripper that cannot move stalls at once and is zeroed where it is.
+        # The lab-day ALIGNED check, not the home, is what catches that.
+        outs, result = run(Plant(frozen={vh.GRIPPER}))
+        self.assertEqual(result.axes_done, vh.HOMING_SEQUENCE)
+
+    def test_a_gripper_impact_ends_the_drive_normally(self):
+        outs, _ = run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Plant(),
+                                on_cycle=lambda n, p: setattr(p, "impact", 0x20))
+        self.assertEqual(outs[-1].cmd, vh.MOTORS)
 
     def test_a_gripper_stall_ends_like_the_vendor_clear_first_and_within_a_few_cycles(self):
         # The lab DLL checks every ImpactCondTicks (2) cycles for at most ImpactCondEnc (2) counts of motion,
@@ -389,12 +305,18 @@ class SafetyTests(unittest.TestCase):
         run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), plant)
         self.assertEqual(plant.reported(vh.GRIPPER), 3000)                   # it reached the open stop
 
-    def test_one_quiet_check_is_not_a_stall_but_two_are(self):
+    def test_one_quiet_check_ends_the_gripper_drive_as_the_vendors_does(self):
         frozen = set(range(20, 23))                  # 3 fresh replies standing still: one whole quiet 2-reply check
         plant = Plant()
         run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), plant,
                       on_cycle=lambda n, p: setattr(p, "frozen", {vh.GRIPPER} if n in frozen else set()))
-        self.assertEqual(plant.reported(vh.GRIPPER), 3000)
+        self.assertLess(plant.reported(vh.GRIPPER), 3000)
+        self.assertEqual(vh.GRIPPER_STALL_CHECKS, 1)
+
+    def test_a_gripper_that_keeps_moving_ends_on_the_vendors_budget(self):
+        with self.assertRaises(vh.HomeError) as caught:
+            run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Plant(gripper_range=(-10**6, 10**6)))
+        self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
 
     def test_a_gripper_that_jitters_at_its_stop_is_stopped_at_the_vendors_budget(self):
         # Feedback that moves 3 counts every reply never meets the 2-count stall rule. The vendor stops after
@@ -409,71 +331,10 @@ class SafetyTests(unittest.TestCase):
         self.assertLessEqual(len(outs) - drive, vh.GRIPPER_MAX_CYCLES + 12)  # the budget plus the stop messages
         self.assertNotIn(vh.SET_POSITION, [o.cmd for o in outs])
 
-    def test_many_stale_replies_in_a_row_stop_the_gripper_drive(self):
-        class Stuck(Plant):
-            n, last = 0, None
-
-            def exchange(self, data):
-                self.n += 1
-                fresh = super().exchange(data)
-                if self.last is not None and self.n > 15:
-                    return self.last
-                self.last = fresh
-                return fresh
-        with self.assertRaises(vh.HomeError) as caught:
-            run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165), Stuck())
-        self.assertEqual(caught.exception.code, vh.ERR_GRIPPER)
-
-    def test_a_final_close_that_stops_short_of_its_open_travel_is_a_fault_before_the_zero(self):
-        # An outside review: gripper counts held for 6 replies while the echoed IDs still advance pass every
-        # freshness check, and the last close would zero the gripper half way. The close back from the open
-        # stop must travel at least as far as the open did, whatever the replies looked like.
-        class HeldCounts(Plant):
-            drives, since, held = 0, 0, None
-
-            def exchange(self, data):
-                if data[4] == vh.MOVE and data[5] == 0x20 and data[8:12] != bytes(4):
-                    self.drives, self.since = self.drives + 1, 0
-                reply = bytearray(super().exchange(data))
-                self.since += 1
-                at = 19 + 5 * vh.GRIPPER
-                if self.drives == 3 and 20 <= self.since < 26:          # the third drive is the final close
-                    self.held = self.held or bytes(reply[at:at + 3])
-                    reply[at:at + 3] = self.held
-                return bytes(reply)
-        with self.assertRaises(vh.HomeError) as caught:
-            run(HeldCounts())
-        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_GRIPPER, vh.GRIPPER))
-        zeroings = [o for o in caught.exception.outs if o.cmd == vh.SET_POSITION and o.mask == 0x20]
-        self.assertEqual(len(zeroings), 1)                                   # only the pre-pass zero
-
     def test_the_reply_carries_the_echoed_id(self):
         packet = bytearray(64)
         packet[0] = 77
         self.assertEqual(vh.decode_reply(bytes(packet), 0.0).echo, 77)
-
-    def test_a_gripper_that_keeps_moving_hits_its_travel_bound(self):
-        import dataclasses
-        old = vh.AXES
-        vh.AXES = tuple(dataclasses.replace(a, max_distance=1000) if i == vh.GRIPPER else a for i, a in enumerate(old))
-        try:
-            with self.assertRaises(vh.HomeError) as caught:
-                run_generator(lambda first: vh._Run(first, 0).gripper_drive(-165),
-                              Plant(gripper_range=(-10**6, 10**6)))
-        finally:
-            vh.AXES = old
-        self.assertEqual(caught.exception.code, vh.ERR_TRAVEL)
-
-    def test_a_coupled_motor_has_its_own_travel_bound(self):
-        import dataclasses
-        old = vh.AXES
-        vh.AXES = tuple(dataclasses.replace(a, max_distance=500) if i == vh.WRIST_M1 else a for i, a in enumerate(old))
-        try:
-            with self.assertRaises(vh.HomeError) as caught:
-                run(Plant(bands={**Plant().bands, 1: (50000, 60000)}))      # the shoulder switch is never reached
-        finally:
-            vh.AXES = old
-        self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_TRAVEL, vh.WRIST_M1))
 
     def test_a_switch_that_is_not_found_in_a_later_phase_is_a_fault_not_a_zero(self):
         # No elbow band at all: the first forward pass runs into its distance bound and reverses,

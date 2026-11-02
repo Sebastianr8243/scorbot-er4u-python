@@ -37,12 +37,12 @@ class NarrowSwitchTests(unittest.TestCase):
                     _, result = run(Plant(bands=bands(width, dist)), max_cycles=80000)
                     self.assertEqual(result.axes_done, vh.HOMING_SEQUENCE)
 
-    def test_a_roll_switch_narrower_than_the_vendor_offset_ends_the_home_on_the_travel_bound(self):
+    def test_a_roll_switch_narrower_than_the_vendor_offset_ends_the_home_on_the_vendors_time_limit(self):
         for width in (300, 600):
             with self.subTest(width=width):
                 with self.assertRaises(vh.HomeError) as caught:
                     run(Plant(bands=bands(300, 1500, roll=(-1500 - width, -1500))), max_cycles=80000)
-                self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_TRAVEL, vh.WRIST_M2))
+                self.assertEqual((caught.exception.code, caught.exception.axis), (vh.ERR_TIMEOUT, vh.WRIST_M2))
                 stops = [o for o in caught.exception.outs if o.cmd == vh.MOVE and o.arg32 == 0]
                 self.assertGreaterEqual(len(stops), 6)             # the abort still stopped every motor
 
