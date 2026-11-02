@@ -316,9 +316,10 @@ class FailureTests(Case):
         self.assertLess(len(robot.sim.vendor_packets), 300)
 
     def test_a_home_that_never_finds_a_switch_ends_in_an_error_not_a_hang(self):
-        robot, error = self.fail(plant=Plant(bands={}))
-        self.assertTrue(any(f"error {code}" in str(error)
-                            for code in (vh.ERR_TIMEOUT, vh.ERR_TRAVEL, vh.ERR_STALL, vh.ERR_NOT_FOUND)))
+        # Hard stops as a real arm has: without them the shoulder's search (no distance check, as the
+        # vendor's) can wrap the 24-bit count before its MaxTime on a fast machine, which reads as 571.
+        robot, error = self.fail(plant=Plant(bands={}, stops={n: (-30000, 30000) for n in range(5)}))
+        self.assertIn(f"error {vh.ERR_TIMEOUT}", str(error), str(error))
         self.assertFalse(robot._homed)
 
     def test_the_failure_message_names_the_axis(self):
