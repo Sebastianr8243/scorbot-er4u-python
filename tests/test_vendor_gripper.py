@@ -9,6 +9,7 @@ Before a vendor Home every gripper call is refused and sends nothing.
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -104,6 +105,45 @@ class Planner(unittest.TestCase):
         tail = [vh.encode_out(o, 1)[4:7].hex() for o in sent[-2:]]
         self.assertEqual(tail, ["732000", "422000"])
         self.assertEqual({o.setpoints[5] for o in sent[-2:]}, {0}, "held at the measured count")
+
+    def test_an_emergency_at_the_target_is_a_fault_not_a_no_op(self):
+        first = vh.Reply(counts=(0,) * 6, switches=0, now=0.0, echo=1, emergency=True)
+        with self.assertRaises(vh.HomeError) as caught:
+            drive(vg.vendor_gripper(first, 0), first)
+        self.assertEqual(caught.exception.code, vh.ERR_EMERGENCY)
+
+    def test_an_emergency_during_the_stop_still_switches_off_then_faults(self):
+        first = reply([0] * 6)
+        alarm = vh.Reply(counts=(0,) * 6, switches=0, now=0.0, echo=1, emergency=True)
+        generator = vg.vendor_gripper(first, vg.RANGE_ENC)
+        sent = [next(generator)]
+        for _ in range(8):
+            sent.append(generator.send(first))
+        sent.append(generator.throw(vh.HomeError(vh.ERR_STOPPED, "a stop was requested")))   # 73 20
+        sent.append(generator.send(alarm))                                                    # 42 20 00
+        with self.assertRaises(vh.HomeError) as caught:
+            generator.send(alarm)
+        self.assertEqual(caught.exception.code, vh.ERR_EMERGENCY)
+        self.assertEqual([vh.encode_out(o, 1)[4:6].hex() for o in sent[-2:]], ["7320", "4220"])
+
+    def test_an_unreadable_reply_during_the_stop_is_a_fault(self):
+        good = bytearray(64)
+        for n in range(6):
+            good[19 + 5 * n:22 + 5 * n] = vh.ZERO24.to_bytes(3, "little")
+        stop = threading.Event()
+        source = VendorHomeSource(start=lambda first: vg.vendor_gripper(first, vg.RANGE_ENC), stop_event=stop)
+        sequence = 1
+        for _ in range(10):
+            good[0] = sequence
+            sequence += 1
+            self.assertEqual(source(bytes(good), sequence)[0], "send")
+        stop.set()
+        steps = []
+        for packet in (bytes(good[:10]), bytes(good[:10]), bytes(good[:10])):   # too short to decode
+            sequence += 1
+            steps.append(source(packet, sequence)[0])
+        self.assertIn("stop", steps)
+        self.assertFalse(source.ok)
 
     def test_targets_come_from_range_enc_and_range_mm(self):
         self.assertEqual(vg.target_counts("open"), vg.RANGE_ENC)

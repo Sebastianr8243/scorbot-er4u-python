@@ -71,6 +71,8 @@ def vendor_gripper(first, target: int):
     run = vh._Run(first, 0)
     gripper, mask = vh.GRIPPER, 1 << vh.GRIPPER
     start = first.counts[gripper]
+    if first.emergency:
+        raise vh.HomeError(vh.ERR_EMERGENCY, "emergency input active")
     if abs(start - target) <= AT_TARGET_COUNTS:
         return GripperRun(start, target, sent=False, stopped=False)
     ramp = setpoints(start, target)
@@ -86,10 +88,16 @@ def vendor_gripper(first, target: int):
         run.setp[gripper] = target
         yield from run.send(vh.MOTORS, mask)
     except vh.HomeError as error:
+        # Both off messages go out whatever the replies say; an emergency seen meanwhile still faults.
         run.aborting = True
         run.setp[gripper] = run.reply.counts[gripper]
-        yield from run.gripper_off()
+        yield from run.send(vh.CONTROL_OFF, mask)
+        alarm = run.reply.emergency
+        yield from run.send(vh.MOTORS, mask)
+        alarm = alarm or run.reply.emergency
         if error.code != vh.ERR_STOPPED:
             raise
+        if alarm:
+            raise vh.HomeError(vh.ERR_EMERGENCY, "emergency input active while the gripper stopped") from error
         return GripperRun(start, target, sent=True, stopped=True)
     return GripperRun(start, target, sent=True, stopped=False)

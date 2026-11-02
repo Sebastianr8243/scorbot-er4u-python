@@ -416,6 +416,33 @@ class SdkGripperTests(SimulatedRobotCase):
         self.assert_latched(robot)
         self.assertIn("gripper_fault", self.events())
 
+    def test_an_emergency_when_already_at_the_target_faults_instead_of_succeeding(self):
+        from scorbot import ScorbotError
+        robot = self.robot()
+        robot.sim.stream_emergency = True
+        with self.assertRaises(ScorbotError) as caught:
+            robot.close_gripper()                      # already closed: the no-op must not hide the emergency
+        self.assertIn("emergency", str(caught.exception))
+        self.assertEqual(len(robot.sim.vendor_packets), 0)
+        self.assert_latched(robot)
+
+    def test_an_emergency_during_a_stop_faults_after_switching_the_gripper_off(self):
+        from scorbot import ScorbotError
+
+        def hook(count, plant):
+            if count == 10:
+                robot.request_stop()
+                robot.sim.stream_emergency = True
+
+        robot = self.robot()
+        robot.sim.vendor_hook = hook
+        with self.assertRaises(ScorbotError) as caught:
+            robot.open_gripper()
+        self.assertIn("emergency", str(caught.exception))
+        tail = [p[4:6].hex() for p in robot.sim.vendor_packets[-2:]]
+        self.assertEqual(tail, ["7320", "4220"])
+        self.assert_latched(robot)
+
     def test_an_arm_joint_moving_during_a_gripper_move_faults_the_session(self):
         from scorbot import ScorbotError
         robot = self.robot()

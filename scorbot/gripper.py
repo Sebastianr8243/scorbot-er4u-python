@@ -62,8 +62,9 @@ class GripperMixin:
         is a result, not a fault. Whether the jaw arrives before the control-off is a lab check.
 
         Needs motors enabled and the arm at rest. ``request_stop`` ends it early (``MotionStopped``): the
-        gripper is held where it is and switched off; that is not an emergency stop. A USB error or an
-        unreadable reply switches the motors off and latches a fault, as does an arm motor that reads
+        gripper is held where it is and switched off; that is not an emergency stop. The emergency input, a
+        USB error or an unreadable reply (also during a stop, or with the gripper already at its target)
+        switches the motors off and latches a fault, as does an arm motor that reads
         differently afterwards or a gripper that moved the wrong way.
         """
         with self._motion_lock:
