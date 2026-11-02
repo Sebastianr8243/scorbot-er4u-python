@@ -76,5 +76,5 @@ Decoded 2026-11-01 from a fresh Ghidra export of the SDK Release build (hash che
 | PL91 | Desk half answered (PL30, PL31). Still open: what `ReadFile` really returns after the driver's 5 s, and how long a stop waits behind a blocked read | Lab, no motion: open `device_file`, read once without writing first, time it and log the result |
 | PL92 | How far behind the real controller answers while homing (at idle, PL07 shows a sawtooth up to about 46). Also how long the runs of non-advancing replies are under the homing pace: the gripper drive stops at 10 in a row (PL27) | Arm: the Stack 2 probe's echo lag and `repeats`; the Home log in step G |
 | PL93 | Whether the controller accepts Stack 2's Home at all | Arm, after the gates in the lab plan |
-| PL94 | Closed 2026-11-01: what the per-axis flag word at `+0x83e` holds (PL24, PL28). It is the homed mask; see PL40 to PL45 | Ghidra: its writers (done) |
+| PL94 | Closed 2026-11-01: what the per-axis flag word at `+0x83e` holds (PL24, PL28). It is the homed mask; see PL40 to PL50 | Ghidra: its writers (done) |
 | PL95 | Whether the post-Home gripper really goes out as PL48 says (code only so far) | Desk, no arm: the lab DLL on the pipe fake, `Home('A')`, then `OpenGripper` and `CloseGripper`, recorded; compare with PL48 |
