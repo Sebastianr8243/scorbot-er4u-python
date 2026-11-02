@@ -115,6 +115,7 @@ class PolicyArm:
         speed_pct = _check_speed(speed_pct)
         if self._stream is not None:
             self._stream.set_speed(speed_pct / 100)
+            self._last_act = monotonic()    # the speed step never charges earlier time at the new speed
         self.speed_pct = speed_pct
 
     @property

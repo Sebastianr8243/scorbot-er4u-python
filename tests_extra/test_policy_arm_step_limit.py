@@ -166,6 +166,16 @@ class PolicyArmStepLimitTests(unittest.TestCase):
             first = arm.act({"base": 90.0})["base"]
         self.assertAlmostEqual(first, VENDOR_MAX_SPEED_COUNTS_S * 0.20 * 0.05 / abs(arm._per_degree["base"]))
 
+    def test_a_speed_raise_never_counts_the_time_before_it(self):
+        now = [100.0]
+        with mock.patch.object(policy_arm, "monotonic", lambda: now[0]):
+            arm = self.arm(travel_cap_deg=30.0, step_limit="speed", speed_pct=1)
+            now[0] += 0.099
+            arm.set_speed(100)
+            now[0] += 0.001
+            first = arm.act({"base": 90.0})["base"]
+        self.assertAlmostEqual(first, VENDOR_MAX_SPEED_COUNTS_S * 0.001 / abs(arm._per_degree["base"]))
+
     def test_an_unknown_step_limit_is_refused(self):
         for bad in ("Speed", "", None, 1, "vendor"):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
