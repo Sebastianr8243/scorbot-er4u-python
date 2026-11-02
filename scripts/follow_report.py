@@ -5,7 +5,7 @@
 Reads each stream in the log (``stream_start`` to its ``stream_trace`` of every step) and, per speed setting and
 per motor that moved, prints: the worst lag (commanded minus measured counts on send steps, or the stream's own
 lead, whichever is larger) in counts and degrees against the stream's lead limit; the peak measured speed over any
-0.25 s against the vendor MaxSpeed at that speed; the overshoot past the last command; how long the arm took to
+0.25 s against the vendor MaxSpeed at that speed; the worst overshoot past the end of any leg of the command (out, back); how long the arm took to
 settle within 5 counts of it after the command stopped moving; and the stream fault, if any.
 
 Lag is sampled once per 24 ms step and includes the one step the command is planned ahead of the reply, so even a
@@ -79,6 +79,23 @@ def _peak_speed(times, values):
     return peak
 
 
+def _overshoot(commanded, measured):
+    """Worst travel past the end of any leg of the command (out, back, ...), in that leg's direction."""
+    legs, direction = [], 0          # [direction, first moving index, last moving index]
+    for i in range(1, len(commanded)):
+        d = (commanded[i] > commanded[i - 1]) - (commanded[i] < commanded[i - 1])
+        if d and d != direction:
+            legs.append([d, i, i])
+            direction = d
+        elif d:
+            legs[-1][2] = i
+    worst = 0
+    for k, (d, _, end) in enumerate(legs):
+        until = legs[k + 1][1] if k + 1 < len(legs) else len(measured)
+        worst = max(worst, *((measured[j] - commanded[end]) * d for j in range(end, until)))
+    return worst
+
+
 def _settle_s(times, commanded, measured):
     final = commanded[-1]
     stop = len(commanded) - 1
@@ -99,8 +116,7 @@ def _segment(steps, motor, fraction, per_degree, lead_limit_deg):
     lag = max(max(abs(s["lead"][motor]) for s in steps),
               max((abs(s["commanded"][motor] - s["measured"][motor]) for s in steps if s["action"] == "send"),
                   default=0))
-    direction = (commanded[-1] > measured[0]) - (commanded[-1] < measured[0])
-    overshoot = max(0, max((m - commanded[-1]) * direction for m in measured)) if direction else 0
+    overshoot = _overshoot(commanded, measured)
     peak, limit = _peak_speed(times, measured), VENDOR_MAX_SPEED_COUNTS_S * fraction
     scale = per_degree[motor]
     return {"motor": motor, "speed_pct": round(fraction * 100, 2), "steps": len(steps),

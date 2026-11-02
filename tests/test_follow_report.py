@@ -71,6 +71,16 @@ class FollowReportTests(unittest.TestCase):
         self.assertEqual(r["overshoot_counts"], 12)
         self.assertAlmostEqual(r["settle_s"], 0.072, delta=1e-9)   # 3 steps after the command stopped moving
 
+    def test_a_reversing_move_tracked_exactly_has_no_overshoot(self):
+        steps = [step(24 * i, c, c) for i, c in enumerate((0, 25, 50, 75, 100, 75, 50))]
+        self.assertEqual(self.one(stream(steps))["overshoot_counts"], 0)
+
+    def test_out_and_back_overshoot_is_seen_on_each_leg(self):
+        out = [step(24 * i, c, m) for i, (c, m) in enumerate(((0, 0), (50, 50), (100, 100), (100, 109), (100, 100)))]
+        back = [step(24 * (5 + i), c, m) for i, (c, m) in enumerate(((50, 50), (0, 0), (0, -14), (0, -3), (0, 0)))]
+        self.assertEqual(self.one(stream(out + back))["overshoot_counts"], 14)
+        self.assertEqual(self.one(stream(out + back[:2] + [step(240, 0, 0)]))["overshoot_counts"], 9)
+
     def test_never_settled_is_none(self):
         steps = ramp(10, 10, 0, hold=0) + [step(240 + 24 * i, 100, 80) for i in range(5)]
         self.assertIsNone(self.one(stream(steps))["settle_s"])
