@@ -135,15 +135,19 @@ Read straight into the link object; the accessors are small functions near `0x10
 | 0 | Echo of a message ID; used for pacing (section 2) | "Unknown, not read" |
 | 1 | Echo of the command letter | "Handshake acknowledgment": `send_wait` waits for 13, which is the echo of `0D` |
 | 2 | Bit 0 = emergency (`IsEmergency`, `0x1000b240`) | Unknown |
+| 3 | Teach pendant: bits 0-5 key code, bit 6 released, bit 7 "In Home", plus whole-value mode codes (teach `0x40`/`0xC0`, auto `0x7E`/`0xFE`, dead man `0x47`/`0x4F`/`0xF8`/`0xF9`). The DLL acts on it: jogs, Execute, Abort = `Stop('&')`, teach flag for `IsTeachMode`, events 970/971 (`LEDGER.md` PL63, PL64) | Unknown |
+| 4 | Never read by the DLL (PL66) | Unknown |
 | 5 | Home switches, bit N = axis N (V). The homing wait loops until the bit equals a requested state; which state means "on the switch" is I | Home-switch bits, same bit order |
 | 6 | Digital inputs | Unknown |
 | 7-10 | Four analog inputs | Unknown |
 | 11-14 | 32-bit result of the echoed command: `57` PWM, `61` analog output, `64` digital output, `72` version | Unknown |
+| 15-18 | 32-bit word the DLL logs as `Status 0x%08x` on every reply and never uses (PL65) | Unknown |
 | 19 + 5N, 3 bytes | Axis N position, 24-bit little-endian, count = raw - `0x7FFFFF` (`0x1000b160`) | Count (2 bytes) + "sign byte" |
 | 22 + 5N, 2 bytes | Axis N position error, 16-bit (signedness I). Feeds the DLL's "Position error change" log and impact check | The "error word" |
 | 59 | Non-zero = impact reported (`0x1000b270`; the DLL logs "Impact Axes") | Unknown |
+| 60-63 | Never read by the DLL (PL66) | Unknown |
 
-There are 8 axis records, at 19-58. Bytes 3-4, 15-18 and 60-63 were not traced. Teach-mode state is not read from a fixed reply byte by `IsTeachMode`; where it comes from was not traced.
+There are 8 axis records, at 19-58. Bytes 3, 4, 15-18 and 60-63 were traced on 2026-11-02 in the lab build (`LEDGER.md` PL63 to PL66; the same in the 2008, 2018 and SDK Release builds). Teach mode comes from byte 3 by way of the pendant handler's flag, not from a bit of its own.
 
 ### Count format and the legacy decoder
 
@@ -190,7 +194,6 @@ Nothing in the code yet. Candidates, each needing a capture before it touches `o
 - The homing search motion and the planner's sample timing.
 - The meaning of Mode sub-codes P, T and H, and of `4C` Slave Cmd.
 - OUT bytes 2 and 3 (what the two small queues carry).
-- Reply bytes 3-4, 15-18, 60-63 and the teach-mode source.
 - Whether the lab's `USBC.dll` matches either build.
 
 ## 10. Counts, joint angles and the wrist
