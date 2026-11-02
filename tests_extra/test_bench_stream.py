@@ -101,6 +101,18 @@ class BenchStreamTests(unittest.TestCase):
         return [json.loads(line)["event"] for line in log.read_text(encoding="utf-8").splitlines()]
 
     @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
+    def test_the_follow_report_reads_the_trials_controller_log(self):
+        from scripts.follow_report import analyse, prior_per_degree
+        self.assertEqual(self.run_script(TO_STREAM + "STREAM\n" + AFTER), 0)
+        log = self.output.with_name(self.output.stem + ".controller.jsonl")
+        found = analyse([json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()],
+                        prior_per_degree())
+        self.assertEqual([(r["motor"], r["speed_pct"], r["simulated"], r["fault"]) for r in found],
+                         [("base", 25, True, None)])
+        self.assertLess(found[0]["worst_lag_deg"], 2.0)
+        self.assertLessEqual(found[0]["peak_counts_s"], found[0]["limit_counts_s"])
+
+    @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
     def test_one_motor_goes_out_one_degree_and_comes_back(self):
         self.assertEqual(self.run_script(TO_STREAM + "STREAM\n" + AFTER), 0)
         rows = self.rows()
