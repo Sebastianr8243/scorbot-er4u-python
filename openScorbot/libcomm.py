@@ -46,6 +46,7 @@ STREAM    = 21
 VENDOR_HOME = 22
 # Order for the post-Home gripper move (SDK only): scorbot/vendor_gripper.py decides every message, same runner
 VENDOR_GRIPPER = 23
+VENDOR_IO = 24
 
 #------------------------------ARGUMENTOS USADOS-------------------------------#
 # b_1		-> Byte de secuencia
@@ -677,7 +678,7 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read, cola_result, stop_event)
 				elif orden == STREAM:
 					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1], ite if callable(ite) else None)
-				elif orden == VENDOR_HOME or orden == VENDOR_GRIPPER:
+				elif orden in (VENDOR_HOME, VENDOR_GRIPPER, VENDOR_IO):
 					b_1 = vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:
 					b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
