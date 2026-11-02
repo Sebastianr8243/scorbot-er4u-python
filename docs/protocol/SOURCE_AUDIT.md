@@ -128,10 +128,12 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `streaming.STREAM_ORDER` | 21 | ours | internal worker order code, added to `openScorbot/libcomm.py` in `f4b0613` (2026-10-04); never on the wire | n/a |
 | `streaming.DEFAULT_HOLD_TIMEOUT_S`, `streaming.PERIOD_RANGE_S`, `streaming.HOLD_TIMEOUT_RANGE_S` | 0.5, 0.01-0.05, 0.05-2.0 | ours | stream safety: hold when targets stop; the accepted range | n/a |
 | `streaming.DEFAULT_SPEED_FRACTION` | 0.25 | ours | start at a quarter of the vendor limit | n/a |
+| `streaming.VENDOR_MAX_ACCEL_COUNTS_S2` | 11000 | vendor | `ER4AxN.ini MaxAccel`; the unit counts/s^2 is assumed, the DLL's acceleration check was not read (unverified unit) | `VENDOR_DLL_PROTOCOL.md` section 11.5 table and the MaxSpeed note after it |
 | `streaming.MAX_STREAM_STEPS` | 20000 | ours | step records kept for the log | n/a |
 | `streaming.MOTORS` | `limits.ARM_MOTORS` | ours | alias | n/a |
 | `streaming.TRACKING`, `streaming.HOLDING`, `streaming.STOPPED`, `streaming.FAULTED`, `streaming.ENDED`, `streaming.SEND`, `streaming.STOP`, `streaming.END` | state and action names | ours | internal labels | n/a |
 | `policy_arm.MOTORS` | `limits.ARM_MOTORS` | ours | alias | n/a |
+| `policy_arm.DEFAULT_SPEED_PCT` | 25 | ours | starting stream speed, a quarter of the vendor `MaxSpeed`, matching `streaming.DEFAULT_SPEED_FRACTION` | n/a |
 | `policy_arm.DEFAULT_TRAVEL_CAP_DEG`, `policy_arm.LEAD_LIMIT_DEG`, `policy_arm.LEAD_MARGIN_DEG`, `policy_arm.STEP_MAX_DEG` | 2.0, 2.0, 1.5, 0.5 | ours | the PolicyArm clamp | n/a |
 | `vendor_profile.MIN_TOTAL_TIME` | 0.001 | vendor | the profile set-up rejects T below 1 ms (`0x1001295d`) | `VENDOR_DLL_PROTOCOL.md` section 11.1 |
 | `vendor_profile.DEFAULT_TOTAL_TIME`, `vendor_profile.DEFAULT_ACCEL_FRACTION`, `vendor_profile.DEFAULT_JERK_FRACTION` | 3.0, 0.3, 0.3 | vendor | `ROB_4u.INI [Motion] TotalTimeA`, `AccelA`, `AccelAccelA` | `VENDOR_DLL_PROTOCOL.md` section 11.1 |
