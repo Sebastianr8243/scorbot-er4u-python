@@ -73,6 +73,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `pacing.QUEUE_LIMIT` | 45 | vendor | `Buffers` | PL03 |
 | `pacing.FAST_DELAY_S` | 0.001 | vendor | the DLL waits 1 ms below the queue limit | `VENDOR_DLL_PROTOCOL.md` section 2 |
 | `packet.MAX_TRACE_PACKETS` | 4000 | ours | size of the in-memory packet log | n/a |
+| `packet.PENDANT_ABORT` | 0x21, 0xA1 | vendor | reply byte 3 with the pendant's Abort key pressed; the DLL calls `Stop('&')` on it (`0x1002cfa7`) | `LEDGER.md` PL63, PL64 |
 
 ### Reply decoding
 
@@ -238,4 +239,4 @@ Ranked by whether the gap reaches the controller, then by how soon it runs on th
    - Orders 21 and 22 are internal.
    - Done for the `ROB_4u.INI` link lengths and angle limits (they cite `docs/manual/` notes that quote them). Still unverified: the manual and datasheet citation rows, whose values no note quotes one by one.
    - Done: PL26, PL27 and the `vendor_home.py` docstring (section 3).
-8. **Untraced reply bytes: done 2026-11-02** (`LEDGER.md` PL63 to PL67). Bytes 4, 15-18 and 60-63 are unused by the DLL. Byte 3 is the teach pendant, and the DLL acts on it. **Open, post-lab safety follow-up (PL67):** Stack 2 ignores the pendant's Abort key, which the vendor turns into `Stop('&')`. Because it is a stop path, rank it above items 5 to 7 when it is picked up.
+8. **Untraced reply bytes: done 2026-11-02** (`LEDGER.md` PL63 to PL67). Bytes 4, 15-18 and 60-63 are unused by the DLL. Byte 3 is the teach pendant, and the DLL acts on it. **Open, post-lab safety follow-up (PL67):** Stack 2 ignores the pendant's Abort key, which the vendor turns into `Stop('&')`. Because it is a stop path, rank it above items 5 to 7 when it is picked up. **Code on branch `stack2-pendant-abort` (2026-11-02, merge after the lab):** an Abort press now calls `request_stop`, the same stop as the software stop, through `packet.TrackedInputEndpoint`, where every reply passes. That is the vendor's `Stop('&')`. It is a stop, not the latched fault PL67 suggested, because the vendor does not fault on it.

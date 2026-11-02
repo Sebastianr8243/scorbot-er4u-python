@@ -230,7 +230,7 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
                     raise ScorbotError("The USB controller endpoints were not found")
             # Copies packets during jogs (motion_trace); packets are unchanged.
             self._trace = PacketTrace()
-            endpoint_in = TrackedInputEndpoint(endpoint_in, self._trace)
+            endpoint_in = TrackedInputEndpoint(endpoint_in, self._trace, on_pendant_abort=self._pendant_abort)
             endpoint_out = TrackedOutputEndpoint(endpoint_out, self._trace)
             self._input = endpoint_in
             if link is not None:
@@ -464,6 +464,16 @@ class Scorbot(HomingMixin, GripperMixin, StreamMixin):
         if stream is not None:
             stream.request_stop()      # the caller still ends it with stop() or close()
         self._record("stop_requested")
+
+    def _pendant_abort(self) -> None:
+        """The teach pendant's Abort key was pressed: the same stop as ``request_stop`` (LEDGER.md PL64, PL67).
+
+        The vendor DLL calls ``Stop('&')`` on it. Runs on a USB worker thread. Not an emergency stop.
+        """
+        try:
+            self.request_stop()     # first: a slow log write must not delay the stop
+        finally:
+            self._record("pendant_abort")
 
     def _settled_after_stop(self, before: RobotState, *,
                             fault: str = "The arm was still moving after a stop request"
