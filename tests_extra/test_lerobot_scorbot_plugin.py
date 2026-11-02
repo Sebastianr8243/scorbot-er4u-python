@@ -73,6 +73,15 @@ class SimDriveTests(unittest.TestCase):
             self.assertFalse(robot.is_connected)
             robot.disconnect()
 
+    def test_the_config_speed_reaches_the_arm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            robot = ScorbotRobot(sim_config(tmp, speed_pct=80))
+            robot.connect()
+            try:
+                self.assertEqual(robot._arm.speed_pct, 80)
+            finally:
+                robot.disconnect()
+
 
 class TeleopMapTests(unittest.TestCase):
     def test_keys_step_the_target_and_stop_at_the_cap(self):

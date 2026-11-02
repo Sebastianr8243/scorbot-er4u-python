@@ -237,13 +237,91 @@ class StreamCoreTests(unittest.TestCase):
         from scorbot.vendor_profile import (MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION,
                                             VendorProfile)
         jog = VendorProfile(1.0, MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION)
-        limits = prior_limits(0.5)
-        self.assertEqual(limits.max_velocity, VENDOR_MAX_SPEED_COUNTS_S * 0.5)
+        limits = prior_limits(0.4)      # below the speed where the vendor's MaxAccel caps it
+        self.assertEqual(limits.max_velocity, VENDOR_MAX_SPEED_COUNTS_S * 0.4)
         self.assertAlmostEqual(limits.max_velocity / limits.max_acceleration,
                                jog.times[2] - jog.times[0])
         self.assertAlmostEqual(limits.max_acceleration / limits.max_jerk, jog.times[0])
         self.assertAlmostEqual(limits.max_velocity / limits.max_acceleration, 0.285)
         self.assertAlmostEqual(limits.max_acceleration / limits.max_jerk, 0.015)
+
+    def test_acceleration_never_passes_the_vendors_max_accel(self):
+        from scorbot.streaming import VENDOR_MAX_ACCEL_COUNTS_S2, VENDOR_MAX_SPEED_COUNTS_S, prior_limits
+        for pct in range(1, 101):
+            limits = prior_limits(pct / 100)
+            self.assertAlmostEqual(limits.max_velocity, VENDOR_MAX_SPEED_COUNTS_S * pct / 100)
+            self.assertLessEqual(limits.max_acceleration, VENDOR_MAX_ACCEL_COUNTS_S2)
+            self.assertAlmostEqual(limits.max_acceleration / limits.max_jerk, 0.015)
+        self.assertEqual(prior_limits(1.0).max_acceleration, VENDOR_MAX_ACCEL_COUNTS_S2)
+
+    def test_speed_can_change_while_streaming(self):
+        from scorbot.streaming import StreamRefused, prior_limits
+        cap = {m: 50000.0 for m in ZERO}
+        core, arm = make(travel_cap=cap, lead_limit=cap), Arm()
+        far = {"base": 40000}
+
+        def peak(records):
+            positions = [r.commanded["base"] for r in records]
+            return max(abs(b - a) / PERIOD for a, b in zip(positions, positions[1:]))
+
+        records = run(core, arm, 150, on_step=keep_alive(core, far))
+        self.assertLessEqual(peak(records), prior_limits().max_velocity + 1 / PERIOD)
+        core.set_speed(1.0)
+        records = run(core, arm, 150, start=150, on_step=keep_alive(core, far))
+        self.assertGreater(peak(records), prior_limits(0.9).max_velocity)
+        self.assertLessEqual(peak(records), prior_limits(1.0).max_velocity + 1 / PERIOD)
+        core.set_speed(0.1)                 # slowing down mid-move brakes, no fault
+        records = run(core, arm, 200, start=300, on_step=keep_alive(core, far))
+        self.assertEqual(core.state, "tracking")
+        tail = [r.commanded["base"] for r in records[-20:]]
+        self.assertLessEqual(max(abs(b - a) / PERIOD for a, b in zip(tail, tail[1:])),
+                             prior_limits(0.1).max_velocity + 1 / PERIOD)  # one count of rounding
+        for bad in (0, 1.01, float("nan"), True, "1"):
+            with self.subTest(bad=bad), self.assertRaises(StreamRefused):
+                core.set_speed(bad)
+        core.request_stop()
+        run(core, arm, 1, start=500)
+        with self.assertRaises(StreamRefused):
+            core.set_speed(0.5)
+
+    def test_slowing_down_mid_acceleration_never_passes_the_vendors_max_speed(self):
+        from scorbot.streaming import VENDOR_MAX_SPEED_COUNTS_S, prior_limits
+        cap = {m: 50000.0 for m in ZERO}
+        for switch_at in (2, 5, 10, 15, 24, 40):
+            for new in (0.05, 0.25, 0.6):
+                with self.subTest(switch_at=switch_at, new=new):
+                    core, arm = make(travel_cap=cap, lead_limit=cap), Arm()
+                    core.set_speed(1.0)
+                    far = {"base": 40000}
+                    records = run(core, arm, switch_at, on_step=keep_alive(core, far))
+                    core.set_speed(new)
+                    records += run(core, arm, 300, start=switch_at, on_step=keep_alive(core, far))
+                    self.assertEqual(core.state, "tracking")
+                    positions = [r.commanded["base"] for r in records]
+                    speeds = [abs(b - a) / PERIOD for a, b in zip(positions, positions[1:])]
+                    self.assertLessEqual(max(speeds), VENDOR_MAX_SPEED_COUNTS_S + 1 / PERIOD)
+                    self.assertLessEqual(max(speeds[-20:]), prior_limits(new).max_velocity + 1 / PERIOD)
+
+    def test_slowing_down_then_finishing_or_while_braking_stays_under_max_speed(self):
+        from scorbot.streaming import VENDOR_MAX_SPEED_COUNTS_S
+        cap = {m: 50000.0 for m in ZERO}
+        for case in ("finish", "braking"):
+            with self.subTest(case=case):
+                core, arm = make(travel_cap=cap, lead_limit=cap), Arm()
+                core.set_speed(1.0)
+                goal = {"base": 40000} if case == "finish" else {"base": 2500}
+                records = run(core, arm, 30 if case == "finish" else 40, on_step=keep_alive(core, goal))
+                core.set_speed(0.05)
+                if case == "finish":
+                    core.finish()
+                    records += run(core, arm, 400, start=30)
+                    self.assertEqual(core.state, "ended")
+                else:
+                    records += run(core, arm, 300, start=40, on_step=keep_alive(core, goal))
+                    self.assertEqual(records[-1].commanded["base"], 2500)
+                positions = [r.commanded["base"] for r in records]
+                speeds = [abs(b - a) / PERIOD for a, b in zip(positions, positions[1:])]
+                self.assertLessEqual(max(speeds), VENDOR_MAX_SPEED_COUNTS_S + 1 / PERIOD)
 
     def test_the_core_has_no_wait_action(self):
         # Pacing on the echoed message number was removed until the lab confirms
