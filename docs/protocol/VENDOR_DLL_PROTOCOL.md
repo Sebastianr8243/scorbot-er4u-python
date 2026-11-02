@@ -74,8 +74,8 @@ Names are the DLL's own log strings (`0x100401f7`), identical in both builds. V.
 | `4C` L | Slave Cmd | mask | gripper sequence `4C 20 00` |
 | `4D` M | Move | mask; bytes 8-11 = value | not sent |
 | `48` H | Set position | mask; bytes 8-11 and the axis's own slot = value | not sent |
-| `57` W | Get PWM | | not sent |
-| `44` D, `41` A | Set digital output, Set analog output | | not sent |
+| `57` W | Get PWM | mask; the answer is reply bytes 11-14. Sent by `ShowTorque` (`LEDGER.md` PL74) | not sent |
+| `44` D, `41` A | Set digital output, Set analog output | `44`: bytes 8-11 = the whole output word, bit N = output N (PL68). `41`: bytes 6-7 = value 0-255, bytes 8-11 = output 0 or 1 (PL70) | not sent |
 | `75` u | Stop USB test | | not sent |
 | `4B`, `46` | Built by the DLL, not named in its log table, no caller found | | not sent |
 
