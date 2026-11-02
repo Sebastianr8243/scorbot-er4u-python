@@ -53,8 +53,9 @@ class GripperMixin:
         the gripper's count now. The ramp is Stack 2's full-stroke one, not the DLL's shorter one for short moves.
         """
         target = vendor_gripper.metric_target_counts(mm)
-        now = self._motion_state().signed_encoder_counts["gripper"] if self._device is not None else 0
-        return self._move_gripper("open" if target > now else "close", target)
+        with self._motion_lock:     # read the jaw after any move ahead of this one, not before it
+            now = self._motion_state().signed_encoder_counts["gripper"] if self._device is not None else 0
+            return self._move_gripper("open" if target > now else "close", target)
 
     def move_gripper(self, direction: str) -> GripperMove:
         """Open or close the gripper the way the vendor does after a Home. Never run on the arm.

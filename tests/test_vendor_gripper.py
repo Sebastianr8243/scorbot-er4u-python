@@ -254,6 +254,26 @@ class Simulated(unittest.TestCase):
         self.assertEqual(narrower.direction, "close")
         self.assertAlmostEqual(narrower.planned_counts, 2857 - 714, delta=1)
 
+    def test_a_width_queued_behind_another_move_picks_its_direction_after_it(self):
+        self.robot.vendor_home(**CONFIRMED)
+        result = {}
+
+        def queued():
+            try:
+                result["move"] = self.robot.move_gripper_mm(10)
+            except Exception as exc:      # the thread's failure is the test's
+                result["error"] = exc
+
+        with self.robot._motion_lock:     # another move holds the lock, the jaw still at 0
+            waiting = threading.Thread(target=queued)
+            waiting.start()
+            waiting.join(0.3)
+            self.robot.open_gripper()     # crosses the queued target: 0 -> 5000
+        waiting.join(30)
+        self.assertNotIn("error", result)
+        self.assertEqual(result["move"].direction, "close")
+        self.assertIsNone(self.robot._fault)
+
     def test_jaw_to_a_width_needs_a_vendor_home(self):
         with self.assertRaisesRegex(ScorbotError, REFUSAL):
             self.robot.move_gripper_mm(40)
