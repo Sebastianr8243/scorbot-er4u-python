@@ -5,7 +5,10 @@
 the lab DLL on the desk (2026-11-02); what the lines do on the arm is unverified.
 """
 
+import threading
+import time
 import unittest
+from unittest import mock
 
 from scorbot import ScorbotError
 
@@ -85,6 +88,37 @@ class OutputTests(SimulatedRobotCase):
         self.assertEqual([(r["event"], r.get("number"), r.get("on", r.get("value"))) for r in rows],
                          [("digital_output", 4, True), ("analog_output", 0, 7)])
         self.assertEqual(rows[0]["word"], 0x10)
+
+    def test_waits_for_the_arm_at_rest_and_sends_nothing_if_it_is_moving(self):
+        robot = self.robot()
+        with mock.patch.object(robot, "_settled_after_stop", side_effect=ScorbotError("moving")) as settle:
+            with self.assertRaises(ScorbotError):
+                robot.set_digital_output(0, True)
+        settle.assert_called_once()
+        self.assertEqual(robot.sim.vendor_packets, [])
+        self.assertEqual(robot.digital_outputs, 0)
+
+    def test_two_writes_at_once_keep_both_bits(self):
+        robot = self.robot()
+        real_io, release = robot._io, threading.Event()
+
+        def slow_io(messages):
+            if not release.is_set():
+                release.wait(5)
+            real_io(messages)
+
+        with mock.patch.object(robot, "_io", side_effect=slow_io):
+            first = threading.Thread(target=robot.set_digital_output, args=(0, True))
+            first.start()
+            time.sleep(0.2)
+            second = threading.Thread(target=robot.set_digital_output, args=(1, True))
+            second.start()
+            time.sleep(0.2)
+            release.set()
+            first.join(10)
+            second.join(10)
+        self.assertEqual(robot.digital_outputs, 0x03)
+        self.assertEqual(fields(robot.sim.vendor_packets[-1])[3], 0x03)
 
 
 if __name__ == "__main__":

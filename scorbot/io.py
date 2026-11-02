@@ -24,9 +24,10 @@ class IoMixin:
 
         Needs a connection, not enabled motors. Refused while a stream is active; it waits for a jog to end.
         """
-        word = vendor_io.digital_word(self._digital_outputs, number, bool(on))
-        self._io(vendor_io.digital_messages(word))
-        self._digital_outputs = word
+        with self._motion_lock:     # 44 replaces the whole word: no other write in between
+            word = vendor_io.digital_word(self._digital_outputs, number, bool(on))
+            self._io(vendor_io.digital_messages(word))
+            self._digital_outputs = word
         self._record("digital_output", number=number, on=bool(on), word=word)
 
     def set_analog_output(self, number: int, value: int) -> None:
@@ -40,6 +41,10 @@ class IoMixin:
             self._refuse_if_streaming()
             if self._device is None:
                 raise ScorbotError("Not connected")
+            # The messages hold every axis at the first reply's counts, so the arm must be at rest
+            # (the DLL sends 47 only then, 0x10024d1d). Latches a fault if it is not, like the gripper.
+            self._settled_after_stop(self._motion_state(),
+                                     fault="The arm was not at rest before an output write")
             # No stop event: an output write is not motion, so a pending stop request must not cancel it.
             source = VendorHomeSource(start=lambda first: vendor_io.send(first, messages),
                                       cancel_event=self._cancel_event,
