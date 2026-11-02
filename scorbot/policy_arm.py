@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 import math
+from time import monotonic
 
 from . import limits
 from .calibration import signed_count_delta
+from .streaming import DEFAULT_HOLD_TIMEOUT_S, VENDOR_MAX_SPEED_COUNTS_S
 
 MOTORS = limits.ARM_MOTORS
 DEFAULT_TRAVEL_CAP_DEG = 2.0
@@ -20,6 +22,21 @@ LEAD_LIMIT_DEG = 2.0            # the SDK's own lead limit; our targets stay ins
 LEAD_MARGIN_DEG = 1.5           # a target never leads the measured position by more than this
 STEP_MAX_DEG = 0.5              # largest delta applied in one call
 DEFAULT_SPEED_PCT = 25          # percent of the vendor's MaxSpeed (streaming.VENDOR_MAX_SPEED_COUNTS_S)
+# ours: "fixed" is STEP_MAX_DEG per call (the default); "speed" is what the vendor's MaxSpeed
+# (vendor: ER4AxN.ini MaxSpeed, via streaming) at speed_pct covers since the previous call.
+STEP_LIMITS = ("fixed", "speed")
+
+
+def speed_step_deg(speed_pct, elapsed_s, per_degree):
+    """Per motor, the degrees MaxSpeed x speed_pct covers in ``elapsed_s``. Pure.
+
+    The time counts up to the stream's hold timeout (ours, streaming.DEFAULT_HOLD_TIMEOUT_S: after
+    that the stream holds anyway); none, negative or non-finite time is no step. Never above
+    LEAD_MARGIN_DEG (ours), so never above the stream's lead limit either.
+    """
+    dt = min(elapsed_s, DEFAULT_HOLD_TIMEOUT_S) if math.isfinite(elapsed_s) and elapsed_s > 0 else 0.0
+    counts = VENDOR_MAX_SPEED_COUNTS_S * speed_pct / 100 * dt
+    return {m: min(LEAD_MARGIN_DEG, counts / abs(per_degree[m])) for m in MOTORS}
 
 
 def _check_speed(speed_pct):
@@ -33,7 +50,8 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX
           lead_margin_deg=LEAD_MARGIN_DEG):
     """The new commanded target (degrees from home) per motor. Pure.
 
-    Each delta is cut to +-step_max_deg, added to the last commanded target, cut to +-cap_deg from
+    ``step_max_deg`` is one number for every motor or a mapping with a finite value of at least 0
+    per motor (else ``ValueError``). Each delta is cut to +-step_max_deg, added to the last commanded target, cut to +-cap_deg from
     home, and kept within lead_margin_deg of the measured position. The step limit always wins:
     when feedback jumps or the last target sits past the cap, the target walks back one step at a
     time (the lead and the overshoot only shrink). Unknown motors, non-finite numbers (delta,
@@ -43,6 +61,12 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX
     def finite(v):
         return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
+    if isinstance(step_max_deg, dict):
+        steps = step_max_deg
+        if any(not finite(steps.get(m)) or steps[m] < 0 for m in MOTORS):
+            raise ValueError(f"step_max_deg needs a finite step of at least 0 per motor: {steps!r}")
+    else:
+        steps = dict.fromkeys(MOTORS, step_max_deg)
     out, clamped = dict(target_deg), []
     for motor, asked in (delta_deg or {}).items():
         if motor in MOTORS and not finite(target_deg.get(motor)):
@@ -51,7 +75,7 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX
                 or cap_deg < 0:
             clamped.append(motor)
             continue
-        base = target_deg[motor]
+        base, step_max_deg = target_deg[motor], steps[motor]
         step = max(-step_max_deg, min(step_max_deg, asked))
         wanted = max(-cap_deg, min(cap_deg, base + step))
         lo, hi = measured_deg[motor] - lead_margin_deg, measured_deg[motor] + lead_margin_deg
@@ -71,13 +95,17 @@ class PolicyArm:
 
     ``robot`` is an unconnected ``Scorbot`` or ``SimulatedScorbot``. ``act`` takes absolute targets
     in degrees from home for any of base, shoulder, elbow, and moves the stream toward them by at
-    most ``STEP_MAX_DEG`` per call. Call it at least every 0.5 s or the stream holds in place.
+    most ``STEP_MAX_DEG`` per call (``step_limit="fixed"``, the default) or, opt-in with
+    ``step_limit="speed"``, by what MaxSpeed at ``speed_pct`` covers since the previous call
+    (``speed_step_deg``). Call it at least every 0.5 s or the stream holds in place.
     Needs the ``planning`` extra (Ruckig). ``simulate=False`` runs are the caller's to supervise.
     """
 
     def __init__(self, robot, *, travel_cap_deg: float = DEFAULT_TRAVEL_CAP_DEG,
-                 speed_pct: float = DEFAULT_SPEED_PCT):
-        self.robot, self.cap = robot, travel_cap_deg
+                 speed_pct: float = DEFAULT_SPEED_PCT, step_limit: str = "fixed"):
+        if not isinstance(step_limit, str) or step_limit not in STEP_LIMITS:
+            raise ValueError(f"step_limit must be one of {STEP_LIMITS}, not {step_limit!r}")
+        self.robot, self.cap, self.step_limit = robot, travel_cap_deg, step_limit
         self.speed_pct = _check_speed(speed_pct)
         self._stack: ExitStack | None = None
         self._stream = None
@@ -87,6 +115,7 @@ class PolicyArm:
         speed_pct = _check_speed(speed_pct)
         if self._stream is not None:
             self._stream.set_speed(speed_pct / 100)
+            self._last_act = monotonic()    # the speed step never charges earlier time at the new speed
         self.speed_pct = speed_pct
 
     @property
@@ -112,6 +141,7 @@ class PolicyArm:
                 travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
                 speed_fraction=self.speed_pct / 100))
             self.target = dict.fromkeys(MOTORS, 0.0)
+            self._last_act = monotonic()
             self._stack = stack.pop_all()
 
     def _disable(self) -> None:
@@ -134,7 +164,14 @@ class PolicyArm:
         self._require_connected()
         delta = {m: g - self.target[m] if isinstance(g, (int, float)) and not isinstance(g, bool)
                  else math.nan for m, g in goal_deg.items() if m in self.target}
-        self.target, _ = clamp(delta, self.target, self.observe(), cap_deg=self.cap)
+        measured = self.observe()
+        if self.step_limit == "speed":
+            now = monotonic()
+            step = speed_step_deg(self.speed_pct, now - self._last_act, self._per_degree)
+            self._last_act = now
+            self.target, _ = clamp(delta, self.target, measured, cap_deg=self.cap, step_max_deg=step)
+        else:
+            self.target, _ = clamp(delta, self.target, measured, cap_deg=self.cap)
         self._stream.set_target({m: round(self.target[m] * self._per_degree[m]) for m in MOTORS})
         return dict(self.target)
 

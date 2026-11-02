@@ -1,6 +1,6 @@
 """Prove plugins/lerobot_robot_scorbot (Stack 2) against an installed LeRobot, on the simulator only.
 
-    python examples/lerobot_sim_check.py [--keep DIR]
+    python examples/lerobot_sim_check.py [--keep DIR] [--speed-pct 25] [--step-limit fixed|speed]
 
 Run it in a separate venv that has `lerobot` installed, plus this repo (`pip install -e ".[planning]"`) and the
 plugin (`pip install -e plugins/lerobot_robot_scorbot --no-deps`). Four steps, never the hub, no cameras:
@@ -28,6 +28,7 @@ STEP_DEG, CAP_DEG = 0.5, 2.0
 NAMES = ["base.pos", "shoulder.pos", "elbow.pos"]
 TRACK_TOL_DEG = 1.5         # observation vs the target it was asked for: PolicyArm's lead margin
 REPLAY_TOL_DEG = 0.25       # replayed observation vs the recorded one at the same frame
+ROBOT = {"speed_pct": 25.0, "step_limit": "fixed"}     # the plugin's defaults; set from the command line
 
 
 def env():
@@ -37,6 +38,7 @@ def env():
 def command(root, scratch):
     return [sys.executable, "-m", "lerobot.scripts.lerobot_record",
             "--robot.type=scorbot", "--robot.simulate=true", f"--robot.log_dir={scratch}/sim_logs",
+            f"--robot.speed_pct={ROBOT['speed_pct']}", f"--robot.step_limit={ROBOT['step_limit']}",
             f"--robot.calibration_dir={scratch}/calibration",
             "--teleop.type=scorbot_joint_scripted", f"--teleop.script={SCRIPT}", f"--teleop.step_deg={STEP_DEG}",
             f"--teleop.calibration_dir={scratch}/calibration",
@@ -58,7 +60,7 @@ def check_discovery():
 def make(scratch):
     from lerobot.robots.utils import make_robot_from_config
     from lerobot_robot_scorbot import ScorbotRobotConfig
-    config = ScorbotRobotConfig(simulate=True, log_dir=Path(scratch) / "sim_logs",
+    config = ScorbotRobotConfig(simulate=True, log_dir=Path(scratch) / "sim_logs", **ROBOT,
                                 calibration_dir=Path(scratch) / "calibration")
     return make_robot_from_config(config)
 
@@ -168,7 +170,10 @@ def run(scratch):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--keep", help="write into this folder (kept) instead of a temp folder")
+    parser.add_argument("--speed-pct", type=float, default=ROBOT["speed_pct"], help="robot.speed_pct, 1 to 100")
+    parser.add_argument("--step-limit", choices=("fixed", "speed"), default=ROBOT["step_limit"], help="robot.step_limit")
     args = parser.parse_args(argv)
+    ROBOT.update(speed_pct=args.speed_pct, step_limit=args.step_limit)
     try:
         import lerobot  # noqa: F401
     except ImportError as error:

@@ -29,7 +29,7 @@ lerobot-record --robot.type=scorbot --robot.simulate=true --teleop.type=scorbot_
 | | |
 |---|---|
 | Observation | `base.pos`, `shoulder.pos`, `elbow.pos`: measured degrees from home (vendor prior, uncalibrated), plus one `(height, width, 3)` frame per camera |
-| Action | the same three keys, an absolute target. `PolicyArm` clamps it: 0.5 degree per call, `travel_cap_deg` from home (default 2), 1.5 degrees ahead of the measured joint. Call at least every 0.5 s or the stream holds |
+| Action | the same three keys, an absolute target. `PolicyArm` clamps it: 0.5 degree per call (or, with `step_limit=speed`, what `speed_pct` of the vendor's MaxSpeed covers since the last call, at most 1.5 degrees), `travel_cap_deg` from home (default 2), 1.5 degrees ahead of the measured joint. Call at least every 0.5 s or the stream holds |
 | Config | `simulate` (must be true), `travel_cap_deg`, `log_dir` (the simulator's event log, default `rehearsal/lerobot`), `robot_id`, `cameras`, plus LeRobot's `id` and `calibration_dir` |
 | Name | `scorbot_sim`, which `lerobot-record` writes as the dataset's `robot_type` (a v3 dataset has no `data_source` field) |
 
