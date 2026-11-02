@@ -1,6 +1,6 @@
 """Measured controller data; angles are intentionally not inferred from counts."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 
@@ -17,6 +17,11 @@ HOME_SWITCH_BITS = {"base": 1, "shoulder": 2, "elbow": 4, "wrist_pitch": 8, "wri
 # axis hits its mechanical limit; ULPGC thesis p. 57. The legacy code never reads it, and this
 # SDK only records it for now: nothing latches a fault on it until it has been seen on the arm.
 COLLISION_OFFSET = 59
+# The controller's inputs: byte 6 is the digital input word, bytes 7-10 are four analog inputs, one byte
+# each. The vendor DLL's GetDigitalInputs and GetAnalogInput return these, with no command sent
+# (docs/protocol/LEDGER.md PL65, PL69). What the lines read on the arm is unverified.
+DIGITAL_INPUT_OFFSET = 6
+ANALOG_INPUT_OFFSETS = (7, 8, 9, 10)
 COLLISION_MOTORS = JOINTS + ("motor7", "motor8")
 
 
@@ -67,6 +72,8 @@ class RobotState:
     signed_encoder_counts: dict[str, int] | None = None
     simulated: bool = False
     collision_bits: int = 0       # IN byte 59, see ``collision_motors``
+    digital_inputs: int = 0       # IN byte 6, bit N = input N
+    analog_inputs: list[int] = field(default_factory=lambda: [0, 0, 0, 0])   # IN bytes 7-10
 
 
 def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
@@ -104,4 +111,6 @@ def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
         encoder_sign_bytes=signs,
         signed_encoder_counts=signed,
         collision_bits=packet[COLLISION_OFFSET] if len(packet) > COLLISION_OFFSET else 0,
+        digital_inputs=packet[DIGITAL_INPUT_OFFSET],
+        analog_inputs=[packet[offset] for offset in ANALOG_INPUT_OFFSETS],
     )
