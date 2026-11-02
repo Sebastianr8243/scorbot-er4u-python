@@ -306,7 +306,7 @@ One behaviour worth knowing: the evaluator has no guard for negative time. It ru
 
 - `Time(group, ms)` (`0x10016eb8`) stores ms / 1000 seconds and marks the group as "time mode". A negative value is error 909 (V).
 - `Speed(group, percent)` (`0x10016f93`) accepts 1 to 100 and stores 0.3 + 0.007 x percent, so a factor from 0.307 to 1.0, in "speed mode". Below 1 is error 586; above 100 is error 913 (V). That is the stored factor only. What speed it produces is not known until the next point is resolved.
-- **Unresolved:** how the speed factor and the per-axis limits below turn into a duration T. The move set-up functions (`0x1000b910` and its siblings, reached from `MoveJoint` through `0x10035eab`) were not read.
+- **Resolved 2026-11-01** (`LEDGER.md` PL55 to PL57): the joint-move set-up `0x1000b910` gets T in milliseconds from `0x10010c40`. That function takes the tool-distance terms of section 11.6, then lengthens T for any axis over `MaxSpeed` (on the average speed D / T) or over `MaxAccel` (on 1.5 times the peak acceleration). The three builds are the same.
 
 ### 11.4 Velocity jog
 
@@ -314,7 +314,7 @@ One behaviour worth knowing: the evaluator has no guard for negative time. It ru
 
 ### 11.5 Per-axis limits
 
-From `ER4AxN.ini`, loaded by `0x100043b2` into a 0xA8-byte record per axis (V for the loading; the `$Default` values are shown). **Units of the speed and acceleration values are unresolved.**
+From `ER4AxN.ini`, loaded by `0x100043b2` into a 0xA8-byte record per axis (V for the loading; the `$Default` values are shown). Units, from the duration code (`LEDGER.md` PL55, PL56): `MaxSpeed` in counts/s, checked against the average speed of a move; `MaxAccel` in counts/s^2, checked against 1.5 times its peak acceleration. `[Homing] MaxTime` is in milliseconds (PL58).
 
 | Axis | `EncLimit_1` / `_2` (counts) | Same in degrees, by section 10 | `MaxSpeed` | `MaxAccel` | `Manual_1` / `_2` | `ImpactDetect` | `ExactEpsilon` |
 |---|---|---|---|---|---|---|---|
@@ -343,7 +343,7 @@ A second pass, by following only the code that touches the values in question. R
   ```
 
   `factor` is the stored speed factor (0.307 to 1.0), A the acceleration fraction, and the constant 1.5 is in the DLL. Since the profile's peak velocity is distance / ((1 - A) T), this makes the peak speed `factor * MaxLinearSpeed / 1.5` (V for the arithmetic; I that the distances are metres and radians, from the INI values 0.20 and 2.0).
-- Then a per-axis check: the encoder distance of each axis divided by the duration is compared with that axis's `MaxSpeed`; if any axis is over, the duration becomes the largest (counts x 1000 / `MaxSpeed`) + 1 ms. So **`MaxSpeed` is in counts per second** (I, from that arithmetic): 6500 counts/s is about 46 degrees/s for the base and 57 for the shoulder and elbow. An acceleration check with `MaxAccel` follows; it was not read.
+- Then a per-axis check: the encoder distance of each axis divided by the duration is compared with that axis's `MaxSpeed`; if any axis is over, the duration becomes the largest (counts x 1000 / `MaxSpeed`) + 1 ms. So **`MaxSpeed` is in counts per second** (I, from that arithmetic): 6500 counts/s is about 46 degrees/s for the base and 57 for the shoulder and elbow. An acceleration check with `MaxAccel` follows (`LEDGER.md` PL56). If any axis's 1.5 x D / ((1 - J)(1 - A) A T^2) is over its `MaxAccel`, T becomes sqrt(1.5 x D / ((1 - J)(1 - A) A x `MaxAccel`)), using the largest D and the smallest `MaxAccel` of the moving axes. With the defaults that check, not `MaxSpeed`, sets the duration of any single-axis move under about 39,000 counts. The function returns trunc(1000 T + 1) ms.
 - Time mode: the fastest allowed duration is computed the same way with factor 1.0, and a requested time shorter than it is refused with error 909. This matches the toolbox authors' report that a `Time` too short makes the move fail (S).
 
 **Sampling** (per-reply tick `0x10025c6c`, V). The planner's clock advances by a fixed period on every tick, not by measured time. The period is `PCPeriod` x `USBCPeriod` milliseconds (`0x10014eff`): 16 x 1.5 = **24 ms** with the shipped INI, not the 16 ms we assumed. The controller is told `PCPeriod` = 16 separately (parameter 8, section 5). The tick does measure real elapsed time and logs when it runs long, but uses the fixed period for the profile. How a setpoint is rounded to counts was not read; the conversion in section 10 truncates.

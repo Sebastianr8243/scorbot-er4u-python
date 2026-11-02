@@ -96,7 +96,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `vendor_home.UNUSED_SLOT` | raw `0x800001` | vendor | what the DLL writes in setpoint slots 6 and 7 | **unverified**: stated in the module docstring only; the trace fixture stores no setpoints |
 | `vendor_home.BASE`, `vendor_home.SHOULDER`, `vendor_home.ELBOW`, `vendor_home.WRIST_M1`, `vendor_home.WRIST_M2`, `vendor_home.GRIPPER` | 0-5 | vendor | the DLL's 0-based axis numbers | `VENDOR_HOMING_TRACE.md` |
 | `vendor_home.NAMES` | six labels | ours | log labels for those axes | n/a |
-| `vendor_home.AXES` | per-axis `Type`, `Velocity`, `ImpactCondEnc`/`Ticks`, `MaxTime`, `MaxDistance`, `Offset`, `NoEnc90` | vendor | `ER4Ax1-6.ini [Homing]`, `NoEnc90` | `VENDOR_HOMING_TRACE.md` section 3 table. **One open point:** the gripper's `MaxTime` is 15 in the file (unit "I: ms" in the note) but 15.0 s here |
+| `vendor_home.AXES` | per-axis `Type`, `Velocity`, `ImpactCondEnc`/`Ticks`, `MaxTime`, `MaxDistance`, `Offset`, `NoEnc90` | vendor | `ER4Ax1-6.ini [Homing]`, `NoEnc90` | `VENDOR_HOMING_TRACE.md` section 3 table. **Gripper `max_time_s` 15.0 is ours:** the file's 15 is milliseconds and the vendor never reads it for the gripper (type 17 has no time test; `LEDGER.md` PL58, PL59) |
 | `vendor_home.HOMING_SEQUENCE` | shoulder, elbow, m2, m1, base, gripper | vendor | `ROB_4u.INI [HomingSeq]` 2, 3, 5, 4, 1, 6 | `VENDOR_HOMING_TRACE.md` section 1 |
 | `vendor_home.PREPASS_PITCH_COUNTS` | 1050 | vendor | ER-4u pre-pass (`0x1000808b`): wrist m1 `Offset` + 200 | `VENDOR_HOMING_TRACE.md` section 1 |
 | `vendor_home.COUPLED` | coupled motors per axis | vendor | drive scaling `0x100072c9`, `48` with coupling `0x1000758e` | `VENDOR_HOMING_TRACE.md`; `VENDOR_COUPLING_TRACE.md` |
@@ -128,7 +128,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `streaming.STREAM_ORDER` | 21 | ours | internal worker order code, added to `openScorbot/libcomm.py` in `f4b0613` (2026-10-04); never on the wire | n/a |
 | `streaming.DEFAULT_HOLD_TIMEOUT_S`, `streaming.PERIOD_RANGE_S`, `streaming.HOLD_TIMEOUT_RANGE_S` | 0.5, 0.01-0.05, 0.05-2.0 | ours | stream safety: hold when targets stop; the accepted range | n/a |
 | `streaming.DEFAULT_SPEED_FRACTION` | 0.25 | ours | start at a quarter of the vendor limit | n/a |
-| `streaming.VENDOR_MAX_ACCEL_COUNTS_S2` | 11000 | vendor | `ER4AxN.ini MaxAccel`; the unit counts/s^2 is assumed, the DLL's acceleration check was not read (unverified unit) | `VENDOR_DLL_PROTOCOL.md` section 11.5 table and the MaxSpeed note after it |
+| `streaming.VENDOR_MAX_ACCEL_COUNTS_S2` | 11000 | vendor | `ER4AxN.ini MaxAccel`; unit counts/s^2, from the DLL's acceleration check. The vendor checks 1.5 x the peak, so its real peak is about 7300; ours caps the peak at 11000, which is looser above a speed fraction of about 0.32 (post-lab) | `LEDGER.md` PL56, PL59; `VENDOR_DLL_PROTOCOL.md` section 11.6 |
 | `streaming.MAX_STREAM_STEPS` | 20000 | ours | step records kept for the log | n/a |
 | `streaming.MOTORS` | `limits.ARM_MOTORS` | ours | alias | n/a |
 | `streaming.TRACKING`, `streaming.HOLDING`, `streaming.STOPPED`, `streaming.FAULTED`, `streaming.ENDED`, `streaming.SEND`, `streaming.STOP`, `streaming.END` | state and action names | ours | internal labels | n/a |
@@ -213,7 +213,7 @@ None of these reach the controller.
 - **Order 21 (stream) and order 22 (vendor Home) are ours, not legacy.** Both were added to `openScorbot/libcomm.py` by this project (`f4b0613`, `68fe9f1`), as was `STOPPED = 14` (`2612bd1`). None is a wire byte: they are codes on the worker's own queue. `MAX_ERROR = 40` is genuinely legacy (`43b03b1`).
 - **The motors-off gap is closed, shutdown is not.** `DESK_BYTE_CHECK.md` already compared both: the 26-message disable matches the DLL. The shutdown differs by one extra group.
 - **`LEDGER.md` PL26 is stale.** It says the gripper drive must be quiet twice in a row. Since #72 `GRIPPER_STALL_CHECKS` is 1, the vendor's value. The `vendor_home.py` docstring still names `STALL_CYCLES` and `GRIPPER_MIN_TRAVEL`, which #72 removed.
-- **Gripper `MaxTime`.** `AXES` turns every other axis's `MaxTime` from milliseconds into seconds (110000 to 110.0), but the gripper's 15 into 15.0 s. Either the file's 15 is seconds for this axis or the gripper gets 1000 times the vendor's bound. The gripper ends on its 120-reply countdown first, so it does not change behaviour today.
+- **Gripper `MaxTime`.** `AXES` turns every other axis's `MaxTime` from milliseconds into seconds (110000 to 110.0), but the gripper's 15 into 15.0 s. Settled 2026-11-01 (`LEDGER.md` PL58): the 15 is milliseconds, and the vendor's gripper home (type 17) never reads it. So 15.0 s is a bound of ours, not the vendor's. The gripper ends on its 120-reply countdown first, so it does not change behaviour today. Post-lab: label it ours, or drop it (PL59).
 
 ## 4. Ranked to-do
 
@@ -222,7 +222,7 @@ Ranked by whether the gap reaches the controller, then by how soon it runs on th
 1. **Pace the vendor Home at `HomingBuffers` (20).** The vendor keeps at most 20 messages in flight while homing (PL03); our Home does not pace that way, and guards the gap with `MAX_LAG` 60 and a lag-based stall grace instead. This is the Home the lab will run. Close it by wiring `pacing` into the order-22 loop with a limit of 20 and checking the trace still matches (PL10).
 2. **Decide on the extra disconnect group.** `scorbotoff` sends `47 4F FF 53 73 20 42 20 64 61` that the DLL does not (`DESK_BYTE_CHECK.md`). It reaches the arm on every disconnect. Either drop it to match the DLL, or keep it and record why. Needs only the desk fake.
 3. **Decode the per-axis flag word at `+0x83e` (PL94).** It decides when the vendor zeroes the gripper count after a close (`48 20 0`, PL24) and when `OpenGripper` makes a 70 mm position move instead of a drive (PL28). Close it in Ghidra by reading its writers.
-4. **Settle the gripper `MaxTime` unit** (section 3). Desk only: read the loader at `0x100043b2` for the `MaxTime` field.
+4. **Gripper `MaxTime` unit: done 2026-11-01** (`LEDGER.md` PL58): milliseconds, and the vendor's gripper home never reads it. The post-lab relabel is in PL59.
 5. **Check our Home fault codes (570-578) against the vendor's error list,** so a log never shows a vendor number with our meaning.
 6. **Compare the legacy gripper sequence with the vendor's on the fake.** Stack 2 still sends `libhex.clamp` (`4F 20 53`, `4C 20 00`, a position ramp). The vendor sends `4F 20 54` and one `4D` drive (`VENDOR_DLL_PROTOCOL.md` section 12.2). Not on the lab plan for this visit.
 7. **Not on the wire, lowest:**
