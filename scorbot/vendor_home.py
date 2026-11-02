@@ -16,16 +16,16 @@ Where it differs from the vendor, on purpose (a safety margin, not a port):
 
 * Planner moves (the fine back-off, the offset and the 1050-count pitch move) are straight ramps of
   at most ``RAMP_COUNTS_PER_CYCLE`` per cycle, not the vendor's jerk-limited profile.
-* Every driven motor, coupled ones included, must keep moving (``STALL_CYCLES``) and must not move
-  against its drive (``DIRECTION_FAULT_COUNTS``: the sign of ``4D`` was never seen on the arm, so a
-  wrong sign stops the home within a few degrees). Every search has a travel bound and the axis'
-  ``max_time``. The vendor's shoulder and wrist-roll searches have none of these.
+* Every driven motor, coupled ones included, must not move against its drive
+  (``DIRECTION_FAULT_COUNTS``: the sign of ``4D`` was never seen on the arm, so a wrong sign stops the
+  home within a few degrees). Otherwise a search stops only on the vendor's own checks: its tick stall
+  check and travel bound (types 14 and 15, none for type 16) and the axis' ``max_time``.
 * An impact flag during a search is a fault (a type 14 or 15 search treats it as a hard stop and
   reverses, like a stall). A switch that is not found, a move that does not settle, and a gripper
   that never reaches an end stop are faults; the vendor would carry on and zero the counts.
 * The gripper drives end on the vendor's stall check (``docs/protocol/LEDGER.md``: every ``impact_ticks``
-  cycles, at most ``impact_enc`` counts of motion, then ``47`` before ``4D 0``) or an impact flag, after
-  ``GRIPPER_MIN_TRAVEL``. The check starts after the vendor's 10 cycles plus the measured lag. The vendor
+  cycles, at most ``impact_enc`` counts of motion, then ``47`` before ``4D 0``) or an impact flag. The
+  check starts after the vendor's 10 cycles plus the measured lag. The vendor
   also ends a gripper move after 120 ticks with no stall and carries on; here that is ``ERR_GRIPPER``.
 * On any ``HomeError`` the generator first yields the stop (``47``, ``4D 0`` to every motor, two
   cycles, hold the setpoints at the measured position, ``4F FF 53``) and only then raises. The caller must keep driving it until it raises,
