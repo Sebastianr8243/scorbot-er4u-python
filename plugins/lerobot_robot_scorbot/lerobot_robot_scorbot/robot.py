@@ -56,6 +56,7 @@ class ScorbotRobotConfig(RobotConfig):
     simulate: bool = False          # must be true: the real arm is refused
     travel_cap_deg: float = 2.0     # most degrees from home, per joint
     speed_pct: float = 25.0         # stream speed, percent of the vendor's MaxSpeed (1 to 100)
+    step_limit: str = "fixed"       # "speed": the step per action follows speed_pct (PolicyArm)
     log_dir: Path = Path("rehearsal/lerobot")
     robot_id: str = "lab-er4u-1"
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
@@ -109,7 +110,8 @@ class ScorbotRobot(Robot):
             raise RuntimeError(f"{self} is already connected.")
         log = Path(self.config.log_dir) / f"lerobot-{time.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}.jsonl"
         arm = PolicyArm(SimulatedScorbot(log_path=log, robot_id=self.config.robot_id),
-                        travel_cap_deg=self.config.travel_cap_deg, speed_pct=self.config.speed_pct)
+                        travel_cap_deg=self.config.travel_cap_deg, speed_pct=self.config.speed_pct,
+                        step_limit=self.config.step_limit)
         arm.connect()           # unwinds itself on failure: LeRobot calls us outside its cleanup
         self._arm = arm
         try:

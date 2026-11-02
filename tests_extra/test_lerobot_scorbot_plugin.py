@@ -79,6 +79,16 @@ class SimDriveTests(unittest.TestCase):
             robot.connect()
             try:
                 self.assertEqual(robot._arm.speed_pct, 80)
+                self.assertEqual(robot._arm.step_limit, "fixed")
+            finally:
+                robot.disconnect()
+
+    def test_the_config_step_limit_reaches_the_arm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            robot = ScorbotRobot(sim_config(tmp, step_limit="speed"))
+            robot.connect()
+            try:
+                self.assertEqual(robot._arm.step_limit, "speed")
             finally:
                 robot.disconnect()
 

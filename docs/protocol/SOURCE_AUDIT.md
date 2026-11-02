@@ -135,6 +135,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `policy_arm.MOTORS` | `limits.ARM_MOTORS` | ours | alias | n/a |
 | `policy_arm.DEFAULT_SPEED_PCT` | 25 | ours | starting stream speed, a quarter of the vendor `MaxSpeed`, matching `streaming.DEFAULT_SPEED_FRACTION` | n/a |
 | `policy_arm.DEFAULT_TRAVEL_CAP_DEG`, `policy_arm.LEAD_LIMIT_DEG`, `policy_arm.LEAD_MARGIN_DEG`, `policy_arm.STEP_MAX_DEG` | 2.0, 2.0, 1.5, 0.5 | ours | the PolicyArm clamp | n/a |
+| `policy_arm.STEP_LIMITS` | ("fixed", "speed") | ours | step limit modes: "fixed" is `STEP_MAX_DEG` per call (the default); "speed" (opt-in) is what the vendor `MaxSpeed` (`streaming.VENDOR_MAX_SPEED_COUNTS_S`) at `speed_pct` covers since the last call, never above `LEAD_MARGIN_DEG` | n/a |
 | `vendor_profile.MIN_TOTAL_TIME` | 0.001 | vendor | the profile set-up rejects T below 1 ms (`0x1001295d`) | `VENDOR_DLL_PROTOCOL.md` section 11.1 |
 | `vendor_profile.DEFAULT_TOTAL_TIME`, `vendor_profile.DEFAULT_ACCEL_FRACTION`, `vendor_profile.DEFAULT_JERK_FRACTION` | 3.0, 0.3, 0.3 | vendor | `ROB_4u.INI [Motion] TotalTimeA`, `AccelA`, `AccelAccelA` | `VENDOR_DLL_PROTOCOL.md` section 11.1 |
 | `vendor_profile.MANUAL_ACCEL_FRACTION`, `vendor_profile.MANUAL_JERK_FRACTION` | 0.3, 0.05 | vendor | the velocity jog's A and J (`MoveManual`, `0x1001ba0c`) | `VENDOR_DLL_PROTOCOL.md` section 11.4 |
