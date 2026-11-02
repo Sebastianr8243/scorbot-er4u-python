@@ -140,6 +140,12 @@ class Desk(unittest.TestCase):
                 self.assertEqual((ours["gripper"][0], ours["gripper"][-1]),
                                  (golden["gripper"][0], golden["gripper"][-1]))
                 self.assertEqual(ours["arm"], [(0, 0, 0, 0, 0)])
+                self.assertEqual(len(ours["gripper"]), len(golden["gripper"]))
+                worst = max(abs(a - b) for a, b in zip(ours["gripper"], golden["gripper"]))
+                self.assertLessEqual(worst, SHAPE_TOLERANCE_COUNTS)
+                sign = 1 if name == "open" else -1
+                steps = [b - a for a, b in zip(ours["gripper"], ours["gripper"][1:])]
+                self.assertTrue(all(sign * s >= 0 for s in steps), "monotonic")
 
     def test_unhomed_open_and_close_refuse_and_send_nothing(self):
         for homed, gripper_homed in ((False, False), (True, False)):    # no Home; a legacy or inch Home

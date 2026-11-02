@@ -184,7 +184,7 @@ def review_stream(path):
 
 
 def review_gripper(path):
-    """A gripper trial record (examples/bench_gripper.py): open and close moves, no homing."""
+    """A gripper trial record (examples/bench_gripper.py): a vendor Home, then open and close moves."""
     rows = read_rows(path)
     events = {row.get("type"): row for row in rows}
     required = ("session", "connected", "gripper_plan", "before_gripper", "after_gripper",
