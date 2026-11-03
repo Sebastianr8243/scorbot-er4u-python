@@ -24,7 +24,7 @@ import time
 
 from . import limits
 from .calibration import signed_count_delta
-from .state import decode_state
+from .state import decode_state, teach_mode_after
 from .vendor_profile import MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION, VendorProfile
 
 MOTORS = limits.ARM_MOTORS
@@ -332,6 +332,7 @@ class Stream:
         self.steps: list[dict] = []
         self.dropped_steps = 0
         self.final_state = None
+        self.stop_reason = None
 
     def set_target(self, target: dict) -> None:
         self.core.set_target(target, time.monotonic())
@@ -406,6 +407,10 @@ class Stream:
                 self.core.request_stop()
             self._pace()
             state = decode_state(reply, connected=True, enabled=None, homed=True, fault=None)
+            # A stream starts in Auto; the first teach-on reply ends it through the normal stop path.
+            if teach_mode_after(False, reply):
+                self.stop_reason = "teach mode"
+                self.core.request_stop()
             measured = {m: signed_count_delta(state.encoder_counts[m], self._home[m])
                         for m in self.core.motors}
             errors = {m: _legacy_error(state.controller_error_counts[m]) for m in self.core.motors}

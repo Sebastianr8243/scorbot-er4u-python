@@ -47,14 +47,17 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_limits.py` | Every module's travel cap, motor list and count band is the one in `scorbot/limits.py` |
 | `test_source_audit.py` | Every module-level constant in `scorbot/` has a row in `docs/protocol/SOURCE_AUDIT.md` tagged vendor, legacy or ours, and no row names a constant that is gone |
 | `test_pendant_abort.py` | The pendant's Abort key: reply byte 3 = `0x21` or `0xA1` calls `request_stop` once per press, a held key once, other keys never; the legacy jog stops on it |
+| `test_emergency_feedback.py` | Emergency bit decode, refusal before a jog, and a single-reply pulse during a real-worker jog on fake endpoints: existing stop, latched fault, invalid home/enable state and queued motors-off; physical-arm behavior is unverified |
 | `test_io_outputs.py` | Digital and analog outputs through the simulator: `47` then `44` with the whole word, `41` with value and number, range checks, setpoints held, log rows |
 | `test_reply_inputs.py` | The digital input word (IN byte 6) and the four analog inputs (bytes 7-10) in `RobotState` |
+| `test_teach_mode.py` | Teach mode from IN byte 3, against `IsTeachMode` values read from the lab DLL on the pipe fake; `start_stream` and `PolicyArm.connect` refuse in teach mode with nothing sent; teach mode turning on mid-stream stops Scorbot and PolicyArm, records the reason and refuses restart |
 | `test_torque_readout.py` | The torque (PWM) readout through the simulator and the generator alone: `57 01`, `57 04`, `57 3F` as the DLL sends them, bytes 11-14 minus 244 (negative too), only a `57` echo to one of our messages counts, no answer is an error without motors-off, setpoints held, bad axes send nothing, refused unconnected and during a stream, log row |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |
 | `test_home_stop.py` | A stop request ends the legacy Home's switch search: `MotionStopped`, no fault, not homed, the next Home runs; a stop asked before it refuses it once; a stop at any packet of the legacy Home sends the stop sequence with no motion setpoint after it and reports 14; every packet loop and `execute` pass the stop event |
 | `test_vendor_check.py` | The vendor-layout checker |
 | `test_lab_session.py`, `test_lab_terminal.py`, `test_lab_profile.py`, `test_lab_operator.py`, `test_lab_moves.py`, `test_lab_faults.py`, `test_lab_teleop.py` | The guided session (`scorbot/lab`): engine through the simulator, terminal front end, profile file, moves, fault guidance, teleop mode (key `t`) |
 | `test_motion_trace.py`, `test_provenance.py` | Packets copied during jogs, streams and the legacy home (also when it fails) and their export; the motion fingerprint |
+| `test_usb_read_length.py` | Short and failed USB reads through fake endpoints: no reused-buffer decoding, fresh snapshot, pendant update or trace; full reads preserve packet bytes and sleeps |
 | `test_collision_flag.py`, `test_home_trace_report.py` | The collision flag decode (IN byte 59) and `scripts/home_trace_report.py` on synthetic home traces |
 | `test_follow_report.py` | `scripts/follow_report.py` on hand-made stream logs with known lag, speed, overshoot, settling and faults |
 | `test_transport_codec.py` | The pure packet codec against the legacy code's bytes (golden tests) |

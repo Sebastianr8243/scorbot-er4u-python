@@ -37,6 +37,7 @@ class Wire:
 
     def read(self, buffer, timeout=None):
         buffer[:len(self.reply)] = self.reply
+        return len(self.reply)
 
 
 def non_nop(packets):
@@ -158,6 +159,33 @@ class VendorHomeRunTests(unittest.TestCase):
         self.assertGreaterEqual(len(zero_drives), 6)              # 4D 0 to every motor
         self.assertGreaterEqual(len(after), 26)                   # and libcomm.motors_off's 26 messages
         self.assertEqual(results.get_nowait(), 1)
+
+    def test_a_short_read_mid_home_aborts_and_switches_the_motors_off(self):
+        wire = Wire(Plant(), 10)
+        buffer = bytearray(wire.reply)
+        reads, results = queue.Queue(), queue.Queue()
+        reads.put([0] * 6)
+        source = VendorHomeSource()
+        read = wire.read
+
+        def short_once(buffer, timeout=None):
+            if len(wire.sent) == 300:
+                buffer[:1] = wire.reply[:1]
+                return 1
+            return read(buffer, timeout)
+
+        with mock.patch.object(wire, "read", side_effect=short_once):
+            self.comm.vendor_home_run(10, wire, wire, buffer, reads, results, source)
+        self.assertEqual(source.error.code, vh.ERR_USB)
+        self.assertIn("USB read failed", str(source.error))
+        self.assertFalse(source.ok)
+        self.assertEqual(results.get_nowait(), 1)
+        after = wire.sent[300:]
+        self.assertTrue(any(p[4] == vh.CLEAR for p in after))
+        self.assertEqual([p[4:12] for p in after[-26:]],
+                         [bytes.fromhex(self.comm.libhex.motorsoff(i).format("00").ljust(24, "0"))[4:12]
+                          for i in range(1, 27)])
+        self.assertGreaterEqual(len(after), 26)
 
     def test_a_dead_link_is_given_up_on_after_a_few_tries_and_the_first_error_is_raised(self):
         wire = FlakyWire(Plant(), fail_at=300, dead=True)

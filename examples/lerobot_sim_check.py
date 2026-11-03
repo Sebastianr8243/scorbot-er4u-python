@@ -5,7 +5,8 @@
 Run it in a separate venv that has `lerobot` installed, plus this repo (`pip install -e ".[planning]"`) and the
 plugin (`pip install -e plugins/lerobot_robot_scorbot --no-deps`). Four steps, never the hub, no cameras:
   1. discovery: LeRobot's own plugin loader registers robot.type=scorbot and both teleoperators
-  2. drive: make_robot_from_config, connect, get_observation, send_action (small targets), disconnect
+  2. drive: make_robot_from_config, connect, get_observation, send_action (small targets), open and close the
+     gripper (each a slow frame: the stream pauses for the vendor move), disconnect
   3. record: the real `lerobot-record` with the scripted teleoperator, EPISODES short episodes, reloaded with
      LeRobotDataset and checked (episodes, frames, names, robot_type, every action one clamped step from the last)
   4. replay: episode 0's actions through a fresh ScorbotRobot; observations must track the recorded ones
@@ -25,8 +26,11 @@ REPO_ID = "local/scorbot_sim_check"
 EPISODES, SECONDS, FPS = 2, 3, 10
 SCRIPT = "1,0,0,0,0;1,1,0,1,0;0,1,-1,1,-1;0,0,0,0,0"     # absolute degrees (base..roll), ends at home
 STEP_DEG, CAP_DEG = 0.5, 2.0
-NAMES = ["base.pos", "shoulder.pos", "elbow.pos", "pitch.pos", "roll.pos"]
-ACTION = {"base.pos": 1.0, "shoulder.pos": -0.5, "elbow.pos": 0.5, "pitch.pos": -1.0, "roll.pos": 0.5}
+JOINT_NAMES = ["base.pos", "shoulder.pos", "elbow.pos", "pitch.pos", "roll.pos"]
+NAMES = [*JOINT_NAMES, "gripper.pos"]    # gripper 0 closed .. 100 open; the scripted record keeps it closed
+ACTION = {"base.pos": 1.0, "shoulder.pos": -0.5, "elbow.pos": 0.5, "pitch.pos": -1.0, "roll.pos": 0.5,
+          "gripper.pos": 0.0}
+GRIPPER_TOL_PCT = 1.0       # measured jaw vs the applied 0 or 100
 TRACK_TOL_DEG = 1.5         # observation vs the target it was asked for: PolicyArm's lead margin
 REPLAY_TOL_DEG = 0.25       # replayed observation vs the recorded one at the same frame
 ROBOT = {"speed_pct": 25.0, "step_limit": "fixed"}     # the plugin's defaults; set from the command line
@@ -81,12 +85,22 @@ def check_drive(scratch):
             time.sleep(1 / FPS)
         time.sleep(0.5)
         last = robot.get_observation()
+        jaw = []
+        for asked, applied in ((80.0, 100.0), (20.0, 0.0)):     # threshold at 50; each change is one slow frame
+            start = time.perf_counter()
+            got = robot.send_action({**ACTION, "gripper.pos": asked})["gripper.pos"]
+            seconds = time.perf_counter() - start
+            seen = robot.get_observation()["gripper.pos"]
+            assert got == applied, f"asked gripper {asked}, applied {got}"
+            assert abs(seen - applied) <= GRIPPER_TOL_PCT, f"gripper measured {seen:.2f} %, applied {applied}"
+            jaw.append(f"{asked:g} -> {got:g} (measured {seen:.1f} %, {seconds:.2f} s)")
     finally:
         robot.disconnect()
     assert not robot.is_connected, "still connected after disconnect"
     assert sent == ACTION, f"last target {sent}"
     assert all(abs(last[k] - sent[k]) < 0.1 for k in NAMES), f"arm at {last}, asked {sent}"
-    return f"{type(robot).__name__} connect, 8 actions, reached {', '.join(f'{k} {last[k]:.2f}' for k in NAMES)}"
+    return (f"{type(robot).__name__} connect, 8 actions, reached {', '.join(f'{k} {last[k]:.2f}' for k in NAMES)}; "
+            f"gripper {'; '.join(jaw)}")
 
 
 def record(root, scratch):
@@ -114,14 +128,17 @@ def check_dataset(dataset):
         frames = sum(1 for row in data if row[0] == episode)
         assert 0.8 * SECONDS * FPS <= frames <= 1.2 * SECONDS * FPS + 1, f"episode {episode} has {frames} frames"
     assert data[0][1] == [0.0] * len(NAMES), f"first state {data[0][1]}"
+    joints = len(JOINT_NAMES)       # cap, step and tracking are joint checks; the gripper column is its own
+    assert all(row[1][joints] == 0.0 and row[2][joints] == 0.0 for row in data), "the gripper left closed"
     worst = 0.0
     for (ep, _, action), (ep2, after, nxt) in zip(data, data[1:]):
+        action, after, nxt = action[:joints], after[:joints], nxt[:joints]
         assert all(abs(v) <= CAP_DEG + 1e-9 for v in action), f"action {action} outside the cap"
         if ep == ep2:
             assert all(abs(a - b) <= STEP_DEG + 1e-6 for a, b in zip(action, nxt)), f"step {action} -> {nxt}"
             worst = max(worst, *(abs(a - b) for a, b in zip(after, action)))
     assert worst <= TRACK_TOL_DEG, f"observation lags its action by {worst:.3f} degrees"
-    moved = max(abs(v) for _, _, action in data for v in action)
+    moved = max(abs(v) for _, _, action in data for v in action[:joints])
     assert moved >= 0.99, f"the actions never left home (largest {moved})"
     return f"{len(data)} frames, robot_type scorbot_sim, names ok; next observation within {worst:.3f} deg of action"
 

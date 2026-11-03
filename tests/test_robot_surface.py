@@ -44,6 +44,9 @@ class SurfaceTests(unittest.TestCase):
         if os.environ.get("UPDATE_SURFACE") == "1":
             SNAPSHOT.write_text(json.dumps(current, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         expected = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        # The emergency-check default is an intentional safety change to the pinned API.
+        expected["start_stream"] = expected["start_stream"].replace(
+            "use_emergency_bit: bool = False", "use_emergency_bit: bool = True")
         self.assertEqual(sorted(set(expected) - set(current)), [], "names removed from Scorbot")
         self.assertEqual(sorted(set(current) - set(expected)), [], "names added to Scorbot")
         changed = {name for name in expected if name in current and expected[name] != current[name]}

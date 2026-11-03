@@ -9,6 +9,7 @@
 | [`API.md`](API.md) | Writing a script against `scorbot.bridge.Arm`: calls, units, errors |
 | [`STATUS.md`](STATUS.md) | What works and how sure we are |
 | [`STACK2_SDK.md`](STACK2_SDK.md) | The experimental own-USB-protocol SDK (`scorbot.Scorbot`); never moved the arm |
+| [`requirements/policy-gripper.md`](requirements/policy-gripper.md) | PolicyArm binary gripper requirements and desk-only checks; physical-arm behaviour unverified |
 
 ## lab/
 

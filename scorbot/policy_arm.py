@@ -18,8 +18,10 @@ from contextlib import ExitStack
 import math
 from time import monotonic
 
-from . import limits, source_model
+from . import limits, source_model, vendor_gripper
 from .calibration import signed_count_delta
+from .errors import MotionStopped, ScorbotError
+from .gripper import GripperMove
 from .streaming import DEFAULT_HOLD_TIMEOUT_S, VENDOR_MAX_SPEED_COUNTS_S
 
 MOTORS = limits.ARM_MOTORS
@@ -170,8 +172,10 @@ class PolicyArm:
                              "empty and the wrist's path is clear first")
         with ExitStack() as stack:           # any failure below unwinds what was opened
             stack.enter_context(self.robot)  # connects; leaving disconnects
+            self._refuse_teach_mode()        # before enable, and again before home moves the arm
             self.robot.enable()
             stack.callback(self._disable)
+            self._refuse_teach_mode()
             self.robot.vendor_home(operator_at_stop=operator_at_stop, jaws_empty=jaws_empty,
                                    wrist_clear=wrist_clear)
             self._home = dict(self.robot.get_state().encoder_counts)
@@ -181,12 +185,68 @@ class PolicyArm:
             # pitch and as much again for a degree of roll, so each gets half its speed.
             self._step_per_degree = {**self._per_degree, **{
                 j: 2 * source_model.COUNTS_PER_DEGREE["wrist_motor_1"] for j in self.joints[3:]}}
-            self._stream = stack.enter_context(self.robot.start_stream(
-                travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
-                speed_fraction=self.speed_pct / 100, wrist=self.wrist))
+            self._start_stream()
+            stack.push(self._exit_stream)
             self.target = dict.fromkeys(self.joints, 0.0)
-            self._last_act = monotonic()
+            self.gripper = 0.0               # vendor Home closes the jaw
             self._stack = stack.pop_all()
+
+    def _refuse_teach_mode(self) -> None:
+        if self.robot.get_state().teach_mode:
+            raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before connecting")
+
+    def _start_stream(self) -> None:
+        self._stream = self.robot.start_stream(
+            travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
+            speed_fraction=self.speed_pct / 100, wrist=self.wrist)
+        self._last_act = monotonic()
+
+    def _exit_stream(self, kind, value, traceback):
+        # Gripper calls replace the stream; unwind the current one, including on exceptions.
+        return self._stream.__exit__(kind, value, traceback)
+
+    def open_gripper(self) -> GripperMove:
+        """Stop the joint stream, open with the vendor gripper, then resume streaming.
+
+        Blocking; needs this connection's vendor Home. Returns measured counts and full_travel,
+        not a force or object measurement. On failure the stream stays ended; close and reconnect.
+        Physical-arm behaviour is unverified.
+        """
+        return self._move_gripper("open")
+
+    def close_gripper(self) -> GripperMove:
+        """Close with the vendor gripper; same blocking checks and result as ``open_gripper``."""
+        return self._move_gripper("close")
+
+    def set_gripper(self, pct) -> float:
+        """Binary jaw from a 0 (closed) .. 100 (open) request; return the value applied (0.0 or 100.0).
+
+        Below 50 closes, 50 or more opens. Unchanged, or not a finite number: nothing moves (hold).
+        A change is a blocking ``open_gripper``/``close_gripper`` (stream paused and restarted), so the
+        caller's loop stalls for the move. Compared with the last value applied, not the measured jaw: a
+        jaw stopped by an object is not re-commanded every call. Physical-arm behaviour is unverified.
+        """
+        self._require_connected()
+        if isinstance(pct, bool) or not isinstance(pct, (int, float)) or not math.isfinite(pct):
+            return self.gripper
+        want = 100.0 if pct >= 50 else 0.0
+        if want != self.gripper:
+            self._move_gripper("open" if want else "close")
+        return self.gripper
+
+    def _move_gripper(self, direction: str) -> GripperMove:
+        self._require_connected()
+        if not (self.robot._homed and self.robot._gripper_homed):
+            raise ScorbotError("Home the arm before moving the gripper (vendor_home)")
+        state = self._stream.close()
+        # Ending a stream consumes the session stop; keep it from starting the jaw instead.
+        if self._stream.core._stop_requested:
+            raise MotionStopped("A stop was requested; the gripper was not moved", state=state, started=False)
+        result = self.robot.move_gripper(direction)
+        self.gripper = 100.0 if direction == "open" else 0.0     # open_gripper/close_gripper too
+        self._start_stream()
+        self._seen = None       # a reading from before the move is stale; act() must read again
+        return result
 
     def _disable(self) -> None:
         try:
@@ -194,14 +254,18 @@ class PolicyArm:
         except Exception:
             pass                    # the session is already faulted or gone
 
-    def observe(self) -> dict[str, float]:
-        """Degrees from home, measured."""
+    def observe(self, *, gripper: bool = False) -> dict[str, float]:
+        """Degrees from home, measured. ``gripper=True`` adds ``"gripper"``: the jaw in percent open,
+        ``100 x count / RangeEnc`` (``GetJaw``: 2857 counts is 57 %), from the same reading."""
         self._require_connected()
-        counts = self.robot._motion_state().encoder_counts     # latches the session if feedback is unavailable
+        state = self.robot._motion_state()      # latches the session if feedback is unavailable
+        counts = state.encoder_counts
         seen = {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
         if self.wrist:
             seen.update(wrist_degrees({m: signed_count_delta(counts[m], self._home[m])
                                        for m in limits.WRIST_MOTORS}))
+        if gripper:
+            seen["gripper"] = 100 * state.signed_encoder_counts["gripper"] / vendor_gripper.RANGE_ENC
         return seen
 
     def act(self, goal_deg: dict) -> dict[str, float]:
