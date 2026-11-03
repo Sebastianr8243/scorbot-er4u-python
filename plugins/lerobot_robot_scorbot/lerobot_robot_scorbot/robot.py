@@ -140,9 +140,10 @@ class ScorbotRobot(Robot):
     def get_observation(self) -> dict[str, Any]:
         if not self.is_connected:
             raise ConnectionError(f"{self} is not connected.")
-        obs = {m + SUFFIX: deg for m, deg in self._arm.observe().items()}
+        counts = self._arm.counts_from_home()      # one snapshot: the images show the pose in the numbers
+        obs = {m + SUFFIX: deg for m, deg in self._arm.observe(counts).items()}
         if self._scene is not None:
-            self._scene.set_counts(self._arm.counts_from_home())
+            self._scene.set_counts(counts)
         for name, cam in self.cameras.items():
             obs[name] = cam.async_read()
         return obs

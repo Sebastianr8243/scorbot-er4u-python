@@ -201,9 +201,9 @@ class PolicyArm:
         except Exception:
             pass                    # the session is already faulted or gone
 
-    def observe(self) -> dict[str, float]:
-        """Degrees from home, measured."""
-        counts = self.counts_from_home()
+    def observe(self, counts: dict[str, int] | None = None) -> dict[str, float]:
+        """Degrees from home, measured; or from ``counts`` (a ``counts_from_home()`` snapshot)."""
+        counts = self.counts_from_home() if counts is None else counts
         seen = {m: counts[m] / self._per_degree[m] for m in MOTORS}
         if self.wrist:
             seen.update(wrist_degrees({m: counts[m] for m in limits.WRIST_MOTORS}))

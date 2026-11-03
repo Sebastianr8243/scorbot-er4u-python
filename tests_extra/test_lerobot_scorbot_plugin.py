@@ -251,6 +251,23 @@ class TwinCameraTests(unittest.TestCase):
                 robot.disconnect()
             self.assertFalse(any(cam.is_connected for cam in robot.cameras.values()))
 
+    def test_state_and_images_come_from_one_encoder_snapshot(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            robot = ScorbotRobot(sim_config(tmp, cameras=twin_cameras()))
+            robot.connect()
+            try:
+                arm = robot._arm
+                reads = iter([{**dict.fromkeys(arm.counts_from_home(), 0), "base": 100},
+                              dict.fromkeys(arm.counts_from_home(), 0)])
+                with mock.patch.object(arm, "counts_from_home", side_effect=lambda: next(reads)), \
+                        mock.patch.object(robot._scene, "set_counts", wraps=robot._scene.set_counts) as posed:
+                    obs = robot.get_observation()
+                self.assertAlmostEqual(obs["base.pos"], 100 / arm._per_degree["base"])
+                self.assertEqual(posed.call_args.args[0]["base"], 100)
+            finally:
+                robot.disconnect()
+
     def test_lerobot_builds_the_twin_camera_from_its_type_name(self):
         from lerobot.cameras import CameraConfig, make_cameras_from_configs
         from lerobot_robot_scorbot.sim_cameras import ScorbotTwinCamera, ScorbotTwinCameraConfig
