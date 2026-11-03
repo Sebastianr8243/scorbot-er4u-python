@@ -112,7 +112,8 @@ class OptIn(unittest.TestCase):
 class Wiring(unittest.TestCase):
     def setUp(self):
         real_sleep = time.sleep
-        patch = mock.patch("time.sleep", lambda seconds: real_sleep(seconds / 1000))
+        # sleep(0) only yields: a scaled sleep is ~16 ms per call on Windows before Python 3.11.
+        patch = mock.patch("time.sleep", lambda seconds: real_sleep(0))
         patch.start()
         self.addCleanup(patch.stop)
         self.robot = DryScorbot(command_timeout=30).connect()
