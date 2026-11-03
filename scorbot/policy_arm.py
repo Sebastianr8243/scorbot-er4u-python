@@ -21,7 +21,7 @@ from time import monotonic
 from . import limits, source_model
 from .calibration import signed_count_delta
 from .errors import ScorbotError
-from .streaming import DEFAULT_HOLD_TIMEOUT_S, VENDOR_MAX_SPEED_COUNTS_S
+from .streaming import DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, VENDOR_MAX_SPEED_COUNTS_S
 
 MOTORS = limits.ARM_MOTORS
 WRIST_JOINTS = ("pitch", "roll")    # source_model's names; PolicyArm(wrist=True) only
@@ -30,6 +30,9 @@ DEFAULT_TRAVEL_CAP_DEG = 2.0
 LEAD_LIMIT_DEG = 2.0            # the SDK's own lead limit; our targets stay inside LEAD_MARGIN_DEG of it
 LEAD_MARGIN_DEG = 1.5           # a target never leads the measured position by more than this
 STEP_MAX_DEG = 0.5              # largest delta applied in one call
+# ours: act() reuses the preceding observe() only this soon after it (two stream periods); older
+# (a slow policy between them) and act() reads fresh, so the lead clamp never uses an old position.
+MAX_REUSE_AGE_S = 2 * DEFAULT_PERIOD_S
 DEFAULT_SPEED_PCT = 25          # percent of the vendor's MaxSpeed (streaming.VENDOR_MAX_SPEED_COUNTS_S)
 # ours: "fixed" is STEP_MAX_DEG per call (the default); "speed" is what the vendor's MaxSpeed
 # (vendor: ER4AxN.ini MaxSpeed, via streaming) at speed_pct covers since the previous call.
@@ -142,6 +145,7 @@ class PolicyArm:
         self._stack: ExitStack | None = None
         self._stream = None
         self._seen: dict[str, float] | None = None    # the last observe(), until one act() uses it
+        self._seen_at = 0.0
 
     def set_speed(self, speed_pct: float) -> None:
         """Change the speed (percent of the vendor's MaxSpeed, 1 to 100), live if connected."""
@@ -205,7 +209,8 @@ class PolicyArm:
     def observe(self) -> dict[str, float]:
         """Degrees from home, measured. Each call waits for a controller reply newer than the last read.
 
-        The next ``act()`` clamps against this reading instead of waiting for another one.
+        The next ``act()`` clamps against this reading instead of waiting for another one, if it
+        comes within ``MAX_REUSE_AGE_S``.
         """
         self._require_connected()
         self._seen = None
@@ -214,21 +219,21 @@ class PolicyArm:
         if self.wrist:
             seen.update(wrist_degrees({m: signed_count_delta(counts[m], self._home[m])
                                        for m in limits.WRIST_MOTORS}))
-        self._seen = seen
+        self._seen, self._seen_at = seen, monotonic()
         return dict(seen)
 
     def act(self, goal_deg: dict) -> dict[str, float]:
         """Move toward ``goal_deg`` (absolute degrees from home); return the target now commanded.
 
         Raises ``StreamRefused`` if the stream has faulted or ended. Bad values hold their motor.
-        Clamps against the reading of the ``observe()`` just before it, used once; with none since the
-        last ``act()`` it reads a fresh one. Either way one controller wait per observe/act pair.
+        Clamps against the reading of the ``observe()`` just before it, used once and only within
+        ``MAX_REUSE_AGE_S``; otherwise it reads a fresh one. One controller wait per frame when act follows observe promptly.
         """
         self._require_connected()
         delta = {m: g - self.target[m] if isinstance(g, (int, float)) and not isinstance(g, bool)
                  else math.nan for m, g in goal_deg.items() if m in self.target}
         measured, self._seen = self._seen, None
-        if measured is None:
+        if measured is None or monotonic() - self._seen_at > MAX_REUSE_AGE_S:
             self.observe()
             measured, self._seen = self._seen, None
         elif self.robot._fault:      # latched since that reading: refuse as a fresh read would

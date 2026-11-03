@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 from scorbot import SimulatedScorbot
-from scorbot.policy_arm import LEAD_MARGIN_DEG, STEP_MAX_DEG, PolicyArm
+from scorbot.policy_arm import LEAD_MARGIN_DEG, MAX_REUSE_AGE_S, STEP_MAX_DEG, PolicyArm
 from scorbot.robot import ScorbotError
 
 
@@ -114,6 +114,20 @@ class PolicyArmTests(unittest.TestCase):
         self.assertEqual(len(reads), 2)
         fresh = (-round(1.5 * per)) / per
         self.assertLessEqual(target, fresh + LEAD_MARGIN_DEG + 1e-9)
+
+    def test_act_reads_fresh_when_the_observation_is_older_than_the_reuse_bound(self):
+        # A slow policy (VLA inference) between observe and act: past the bound act reads again.
+        reads = self.slow_replies(delay_s=0)
+        clock = [1000.0]
+        with mock.patch("scorbot.policy_arm.monotonic", side_effect=lambda: clock[0]):
+            self.arm.observe()
+            clock[0] += MAX_REUSE_AGE_S + 0.001
+            self.arm.act({"base": 90.0})
+            self.assertEqual(len(reads), 2)
+            self.arm.observe()
+            clock[0] += MAX_REUSE_AGE_S - 0.001      # just inside the bound: reused
+            self.arm.act({"base": 90.0})
+            self.assertEqual(len(reads), 3)
 
     def test_act_on_a_reused_reading_still_refuses_a_session_faulted_since(self):
         self.arm.observe()
