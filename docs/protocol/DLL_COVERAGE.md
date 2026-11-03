@@ -58,7 +58,7 @@ What this does not prove: that the controller accepts any of it. The fake arm is
 | `IsTheBasePosition` | Point-store check | not run | none | skip: point store |
 | **Motion** | | | | |
 | `MoveJoint` | Joint move planned on the PC, sent as `0D` setpoints | `0D` stream (section 5, I) | `move_joint`, streaming | partial: the profile is Stack 2's own (`DESK_BYTE_CHECK.md`, "Move") |
-| `EnterManual`, `MoveManual`, `CloseManual` | Velocity jog: `47`, small queue, `0D` stream | section 5 | `jog_joint` | partial: Stack 2's jog is a position step, not a velocity jog (`VENDOR_MANUAL_MOVE_TRACE.md`) |
+| `EnterManual`, `MoveManual`, `CloseManual` | Velocity jog: `47`, small queue, `0D` stream | section 5 | `start_velocity_jog` (`vendor_manual.py`); `jog_joint` stays a position step | joint mode (type 0), base, shoulder, elbow: same commands, setpoints within one message's travel of the lab DLL on the desk fake (`tests/test_vendor_manual.py`). Not covered: the XYZ mode (type 1), the wrist, a mid-jog speed change (the DLL ignores it). Unverified on the arm |
 | `SetJoint`, `SetJoints` | Set the planner's target directly | `0D` stream (I) | `start_stream` | partial: same idea, Stack 2's own pacing |
 | `Speed`, `Time` | Store a speed percent or a time for the next move | nothing | `move_joint` arguments | match: host settings (PL55 to PL57 give the math) |
 | `MoveLinear`, `MoveCircularVect`, `SpeedLin` | Cartesian moves through the PC planner | not run (I: `0D` stream like `MoveJoint`) | none; `kinematics.py` has the forward and inverse model | skip for now: Stack 2 can stream Cartesian paths itself |

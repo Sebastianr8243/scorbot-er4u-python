@@ -49,6 +49,8 @@ VENDOR_GRIPPER = 23
 VENDOR_IO = 24
 # Order for the torque (PWM) readout (SDK only): scorbot/vendor_torque.py, same runner; 24 is the outputs (PR #86)
 VENDOR_TORQUE = 25
+# Order for the joint velocity jog (SDK only): scorbot/vendor_manual.py, same runner
+VENDOR_MANUAL = 26
 
 #------------------------------ARGUMENTOS USADOS-------------------------------#
 # b_1		-> Byte de secuencia
@@ -733,7 +735,7 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read, cola_result, stop_event)
 				elif orden == STREAM:
 					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1], ite if callable(ite) else None)
-				elif orden in (VENDOR_HOME, VENDOR_GRIPPER, VENDOR_IO, VENDOR_TORQUE):
+				elif orden in (VENDOR_HOME, VENDOR_GRIPPER, VENDOR_IO, VENDOR_TORQUE, VENDOR_MANUAL):
 					b_1 = vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:
 					b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
