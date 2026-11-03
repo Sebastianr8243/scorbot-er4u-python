@@ -20,6 +20,7 @@
  "home_inch": "def(self, *, operator_at_stop: bool = False, max_search_deg: float | dict | None = None, speed: int = 6)",
  "jog_joint": "def(self, joint: str, delta_degrees: float, *, speed: int = 10)",
  "move_gripper": "def(self, direction: str) -> GripperMove",
+ "move_gripper_mm": "def(self, mm: int) -> GripperMove",
  "move_joint": "def(self, joint: str, target_degrees: float, *, speed: int = 10)",
  "open_gripper": "def(self) -> GripperMove",
  "park_at_home": "def(self, *, operator_at_stop: bool = False, speed: int = 6, tolerance_counts: int = 45) -> dict",

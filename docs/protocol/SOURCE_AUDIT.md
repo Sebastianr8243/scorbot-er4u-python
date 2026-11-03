@@ -84,6 +84,8 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `state.PACKET_MIN_LENGTH` | 49 | ours | derived: the last field decoded ends at byte 48 | n/a |
 | `state.HOME_SWITCH_BITS` | 1, 2, 4, 8, 16 | legacy | `libdef.get_switch`; byte 5 bit N in the DLL, order confirmed by the ULPGC thesis | `VENDOR_DLL_PROTOCOL.md` section 6; `ULPGC_THESIS_FINDINGS.md` |
 | `state.COLLISION_OFFSET` | 59 | vendor | impact byte (`0x1000b270`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
+| `state.DIGITAL_INPUT_OFFSET` | 6 | vendor | digital input word, returned by `GetDigitalInputs` (`0x10019631`) | `LEDGER.md` PL65, PL69 |
+| `state.ANALOG_INPUT_OFFSETS` | 7, 8, 9, 10 | vendor | four analog inputs, returned by `GetAnalogInput` (`0x100199fc`) | `LEDGER.md` PL65, PL69 |
 | `state.COLLISION_MOTORS` | names for bits 0-7 | ours | labels; bit-per-motor reading from the ULPGC thesis p. 57 | `ULPGC_THESIS_FINDINGS.md` |
 | `vendor_home.ZERO24` | `0x7FFFFF` | vendor | count = raw24 - `0x7FFFFF` (`0x1000b160`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `vendor_home.REPLY_MIN_LENGTH` | 60 | ours | the last byte decoded is the impact byte 59 | n/a |

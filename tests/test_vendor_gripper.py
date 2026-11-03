@@ -152,6 +152,16 @@ class Planner(unittest.TestCase):
         with self.assertRaises(ValueError):
             vg.target_counts("squeeze")
 
+    def test_jaw_metric_targets_match_the_lab_dll(self):
+        # JawMetric(40) went to 2857 counts and JawMetric(10) to 714 on the desk (LEDGER.md PL71).
+        self.assertEqual(vg.metric_target_counts(40), 2857)
+        self.assertEqual(vg.metric_target_counts(10), 714)
+        self.assertEqual(vg.metric_target_counts(0), 0)
+        self.assertEqual(vg.metric_target_counts(vg.RANGE_MM), vg.RANGE_ENC)
+        for bad in (-1, vg.RANGE_MM + 1, 12.5, True):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                vg.metric_target_counts(bad)
+
     def test_the_source_ends_without_sending_when_at_target(self):
         source = VendorHomeSource(start=lambda first: vg.vendor_gripper(first, 0))
         packet = bytearray(64)                         # an idle reply echoing ID 1, every count 0
@@ -232,6 +242,41 @@ class Simulated(unittest.TestCase):
         self.robot.home(start_position_confirmed=True)
         with self.assertRaisesRegex(ScorbotError, REFUSAL):
             self.robot.open_gripper()
+
+    def test_jaw_to_a_width_in_mm(self):
+        self.robot.vendor_home(**CONFIRMED)
+        half = self.robot.move_gripper_mm(40)
+        self.assertEqual(half.direction, "open")
+        self.assertAlmostEqual(half.planned_counts, 2857, delta=1)   # from where the jaw is, not from 0
+        self.assertTrue(half.full_travel)
+        self.assertEqual(self.robot.sim.vendor_packets[-1][32:36], (2857).to_bytes(4, "little", signed=True))
+        narrower = self.robot.move_gripper_mm(10)
+        self.assertEqual(narrower.direction, "close")
+        self.assertAlmostEqual(narrower.planned_counts, 2857 - 714, delta=1)
+
+    def test_a_width_queued_behind_another_move_picks_its_direction_after_it(self):
+        self.robot.vendor_home(**CONFIRMED)
+        result = {}
+
+        def queued():
+            try:
+                result["move"] = self.robot.move_gripper_mm(10)
+            except Exception as exc:      # the thread's failure is the test's
+                result["error"] = exc
+
+        with self.robot._motion_lock:     # another move holds the lock, the jaw still at 0
+            waiting = threading.Thread(target=queued)
+            waiting.start()
+            waiting.join(0.3)
+            self.robot.open_gripper()     # crosses the queued target: 0 -> 5000
+        waiting.join(30)
+        self.assertNotIn("error", result)
+        self.assertEqual(result["move"].direction, "close")
+        self.assertIsNone(self.robot._fault)
+
+    def test_jaw_to_a_width_needs_a_vendor_home(self):
+        with self.assertRaisesRegex(ScorbotError, REFUSAL):
+            self.robot.move_gripper_mm(40)
 
     def test_a_fault_clears_the_gripper_home(self):
         self.robot.vendor_home(**CONFIRMED)
