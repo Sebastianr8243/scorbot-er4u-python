@@ -32,6 +32,10 @@ class HomingMixin:
             if not self._enabled:
                 raise ScorbotError("Enable motors before homing")
             before = self._motion_state()
+            if self._consume_stop():
+                self._record("stop_before_motion", joint="home")
+                raise MotionStopped("A stop was requested; the Home was not started", state=before,
+                                    started=False)
             unknown_bits = before.home_switch_bits & ~sum(HOME_SWITCH_BITS.values())
             if unknown_bits:
                 # libdef.get_switch assumes byte 5 < 32; higher bits make it misread
@@ -52,6 +56,15 @@ class HomingMixin:
                 trace.start(keep="last")     # a failure is at the end of the search
             try:
                 self._command([18, 1, 1], timeout=180.0)
+            except MotionStopped:
+                # A stop ended the switch search: not a fault, and not homed. Wait for the arm to settle.
+                with self._stop_lock:
+                    self._stop_event.clear()
+                if trace is not None:
+                    self._record_home_trace(trace, failing=True)
+                after = self._settled_after_stop(before)
+                self._record("home_stopped", state=asdict(after))
+                raise MotionStopped("The Home ended early on a stop request", state=after) from None
             except BaseException:
                 # The home's own error wins: a log failure here must not replace it.
                 if trace is not None:

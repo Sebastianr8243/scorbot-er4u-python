@@ -47,6 +47,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_limits.py` | Every module's travel cap, motor list and count band is the one in `scorbot/limits.py` |
 | `test_source_audit.py` | Every module-level constant in `scorbot/` has a row in `docs/protocol/SOURCE_AUDIT.md` tagged vendor, legacy or ours, and no row names a constant that is gone |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |
+| `test_home_stop.py` | A stop request ends the legacy Home's switch search: `MotionStopped`, no fault, not homed, the next Home runs; a stop asked before it refuses it once; the legacy helper reports result 14 and every search passes the stop event |
 | `test_vendor_check.py` | The vendor-layout checker |
 | `test_lab_session.py`, `test_lab_terminal.py`, `test_lab_profile.py`, `test_lab_operator.py`, `test_lab_moves.py`, `test_lab_faults.py`, `test_lab_teleop.py` | The guided session (`scorbot/lab`): engine through the simulator, terminal front end, profile file, moves, fault guidance, teleop mode (key `t`) |
 | `test_motion_trace.py`, `test_provenance.py` | Packets copied during jogs, streams and the legacy home (also when it fails) and their export; the motion fingerprint |

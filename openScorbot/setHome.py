@@ -47,7 +47,15 @@ READ = conf.readData("general", "READ")
 HOME_SEARCH_TIMEOUT_S = 30.0
 
 
-def search_must_stop(deadline, cancel_event, result_queue):
+STOPPED = 14
+
+
+def search_must_stop(deadline, cancel_event, result_queue, stop_event=None):
+    # A stop request ends the search like a cancel, but reports STOPPED (14, libcomm.STOPPED), not an error.
+    if stop_event is not None and stop_event.is_set():
+        result_queue.put(STOPPED)
+        logging.warning("Homing stopped on a stop request")
+        return True
     if cancel_event is not None and cancel_event.is_set():
         result_queue.put(2)
         logging.error("Homing cancelled")
@@ -74,7 +82,7 @@ def search_must_stop(deadline, cancel_event, result_queue):
 # cola_read   -> Queue containing the averaged encoder position vector
 # cola_orden  -> Queue with commands to process and/or execution feedback
 #
-def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
+def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None, stop_event=None):
     status = 0
     block = False
     sw = libdef.get_switch(SW_SHOULDER, buffer[5])
@@ -104,7 +112,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
-            if search_must_stop(deadline, cancel_event, cola_orden):
+            if search_must_stop(deadline, cancel_event, cola_orden, stop_event):
                 block = True
                 break
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 6, vel, media, buffer)
@@ -199,7 +207,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
-            if search_must_stop(deadline, cancel_event, cola_orden):
+            if search_must_stop(deadline, cancel_event, cola_orden, stop_event):
                 block = True
                 break
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 8, vel, media, buffer)
@@ -297,7 +305,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
-            if search_must_stop(deadline, cancel_event, cola_orden):
+            if search_must_stop(deadline, cancel_event, cola_orden, stop_event):
                 block = True
                 break
             cadena = libhex.mov_comm(1)
@@ -437,7 +445,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
-            if search_must_stop(deadline, cancel_event, cola_orden):
+            if search_must_stop(deadline, cancel_event, cola_orden, stop_event):
                 block = True
                 break
             cadena = libhex.mov_comm(1)
@@ -573,7 +581,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
-            if search_must_stop(deadline, cancel_event, cola_orden):
+            if search_must_stop(deadline, cancel_event, cola_orden, stop_event):
                 block = True
                 break
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 4, vel, media, buffer)
