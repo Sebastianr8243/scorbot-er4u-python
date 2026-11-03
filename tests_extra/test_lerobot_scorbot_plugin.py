@@ -191,6 +191,87 @@ class CheckCommandTests(unittest.TestCase):
         self.assertEqual(parse_script(lerobot_sim_check.SCRIPT)[-1], home())
 
 
+HAVE_TWIN = HAVE_LEROBOT and find_spec("mujoco") is not None and find_spec("ruckig") is not None
+TWIN_TOL_DEG = 1e-9         # the twin is posed kinematically from the same counts: no physics lag
+
+
+def twin_cameras(width=160, height=120):
+    from lerobot_robot_scorbot.sim_cameras import ScorbotTwinCameraConfig
+    return {name: ScorbotTwinCameraConfig(camera=name, width=width, height=height) for name in ("front", "wrist")}
+
+
+@unittest.skipUnless(HAVE_TWIN, "needs lerobot, mujoco and ruckig (the LeRobot venv)")
+class TwinCameraTests(unittest.TestCase):
+    def test_the_twin_follows_the_commanded_pose(self):
+        import time
+        from scorbot import mujoco_twin, policy_arm
+        with tempfile.TemporaryDirectory() as tmp:
+            robot = ScorbotRobot(sim_config(tmp, cameras=twin_cameras()))
+            robot.connect()
+            try:
+                goal = {"base.pos": 1.0, "shoulder.pos": -1.0, "elbow.pos": 1.5, "pitch.pos": 1.0, "roll.pos": -1.0}
+                for _ in range(8):
+                    robot.send_action(goal)
+                    time.sleep(0.05)
+                time.sleep(0.8)
+                obs = robot.get_observation()
+                arm = robot._arm
+                commanded = {m: round(goal[m + ".pos"] * arm._per_degree[m]) for m in policy_arm.MOTORS}
+                commanded.update(policy_arm.wrist_counts(goal["pitch.pos"], goal["roll.pos"]))
+                want = mujoco_twin.chain_angles(commanded)
+                data = robot._scene.data
+                for name, deg in zip(mujoco_twin.JOINTS, want):
+                    got = math.degrees(data.joint(name).qpos[0])
+                    self.assertAlmostEqual(got, deg, delta=0.05, msg=name)    # the sim settled on the command
+                seen = mujoco_twin.chain_angles(arm.counts_from_home())
+                for name, deg in zip(mujoco_twin.JOINTS, seen):
+                    self.assertAlmostEqual(math.degrees(data.joint(name).qpos[0]), deg, delta=TWIN_TOL_DEG, msg=name)
+                self.assertTrue(all(abs(obs[k] - goal[k]) < 0.1 for k in KEYS), obs)
+            finally:
+                robot.disconnect()
+            self.assertIsNone(robot._scene)
+
+    def test_front_and_wrist_images_come_through_get_observation(self):
+        import numpy as np
+        with tempfile.TemporaryDirectory() as tmp:
+            robot = ScorbotRobot(sim_config(tmp, cameras=twin_cameras(160, 120)))
+            self.assertEqual(robot.observation_features["front"], (120, 160, 3))
+            self.assertEqual(robot.observation_features["wrist"], (120, 160, 3))
+            robot.connect()
+            try:
+                obs = robot.get_observation()
+                for name in ("front", "wrist"):
+                    self.assertEqual(obs[name].shape, (120, 160, 3), name)
+                    self.assertEqual(obs[name].dtype, np.uint8, name)
+                    self.assertGreater(int(obs[name].std()), 0, f"{name} is a blank frame")
+                self.assertFalse(np.array_equal(obs["front"], obs["wrist"]), "both cameras gave the same frame")
+                again = robot.get_observation()
+                self.assertTrue(np.array_equal(again["front"], obs["front"]), "same pose, different frame")
+            finally:
+                robot.disconnect()
+            self.assertFalse(any(cam.is_connected for cam in robot.cameras.values()))
+
+    def test_lerobot_builds_the_twin_camera_from_its_type_name(self):
+        from lerobot.cameras import CameraConfig, make_cameras_from_configs
+        from lerobot_robot_scorbot.sim_cameras import ScorbotTwinCamera, ScorbotTwinCameraConfig
+        self.assertIs(CameraConfig.get_choice_class("scorbot_twin"), ScorbotTwinCameraConfig)
+        cams = make_cameras_from_configs(twin_cameras())
+        self.assertIsInstance(cams["front"], ScorbotTwinCamera)
+
+    def test_a_frame_bigger_than_the_offscreen_buffer_is_refused(self):
+        from lerobot_robot_scorbot.sim_cameras import ScorbotTwinCameraConfig
+        with self.assertRaises(ValueError):
+            ScorbotTwinCameraConfig(camera="front", width=1280, height=720)
+        with self.assertRaises(ValueError):
+            ScorbotTwinCameraConfig(camera="side")
+
+    def test_a_twin_camera_without_the_robot_says_so(self):
+        from lerobot_robot_scorbot.sim_cameras import ScorbotTwinCamera
+        cam = ScorbotTwinCamera(twin_cameras()["front"])
+        with self.assertRaisesRegex(RuntimeError, "scorbot robot"):
+            cam.connect()
+
+
 @unittest.skipUnless(HAVE_LEROBOT, "needs lerobot (examples/lerobot_sim_check.py in its own venv)")
 class WithLerobotTests(unittest.TestCase):
     def test_registered_and_built_by_lerobot(self):

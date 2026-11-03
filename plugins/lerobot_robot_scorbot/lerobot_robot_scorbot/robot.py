@@ -3,7 +3,8 @@
 Observation and action: ``base.pos``, ``shoulder.pos``, ``elbow.pos``, ``pitch.pos``, ``roll.pos`` in
 degrees from home (uncalibrated vendor prior; pitch is the gripper's angle to the floor and, with roll,
 comes from the two coupled wrist motors through ``scorbot.source_model``), plus any cameras LeRobot
-configures. An action is an absolute target; ``PolicyArm`` clamps it to 0.5 degree per call, the travel
+configures (``type: scorbot_twin`` renders the MuJoCo twin, posed from the simulator; ``sim_cameras.py``).
+An action is an absolute target; ``PolicyArm`` clamps it to 0.5 degree per call, the travel
 cap and the lead limit. The real arm is
 refused: LeRobot's tools connect outside their cleanup and have no stop key. Works without the
 ``lerobot`` package (stand-in base classes), so the normal test run covers it.
@@ -80,6 +81,7 @@ class ScorbotRobot(Robot):
         self.config = config
         self.cameras = make_cameras_from_configs(config.cameras)
         self._arm: PolicyArm | None = None
+        self._scene = None          # the MuJoCo twin, when a camera is a twin camera
 
     @property
     def _motors_ft(self) -> dict[str, type]:
@@ -122,6 +124,13 @@ class ScorbotRobot(Robot):
                     wrist_clear=self.config.wrist_clear)    # unwinds itself on failure: LeRobot calls us outside its cleanup
         self._arm = arm
         try:
+            twins = [cam for cam in self.cameras.values() if hasattr(cam, "attach")]
+            if twins:
+                from .sim_cameras import TwinScene
+                self._scene = TwinScene()
+                self._scene.set_counts(arm.counts_from_home())
+                for cam in twins:
+                    cam.attach(self._scene)
             for cam in self.cameras.values():
                 cam.connect()
         except BaseException:
@@ -132,6 +141,8 @@ class ScorbotRobot(Robot):
         if not self.is_connected:
             raise ConnectionError(f"{self} is not connected.")
         obs = {m + SUFFIX: deg for m, deg in self._arm.observe().items()}
+        if self._scene is not None:
+            self._scene.set_counts(self._arm.counts_from_home())
         for name, cam in self.cameras.items():
             obs[name] = cam.async_read()
         return obs
@@ -147,7 +158,7 @@ class ScorbotRobot(Robot):
         return {m + SUFFIX: deg for m, deg in target.items()}
 
     def disconnect(self) -> None:
-        arm, self._arm = self._arm, None
+        arm, self._arm, self._scene = self._arm, None, None
         try:
             for cam in self.cameras.values():
                 if cam.is_connected:

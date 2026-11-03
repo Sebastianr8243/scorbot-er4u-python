@@ -203,13 +203,17 @@ class PolicyArm:
 
     def observe(self) -> dict[str, float]:
         """Degrees from home, measured."""
+        counts = self.counts_from_home()
+        seen = {m: counts[m] / self._per_degree[m] for m in MOTORS}
+        if self.wrist:
+            seen.update(wrist_degrees({m: counts[m] for m in limits.WRIST_MOTORS}))
+        return seen
+
+    def counts_from_home(self) -> dict[str, int]:
+        """All five motors' encoder counts from the session home, measured."""
         self._require_connected()
         counts = self.robot._motion_state().encoder_counts     # latches the session if feedback is unavailable
-        seen = {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
-        if self.wrist:
-            seen.update(wrist_degrees({m: signed_count_delta(counts[m], self._home[m])
-                                       for m in limits.WRIST_MOTORS}))
-        return seen
+        return {m: signed_count_delta(counts[m], self._home[m]) for m in source_model.MOTORS}
 
     def act(self, goal_deg: dict) -> dict[str, float]:
         """Move toward ``goal_deg`` (absolute degrees from home); return the target now commanded.

@@ -25,6 +25,18 @@ lerobot-record --robot.type=scorbot --robot.simulate=true --teleop.type=scorbot_
   --dataset.push_to_hub=false --dataset.num_episodes=2 --dataset.episode_time_s=20 --dataset.reset_time_s=5 --dataset.fps=10
 ```
 
+## Twin cameras (simulator images)
+
+`type: scorbot_twin` (`sim_cameras.py`, needs `mujoco`; 3.17.0 used) renders the MuJoCo twin (`scorbot/mujoco_twin.py`). On every `get_observation` the robot reads the simulator's five encoder counts, turns them into the twin's joint angles through `scorbot.source_model` (`mujoco_twin.chain_angles`: the elbow motor sets the forearm's angle to the floor and the wrist motors the gripper's, so it is not degrees from home plus the home angle), poses the twin (`set_pose`, no physics step) and renders the cameras, so each frame shows the pose in the same observation. Frames are `uint8` `(height, width, 3)` RGB, at most 640x480.
+
+```powershell
+lerobot-record --robot.type=scorbot --robot.simulate=true `
+  --robot.cameras="{front: {type: scorbot_twin, camera: front, width: 320, height: 240}, wrist: {type: scorbot_twin, camera: wrist, width: 320, height: 240}}" `
+  ...   # the rest as above
+```
+
+Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1, mujoco 3.17.0, Windows 11): 3 episodes of 3 s at 10 fps with both cameras at 160x120, 90 frames reloaded with image features, replayed frame 0 identical to the recorded one. The scene is nominal solids, not CAD and not measured. The gripper is fixed open (follow-up: drive it once `gripper.pos` exists), and the block never moves because the arm is posed, not simulated. Off-screen rendering that fails raises with the reason. Two 160x120 renders take about 30 ms per observation on this laptop.
+
 ## Shape
 
 | | |
@@ -47,7 +59,8 @@ Named apart from the Stack 1 teleoperators (`scorbot_keys`, `scorbot_scripted` o
 
 - **The gripper.** `PolicyArm` drives base, shoulder, elbow, pitch and roll; no `gripper.pos` in the observation or action. This is the next gap for pick-and-place demos.
 - `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with three joints (2026-11-01); its five-joint version (wrist in the script and the drive) has not been run against lerobot yet.
-- The real arm (refused on purpose), cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
+- The twin's gripper (fixed open) and block contact (the arm is posed, not simulated).
+- The real arm (refused on purpose), real cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
 
 ## Tests
 
