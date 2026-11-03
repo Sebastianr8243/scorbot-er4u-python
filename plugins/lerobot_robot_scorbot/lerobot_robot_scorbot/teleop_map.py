@@ -26,17 +26,20 @@ def home() -> dict[str, float]:
     return dict.fromkeys((*JOINTS, GRIPPER), 0.0)      # the vendor Home closes the jaw
 
 
-def check_limits(step_deg: float, cap_deg: float) -> None:
-    for name, value, top in (("step_deg", step_deg, STEP_MAX_DEG), ("travel_cap_deg", cap_deg, DEFAULT_TRAVEL_CAP_DEG)):
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= top:
-            raise ValueError(f"{name} must be above 0 and at most {top:g}, got {value}")
+def check_limits(step_deg: float, cap_deg: float | None) -> None:
+    if (isinstance(step_deg, bool) or not isinstance(step_deg, (int, float))
+            or not 0 < step_deg <= STEP_MAX_DEG):
+        raise ValueError(f"step_deg must be above 0 and at most {STEP_MAX_DEG:g}, got {step_deg}")
+    if cap_deg is not None and (isinstance(cap_deg, bool) or not isinstance(cap_deg, (int, float))
+                               or not math.isfinite(cap_deg) or cap_deg <= 0):
+        raise ValueError(f"travel_cap_deg must be a positive finite number or None, got {cap_deg}")
 
 
 def to_action(target: dict) -> dict[str, float]:
     return {m + ".pos": float(target[m]) for m in (*JOINTS, GRIPPER)}
 
 
-def step_toward(target: dict, goal: dict, step_deg: float, cap_deg: float) -> dict[str, float]:
+def step_toward(target: dict, goal: dict, step_deg: float, cap_deg: float | None) -> dict[str, float]:
     """The next target: ``goal`` (absolute degrees) approached by at most ``step_deg`` per motor; the gripper
     goes to its goal at once (it is binary). Pure."""
     delta = {m: goal[m] - target[m] for m in JOINTS if m in goal}
@@ -44,7 +47,7 @@ def step_toward(target: dict, goal: dict, step_deg: float, cap_deg: float) -> di
     return {**new, GRIPPER: goal.get(GRIPPER, target[GRIPPER])}
 
 
-def keyboard_to_target(raw: dict, target: dict, step_deg: float, cap_deg: float) -> dict[str, float]:
+def keyboard_to_target(raw: dict, target: dict, step_deg: float, cap_deg: float | None) -> dict[str, float]:
     """LeRobot's keyboard_ee action (delta_x/y/z in -1..1, gripper 0/1/2) to the next absolute target. Gripper 0
     closes, 2 opens, anything else holds. Other keys are ignored."""
     delta = {}
@@ -59,7 +62,7 @@ def keyboard_to_target(raw: dict, target: dict, step_deg: float, cap_deg: float)
     return new
 
 
-def parse_script(text: str, cap_deg: float = DEFAULT_TRAVEL_CAP_DEG) -> list[dict]:
+def parse_script(text: str, cap_deg: float | None = DEFAULT_TRAVEL_CAP_DEG) -> list[dict]:
     """'base,shoulder,elbow[,pitch,roll[,gripper]];...' absolute degrees (gripper 0..100) to a list of waypoints
     (pitch, roll and gripper 0 when left out). ValueError on anything malformed."""
     waypoints = []
@@ -73,15 +76,15 @@ def parse_script(text: str, cap_deg: float = DEFAULT_TRAVEL_CAP_DEG) -> list[dic
         except ValueError:
             raise ValueError(f"not a number in waypoint {piece.strip()!r}") from None
         joints, gripper = values[:len(JOINTS)], values[len(JOINTS):]
-        if not all(math.isfinite(v) and abs(v) <= cap_deg for v in joints):
-            raise ValueError(f"every joint must be finite and within {cap_deg:g} degrees of home, got {piece.strip()!r}")
+        if not all(math.isfinite(v) and (cap_deg is None or abs(v) <= cap_deg) for v in joints):
+            raise ValueError(f"every joint must be finite and within the optional travel cap, got {piece.strip()!r}")
         if not all(0 <= v <= 100 for v in gripper):
             raise ValueError(f"the gripper must be from 0 to 100, got {piece.strip()!r}")
         waypoints.append({**home(), **dict(zip(JOINTS, joints)), **dict(zip((GRIPPER,), gripper))})
     return waypoints
 
 
-def script_walk(waypoints: list[dict], step_deg: float, cap_deg: float):
+def script_walk(waypoints: list[dict], step_deg: float, cap_deg: float | None):
     """Endless targets: walk to each waypoint at step_deg per call, then on to the next, and around again."""
     target, index = home(), 0
     while True:

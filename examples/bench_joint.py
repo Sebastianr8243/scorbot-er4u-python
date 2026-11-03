@@ -296,7 +296,7 @@ class OpenCommand:
 
 
 def connect_and_home(robot, write, rec, prompt, command: OpenCommand, declined_after_home: str,
-                     *, inch: bool = False):
+                     *, inch: bool = False, vendor: bool = False):
     """Connected robot to a home the operator accepted. Returns the home state.
 
     Every prompt, row and LED step here is shared by the jog and the stream
@@ -311,7 +311,9 @@ def connect_and_home(robot, write, rec, prompt, command: OpenCommand, declined_a
     observe_leds("after_connect", write, rec,
                  expect_motors="off", expect_power="green",
                  require_expected=True)
-    if inch:
+    if vendor:
+        print("Vendor Home: confirm jaws empty and the wrist and gripper path clear before typing HOME.")
+    elif inch:
         print("Inch homing: the arm may start in any pose. It moves shoulder, elbow and base "
               "a degree at a time to find each switch (up to 30, 30 and 100 degrees each way). "
               "Start the arm within a few tens of degrees of its home pose: with the elbow and "
@@ -329,7 +331,10 @@ def connect_and_home(robot, write, rec, prompt, command: OpenCommand, declined_a
     # A contradictory or unsure LED cannot lead to homing.
     observe_leds("after_enable", write, rec, expect_motors="lit",
                  expect_power="green", require_expected=True)
-    if inch:
+    if vendor:
+        command.start("home", {"method": "vendor", "jaws_empty": True, "wrist_clear": True})
+        robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
+    elif inch:
         command.start("home", {"method": "inch", "operator_at_stop": True})
         robot.home_inch(operator_at_stop=True)
     else:
@@ -337,9 +342,10 @@ def connect_and_home(robot, write, rec, prompt, command: OpenCommand, declined_a
         robot.home(start_position_confirmed=True)
     command_id = command.take()
     home_state = robot.get_state()
-    write("home_complete", state=asdict(home_state), **({"method": "inch"} if inch else {}))
+    write("home_complete", state=asdict(home_state),
+          **({"method": "vendor"} if vendor else {"method": "inch"} if inch else {}))
     rec.log_command_result(command_id, "completed",
-                           completion_source="home_inch() returned" if inch
+                           completion_source="vendor_home() returned" if vendor else "home_inch() returned" if inch
                            else "home() returned")
     rec.log_state(home_state)
     home_observation = input("Describe the physical home pose, motion, and controller indicators: ").strip()
@@ -459,7 +465,7 @@ def _run() -> int:
             with robot_class(log_path=events, robot_id=args.robot_id) as robot:
                 connect_and_home(robot, write, rec, prompt, command,
                                  "stopped after homing; no jog requested",
-                                 inch=args.inch_home)
+                                 inch=args.inch_home, vendor=not args.inch_home)
                 preview_state = robot.get_state()
                 preview = robot.preview_jog(
                     args.joint, args.delta, speed=args.speed,

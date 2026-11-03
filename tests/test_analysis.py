@@ -17,8 +17,8 @@ def record_sim_session(root, jogs=(("base", 1.0), ("base", -1.0)), data_source="
             SimulatedScorbot() as robot:
         rec.log_state(robot.get_state())
         robot.enable()
-        cid = rec.log_command("home", {"start_position_confirmed": True})
-        robot.home(start_position_confirmed=True)
+        cid = rec.log_command("home", {"method": "vendor"})
+        robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
         rec.log_command_result(cid, "completed")
         rec.log_state(robot.get_state())
         for joint, delta in jogs:
@@ -441,7 +441,7 @@ class CrashAuditTests(unittest.TestCase):
             robot = SimulatedScorbot(log_path=log, command_timeout=5.0).connect()
             try:
                 robot.enable()
-                robot.home(start_position_confirmed=True)
+                robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
                 robot.sim.inject("worker_crash")
                 with self.assertRaises(ScorbotError) as caught:
                     robot.jog_joint("base", 1.0)

@@ -60,7 +60,7 @@ REAL_ARM_REFUSED = ("The LeRobot plugin is simulator-only (simulate=true). Use p
 @dataclass
 class ScorbotRobotConfig(RobotConfig):
     simulate: bool = False          # must be true: the real arm is refused
-    travel_cap_deg: float = 2.0     # most degrees from home, per joint
+    travel_cap_deg: float | None = None  # optional extra bound; vendor windows by default
     speed_pct: float = 25.0         # stream speed, percent of the vendor's MaxSpeed (1 to 100)
     step_limit: str = "fixed"       # "speed": the step per action follows speed_pct (PolicyArm)
     log_dir: Path = Path("rehearsal/lerobot")

@@ -13,7 +13,7 @@ def ready_robot(**kwargs):
     from scorbot.simulated import SimulatedScorbot
     robot = SimulatedScorbot(**kwargs).connect()
     robot.enable()
-    robot.home(start_position_confirmed=True)
+    robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
     return robot
 
 
@@ -76,7 +76,7 @@ class SimulatedRobotTests(unittest.TestCase):
             robot = SimulatedScorbot(controller=controller, log_path=log).connect()
             try:
                 robot.enable()
-                robot.home(start_position_confirmed=True)
+                robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
                 robot.jog_joint("base", 1.0)
             finally:
                 robot.disconnect()
@@ -161,6 +161,7 @@ class SimulatedRobotTests(unittest.TestCase):
         from scorbot.simulated import SimulatedController
         controller = SimulatedController(home_counts={"base": 65500})
         robot = ready_robot(controller=controller)
+        controller.counts["base"] = 65500  # inject overflow after vendor Home zeroes counters
         try:
             with self.assertRaises(ScorbotError):
                 robot.jog_joint("base", 1.0)

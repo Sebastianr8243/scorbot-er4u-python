@@ -21,7 +21,7 @@ the controller's.
 
 from math import sqrt, trunc
 
-from . import limits, source_model, vendor_home as vh, vendor_model
+from . import limits, nominal, source_model, vendor_home as vh, vendor_model
 from .vendor_profile import DEFAULT_ACCEL_FRACTION, DEFAULT_JERK_FRACTION, VendorProfile
 
 TICK_SECONDS = 24.0 / 1000
@@ -96,9 +96,9 @@ def run_move(first, ramp, *, lead_limit_deg):
             if run.reply.emergency:
                 raise vh.HomeError(vh.ERR_EMERGENCY, "emergency input active")
             run.check_impact(0)
-            problem = source_model.pose_limit_problem(dict(zip(limits.RECORDED_MOTORS, counts)))
+            problem = nominal.vendor_limit_problem(dict(zip(limits.RECORDED_MOTORS, counts)))
             if problem:
-                raise vh.HomeError(vh.ERR_TRAVEL, f"joint limit: {problem}")
+                raise vh.HomeError(vh.ERR_TRAVEL, f"vendor limit (USBC.dll EncLimit / ROB_4u.INI), not measured: {problem}")
             lead = [abs(a - b) / source_model.COUNTS_PER_DEGREE[m]
                     for m, a, b in zip(limits.RECORDED_MOTORS, counts, run.reply.counts)]
             if any(value > lead_limit_deg for value in lead[:3]) or sum(lead[3:]) > 2 * lead_limit_deg:

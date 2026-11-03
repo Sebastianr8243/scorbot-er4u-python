@@ -9,7 +9,7 @@ from scorbot.robot import Scorbot
 
 class OneHomeTests(unittest.TestCase):
     def test_every_module_uses_the_same_travel_cap(self):
-        self.assertEqual(limits.TRAVEL_CAP_DEG, 180.0)
+        self.assertIsNone(limits.TRAVEL_CAP_DEG)
         for name, value in (("lab session", lab_session.TRAVEL_CAP_DEG),
                             ("stream", Scorbot.STREAM_TRAVEL_CAP_MAX_DEG)):
             self.assertIs(value, limits.TRAVEL_CAP_DEG, name)

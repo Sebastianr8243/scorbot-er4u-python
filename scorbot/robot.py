@@ -13,7 +13,7 @@ import sys
 import threading
 import traceback
 
-from . import joint_move, limits, source_model
+from . import joint_move, limits, nominal, vendor_model
 from .calibration import load_calibration, signed_count_delta
 from .errors import MotionStopped, ScorbotError, _WorkerCrashed
 from .gripper import GripperMixin, GripperMove  # noqa: F401  (GripperMove stays importable from here)
@@ -642,8 +642,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
     def _jog_joint(self, joint: str, delta_degrees: float, speed: int, *, homing: bool = False,
                    wrist_ok: bool = False):
         """``jog_joint``. ``homing`` is for ``home_inch`` only: it lets a jog run before any
-        home exists, so no check that needs a home (calibrated soft limits, the source
-        model's joint limits) applies. ``wrist_ok`` is for the coupled joint moves only (pre-home,
+        home exists, so no check that needs a home (calibrated soft limits, the
+        vendor limits) applies. ``wrist_ok`` is for the coupled joint moves only (pre-home,
         homing, park): it lets the wrist pitch jog through, never the roll. Every other check,
         and the stop, are unchanged."""
         with self._motion_lock:
@@ -734,51 +734,30 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             return after
 
     def _refuse_past_joint_limit(self, before: RobotState, deltas: dict) -> None:
-        """Refuse a jog that would pass a joint limit of the source model.
+        """Vendor bounds in absolute counts; existing violations may shrink, never grow.
 
-        Only the shoulder's upper limit is within reach of small jogs: home
-        has the upper arm about 120 degrees up, and the limit is 124. From
-        ``source_model.py``, not measured: it assumes the session home is the
-        vendor's home pose. Nothing is queued. An arm already past a limit may be
-        jogged back toward it, never further out. If the arm cannot be placed
-        relative to home the check cannot be made: that latches a fault.
+        Only vendor Home establishes the zero. An unplaceable arm faults the session.
+        Vendor defaults are not measured on our arm; a refusal queues no motion.
         """
-        if self._home_counts is None:
-            raise ScorbotError("No home counts to check the joint limits against")
+        if not (self._homed and self._gripper_homed):
+            raise ScorbotError("Run vendor Home before jogging with vendor limits")
         try:
-            now = {m: signed_count_delta(before.encoder_counts[m], self._home_counts[m])
-                   for m in source_model.MOTORS}
-        except (KeyError, ValueError) as exc:
-            self._latch_fault(f"Cannot place the arm relative to home to check its joint "
-                              f"limits: {exc!r}")
+            now = {m: signed_count_delta(self._home_counts[m], 0)
+                      + signed_count_delta(before.encoder_counts[m], self._home_counts[m])
+                   for m in limits.RECORDED_MOTORS}
+        except (KeyError, TypeError, ValueError) as exc:
+            self._latch_fault(f"Cannot place the arm relative to vendor Home to check its "
+                              f"vendor limit (USBC.dll EncLimit / ROB_4u.INI): {exc!r}")
             raise ScorbotError(self._fault) from exc
-        for motor, (low, high) in source_model.limit_window().items():
-            if not deltas.get(motor):
-                continue
-            target = now[motor] + deltas[motor]
-            if max(low - target, target - high, 0) > max(low - now[motor], now[motor] - high, 0):
-                raise ValueError(
-                    f"Jog would take the {motor} past its joint limit ({target:+d} counts "
-                    f"from home; allowed {low:+.0f} to {high:+.0f}, from the source model, "
-                    "not measured)")
-        # The whole pose: the elbow's angle follows the shoulder's count and
-        # the wrist pitch follows both while the wrist motors stand still, so a
-        # count inside its own window can put another joint past its limit.
-        after = dict(now)
-        for motor, delta in deltas.items():
-            if motor in after:
-                after[motor] += delta
-        was = source_model.pose_limit_excess(now)
-        worse = {joint: over for joint, over in source_model.pose_limit_excess(after).items()
-                 if over > was.get(joint, 0.0) + 1e-6}
-        if worse:
-            raise ValueError(
-                "Jog would take the pose past a joint limit: "
-                + "; ".join(f"{joint} {over:.1f} degrees past its "
-                            f"{source_model.LIMITS_DEG[joint][0]:g} to "
-                            f"{source_model.LIMITS_DEG[joint][1]:g} degree limit"
-                            for joint, over in worse.items())
-                + " (from the source model, not measured)")
+        after = {m: value + deltas.get(m, 0) for m, value in now.items()}
+        problem = nominal.vendor_limit_problem(after)
+        if problem:
+            was = nominal.vendor_limit_excess(now)
+            worse = any(over > was.get(name, 0.0) + 1e-6
+                        for name, over in nominal.vendor_limit_excess(after).items())
+            if worse:
+                raise ValueError("Jog would pass a vendor limit (USBC.dll EncLimit / ROB_4u.INI), "
+                                 f"not measured: {problem}")
 
     def get_joint_angles(self) -> dict[str, float]:
         """Return calibrated angles only after a verified home on this arm."""
@@ -826,10 +805,11 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             if len(target) != 5 or any(isinstance(v, bool) or not isinstance(v, (int, float))
                                        or not math.isfinite(v) for v in target):
                 raise ValueError("Target needs five finite joint radians: base, shoulder, elbow, pitch, roll")
-            angles = {name: sign * math.degrees(value)
-                      for name, sign, value in zip(source_model.JOINTS, (1, -1, -1, -1, 1), target)}
-            if source_model.outside_limits(angles):
-                raise ValueError("Target exceeds the source model's joint limits")
+            counts = vendor_model.joints_to_counts(dict(zip(vendor_model.JOINTS, target)))
+            problem = nominal.vendor_limit_problem(counts)
+            if problem:
+                raise ValueError("Target exceeds vendor limit (USBC.dll EncLimit / ROB_4u.INI), "
+                                 f"not measured: {problem}")
             start = self._vendor_joint_target or vendor_move.home_joints()
             ramp = vendor_move.setpoints(start, target, total_ms)
             if total_ms < vendor_move.accel_bound_ms(start, target):

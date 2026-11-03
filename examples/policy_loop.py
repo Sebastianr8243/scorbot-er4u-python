@@ -10,7 +10,7 @@ returns to home. The policy is any function ``policy(obs) -> {motor: delta_deg} 
     --policy-file my_policy.py              your own ``policy(obs)``; obs is documented in OBS below
 
 Streaming has never run on the arm: the period, the limits and the stop sequence are priors, so
-the defaults are tight (travel cap 2 degrees, 0.5 degree per tick, 5 Hz, 20 ticks). Run
+the defaults are 0.5 degree per tick, 5 Hz, 20 ticks, with vendor travel windows only. Run
 bench_joint.py and bench_stream.py first. With --simulate the same procedure runs against the
 simulated controller; every record is then labelled simulated. Not an emergency stop: the
 physical stop is authoritative.
@@ -43,8 +43,7 @@ EXIT_TRIAL_FAILED = 1
 OperatorDeclined = bench.OperatorDeclined
 observe_leds = bench.observe_leds
 
-# Tight on purpose, like bench_stream: nothing here is measured on the arm. Raise with lab evidence.
-MAX_TRAVEL_CAP_DEG = 10.0
+# Nothing here is measured on the arm. Extra travel caps are caller options.
 RATE_RANGE_HZ = (1.0, 10.0)
 MAX_STEPS = 200
 TARGET_REFRESH_S = 0.1          # re-send the target between ticks: the stream holds after 0.5 s of silence
@@ -188,7 +187,7 @@ def _run() -> int:
     parser.add_argument("--rate-hz", type=float, default=5.0,
                         help="control rate, %g to %g" % RATE_RANGE_HZ)
     parser.add_argument("--travel-cap-deg", type=float, default=DEFAULT_TRAVEL_CAP_DEG,
-                        help=f"most degrees from home, up to {MAX_TRAVEL_CAP_DEG:g}")
+                        help="optional positive travel bound from vendor Home; default: vendor windows only")
     parser.add_argument("--acknowledge-supervised-motion", action="store_true")
     parser.add_argument("--inch-home", action="store_true",
                         help="Home by inching (any start pose near home) instead of the legacy search")
@@ -202,8 +201,9 @@ def _run() -> int:
         parser.error(f"--steps must be 1 through {MAX_STEPS}")
     if not math.isfinite(args.rate_hz) or not RATE_RANGE_HZ[0] <= args.rate_hz <= RATE_RANGE_HZ[1]:
         parser.error("--rate-hz must be %g through %g" % RATE_RANGE_HZ)
-    if not math.isfinite(args.travel_cap_deg) or not 0 < args.travel_cap_deg <= MAX_TRAVEL_CAP_DEG:
-        parser.error(f"--travel-cap-deg must be above 0 and at most {MAX_TRAVEL_CAP_DEG:g}")
+    if args.travel_cap_deg is not None and (not math.isfinite(args.travel_cap_deg)
+                                            or args.travel_cap_deg <= 0):
+        parser.error("--travel-cap-deg must be a positive finite number")
     bench.check_session_labels(parser, args)
     if find_spec("ruckig") is None:
         parser.error("Streaming needs the planning extra: uv sync --locked --extra windows "
@@ -214,7 +214,7 @@ def _run() -> int:
         parser.error(f"cannot load the policy: {exc}")
     if args.policy:      # a goal past the cap is clamped anyway; say so now, not mid-run
         for motor, goal in parse_reach(args.policy.partition(":")[2]).items():
-            if abs(goal) > args.travel_cap_deg:
+            if args.travel_cap_deg is not None and abs(goal) > args.travel_cap_deg:
                 parser.error(f"goal {motor}={goal:g} is past --travel-cap-deg {args.travel_cap_deg:g}")
     output, events = bench.new_output_paths(parser, args)
     try:    # degrees to counts, with the sign a bench jog of that joint has: planned offline, no USB
@@ -246,7 +246,7 @@ def _run() -> int:
             with robot_class(log_path=events, robot_id=args.robot_id) as robot:
                 home_state = bench.connect_and_home(
                     robot, write, rec, prompt, command,
-                    "stopped after homing; no policy run requested", inch=args.inch_home)
+                    "stopped after homing; no policy run requested", inch=args.inch_home, vendor=not args.inch_home)
                 plan = dict(policy=policy_name, steps=args.steps, rate_hz=args.rate_hz,
                             travel_cap_deg=args.travel_cap_deg, step_max_deg=STEP_MAX_DEG,
                             lead_margin_deg=LEAD_MARGIN_DEG, counts_per_degree=per_degree)

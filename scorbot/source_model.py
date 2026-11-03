@@ -7,15 +7,10 @@ counts and joint angles, read from ``USBC.dll`` (``vendor_model.py``), with
 the vendor's parameter files. It reproduces the home position the USNA
 ScorBot Toolbox publishes to within 0.3 mm (``tests/test_source_model.py``).
 
-This tier was allowed to drive motion on 2026-10-05, **inside the
-travel cap only** (``limits.TRAVEL_CAP_DEG`` from the session home, base,
-shoulder and elbow), until a lab acceptance run confirms or corrects it.
-On 2026-10-06 the cap was lifted from 10 to 180 degrees without that
-run, so the joint limits below are the real travel bound and the whole pose
-is checked (``pose_limit_excess``). ``outside_window`` is the simulator's
-check. It is a model of the arm, not a
-measurement of ours: a joint may be a little off in scale or zero, and what
-it assumes about our arm is listed below.
+This tier is a display and modelling reference, not a motion guard. Stack 2
+checks absolute vendor Home counts with nominal.vendor_limit_problem instead.
+The narrower LIMITS_DEG below remain for reference; they are not measured on
+our arm and do not refuse or clamp motion.
 
 Angles are degrees in the convention of the USNA toolboxes (their BSEPR):
 base, shoulder, elbow, pitch, roll, each relative to the previous link, with
@@ -39,7 +34,7 @@ from __future__ import annotations
 import functools
 import math
 
-from . import limits, vendor_model
+from . import limits, nominal, vendor_model
 
 TIER = "sources"
 STATUS = ("from sources (vendor DLL formula and parameter files; USNA ScorBot Toolbox "
@@ -118,7 +113,7 @@ def pose_for_arm(*, base: float | None = None, shoulder: float | None = None,
 
 
 def limit_window() -> dict[str, tuple[float, float]]:
-    """Counts from home at the joint limits, for the motors whose own count sets them.
+    """Reference counts from home at the source limits; never a motion guard.
 
     That is the base and the shoulder. The elbow's angle also depends on the
     shoulder's count, so its limit has to be checked on a pose.
@@ -132,7 +127,7 @@ def limit_window() -> dict[str, tuple[float, float]]:
 
 
 def motion_window() -> dict[str, tuple[float, float]]:
-    """Counts from home each arm motor may be sent to under this tier.
+    """Reference motor windows for modelling; never a motion guard.
 
     The travel cap either side of home, cut short where a joint limit is
     nearer. Only the shoulder's is: home has the upper arm 120 degrees up and
@@ -145,14 +140,15 @@ def motion_window() -> dict[str, tuple[float, float]]:
     at_limits = limit_window()
     window = {}
     for motor in limits.ARM_MOTORS:
-        cap = limits.TRAVEL_CAP_DEG * COUNTS_PER_DEGREE[motor]
+        cap = (math.inf if limits.TRAVEL_CAP_DEG is None else
+               limits.TRAVEL_CAP_DEG * COUNTS_PER_DEGREE[motor])
         low, high = at_limits.get(motor, (-cap, cap))
         window[motor] = (max(-cap, low), min(cap, high))
     return window
 
 
 def outside_window(angles) -> dict[str, int]:
-    """Motors a pose would take outside what this tier may command; empty if none.
+    """Reference diagnostics for a pose; never used to refuse a motion command.
 
     Arm motors must stay inside the travel cap. Wrist motors must stay at
     home (within the drift band): wrist motion is disabled until measured.
@@ -231,7 +227,7 @@ def angles_from_xyzpr(x: float, y: float, z: float, pitch: float,
 
 # -- limits -----------------------------------------------------------------
 #
-# The narrower, joint by joint, of two sources:
+# Reference only; never a motion guard. The narrower, joint by joint, of two sources:
 #   - what the vendor's controller accepted when the USNA toolbox stepped a
 #     degree at a time (ScorBSEPRLimits.m, which calls them "an estimate"):
 #     base -133.77/175.81, shoulder -28.28/126.30, elbow -140.80/-5.16,
@@ -270,8 +266,8 @@ def limit_excess(angles) -> dict[str, float]:
 def pose_limit_excess(counts_from_home) -> dict[str, float]:
     """``limit_excess`` for the pose these motor counts from home give.
 
-    Counts left out count as home. This is the whole-pose check the real arm
-    needs: the elbow's angle follows the shoulder's count, and the wrist
+    Reference only, not a motion guard. Counts left out count as home.
+    The elbow's angle follows the shoulder's count, and the wrist
     pitch follows the shoulder and elbow while the wrist motors stand still,
     so a count that is inside its own window can still put another joint past
     its limit. Wrist motors left out are taken at home, as for a stream.
@@ -285,14 +281,13 @@ def pose_limit_excess(counts_from_home) -> dict[str, float]:
 def home_window() -> dict[str, tuple[int, int]]:
     """Counts each arm motor may move from home alone, by the whole-pose limits.
 
-    The other motors stay at home. Found by bisection from home out to the
-    travel cap. This is the range to show a person (sliders, messages); every
-    target is still checked with ``pose_limit_excess``, because the window of
-    one motor moves with the others.
+    The other motors stay at home. Bisection uses the vendor encoder span
+    as its search bracket. Display only (sliders, messages), never a motion guard.
     """
     window = {}
     for motor in limits.ARM_MOTORS:
-        cap = int(limits.TRAVEL_CAP_DEG * COUNTS_PER_DEGREE[motor])
+        cap = int(max(abs(v) for v in (nominal.VENDOR_ENCODER_SOFT_LIMITS[motor].minimum,
+                                         nominal.VENDOR_ENCODER_SOFT_LIMITS[motor].maximum)))
         edges = []
         for sign in (-1, 1):
             low, high = 0, cap

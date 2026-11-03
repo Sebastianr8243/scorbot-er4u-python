@@ -124,7 +124,7 @@ class BenchStreamTests(unittest.TestCase):
         self.assertEqual((session["data_source"], session["motor"]), ("simulated", "base"))
         self.assertTrue(session["motion_source_sha256"])
         self.assertEqual(plan["target_counts_from_home"], 142)
-        self.assertEqual(plan["travel_cap_deg"], 2.0)
+        self.assertIsNone(plan["travel_cap_deg"])
         result = next(r for r in rows if r["type"] == "after_stream")["result"]
         self.assertTrue(result["reached_target"])
         self.assertTrue(result["returned_home"])

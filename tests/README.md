@@ -111,3 +111,5 @@ Shared helpers: `desk_wire.py` (a fake USB wire that records the real `Scorbot`'
 Match the neighbors: `unittest.TestCase`, temp dirs via `tempfile`, imports at module top except where a test asserts on import behavior (`test_simulated.py` imports inside tests so that a subprocess check of `sys.modules` stays meaningful). Put pure-arithmetic checks in `test_legacy_properties.py` only if they need `hypothesis`; otherwise in the module of the code under test.
 
 Ruff: `ruff check --select F scorbot scripts examples tests` is clean; keep it clean. Default rules flag `l` as a variable name in `test_simulated.py`; that is accepted noise.
+
+| `test_one_limit.py` | Vendor-only jog and joint-move travel bounds, recovery, vendor Home zero, optional example caps; simulator and pure checks only |

@@ -144,7 +144,8 @@ class VendorLimitsAndContradictionTests(unittest.TestCase):
         encoder = nominal.VENDOR_ENCODER_SOFT_LIMITS
         self.assertEqual({name: (r.minimum, r.maximum) for name, r in encoder.items()},
                          {"base": (-25000, 20000), "shoulder": (-18000, 1500),
-                          "elbow": (-25000, 20000), "wrist_pitch": (-15000, 15000)})
+                          "elbow": (-25000, 20000), "wrist_motor_1": (-15000, 15000),
+                          "wrist_motor_2": (-1000000, 1000000), "gripper": (-200, 6000)})
         for limit in [*joint.values(), *encoder.values()]:
             with self.subTest(limit=limit):
                 self.assertEqual(limit.status, "vendor default, not measured")
@@ -204,8 +205,9 @@ class VendorLimitReportTests(unittest.TestCase):
                          ("below_min", "above_max"))
         self.assertEqual(motors["base"]["vendor_min"], -25000)
         self.assertEqual(motors["wrist_motor_1"], {"target_from_home": 5,
-                                                   "same_sign": "no vendor limit",
-                                                   "flipped_sign": "no vendor limit"})
+                                                   "vendor_min": -15000, "vendor_max": 15000,
+                                                   "same_sign": "inside",
+                                                   "flipped_sign": "inside"})
         unknown = nominal.vendor_limit_report({"base": None})["motors"]["base"]
         self.assertEqual((unknown["same_sign"], unknown["flipped_sign"]),
                          ("indeterminate", "indeterminate"))

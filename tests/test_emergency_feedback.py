@@ -53,8 +53,9 @@ class MotionEmergencyTests(SimulatedRobotCase):
         robot = DryScorbot()
         with robot:
             robot.enable()
+            # The fake plant starts at vendor zero; this test isolates the worker's emergency path.
             robot._home_counts = robot.get_state().encoder_counts
-            robot._homed = True
+            robot._homed = robot._gripper_homed = True
             original = robot.dry_link.plant.reply
             pulsed = []
 

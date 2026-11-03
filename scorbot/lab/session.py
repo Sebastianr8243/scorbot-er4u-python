@@ -2,7 +2,7 @@
 
 Every motion goes through Scorbot's own gates (enable, home, jog_joint) and its
 fault latch. The session only adds stricter limits: 1 degree steps, base,
-shoulder and elbow only, a net travel cap per joint from home (limits.TRAVEL_CAP_DEG), and an
+shoulder and elbow only, an optional extra travel cap (None by default), and an
 armed state that anything unexpected clears. Every arming asks for the MOTORS
 LED, because the controller can cut motor power by itself (e-stop, over-current,
 time-out) and nothing the SDK reads shows it. The physical stop is the stop.
@@ -592,7 +592,7 @@ class LabSession:
     def _prepare(self, joint, delta):
         """Travel cap, drift check and preview for one step; None if refused or failed."""
         self.joint = joint
-        if abs(self.travel[joint] + delta) > TRAVEL_CAP_DEG + 1e-9:
+        if TRAVEL_CAP_DEG is not None and abs(self.travel[joint] + delta) > TRAVEL_CAP_DEG + 1e-9:
             reason = (f"{joint} would be {self.travel[joint] + delta:+g} degrees from home; "
                       f"the session cap is {TRAVEL_CAP_DEG:g}")
             self._write("jog_refused", joint=joint, delta_deg=delta, reason=reason)

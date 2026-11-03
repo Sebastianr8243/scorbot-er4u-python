@@ -14,7 +14,7 @@ from scorbot.simulated import SimulatedController
 
 PROFILE = LabProfile("lab-er4u-1", "A-12", "C-3", "WinUSB", "SR")
 CHECKLIST = ["y", "y", "y", "y"]
-TO_LOOP = CHECKLIST + ["n", "g", "pose matches photo", "HOME", "y", "g", "all axes homed", "y"]
+TO_LOOP = CHECKLIST + ["n", "g", "pose matches photo", "EMPTY", "CLEAR", "HOME", "y", "g", "all axes homed", "y"]
 OBS = ["t", "n", ""]                    # toward, no other joint, no note
 ARM = ["a", "door", "y", "g", "ARM"]  # first arming names the landmark; LEDs every time
 REARM = ["a", "y", "g", "ARM"]
@@ -46,7 +46,7 @@ class Clock:
 class LabSessionTests(unittest.TestCase):
     def setUp(self):
         # These tests exercise the session's cap mechanism, not its production
-        # value (limits.TRAVEL_CAP_DEG, lifted from 10 to 180 on 2026-10-06).
+        # default (None: vendor windows only).
         patcher = mock.patch("scorbot.lab.session.TRAVEL_CAP_DEG", 10.0)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -60,6 +60,7 @@ class LabSessionTests(unittest.TestCase):
 
     def run_session(self, answers, *, stop_on_key=True, data_source="simulated",
                     **session_kwargs):
+        session_kwargs.setdefault("vendor_home", not session_kwargs.get("inch_home", False))
         self.op = ScriptedOperator(answers)
         self.op.stop_on_key = stop_on_key
         session = LabSession(
@@ -116,7 +117,7 @@ class LabSessionTests(unittest.TestCase):
         code = self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + FINISH)
         self.assertEqual(code, EXIT_OK)
         self.assertEqual(len(self.jog_commands()), 1)
-        self.assertGreater(len(self.ctrl.homing_trace), 0)
+        self.assertGreater(len(self.ctrl.vendor_packets), 0)
         self.assertEqual(self.of("summary")[0]["problems"], 0)
         self.assertIn("SIMULATED panel: MOTORS lit, POWER green", self.op.shown)
 
@@ -422,7 +423,8 @@ class LabSessionTests(unittest.TestCase):
         self.assertNotIn("PARK", shown)
 
     def test_the_legacy_home_is_still_the_default(self):
-        code = self.run_session(TO_LOOP + FINISH)
+        code = self.run_session(CHECKLIST + ["n", "g", "pose matches photo", "HOME", "y", "g",
+                                                      "all axes homed", "y"] + FINISH, vendor_home=False)
         self.assertEqual(code, EXIT_OK)
         self.assertIn(18, {c[0] for c in self.ctrl.commands if c})
         self.assertNotIn("method", self.of("home_complete")[0])
@@ -462,8 +464,12 @@ class LabSessionTests(unittest.TestCase):
 
     def test_dropped_motors_rehearsal_latches_on_the_next_jog(self):
         # The operator misses the dark MOTORS LED; the next jog still fails safely.
-        self.ctrl.drop_motors_after_home = True
-        code = self.run_session(TO_LOOP + ARM + ["q", "BASE -1", "n", "g"])
+        def drop_after_home():
+            self.ctrl.motors_on = False
+            return "all axes homed"
+        answers = list(TO_LOOP)
+        answers[-2] = drop_after_home
+        code = self.run_session(answers + ARM + ["q", "BASE -1", "n", "g"])
         self.assertEqual(code, EXIT_FAILED)
         self.assertEqual(len(self.of("jog_failed")), 1)
         self.assertFalse(self.jog_commands()[1:])
@@ -500,7 +506,7 @@ class LabSessionTests(unittest.TestCase):
                           robot_factory=lambda **kw: BadPreview(controller=self.ctrl, **kw),
                           data_source="simulated", log_path=self.root / "s.jsonl",
                           session_root=self.root / "sessions", clock=self.clock,
-                          sleep=lambda s: None).run()
+                          sleep=lambda s: None, vendor_home=True).run()
         self.rows = [json.loads(line) for line in
                      (self.root / "s.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertEqual(code, EXIT_FAILED)

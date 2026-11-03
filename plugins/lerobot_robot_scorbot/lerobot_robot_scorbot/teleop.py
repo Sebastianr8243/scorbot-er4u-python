@@ -28,7 +28,7 @@ from .teleop_map import DEFAULT_SCRIPT, check_limits, home, keyboard_to_target, 
 @dataclass
 class ScorbotJointKeysConfig(KeyboardEndEffectorTeleopConfig):
     step_deg: float = STEP_MAX_DEG                  # one loop with a key held moves the target this far
-    travel_cap_deg: float = DEFAULT_TRAVEL_CAP_DEG  # the target never leaves this band around home
+    travel_cap_deg: float | None = DEFAULT_TRAVEL_CAP_DEG  # optional extra band around vendor Home
 
     def __post_init__(self):
         check_limits(self.step_deg, self.travel_cap_deg)
@@ -58,7 +58,7 @@ class ScorbotJointKeys(KeyboardEndEffectorTeleop):
 class ScorbotJointScriptedConfig(TeleoperatorConfig):
     script: str = DEFAULT_SCRIPT        # "base,shoulder,elbow[,pitch,roll[,gripper]];..." absolute, repeated
     step_deg: float = STEP_MAX_DEG
-    travel_cap_deg: float = DEFAULT_TRAVEL_CAP_DEG
+    travel_cap_deg: float | None = DEFAULT_TRAVEL_CAP_DEG
 
     def __post_init__(self):
         check_limits(self.step_deg, self.travel_cap_deg)

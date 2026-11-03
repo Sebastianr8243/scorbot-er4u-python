@@ -257,7 +257,7 @@ class SdkStreamTests(SimulatedRobotCase):
             self.assertTrue(self.follow(stream, robot, {"base": 100}))
             sent = len(robot.sim.stream_sent)
             with self.assertRaises(StreamRefused):
-                stream.set_target({"base": 19000})         # past the base's joint limit
+                stream.set_target({"base": 21000})         # past the base's joint limit
             with self.assertRaises(StreamRefused):
                 stream.set_target({"wrist_motor_1": 5})
             self.assertTrue(self.follow(stream, robot, {"base": 120}))
@@ -281,13 +281,13 @@ class SdkStreamTests(SimulatedRobotCase):
         # -2366. Neither is a limit of the elbow's count alone.
         robot = self.robot()
         with robot.start_stream() as stream:
-            for refused in ({"elbow": 5300}, {"elbow": -2500}):
+            for refused in ({"elbow": 7500}, {"elbow": -3100}):
                 with self.subTest(target=refused), self.assertRaises(StreamRefused) as caught:
                     stream.set_target(refused)
-                self.assertIn("joint limit", str(caught.exception))
+                self.assertIn("vendor limit (USBC.dll EncLimit / ROB_4u.INI)", str(caught.exception))
             # inside their own windows, but together the elbow angle is past -5.16
             with self.assertRaises(StreamRefused):
-                stream.set_target({"shoulder": -10000, "elbow": -2000})
+                stream.set_target({"shoulder": -17000, "elbow": -10000})
             self.assertTrue(self.follow(stream, robot, {"elbow": 400}))
             self.assertTrue(self.follow(stream, robot, {"elbow": -400}))
         self.assertIsNone(robot._fault)
@@ -363,7 +363,7 @@ class SdkStreamTests(SimulatedRobotCase):
         robot = self.robot()
         with robot.start_stream(wrist=True) as stream:
             with self.assertRaises(StreamRefused) as caught:
-                stream.set_target({"wrist_motor_1": 620, "wrist_motor_2": -620})
+                stream.set_target({"wrist_motor_1": 800, "wrist_motor_2": -800})
             self.assertIn("pitch", str(caught.exception))
             self.assertTrue(self.follow(stream, robot, {"wrist_motor_1": 280, "wrist_motor_2": -280}))
         self.assertIsNone(robot._fault)
@@ -386,7 +386,7 @@ class SdkStreamTests(SimulatedRobotCase):
         robot = self.robot()
         queued = list(robot.sim.commands)
         # A long period makes each step a jump; a long hold timeout switches the hold off.
-        for kwargs in ({"travel_cap_deg": 180.5}, {"travel_cap_deg": 0}, {"lead_limit_deg": 6},
+        for kwargs in ({"travel_cap_deg": 0}, {"lead_limit_deg": 6},
                        {"travel_cap_deg": True}, {"period_s": 1.0}, {"period_s": 0.001},
                        {"hold_timeout_s": 1e9}, {"hold_timeout_s": 0.001},
                        {"period_s": float("nan")}, {"hold_timeout_s": True}):

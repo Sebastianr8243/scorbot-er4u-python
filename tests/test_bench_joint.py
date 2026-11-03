@@ -115,8 +115,8 @@ class BenchGateTests(unittest.TestCase):
             def enable(self):
                 calls.append("enable")
 
-            def home(self, **_kwargs):
-                calls.append("home")
+            def vendor_home(self, **_kwargs):
+                calls.append("vendor_home")
 
             def jog_joint(self, *_args, **_kwargs):
                 calls.append("jog")
@@ -153,7 +153,7 @@ class BenchGateTests(unittest.TestCase):
     def test_operator_declining_home_prevents_jog(self):
         rows, _ = self.run_bench(["n", "g", "HOME", "y", "g", "looked wrong", "STOP"],
                                  "no jog requested")
-        self.assertEqual(self.calls, ["connect", "enable", "home", "disconnect"])
+        self.assertEqual(self.calls, ["connect", "enable", "vendor_home", "disconnect"])
         self.assertTrue(any(row.get("type") == "home_observation" for row in rows))
         self.assertEqual(rows[-1], {**rows[-1], "type": "operator_declined",
                                     "text": "stopped after homing; no jog requested"})

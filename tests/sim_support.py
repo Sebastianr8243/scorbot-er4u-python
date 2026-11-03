@@ -35,7 +35,7 @@ class SimulatedRobotCase(unittest.TestCase):
         self.addCleanup(self.disconnect, robot)
         robot.enable()
         if self.HOMED:
-            robot.home(start_position_confirmed=True)
+            robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
         return robot
 
     @staticmethod

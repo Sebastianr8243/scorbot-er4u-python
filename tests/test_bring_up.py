@@ -148,7 +148,9 @@ class BringUpTests(unittest.TestCase):
             ask = mock.Mock(side_effect=answers)
             result, lines, rows = self.run_ladder(options(simulate=False, online=True,
                                                          legacy_home=legacy), SimulatedScorbot, ask)
-            self.assertEqual(result, 0, lines)
+            self.assertEqual(result, 1 if legacy else 0, lines)
+            if legacy:
+                self.assertTrue(any("vendor Home" in line for line in lines))
             self.assertEqual(ask.call_count, len(answers))
             method = "legacy" if legacy else "vendor"
             complete = next(row for row in rows if row["event"] == "home_complete")

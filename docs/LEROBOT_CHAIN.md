@@ -29,7 +29,7 @@ flowchart LR
 - **Action:** a dict of absolute joint targets, `base.pos`, `shoulder.pos`, `elbow.pos`, `pitch.pos`, `roll.pos`, in degrees from this session's home (vendor counts-per-degree prior, uncalibrated), plus a binary `gripper.pos` (section 3). `so101_follower` uses the same shape plus `wrist_flex`, `wrist_roll` and `gripper.pos` (0 to 100).
 - **What LeRobot stores:** `lerobot-record` writes the action it *asked for*, not what `send_action` returned (its own TODO at the `send_action` call). Our teleoperators pre-clamp with the same `clamp`, so their stored actions match; a policy's stored or evaluated action can be ahead of what the arm got.
 - **Smoothing happens twice:** `PolicyArm.clamp` limits each call's step (a hard per-frame cut), then `StreamCore` runs Ruckig every 24 ms with velocity `speed_pct` x MaxSpeed, acceleration and jerk from the vendor's jog profile. Action chunks from a policy arrive as one target per frame; nothing interpolates between frames except Ruckig.
-- **Default reach:** `travel_cap_deg` is 2 degrees from home. Any real demo needs it raised; the speed below only matters once it is.
+- **Default reach:** vendor windows only after vendor Home, not measured on our arm. `travel_cap_deg=None`; positive caller caps are optional with no imposed ceiling.
 
 Speed ceiling, degrees per second, with the vendor priors (MaxSpeed 6500 counts/s; base 141.9 and shoulder or elbow 113.5 counts per degree from `scorbot/nominal.py`). The arm gets the lower of PolicyArm's step and the stream's velocity limit. All desk arithmetic, unverified:
 

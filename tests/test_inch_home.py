@@ -226,7 +226,8 @@ class HomeInchTests(SimulatedRobotCase):
         self.assertAlmostEqual(now["wrist_motor_1"] + now["wrist_motor_2"], 0, delta=3)
         self.assertIsNotNone(robot._home_counts)
         self.assertIn("home_complete", self.events())
-        robot.jog_joint("base", 1.0)                       # an ordinary jog works afterwards
+        with self.assertRaisesRegex(ScorbotError, "vendor Home"):
+            robot.jog_joint("base", 1.0)  # inch home cannot establish vendor zero
 
     def test_it_sends_only_motors_on_and_legacy_jogs(self):
         robot = self.inch_robot(shoulder=-3000, elbow=3000, base=3000)

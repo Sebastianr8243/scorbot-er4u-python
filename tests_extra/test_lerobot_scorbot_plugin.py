@@ -34,6 +34,12 @@ def sim_config(tmp, confirmed=True, **kw):
 
 
 class RobotShapeTests(unittest.TestCase):
+    def test_no_default_travel_cap_and_optional_caps_have_no_ceiling(self):
+        self.assertIsNone(ScorbotRobotConfig().travel_cap_deg)
+        check_limits(0.5, None)
+        check_limits(0.5, 1000)
+        self.assertEqual(parse_script("90,0,0")[0]["base"], 90)
+
     def test_the_real_arm_is_refused(self):
         with self.assertRaises(ValueError) as caught:
             ScorbotRobot(ScorbotRobotConfig())
@@ -196,7 +202,7 @@ class TeleopMapTests(unittest.TestCase):
         self.assertEqual(tuple(to_action(home())), KEYS)
 
     def test_limits(self):
-        for step, cap in ((0, 2), (0.6, 2), (0.5, 0), (0.5, 2.1), (math.nan, 2), (0.5, math.inf), (True, 2)):
+        for step, cap in ((0, 2), (0.6, 2), (0.5, 0), (math.nan, 2), (0.5, math.inf), (True, 2)):
             with self.subTest(step=step, cap=cap), self.assertRaises(ValueError):
                 check_limits(step, cap)
         check_limits(0.5, 2.0)
@@ -215,7 +221,7 @@ class TeleopMapTests(unittest.TestCase):
                      "0,0,0,0,0,101", "0,0,0,0,0,-1", "0,0,0,0,0,nan",
                      "1,0,0;;0,0,0"):
             with self.subTest(text=text), self.assertRaises(ValueError):
-                parse_script(text)
+                parse_script(text, cap_deg=2.0)
 
     def test_the_walk_moves_one_step_per_call_and_visits_every_waypoint(self):
         waypoints = parse_script(DEFAULT_SCRIPT)
