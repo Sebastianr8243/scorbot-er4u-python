@@ -56,6 +56,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_vendor_check.py` | The vendor-layout checker |
 | `test_lab_session.py`, `test_lab_terminal.py`, `test_lab_profile.py`, `test_lab_operator.py`, `test_lab_moves.py`, `test_lab_faults.py`, `test_lab_teleop.py` | The guided session (`scorbot/lab`): engine through the simulator, terminal front end, profile file, moves, fault guidance, teleop mode (key `t`) |
 | `test_motion_trace.py`, `test_provenance.py` | Packets copied during jogs, streams and the legacy home (also when it fails) and their export; the motion fingerprint |
+| `test_usb_read_length.py` | Short and failed USB reads through fake endpoints: no reused-buffer decoding, fresh snapshot, pendant update or trace; full reads preserve packet bytes and sleeps |
 | `test_collision_flag.py`, `test_home_trace_report.py` | The collision flag decode (IN byte 59) and `scripts/home_trace_report.py` on synthetic home traces |
 | `test_follow_report.py` | `scripts/follow_report.py` on hand-made stream logs with known lag, speed, overshoot, settling and faults |
 | `test_transport_codec.py` | The pure packet codec against the legacy code's bytes (golden tests) |

@@ -109,8 +109,8 @@ class TrackedInputEndpoint:
     def read(self, buffer, timeout=None):
         result = self._endpoint.read(buffer, timeout)
         size = result if isinstance(result, int) else len(result)
-        if size < 0 or size > len(buffer):
-            raise ValueError("Invalid USB response length")
+        if size != len(buffer):
+            raise ValueError(f"Invalid USB response length: expected {len(buffer)} bytes, got {size}")
         # Copy immediately. The legacy code reuses this mutable buffer.
         with self._condition:
             self._index += 1

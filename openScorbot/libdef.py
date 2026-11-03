@@ -461,7 +461,9 @@ def check(x,epout,epin,buffer, write,read):
 	except Exception as exc:
 		raise RuntimeError(f"USB write failed: {exc}") from exc
 	try:
-		epin.read(buffer, conf.readData('general','TIME_OUT_R'))
+		size = epin.read(buffer, conf.readData('general','TIME_OUT_R'))
+		if size != len(buffer):
+			raise ValueError(f"expected {len(buffer)} bytes, got {size}")
 		time.sleep(read)
 	except Exception as exc:
 		raise RuntimeError(f"USB read failed: {exc}") from exc
