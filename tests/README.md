@@ -46,6 +46,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_source_model.py` | The source-based joint model: it reproduces the USNA toolbox's home position, uses the vendor's scales, round-trips, couples shoulder and elbow as the vendor does, and stays inside the travel cap |
 | `test_limits.py` | Every module's travel cap, motor list and count band is the one in `scorbot/limits.py` |
 | `test_source_audit.py` | Every module-level constant in `scorbot/` has a row in `docs/protocol/SOURCE_AUDIT.md` tagged vendor, legacy or ours, and no row names a constant that is gone |
+| `test_torque_readout.py` | The torque (PWM) readout through the simulator and the generator alone: `57 01`, `57 04`, `57 3F` as the DLL sends them, bytes 11-14 minus 244 (negative too), only a `57` echo to one of our messages counts, no answer is an error without motors-off, setpoints held, bad axes send nothing, refused unconnected and during a stream, log row |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |
 | `test_vendor_check.py` | The vendor-layout checker |
 | `test_lab_session.py`, `test_lab_terminal.py`, `test_lab_profile.py`, `test_lab_operator.py`, `test_lab_moves.py`, `test_lab_faults.py`, `test_lab_teleop.py` | The guided session (`scorbot/lab`): engine through the simulator, terminal front end, profile file, moves, fault guidance, teleop mode (key `t`) |

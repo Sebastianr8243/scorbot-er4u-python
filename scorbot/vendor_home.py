@@ -177,6 +177,10 @@ class Reply:
     """How many messages the controller is behind (sent ID minus the ID this reply echoes), measured by the caller."""
     echo: int = -1
     """The message ID this reply echoes (IN byte 0). The same ID twice in a row is a repeated, stale reply."""
+    command: int = 0
+    """The command this reply answers (IN byte 1, the controller's echo)."""
+    result: int = 0
+    """The command's 32-bit result, signed (IN bytes 11-14): the ``57`` torque reading, the ``72`` version."""
 
 
 @dataclass(frozen=True)
@@ -205,12 +209,13 @@ REPLY_MIN_LENGTH = 60
 
 
 def decode_reply(packet, now):
-    """Parse an IN packet: byte 2 bit 0 emergency, byte 5 switches, 24-bit counts, byte 59 impact."""
+    """Parse an IN packet: byte 1 command echo, byte 2 bit 0 emergency, byte 5 switches, bytes 11-14 result,
+    24-bit counts, byte 59 impact."""
     if len(packet) < 60:
         raise ValueError(f"reply too short: {len(packet)} bytes")
     counts = tuple(int.from_bytes(packet[19 + 5 * n:22 + 5 * n], "little") - ZERO24 for n in range(6))
     return Reply(counts=counts, switches=packet[5], now=now, impact=packet[59], emergency=bool(packet[2] & 1),
-                 echo=packet[0])
+                 echo=packet[0], command=packet[1], result=int.from_bytes(packet[11:15], "little", signed=True))
 
 
 class _Run:

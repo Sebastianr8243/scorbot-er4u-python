@@ -18,6 +18,7 @@ from .calibration import load_calibration, signed_count_delta
 from .errors import MotionStopped, ScorbotError, _WorkerCrashed
 from .gripper import GripperMixin, GripperMove  # noqa: F401  (GripperMove stays importable from here)
 from .homing import HomingMixin
+from .torque import TorqueMixin
 from .stream_control import StreamMixin
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
@@ -46,7 +47,7 @@ def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int
     return targets
 
 
-class Scorbot(HomingMixin, GripperMixin, StreamMixin):
+class Scorbot(HomingMixin, GripperMixin, TorqueMixin, StreamMixin):
     """ER-4U legacy USB adapter.
 
     Legacy jogs are relative. Calibrated absolute steps require measured data;

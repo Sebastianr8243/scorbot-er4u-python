@@ -124,6 +124,11 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `vendor_gripper.AT_TARGET_COUNTS` | 50 | ours | 1 % of `RangeEnc`: the DLL skips the move at 0 % or 100 % open; its percent rounding was not traced | PL48 |
 | `vendor_gripper.GRIPPER_ORDER` | 23 | ours | internal worker order code; `libcomm` runs it with the order 22 runner; never on the wire | n/a |
 | `vendor_gripper.TOTAL_SECONDS` | 30 | ours | bound on one gripper move of about 45 messages | n/a |
+| `vendor_torque.SHOW_TORQUE`, `vendor_torque.ALL_ARM_AXES` | 0x57, 0x3F | vendor | the command and the `'A'` mask `ShowTorque` makes the comm thread send in place of its idle `0D` (`0x1003ccc8`, `FUN_1003f888`); recorded from the lab DLL on the desk: `57 01` (axis 0), `57 04` (axis 2), `57 3F` (`'A'`) | `LEDGER.md` PL74 |
+| `vendor_torque.RESULT_OFFSET` | 244 | vendor | the comm thread's `57` case subtracts `0xF4` from reply bytes 11-14 before storing the reading at `+0xbc` (`0x1003ccc8`); desk run 2026-11-02: replies of 1001, 1004 and 1063 reached the callback as 757, 760 and 819. What the number means on the arm (units, sign) is unverified | `LEDGER.md` PL74 |
+| `vendor_torque.TORQUE_ORDER` | 25 | ours | internal worker order code; `libcomm` runs it with the order 22 runner; never on the wire (24 is the outputs, PR #86) | n/a |
+| `vendor_torque.MAX_MESSAGES` | 80 | ours | `57` messages to send before giving up on an answer; above `vendor_home.MAX_LAG` (60) | n/a |
+| `vendor_torque.TOTAL_SECONDS` | 5.0 | ours | bound on one reading | n/a |
 
 ### Streaming, pacing and the policy clamp
 
