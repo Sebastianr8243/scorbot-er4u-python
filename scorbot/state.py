@@ -14,8 +14,9 @@ PACKET_MIN_LENGTH = ERROR_OFFSETS[-1] + 2
 HOME_SWITCH_BITS = {"base": 1, "shoulder": 2, "elbow": 4, "wrist_pitch": 8, "wrist_roll": 16}
 # The controller's own collision flag: IN byte 59, one bit per motor (0x01 motor 1, 0x18 motors
 # 4 and 5, 0x20 gripper; bits 6 and 7 are the external motors 7 and 8). It is nonzero when an
-# axis hits its mechanical limit; ULPGC thesis p. 57. The legacy code never reads it, and this
-# SDK only records it for now: nothing latches a fault on it until it has been seen on the arm.
+# axis hits its mechanical limit; ULPGC thesis p. 57. A legacy jog (openScorbot/libcomm.py) ends
+# through the clear-buffer stop on the bits of the motors it moves, like its error limit; the
+# stream only records it. Not yet seen on the arm.
 COLLISION_OFFSET = 59
 # The controller's inputs: byte 6 is the digital input word, bytes 7-10 are four analog inputs, one byte
 # each. The vendor DLL's GetDigitalInputs and GetAnalogInput return these, with no command sent

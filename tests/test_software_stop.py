@@ -27,6 +27,9 @@ OPEN, STEP, MODE, CONTROL_OFF, MOTOR = 0x47, 0x0D, 0x4F, 0x73, 0x42
 # (legacy mover, positive order, index in JOINTS, OUT region offset)
 MOVERS = (("move_hips", 5, 0, 12), ("move_shoulder", 6, 1, 16), ("move_elbow", 9, 2, 20),
           ("move_wrist", 12, 3, 24))
+# IN byte 59, the controller's collision flag: the bits of the motors each jog moves.
+COLLISION_BITS = {"move_hips": 0x01, "move_shoulder": 0x02, "move_elbow": 0x04, "move_wrist": 0x18}
+GRIPPER_COLLISION = 0x20
 START = 1000
 
 
@@ -43,21 +46,27 @@ class FollowingController:
     each reply carried.
     """
 
-    ERROR_WORD = 50
+    ERROR_WORD = 40
 
-    def __init__(self, stop_event=None, stop_after=None, rate=None, error_at=None):
+    def __init__(self, stop_event=None, stop_after=None, rate=None, error_at=None, impact_at=None,
+                 impact_bits=0x01, steady_bits=0):
         self.packets = []
         self.reported = []
         self.stop_event = stop_event
         self.stop_after = stop_after
         self.rate = rate
         self.error_at = error_at
+        self.impact_at = impact_at
+        self.impact_bits = impact_bits
+        self.steady_bits = steady_bits
         self.position = [START] * len(JOINTS)
         self.reply = bytearray(64)
         self.reply[1] = 13
         self._report()
 
     def _report(self):
+        # A one-reply impact also checks that the fault survives the stop replies.
+        self.reply[59] = self.steady_bits | (self.impact_bits if self.impact_at == len(self.packets) else 0)
         for value, offset in zip(self.position, ENCODER_OFFSETS):
             self.reply[offset:offset + 2] = value.to_bytes(2, "little")
             self.reply[offset + 2] = 128
@@ -144,9 +153,11 @@ class LegacyStopTests(unittest.TestCase):
     def steps(self, order):
         return len(self.profile.plan_jog(order, 1.0, 10)["increments"])
 
-    def jog(self, mover, order, *, stop_after=None, pass_event=True, rate=None, error_at=None):
+    def jog(self, mover, order, *, stop_after=None, pass_event=True, rate=None, error_at=None, impact_at=None,
+            impact_bits=None, steady_bits=0):
         stop_event = threading.Event()
-        controller = FollowingController(stop_event, stop_after, rate, error_at)
+        bits = COLLISION_BITS[mover] if impact_bits is None else impact_bits
+        controller = FollowingController(stop_event, stop_after, rate, error_at, impact_at, bits, steady_bits)
         buffer = bytearray(controller.reply)
         reads, results = queue.Queue(), queue.Queue()
         reads.put([START] * len(JOINTS))
@@ -234,13 +245,69 @@ class LegacyStopTests(unittest.TestCase):
                 self.assertEqual(controller.commands()[-4:], [OPEN, MODE, CONTROL_OFF, MOTOR])
                 self.assertEqual(results, [1])
 
-    def test_joint_error_without_a_stop_is_unchanged(self):
-        for mover, order, index, _ in MOVERS:
+    def assert_fault_stop(self, controller, results, at):
+        self.assertEqual(controller.commands(),
+                         [OPEN] + [STEP] * (at - 1) + [OPEN, MODE, CONTROL_OFF, MOTOR])
+        self.assertEqual(results, [1], "no extra STOPPED or timeout result")
+        held = controller.reported[at - 1]
+        for packet in controller.packets[at:]:
+            for joint, value in enumerate(held):
+                field = packet[12 + 4 * joint:16 + 4 * joint]
+                self.assertEqual(field, value.to_bytes(4, "little"))
+        self.assertEqual(self.media, held)
+
+    def test_joint_error_without_a_stop_clears_and_holds(self):
+        cases = [(mover, order, index) for mover, order, index, _ in MOVERS]
+        cases.append(("move_wrist", 12, 4))
+        for mover, order, index in cases:
+            for pass_event in (True, False):
+                with self.subTest(mover=mover, index=index, pass_event=pass_event):
+                    controller, results = self.jog(mover, order, rate=3, error_at=(6, index),
+                                                   pass_event=pass_event)
+                    self.assert_fault_stop(controller, results, 6)
+
+    def test_joint_error_during_settle_clears_and_holds(self):
+        cases = [(mover, order, index) for mover, order, index, _ in MOVERS]
+        cases.append(("move_wrist", 12, 4))
+        for mover, order, index in cases:
+            with self.subTest(mover=mover, index=index):
+                at = 1 + self.steps(order) + 1
+                controller, results = self.jog(mover, order, rate=0, error_at=(at, index),
+                                               pass_event=False)
+                self.assert_fault_stop(controller, results, at)
+
+    def test_impact_during_ramp_or_settle_clears_and_holds(self):
+        for mover, order, _, _ in MOVERS:
+            for settle in (False, True):
+                for pending_stop in (False, True):
+                    with self.subTest(mover=mover, settle=settle, pending_stop=pending_stop):
+                        at = 1 + self.steps(order) + 1 if settle else 6
+                        controller, results = self.jog(mover, order, rate=0 if settle else 3,
+                                                       impact_at=at, stop_after=at if pending_stop else None)
+                        self.assert_fault_stop(controller, results, at)
+
+    def test_each_wrist_motor_bit_alone_stops_the_wrist_jog(self):
+        for bit in (0x08, 0x10):
+            with self.subTest(bit=bit):
+                controller, results = self.jog("move_wrist", 12, rate=3, impact_at=6, impact_bits=bit)
+                self.assert_fault_stop(controller, results, 6)
+
+    def test_a_collision_bit_of_another_motor_does_not_stop_the_jog(self):
+        # The gripper's move ends against a stop, so its bit may stay set after it; a bit of a
+        # motor the jog does not move is not this jog's fault.
+        for mover, order, _, _ in MOVERS:
+            others = GRIPPER_COLLISION | (0x1F & ~COLLISION_BITS[mover])
             with self.subTest(mover=mover):
-                controller, results = self.jog(mover, order, rate=3, error_at=(6, index))
-                self.assertEqual(controller.commands(),
-                                 [OPEN] + [STEP] * 5 + [MODE, CONTROL_OFF, MOTOR])
-                self.assertEqual(results, [1])
+                plain, plain_results = self.jog(mover, order, rate=0)
+                controller, results = self.jog(mover, order, rate=0, steady_bits=others)
+                self.assertEqual(controller.commands(), plain.commands())
+                self.assertEqual(results, plain_results)
+
+    def test_pitch_conversion_matches_the_vendor_scale(self):
+        convert = self.comm.libdef.conversorAngEnc
+        self.assertEqual(convert(4, 1, 1), 27.9)
+        self.assertEqual(convert(4, 0, 2511), 90)
+        self.assertEqual(convert(4, 1, -1), 65507.1)
 
     def test_stop_moves_the_joint_less_than_the_full_jog(self):
         mover, order, index, region = MOVERS[0]

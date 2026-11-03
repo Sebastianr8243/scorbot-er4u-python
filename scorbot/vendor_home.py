@@ -43,8 +43,8 @@ from .packet import PENDANT_ABORT
 
 ZERO24 = 0x7FFFFF
 """Raw 24-bit reading of a count of zero."""
-UNUSED_SLOT = 0x800001 - 0x1000000
-"""Placeholder in setpoint slots 6 and 7 (no axis): the vendor sends raw ``0x800001`` there."""
+UNUSED_SLOT = 0
+"""Unused setpoint slots 6 and 7: raw zero bytes in every PL51 OUT packet."""
 
 NOP, CLEAR, MODE, SLAVE, MOVE, SET_POSITION = 0x0D, 0x47, 0x4F, 0x4C, 0x4D, 0x48
 CONTROL_OFF, MOTORS = 0x73, 0x42

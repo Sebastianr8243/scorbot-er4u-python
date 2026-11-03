@@ -29,9 +29,10 @@ class MotionProfileTests(unittest.TestCase):
         self.assertEqual(roll["motor_count_deltas"],
                          {"wrist_motor_1": 28, "wrist_motor_2": 28})
         pitch = plan_jog(10, 1, 10)
-        self.assertEqual(pitch["counts_per_motor"], 34)
+        self.assertEqual(counts_for_degrees("wrist_pitch", 1), 28)
+        self.assertEqual(pitch["counts_per_motor"], 28)
         self.assertEqual(pitch["motor_count_deltas"],
-                         {"wrist_motor_1": -34, "wrist_motor_2": 34})
+                         {"wrist_motor_1": -28, "wrist_motor_2": 28})
 
     def test_joint_direction_codes_and_small_requests(self):
         self.assertEqual(plan_jog(4, 1, 10)["motor_count_deltas"], {"base": -142})

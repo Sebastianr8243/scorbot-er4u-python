@@ -262,10 +262,10 @@ Counts per degree in `openScorbot/motion_profile.py:COUNTS_PER_DEGREE` beside th
 | base | 141.85 | 141.89 | none to speak of |
 | shoulder | 115.0 | 113.51 | legacy 1.3% high |
 | elbow | 112.6 | 113.51 | legacy 0.8% low |
-| wrist pitch | 33.8 | 27.90 per motor | legacy 21% high |
+| wrist pitch | 27.9 | 27.90 per motor | same (corrected from 33.8, 2026-11-03) |
 | wrist roll | 27.9 | 27.90 per motor | same |
 
-The legacy code and the vendor agree on which way the wrist motors move for pitch (opposite) and roll (together). The pitch scale is the one real disagreement: if the vendor is right, a legacy pitch jog of 1 degree is 1.21 degrees. Wrist jogs stay disabled; this tells the bench test what to measure.
+The legacy code and the vendor agree on which way the wrist motors move for pitch (opposite) and roll (together). The pitch planner and `libdef.conversorAngEnc` now use NoEnc90 2511 / 90 = 27.9 counts per degree; `tests/test_motion_profile.py` and `tests/test_software_stop.py::LegacyStopTests::test_pitch_conversion_matches_the_vendor_scale` pin both paths. Direct wrist jogs stay disabled; the physical-arm scale remains unverified.
 
 ### 10.6 Still to confirm on the arm
 
