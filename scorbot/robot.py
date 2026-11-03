@@ -48,6 +48,24 @@ def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int
     return targets
 
 
+class _HandshakeOutputEndpoint:
+    """Keep the last attempted packet: even a failed write may have reached USB."""
+
+    def __init__(self, endpoint):
+        self._endpoint = endpoint
+        self.last_packet = None
+        self.motors_may_be_on = False
+
+    def __getattr__(self, name):
+        return getattr(self._endpoint, name)
+
+    def write(self, data, timeout=None):
+        self.last_packet = bytes(data)
+        if data[4:7] == b"\x42\xff\x01":
+            self.motors_may_be_on = True
+        return self._endpoint.write(data, timeout)
+
+
 class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
     """ER-4U legacy USB adapter.
 
@@ -191,6 +209,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         self._legacy("conf").setup()
         legacy_sync = self._legacy("libsync")
         legacy_comm = self._legacy("libcomm")
+        handshake_out = None
         try:
             link = self._open_link() if self.transport != "pyusb" else None
             if link is None and usb is None:
@@ -240,7 +259,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                 buffer = array.array("B", bytes(endpoint_in.wMaxPacketSize))
             else:
                 buffer = usb.util.create_buffer(endpoint_in.wMaxPacketSize)
-            sequence, encoder_mean = legacy_sync.msg_start(endpoint_out, endpoint_in, buffer)
+            handshake_out = _HandshakeOutputEndpoint(endpoint_out)
+            sequence, encoder_mean = legacy_sync.msg_start(handshake_out, endpoint_in, buffer)
             self._buffer = buffer
             self._sync.put(sequence)
             self._reads.put(encoder_mean)
@@ -261,10 +281,24 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             # The legacy handshake sends motor-on packets. Disable immediately
             # after it completes; enabling requires a separate explicit call.
             self._command([16, 1, 1])
+            handshake_out = None
             self._enabled = False
             self._record("connect", state=asdict(self.get_state()))
             return self
         except Exception as exc:
+            if (handshake_out is not None and handshake_out.motors_may_be_on
+                    and not any(worker is not None and worker.is_alive()
+                                for worker in (self._sync_thread, self._command_thread))):
+                try:
+                    # No workers can disable yet; do not let a broken IN endpoint block motor-off.
+                    libdef, libhex = self._legacy("libdef"), self._legacy("libhex")
+                    last = handshake_out.last_packet
+                    sequence = libdef.countByte1(last[0])
+                    header = libhex.motorsoff(4).format(libdef.f_byte(sequence))
+                    packet = bytes.fromhex(libdef.fill_msg(header, 24)) + last[12:]
+                    endpoint_out.write(packet, libdef.TIME_OUT_W)
+                except Exception:
+                    pass  # The connection error below always warns that motor state is unverified.
             self._latch_fault(str(exc))
             self._record("connect_failed", error=self._fault)
             self._cancel_event.set()
