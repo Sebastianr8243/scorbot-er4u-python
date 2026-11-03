@@ -86,6 +86,9 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 			print("Joint limit reached")
 			cola_orden.put(1)
 			logging.warning(libdef.error_msg(1))
+			# A stop that came with the error still ends the jog where the arm is:
+			# closeMov would command the jog target. Result 1 stays the only result.
+			stopped = stop_event is not None and stop_event.is_set()
 			break
 
 		media = libdef.get_media(buffer,media)
@@ -117,8 +120,9 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 
 	if stopped:
 		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-		cola_orden.put(STOPPED)
-		logging.warning(libdef.error_msg(STOPPED))
+		if value_err < MAX_ERROR:
+			cola_orden.put(STOPPED)
+			logging.warning(libdef.error_msg(STOPPED))
 	else:
 		[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
 
@@ -149,6 +153,9 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
+			# A stop that came with the error still ends the jog where the arm is:
+			# closeMov would command the jog target. Result 1 stays the only result.
+			stopped = stop_event is not None and stop_event.is_set()
 			break
 
 		media = libdef.get_media(buffer,media)
@@ -179,8 +186,9 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 
 	if stopped:
 		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-		cola_orden.put(STOPPED)
-		logging.warning(libdef.error_msg(STOPPED))
+		if value_err < MAX_ERROR:
+			cola_orden.put(STOPPED)
+			logging.warning(libdef.error_msg(STOPPED))
 	else:
 		[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
 	cola_read.put(media)
@@ -212,6 +220,9 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
+			# A stop that came with the error still ends the jog where the arm is:
+			# closeMov would command the jog target. Result 1 stays the only result.
+			stopped = stop_event is not None and stop_event.is_set()
 			break
 
 		media = libdef.get_media(buffer,media)
@@ -242,8 +253,9 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 
 	if stopped:
 		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-		cola_orden.put(STOPPED)
-		logging.warning(libdef.error_msg(STOPPED))
+		if value_err < MAX_ERROR:
+			cola_orden.put(STOPPED)
+			logging.warning(libdef.error_msg(STOPPED))
 	else:
 		[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
 	cola_read.put(media)
@@ -306,6 +318,9 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
+			# A stop that came with the error still ends the jog where the arm is:
+			# closeMov would command the jog target. Result 1 stays the only result.
+			stopped = stop_event is not None and stop_event.is_set()
 			break
 
 		media = libdef.get_media(buffer,media)
@@ -336,8 +351,9 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 
 	if stopped:
 		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-		cola_orden.put(STOPPED)
-		logging.warning(libdef.error_msg(STOPPED))
+		if value_err1 < MAX_ERROR and value_err2 < MAX_ERROR:
+			cola_orden.put(STOPPED)
+			logging.warning(libdef.error_msg(STOPPED))
 	else:
 		[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
 	cola_read.put(media)
