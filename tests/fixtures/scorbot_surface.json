@@ -20,12 +20,16 @@
  "home_inch": "def(self, *, operator_at_stop: bool = False, max_search_deg: float | dict | None = None, speed: int = 6)",
  "jog_joint": "def(self, joint: str, delta_degrees: float, *, speed: int = 10)",
  "move_gripper": "def(self, direction: str) -> GripperMove",
+ "move_gripper_mm": "def(self, mm: int) -> GripperMove",
  "move_joint": "def(self, joint: str, target_degrees: float, *, speed: int = 10)",
  "open_gripper": "def(self) -> GripperMove",
  "park_at_home": "def(self, *, operator_at_stop: bool = False, speed: int = 6, tolerance_counts: int = 45) -> dict",
  "pre_home_jog": "def(self, joint, degrees, *, operator_at_stop: bool = False, speed: int = 6, coupled: bool = False)",
  "preview_jog": "def(self, joint: str, delta_degrees: float, *, speed: int = 10, starting_signed_counts: dict[str, int] | None = None) -> dict",
+ "read_torque": "def(self, axis) -> int",
  "request_stop": "def(self) -> None",
- "start_stream": "def(self, *, travel_cap_deg: float = 180.0, speed_fraction: float = 0.25, lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5, period_s: float = 0.024, use_emergency_bit: bool = False, adaptive_pacing: bool = False) -> Stream",
+ "set_analog_output": "def(self, number: int, value: int) -> None",
+ "set_digital_output": "def(self, number: int, on: bool) -> None",
+ "start_stream": "def(self, *, travel_cap_deg: float = 180.0, speed_fraction: float = 0.25, lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5, period_s: float = 0.024, use_emergency_bit: bool = False, adaptive_pacing: bool = False, wrist: bool = False) -> Stream",
  "vendor_home": "def(self, *, operator_at_stop: bool = False, jaws_empty: bool = False, wrist_clear: bool = False, controller_version: int = 0)"
 }

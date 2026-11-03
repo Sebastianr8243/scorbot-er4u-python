@@ -4,6 +4,12 @@
 the LeRobot plugin both use it). ``PolicyArm`` is the small connect / observe / act / close loop
 around ``Scorbot.start_stream``, so a LeRobot ``Robot`` needs no motion code of its own.
 Degrees come from the vendor prior (``preview_jog``), uncalibrated. Never run on the arm.
+
+With ``wrist=True`` it also drives ``pitch`` and ``roll``: the gripper's pitch to the floor and its
+roll, in degrees from home, which the two coupled wrist motors set alone (``source_model``: pitch is
+half their difference, roll half their sum; the vendor's formula, not measured). Holding pitch while
+the shoulder or elbow moves therefore leaves the wrist motors still, as the elbow motor alone sets the
+forearm's angle. Each wrist motor carries both, so its speed step, cap and lead are shared.
 """
 
 from __future__ import annotations
@@ -12,11 +18,13 @@ from contextlib import ExitStack
 import math
 from time import monotonic
 
-from . import limits
+from . import limits, source_model
 from .calibration import signed_count_delta
 from .streaming import DEFAULT_HOLD_TIMEOUT_S, VENDOR_MAX_SPEED_COUNTS_S
 
 MOTORS = limits.ARM_MOTORS
+WRIST_JOINTS = ("pitch", "roll")    # source_model's names; PolicyArm(wrist=True) only
+JOINTS = MOTORS + WRIST_JOINTS
 DEFAULT_TRAVEL_CAP_DEG = 2.0
 LEAD_LIMIT_DEG = 2.0            # the SDK's own lead limit; our targets stay inside LEAD_MARGIN_DEG of it
 LEAD_MARGIN_DEG = 1.5           # a target never leads the measured position by more than this
@@ -32,11 +40,12 @@ def speed_step_deg(speed_pct, elapsed_s, per_degree):
 
     The time counts up to the stream's hold timeout (ours, streaming.DEFAULT_HOLD_TIMEOUT_S: after
     that the stream holds anyway); none, negative or non-finite time is no step. Never above
-    LEAD_MARGIN_DEG (ours), so never above the stream's lead limit either.
+    LEAD_MARGIN_DEG (ours), so never above the stream's lead limit either. One entry per key of
+    ``per_degree``.
     """
     dt = min(elapsed_s, DEFAULT_HOLD_TIMEOUT_S) if math.isfinite(elapsed_s) and elapsed_s > 0 else 0.0
     counts = VENDOR_MAX_SPEED_COUNTS_S * speed_pct / 100 * dt
-    return {m: min(LEAD_MARGIN_DEG, counts / abs(per_degree[m])) for m in MOTORS}
+    return {m: min(LEAD_MARGIN_DEG, counts / abs(per_degree[m])) for m in per_degree}
 
 
 def _check_speed(speed_pct):
@@ -50,8 +59,9 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX
           lead_margin_deg=LEAD_MARGIN_DEG):
     """The new commanded target (degrees from home) per motor. Pure.
 
-    ``step_max_deg`` is one number for every motor or a mapping with a finite value of at least 0
-    per motor (else ``ValueError``). Each delta is cut to +-step_max_deg, added to the last commanded target, cut to +-cap_deg from
+    Motors are base, shoulder, elbow, pitch and roll. ``step_max_deg`` is one number for every motor
+    or a mapping with a finite value of at least 0 for each arm motor and each motor of ``target_deg``
+    (else ``ValueError``). Each delta is cut to +-step_max_deg, added to the last commanded target, cut to +-cap_deg from
     home, and kept within lead_margin_deg of the measured position. The step limit always wins:
     when feedback jumps or the last target sits past the cap, the target walks back one step at a
     time (the lead and the overshoot only shrink). Unknown motors, non-finite numbers (delta,
@@ -63,15 +73,15 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX
 
     if isinstance(step_max_deg, dict):
         steps = step_max_deg
-        if any(not finite(steps.get(m)) or steps[m] < 0 for m in MOTORS):
+        if any(not finite(steps.get(m)) or steps[m] < 0 for m in JOINTS if m in MOTORS or m in target_deg):
             raise ValueError(f"step_max_deg needs a finite step of at least 0 per motor: {steps!r}")
     else:
-        steps = dict.fromkeys(MOTORS, step_max_deg)
+        steps = dict.fromkeys(JOINTS, step_max_deg)
     out, clamped = dict(target_deg), []
     for motor, asked in (delta_deg or {}).items():
-        if motor in MOTORS and not finite(target_deg.get(motor)):
+        if motor in JOINTS and not finite(target_deg.get(motor)):
             raise ValueError(f"last target for {motor} is not a finite number: {target_deg.get(motor)!r}")
-        if motor not in MOTORS or not all(finite(v) for v in (asked, measured_deg.get(motor), cap_deg)) \
+        if motor not in JOINTS or not all(finite(v) for v in (asked, measured_deg.get(motor), cap_deg)) \
                 or cap_deg < 0:
             clamped.append(motor)
             continue
@@ -90,11 +100,28 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg, step_max_deg=STEP_MAX
     return out, clamped
 
 
+def wrist_degrees(counts_from_home) -> dict[str, float]:
+    """Pitch (the gripper's angle to the floor) and roll, degrees from home, from the two wrist motors'
+    counts from home. ``source_model`` with the arm motors at home, so only the wrist motors count. Pure."""
+    angles = source_model.angles_from_counts({**dict.fromkeys(MOTORS, 0), **counts_from_home})
+    return {j: angles[j] - source_model.HOME_ANGLES[j] for j in WRIST_JOINTS}
+
+
+def wrist_counts(pitch_deg: float, roll_deg: float) -> dict[str, int]:
+    """The two wrist motors' counts from home for a pitch and roll in degrees from home: the inverse of
+    ``wrist_degrees`` to within a count per joint (``source_model`` truncates, as the vendor does). Pure."""
+    home = source_model.HOME_ANGLES
+    counts = source_model.counts_from_angles({**home, "pitch": home["pitch"] + pitch_deg,
+                                              "roll": home["roll"] + roll_deg})
+    return {m: counts[m] for m in limits.WRIST_MOTORS}
+
+
 class PolicyArm:
     """``connect()``, then ``observe()`` and ``act()`` at your own rate, then ``close()``.
 
     ``robot`` is an unconnected ``Scorbot`` or ``SimulatedScorbot``. ``act`` takes absolute targets
-    in degrees from home for any of base, shoulder, elbow, and moves the stream toward them by at
+    in degrees from home for any of base, shoulder, elbow (and pitch, roll with ``wrist=True``,
+    opt-in: the wrist is coupled and unmeasured), and moves the stream toward them by at
     most ``STEP_MAX_DEG`` per call (``step_limit="fixed"``, the default) or, opt-in with
     ``step_limit="speed"``, by what MaxSpeed at ``speed_pct`` covers since the previous call
     (``speed_step_deg``). Call it at least every 0.5 s or the stream holds in place.
@@ -102,10 +129,14 @@ class PolicyArm:
     """
 
     def __init__(self, robot, *, travel_cap_deg: float = DEFAULT_TRAVEL_CAP_DEG,
-                 speed_pct: float = DEFAULT_SPEED_PCT, step_limit: str = "fixed"):
+                 speed_pct: float = DEFAULT_SPEED_PCT, step_limit: str = "fixed", wrist: bool = False):
         if not isinstance(step_limit, str) or step_limit not in STEP_LIMITS:
             raise ValueError(f"step_limit must be one of {STEP_LIMITS}, not {step_limit!r}")
+        if not isinstance(wrist, bool):
+            raise ValueError("wrist must be True or False")
         self.robot, self.cap, self.step_limit = robot, travel_cap_deg, step_limit
+        self.wrist = wrist
+        self.joints = JOINTS if wrist else MOTORS
         self.speed_pct = _check_speed(speed_pct)
         self._stack: ExitStack | None = None
         self._stream = None
@@ -146,10 +177,14 @@ class PolicyArm:
             self._home = dict(self.robot.get_state().encoder_counts)
             self._per_degree = {m: self.robot.preview_jog(m, 1.0)["motor_count_deltas"][m]
                                 for m in MOTORS}
+            # The speed step's counts per degree. A wrist motor moves this much for a degree of
+            # pitch and as much again for a degree of roll, so each gets half its speed.
+            self._step_per_degree = {**self._per_degree, **{
+                j: 2 * source_model.COUNTS_PER_DEGREE["wrist_motor_1"] for j in self.joints[3:]}}
             self._stream = stack.enter_context(self.robot.start_stream(
                 travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
-                speed_fraction=self.speed_pct / 100))
-            self.target = dict.fromkeys(MOTORS, 0.0)
+                speed_fraction=self.speed_pct / 100, wrist=self.wrist))
+            self.target = dict.fromkeys(self.joints, 0.0)
             self._last_act = monotonic()
             self._stack = stack.pop_all()
 
@@ -163,7 +198,11 @@ class PolicyArm:
         """Degrees from home, measured."""
         self._require_connected()
         counts = self.robot._motion_state().encoder_counts     # latches the session if feedback is unavailable
-        return {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
+        seen = {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
+        if self.wrist:
+            seen.update(wrist_degrees({m: signed_count_delta(counts[m], self._home[m])
+                                       for m in limits.WRIST_MOTORS}))
+        return seen
 
     def act(self, goal_deg: dict) -> dict[str, float]:
         """Move toward ``goal_deg`` (absolute degrees from home); return the target now commanded.
@@ -176,12 +215,15 @@ class PolicyArm:
         measured = self.observe()
         if self.step_limit == "speed":
             now = monotonic()
-            step = speed_step_deg(self.speed_pct, now - self._last_act, self._per_degree)
+            step = speed_step_deg(self.speed_pct, now - self._last_act, self._step_per_degree)
             self._last_act = now
             self.target, _ = clamp(delta, self.target, measured, cap_deg=self.cap, step_max_deg=step)
         else:
             self.target, _ = clamp(delta, self.target, measured, cap_deg=self.cap)
-        self._stream.set_target({m: round(self.target[m] * self._per_degree[m]) for m in MOTORS})
+        counts = {m: round(self.target[m] * self._per_degree[m]) for m in MOTORS}
+        if self.wrist:
+            counts.update(wrist_counts(self.target["pitch"], self.target["roll"]))
+        self._stream.set_target(counts)
         return dict(self.target)
 
     def close(self) -> None:

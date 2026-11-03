@@ -21,7 +21,7 @@ from lerobot_robot_scorbot import REAL_ARM_REFUSED, ScorbotRobot, ScorbotRobotCo
 from lerobot_robot_scorbot.teleop_map import (  # noqa: E402
     DEFAULT_SCRIPT, check_limits, home, keyboard_to_target, parse_script, script_walk, step_toward, to_action)
 
-KEYS = ("base.pos", "shoulder.pos", "elbow.pos")
+KEYS = ("base.pos", "shoulder.pos", "elbow.pos", "pitch.pos", "roll.pos")
 HAVE_LEROBOT = find_spec("lerobot") is not None
 
 
@@ -40,7 +40,7 @@ class RobotShapeTests(unittest.TestCase):
         self.assertEqual(str(caught.exception), REAL_ARM_REFUSED)
         self.assertFalse(ScorbotRobotConfig().simulate)
 
-    def test_features_are_three_joints_in_degrees(self):
+    def test_features_are_five_joints_in_degrees(self):
         with tempfile.TemporaryDirectory() as tmp:
             robot = ScorbotRobot(sim_config(tmp))
         self.assertEqual(robot.action_features, dict.fromkeys(KEYS, float))
@@ -67,8 +67,11 @@ class SimDriveTests(unittest.TestCase):
             robot.connect()
             try:
                 self.assertEqual(robot.get_observation(), dict.fromkeys(KEYS, 0.0))
-                sent = robot.send_action({"base.pos": 90.0, "shoulder.pos": 0.25, "elbow.pos": float("nan")})
-                self.assertEqual(sent, {"base.pos": 0.5, "shoulder.pos": 0.25, "elbow.pos": 0.0})
+                sent = robot.send_action({"base.pos": 90.0, "shoulder.pos": 0.25, "elbow.pos": float("nan"),
+                                          "pitch.pos": -3.0, "roll.pos": 0.1})
+                self.assertEqual(sent, {"base.pos": 0.5, "shoulder.pos": 0.25, "elbow.pos": 0.0,
+                                        "pitch.pos": -0.5, "roll.pos": 0.1})
+                self.assertEqual(robot._arm._stream.core.motors[3:], ("wrist_motor_1", "wrist_motor_2"))
                 with self.assertRaises(RuntimeError):
                     robot.connect()
             finally:
@@ -124,16 +127,16 @@ class TeleopMapTests(unittest.TestCase):
     def test_keys_step_the_target_and_stop_at_the_cap(self):
         target = home()
         target = keyboard_to_target({"delta_x": 1, "delta_y": -1, "delta_z": 0}, target, 0.5, 2.0)
-        self.assertEqual(target, {"base": 0.5, "shoulder": -0.5, "elbow": 0.0})
+        self.assertEqual(target, {"base": 0.5, "shoulder": -0.5, "elbow": 0.0, "pitch": 0.0, "roll": 0.0})
         for _ in range(10):
             target = keyboard_to_target({"delta_x": 1, "delta_y": 0, "delta_z": -1}, target, 0.5, 2.0)
-        self.assertEqual(target, {"base": 2.0, "shoulder": -0.5, "elbow": -2.0})
+        self.assertEqual(target, {"base": 2.0, "shoulder": -0.5, "elbow": -2.0, "pitch": 0.0, "roll": 0.0})
 
     def test_a_bigger_raw_value_is_still_one_step(self):
         self.assertEqual(keyboard_to_target({"delta_x": 5.0}, home(), 0.5, 2.0)["base"], 0.5)
 
     def test_no_key_bad_values_and_the_gripper_hold(self):
-        start = {"base": 1.0, "shoulder": 0.0, "elbow": -1.0}
+        start = {"base": 1.0, "shoulder": 0.0, "elbow": -1.0, "pitch": 0.5, "roll": -0.5}
         for raw in ({}, {"gripper": 2}, {"delta_x": float("nan")}, {"delta_x": "x"}, {"delta_x": True}):
             with self.subTest(raw=raw):
                 self.assertEqual(keyboard_to_target(raw, start, 0.5, 2.0), start)
@@ -150,8 +153,12 @@ class TeleopMapTests(unittest.TestCase):
 
     def test_scripts(self):
         self.assertEqual(parse_script(DEFAULT_SCRIPT)[-1], home())
-        self.assertEqual(parse_script(" 1, -0.5 ,2 "), [{"base": 1.0, "shoulder": -0.5, "elbow": 2.0}])
-        for text in ("", "1,2", "1,2,3,4", "a,0,0", "nan,0,0", "2.1,0,0", "1,0,0;;0,0,0"):
+        self.assertEqual(parse_script(" 1, -0.5 ,2 "),
+                         [{"base": 1.0, "shoulder": -0.5, "elbow": 2.0, "pitch": 0.0, "roll": 0.0}])
+        self.assertEqual(parse_script("1,-0.5,2,0.5,-1"),
+                         [{"base": 1.0, "shoulder": -0.5, "elbow": 2.0, "pitch": 0.5, "roll": -1.0}])
+        for text in ("", "1,2", "1,2,3,4", "1,2,3,4,5,6", "a,0,0", "nan,0,0", "2.1,0,0", "0,0,0,0,2.1",
+                     "1,0,0;;0,0,0"):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 parse_script(text)
 
@@ -202,7 +209,8 @@ class WithLerobotTests(unittest.TestCase):
         teleop = ScorbotJointScripted(ScorbotJointScriptedConfig())
         self.assertIsInstance(teleop, Teleoperator)
         teleop.connect()
-        self.assertEqual(teleop.get_action(), {"base.pos": 0.5, "shoulder.pos": 0.0, "elbow.pos": 0.0})
+        self.assertEqual(teleop.get_action(), {"base.pos": 0.5, "shoulder.pos": 0.0, "elbow.pos": 0.0,
+                                               "pitch.pos": 0.0, "roll.pos": 0.0})
         teleop.disconnect()
 
     @unittest.skipUnless(find_spec("pynput"), "LeRobot's keyboard teleoperator needs pynput even to construct")
@@ -215,8 +223,10 @@ class WithLerobotTests(unittest.TestCase):
         self.assertEqual(teleop.action_features, dict.fromkeys(KEYS, float))
         raw = {"delta_x": 1, "delta_y": 0, "delta_z": -1}
         with mock.patch.object(KeyboardEndEffectorTeleop, "get_action", return_value=raw):
-            self.assertEqual(teleop.get_action(), {"base.pos": 0.5, "shoulder.pos": 0.0, "elbow.pos": -0.5})
-            self.assertEqual(teleop.get_action(), {"base.pos": 1.0, "shoulder.pos": 0.0, "elbow.pos": -1.0})
+            self.assertEqual(teleop.get_action(), {"base.pos": 0.5, "shoulder.pos": 0.0, "elbow.pos": -0.5,
+                                                   "pitch.pos": 0.0, "roll.pos": 0.0})
+            self.assertEqual(teleop.get_action(), {"base.pos": 1.0, "shoulder.pos": 0.0, "elbow.pos": -1.0,
+                                                   "pitch.pos": 0.0, "roll.pos": 0.0})
 
 
 if __name__ == "__main__":

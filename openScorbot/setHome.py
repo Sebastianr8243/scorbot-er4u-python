@@ -47,6 +47,24 @@ READ = conf.readData("general", "READ")
 HOME_SEARCH_TIMEOUT_S = 30.0
 
 
+STOPPED = 14
+
+
+class _Stopped(Exception):
+    # Raised out of the Home sequence once the stop sequence is sent, with the state the caller restores.
+    def __init__(self, b_1, media):
+        super().__init__("Homing stopped")
+        self.b_1, self.media = b_1, media
+
+
+def stop_if_requested(stop_event, b_1, media, epout, epin, buffer):
+    # Checked before every packet loop of the Home sequence (search, offset, braking, settle, transition):
+    # a stop sends the same stop sequence a jog stop sends (libdef.stopMov), then unwinds to homing().
+    if stop_event is not None and stop_event.is_set():
+        [b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, WRITE, READ)
+        raise _Stopped(b_1, media)
+
+
 def search_must_stop(deadline, cancel_event, result_queue):
     if cancel_event is not None and cancel_event.is_set():
         result_queue.put(2)
@@ -74,7 +92,19 @@ def search_must_stop(deadline, cancel_event, result_queue):
 # cola_read   -> Queue containing the averaged encoder position vector
 # cola_orden  -> Queue with commands to process and/or execution feedback
 #
-def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
+def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None, stop_event=None):
+    # status STOPPED when a stop request ended the sequence: execute then leaves the motors on, as after
+    # a jog stop, instead of the motors-off it sends after a failed Home.
+    try:
+        return _search_home(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event, stop_event)
+    except _Stopped as stop:
+        cola_read.put(stop.media)
+        cola_orden.put(STOPPED)
+        logging.warning("Homing stopped on a stop request")
+        return [stop.b_1, STOPPED]
+
+
+def _search_home(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event, stop_event):
     status = 0
     block = False
     sw = libdef.get_switch(SW_SHOULDER, buffer[5])
@@ -104,6 +134,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             if search_must_stop(deadline, cancel_event, cola_orden):
                 block = True
                 break
@@ -132,12 +163,14 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         #Realiza la frenada controlada
         cont_vel = 88
         for i in range(12):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 6, vel, media, buffer)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
             media = libdef.get_media(buffer,media)
 
         cont = 0
         while motion_profile.count_distance(dato_in[0], media[1]) > 20:
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))
@@ -166,6 +199,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
 
     #transicion entre articulaciones
     for i in range(20):
+        stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
         cadena = libhex.mov_comm(1)
         b_1 = libdef.countByte1(b_1)
         cadena = cadena.format(libdef.f_byte(b_1))
@@ -199,6 +233,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             if search_must_stop(deadline, cancel_event, cola_orden):
                 block = True
                 break
@@ -227,12 +262,14 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         # Performs the controlled braking
         cont_vel = 88
         for i in range(12):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 8, vel, media, buffer)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
             media = libdef.get_media(buffer,media)
 
         cont = 0
         while motion_profile.count_distance(dato_in[0], media[2]) > 20 and block != True:
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))
@@ -260,6 +297,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
 
     #transicion entre articulaciones
     for i in range(20):
+        stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
         cadena = libhex.mov_comm(1)
         b_1 = libdef.countByte1(b_1)
         cadena = cadena.format(libdef.f_byte(b_1))
@@ -297,6 +335,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             if search_must_stop(deadline, cancel_event, cola_orden):
                 block = True
                 break
@@ -338,6 +377,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         # Offset adjustment to align with the vertical axis
         cont_vel = 87
         for i in range(60):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena.format(libdef.f_byte(b_1))
@@ -358,6 +398,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         #Realiza la frenada controlada
         cont_vel = 88
         for i in range(12):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena.format(libdef.f_byte(b_1))
@@ -375,6 +416,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
 
         cont = 0
         while motion_profile.count_distance(dato_in_1[0], media[3]) > 20 or motion_profile.count_distance(dato_in_2[0], media[4]) > 20:
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))
@@ -401,6 +443,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
 
     # Transition between joints
     for _ in range(20):
+        stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
         cadena = libhex.mov_comm(1)
         b_1 = libdef.countByte1(b_1)
         cadena = cadena.format(libdef.f_byte(b_1))
@@ -437,6 +480,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             if search_must_stop(deadline, cancel_event, cola_orden):
                 block = True
                 break
@@ -478,6 +522,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         # Offset adjustment to align with the horizontal axis
         cont_vel = 87
         for i in range(60):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena.format(libdef.f_byte(b_1))
@@ -496,6 +541,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel += 1
         # Performs the controlled braking
         for i in range(12):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena.format(libdef.f_byte(b_1))
@@ -513,6 +559,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
 
         cont = 0
         while motion_profile.count_distance(dato_in_1[0], media[3]) > 20 or motion_profile.count_distance(dato_in_2[0], media[4]) > 20:
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))
@@ -540,6 +587,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
 
     # Transition between joints
     for i in range(20):
+        stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
         cadena = libhex.mov_comm(1)
         b_1 = libdef.countByte1(b_1)
         cadena = cadena.format(libdef.f_byte(b_1))
@@ -573,6 +621,7 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         cont_vel = 0
         deadline = time.monotonic() + HOME_SEARCH_TIMEOUT_S
         while(sw == False):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             if search_must_stop(deadline, cancel_event, cola_orden):
                 block = True
                 break
@@ -601,12 +650,14 @@ def homing(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event=None):
         #Realiza la frenada controlada
         cont_vel = 88
         for i in range(12):
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             [b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, cont_vel-1, 100, 4, vel, media, buffer)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
             media = libdef.get_media(buffer,media)
 
         cont = 0
         while motion_profile.count_distance(dato_in[0], media[0]) > 20:
+            stop_if_requested(stop_event, b_1, media, epout, epin, buffer)
             cadena = libhex.mov_comm(1)
             b_1 = libdef.countByte1(b_1)
             cadena = cadena. format(libdef.f_byte(b_1))

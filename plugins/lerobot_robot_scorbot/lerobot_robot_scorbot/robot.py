@@ -1,8 +1,10 @@
 """ScorBot ER-4U as a LeRobot ``Robot``. Simulator only; all motion logic is ``scorbot.policy_arm``.
 
-Observation and action: ``base.pos``, ``shoulder.pos``, ``elbow.pos`` in degrees from home
-(uncalibrated vendor prior), plus any cameras LeRobot configures. An action is an absolute target;
-``PolicyArm`` clamps it to 0.5 degree per call, the travel cap and the lead limit. The real arm is
+Observation and action: ``base.pos``, ``shoulder.pos``, ``elbow.pos``, ``pitch.pos``, ``roll.pos`` in
+degrees from home (uncalibrated vendor prior; pitch is the gripper's angle to the floor and, with roll,
+comes from the two coupled wrist motors through ``scorbot.source_model``), plus any cameras LeRobot
+configures. An action is an absolute target; ``PolicyArm`` clamps it to 0.5 degree per call, the travel
+cap and the lead limit. The real arm is
 refused: LeRobot's tools connect outside their cleanup and have no stop key. Works without the
 ``lerobot`` package (stand-in base classes), so the normal test run covers it.
 """
@@ -14,7 +16,7 @@ import uuid
 from typing import Any
 
 from scorbot import SimulatedScorbot
-from scorbot.policy_arm import MOTORS, PolicyArm
+from scorbot.policy_arm import JOINTS, PolicyArm
 
 try:        # lerobot is optional: tests run without it. Checked against lerobot 0.6 by examples/lerobot_sim_check.py.
     from lerobot.cameras import CameraConfig, make_cameras_from_configs
@@ -44,7 +46,7 @@ except ImportError:
         return {}
 
 SUFFIX = ".pos"
-ACTION_KEYS = tuple(m + SUFFIX for m in MOTORS)
+ACTION_KEYS = tuple(m + SUFFIX for m in JOINTS)
 SIM_NAME = "scorbot_sim"        # lerobot-record writes the robot's name as the dataset's robot_type
 REAL_ARM_REFUSED = ("The LeRobot plugin is simulator-only (simulate=true). Use python -m scorbot.lab "
                     "on the real arm.")
@@ -115,7 +117,7 @@ class ScorbotRobot(Robot):
         log = Path(self.config.log_dir) / f"lerobot-{time.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}.jsonl"
         arm = PolicyArm(SimulatedScorbot(log_path=log, robot_id=self.config.robot_id),
                         travel_cap_deg=self.config.travel_cap_deg, speed_pct=self.config.speed_pct,
-                        step_limit=self.config.step_limit)
+                        step_limit=self.config.step_limit, wrist=True)
         arm.connect(operator_at_stop=self.config.operator_at_stop, jaws_empty=self.config.jaws_empty,
                     wrist_clear=self.config.wrist_clear)    # unwinds itself on failure: LeRobot calls us outside its cleanup
         self._arm = arm

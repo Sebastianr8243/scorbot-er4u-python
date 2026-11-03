@@ -17,6 +17,10 @@ class PacketSnapshot:
 
 MAX_TRACE_PACKETS = 4000
 
+PENDANT_ABORT = (0x21, 0xA1)
+"""Reply byte 3 with the teach pendant's Abort key pressed (key 0x21, bit 6 clear; bit 7 either way).
+The vendor DLL calls ``Stop('&')`` on it (``docs/protocol/LEDGER.md`` PL63, PL64)."""
+
 
 class PacketTrace:
     """Copies of USB packets in both directions, kept only while started.
@@ -81,11 +85,18 @@ class TrackedOutputEndpoint:
 
 
 class TrackedInputEndpoint:
-    """Endpoint proxy shared by the legacy sync and command workers."""
+    """Endpoint proxy shared by the legacy sync and command workers.
 
-    def __init__(self, endpoint, trace: PacketTrace | None = None):
+    Every reply passes here, so this is where the pendant's Abort key is seen: when reply byte 3 changes to
+    one of ``PENDANT_ABORT``, ``on_pendant_abort`` is called once, on the reading thread. A held key does
+    not call it again, as the DLL ignores repeats of the same code. A failing callback never breaks the read.
+    """
+
+    def __init__(self, endpoint, trace: PacketTrace | None = None, on_pendant_abort=None):
         self._endpoint = endpoint
         self._trace = trace
+        self._on_pendant_abort = on_pendant_abort
+        self._pendant = None
         self._condition = threading.Condition()
         self._latest = None
         self._index = 0
@@ -107,7 +118,19 @@ class TrackedInputEndpoint:
             latest = self._latest
         if self._trace is not None:
             self._trace.add("in", latest.data, latest.host_monotonic_ns)
+        if self._on_pendant_abort is not None and len(latest.data) > 3:
+            previous, self._pendant = self._pendant, latest.data[3]
+            if self._pendant in PENDANT_ABORT and self._pendant != previous:
+                try:
+                    self._on_pendant_abort()
+                except Exception:
+                    pass  # the read must go on; request_stop sets its event before it logs
         return result
+
+    @property
+    def pendant_abort_held(self) -> bool:
+        """Whether the last reply had the pendant's Abort key pressed."""
+        return self._pendant in PENDANT_ABORT
 
     def snapshot(self, *, after_index=None, timeout=2.0, max_age=2.0):
         deadline = time.monotonic() + timeout

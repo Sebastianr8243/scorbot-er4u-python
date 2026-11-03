@@ -29,8 +29,8 @@ lerobot-record --robot.type=scorbot --robot.simulate=true --teleop.type=scorbot_
 
 | | |
 |---|---|
-| Observation | `base.pos`, `shoulder.pos`, `elbow.pos`: measured degrees from home (vendor prior, uncalibrated), plus one `(height, width, 3)` frame per camera |
-| Action | the same three keys, an absolute target. `PolicyArm` clamps it: 0.5 degree per call (or, with `step_limit=speed`, what `speed_pct` of the vendor's MaxSpeed covers since the last call, at most 1.5 degrees), `travel_cap_deg` from home (default 2), 1.5 degrees ahead of the measured joint. Call at least every 0.5 s or the stream holds |
+| Observation | `base.pos`, `shoulder.pos`, `elbow.pos`, `pitch.pos`, `roll.pos`: measured degrees from home (vendor prior, uncalibrated), plus one `(height, width, 3)` frame per camera. Pitch is the gripper's angle to the floor and roll its roll, both from the two coupled wrist motors through `scorbot.source_model` (`PolicyArm(wrist=True)`); holding pitch while the shoulder or elbow moves leaves the wrist motors still. Signs from the source model (positive pitch lifts), unverified; the legacy wrist-pitch jog moves about 1.22 times further per degree than the model says |
+| Action | the same five keys, an absolute target. `PolicyArm` clamps it: 0.5 degree per call (or, with `step_limit=speed`, what `speed_pct` of the vendor's MaxSpeed covers since the last call, at most 1.5 degrees), `travel_cap_deg` from home (default 2), 1.5 degrees ahead of the measured joint; for pitch and roll each, one wrist motor carrying both. Call at least every 0.5 s or the stream holds |
 | Config | `simulate` (must be true), `operator_at_stop`, `jaws_empty`, `wrist_clear` (all three must be true, default false: connect runs the vendor Home, which moves the wrist and closes the gripper), `travel_cap_deg`, `log_dir` (the simulator's event log, default `rehearsal/lerobot`), `robot_id`, `cameras`, plus LeRobot's `id` and `calibration_dir` |
 | Name | `scorbot_sim`, which `lerobot-record` writes as the dataset's `robot_type` (a v3 dataset has no `data_source` field) |
 
@@ -38,14 +38,15 @@ lerobot-record --robot.type=scorbot --robot.simulate=true --teleop.type=scorbot_
 
 | Type | What it does |
 |---|---|
-| `scorbot_joint_keys` | LeRobot's `keyboard_ee` keys: left/right arrows base, up/down arrows shoulder, left/right shift elbow (which way the arm turns is unverified). Each loop with a key held moves an absolute target by `step_deg` (default and most 0.5), never past `travel_cap_deg` (default and most 2) from home, through `scorbot.policy_arm.clamp`. Needs `pynput`. **No person has tried it** |
-| `scorbot_joint_scripted` | Walks `--teleop.script="base,shoulder,elbow;..."` (absolute degrees) at `step_deg` per loop, around again. For unattended runs and the check |
+| `scorbot_joint_keys` | LeRobot's `keyboard_ee` keys: left/right arrows base, up/down arrows shoulder, left/right shift elbow (which way the arm turns is unverified); it has no wrist keys, so pitch and roll hold at home. Each loop with a key held moves an absolute target by `step_deg` (default and most 0.5), never past `travel_cap_deg` (default and most 2) from home, through `scorbot.policy_arm.clamp`. Needs `pynput`. **No person has tried it** |
+| `scorbot_joint_scripted` | Walks `--teleop.script="base,shoulder,elbow[,pitch,roll];..."` (absolute degrees; pitch and roll 0 when left out) at `step_deg` per loop, around again. For unattended runs and the check |
 
 Named apart from the Stack 1 teleoperators (`scorbot_keys`, `scorbot_scripted` on `main`) so both plugins can share one venv. The map logic is in `teleop_map.py` and needs no lerobot.
 
 ## Not done yet
 
-- **The gripper.** `PolicyArm` drives base, shoulder and elbow only; no `gripper.pos` in the observation or action. This is the next gap for pick-and-place demos.
+- **The gripper.** `PolicyArm` drives base, shoulder, elbow, pitch and roll; no `gripper.pos` in the observation or action. This is the next gap for pick-and-place demos.
+- `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with three joints (2026-11-01); its five-joint version (wrist in the script and the drive) has not been run against lerobot yet.
 - The real arm (refused on purpose), cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
 
 ## Tests

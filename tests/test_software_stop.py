@@ -25,7 +25,8 @@ except ImportError:      # discovered with -s tests: the folder itself is on sys
 STOPPED = 14
 OPEN, STEP, MODE, CONTROL_OFF, MOTOR = 0x47, 0x0D, 0x4F, 0x73, 0x42
 # (legacy mover, positive order, index in JOINTS, OUT region offset)
-MOVERS = (("move_hips", 5, 0, 12), ("move_shoulder", 6, 1, 16), ("move_elbow", 9, 2, 20))
+MOVERS = (("move_hips", 5, 0, 12), ("move_shoulder", 6, 1, 16), ("move_elbow", 9, 2, 20),
+          ("move_wrist", 12, 3, 24))
 START = 1000
 
 
@@ -36,14 +37,21 @@ class FollowingController:
     most ``rate`` counts per message (``None``: it arrives at once, so the
     legacy settle loop converges). The reply reports where the arm is.
     ``stop_after`` sets the stop event while the message with that 1-based
-    index is being written.
+    index is being written. ``error_at`` = (message index, joint index): from
+    that message on, the reply reports a position error of ``ERROR_WORD`` (at
+    or above ``MAX_ERROR``) for that joint. ``reported`` keeps the positions
+    each reply carried.
     """
 
-    def __init__(self, stop_event=None, stop_after=None, rate=None):
+    ERROR_WORD = 50
+
+    def __init__(self, stop_event=None, stop_after=None, rate=None, error_at=None):
         self.packets = []
+        self.reported = []
         self.stop_event = stop_event
         self.stop_after = stop_after
         self.rate = rate
+        self.error_at = error_at
         self.position = [START] * len(JOINTS)
         self.reply = bytearray(64)
         self.reply[1] = 13
@@ -53,6 +61,9 @@ class FollowingController:
         for value, offset in zip(self.position, ENCODER_OFFSETS):
             self.reply[offset:offset + 2] = value.to_bytes(2, "little")
             self.reply[offset + 2] = 128
+        if self.error_at is not None and len(self.packets) >= self.error_at[0]:
+            offset = ENCODER_OFFSETS[self.error_at[1]] + 3
+            self.reply[offset:offset + 2] = self.ERROR_WORD.to_bytes(2, "little")
 
     def write(self, data, timeout):
         data = bytes(data)
@@ -64,6 +75,7 @@ class FollowingController:
                 move = max(-self.rate, min(self.rate, move))
             self.position[index] += move
         self._report()
+        self.reported.append(list(self.position))
         if self.stop_after is not None and len(self.packets) == self.stop_after:
             self.stop_event.set()
         return len(data)
@@ -132,9 +144,9 @@ class LegacyStopTests(unittest.TestCase):
     def steps(self, order):
         return len(self.profile.plan_jog(order, 1.0, 10)["increments"])
 
-    def jog(self, mover, order, *, stop_after=None, pass_event=True, rate=None):
+    def jog(self, mover, order, *, stop_after=None, pass_event=True, rate=None, error_at=None):
         stop_event = threading.Event()
-        controller = FollowingController(stop_event, stop_after, rate)
+        controller = FollowingController(stop_event, stop_after, rate, error_at)
         buffer = bytearray(controller.reply)
         reads, results = queue.Queue(), queue.Queue()
         reads.put([START] * len(JOINTS))
@@ -144,6 +156,7 @@ class LegacyStopTests(unittest.TestCase):
         else:
             getattr(self.comm, mover)(*args)
         self.assertEqual(reads.qsize(), 1, "the smoothed position must go back on its queue")
+        self.media = reads.get_nowait()
         return controller, list(results.queue)
 
     def test_without_a_stop_the_jog_is_open_steps_close(self):
@@ -178,6 +191,56 @@ class LegacyStopTests(unittest.TestCase):
                 self.assertEqual(controller.packets[7][4:7], bytes([0x4F, 0x3F, 0x53]))
                 self.assertEqual(controller.packets[8][4:6], bytes([0x73, 0x20]))
                 self.assertEqual(controller.packets[9][4:6], bytes([0x42, 0x20]))
+
+    def test_stop_holds_the_latest_measured_counts_not_the_smoothed_ones(self):
+        # The vendor's Stop('A') copies the counts of the last reply over its
+        # setpoints once, then sends 47, 4F 3F 53, 73 20, 42 20 with them. The
+        # legacy get_media average lags a moving joint by a few counts.
+        for mover, order, index, _ in MOVERS:
+            with self.subTest(mover=mover):
+                controller, results = self.jog(mover, order, stop_after=6, rate=3)
+                self.assertEqual(results, [STOPPED])
+                held = controller.reported[5]       # the reply to the step that saw the stop
+                self.assertNotEqual(held[index], START)
+                for packet in controller.packets[6:]:
+                    for joint, value in enumerate(held):
+                        field = packet[12 + 4 * joint:16 + 4 * joint]
+                        self.assertEqual(int.from_bytes(field[:2], "little"), value)
+                        self.assertEqual(field[2:], b"\x00\x00")
+                self.assertEqual(self.media, held, "the idle messages must keep holding it")
+
+    def test_joint_error_with_a_pending_stop_still_holds_the_measured_position(self):
+        for mover, order, index, region in MOVERS:
+            with self.subTest(mover=mover):
+                controller, results = self.jog(mover, order, stop_after=6, rate=3,
+                                               error_at=(6, index))
+                self.assertEqual(controller.commands(),
+                                 [OPEN] + [STEP] * 5 + [OPEN, MODE, CONTROL_OFF, MOTOR])
+                self.assertEqual(results, [1], "the fault is reported, and only the fault")
+                last_step_target = controller.targets(region)[5]
+                for target in controller.targets(region)[6:]:
+                    self.assertEqual(target, controller.reported[5][index])
+                    self.assertLess(target, last_step_target)
+
+    def test_joint_error_with_a_stop_in_the_settle_loop_is_still_a_fault(self):
+        cases = [(mover, order, index) for mover, order, index, _ in MOVERS]
+        cases.append(("move_wrist", 12, 4))      # the second wrist motor's error word
+        for mover, order, error_joint in cases:
+            with self.subTest(mover=mover, error_joint=error_joint):
+                at = 1 + self.steps(order) + 1          # the first settle message
+                # rate 0: a stuck arm, so the settle loop runs whatever the jog's size
+                controller, results = self.jog(mover, order, stop_after=at, rate=0,
+                                               error_at=(at, error_joint))
+                self.assertEqual(controller.commands()[-4:], [OPEN, MODE, CONTROL_OFF, MOTOR])
+                self.assertEqual(results, [1])
+
+    def test_joint_error_without_a_stop_is_unchanged(self):
+        for mover, order, index, _ in MOVERS:
+            with self.subTest(mover=mover):
+                controller, results = self.jog(mover, order, rate=3, error_at=(6, index))
+                self.assertEqual(controller.commands(),
+                                 [OPEN] + [STEP] * 5 + [MODE, CONTROL_OFF, MOTOR])
+                self.assertEqual(results, [1])
 
     def test_stop_moves_the_joint_less_than_the_full_jog(self):
         mover, order, index, region = MOVERS[0]
@@ -240,6 +303,43 @@ class LegacyStopTests(unittest.TestCase):
         orders.put([528, 1, 1])
         worker.join(timeout=30)
         self.assertFalse(worker.is_alive())
+
+    def test_execute_reports_a_joint_error_that_came_with_a_stop_as_a_fault(self):
+        stop_event = threading.Event()
+        controller = FollowingController(stop_event, stop_after=6, rate=3, error_at=(6, 0))
+        buffer = bytearray(controller.reply)
+        sync, orders, reads, results = (queue.Queue() for _ in range(4))
+        sync.put(1)
+        reads.put([START] * len(JOINTS))
+        worker = threading.Thread(
+            target=self.comm.execute,
+            args=(sync, orders, reads, controller, controller, buffer, results,
+                  threading.Event(), stop_event), daemon=True)
+        worker.start()
+        orders.put([5, 10, 1.0])
+        self.assertEqual(results.get(timeout=10), 1)
+        self.assertEqual(results.get(timeout=10), 0)
+        self.assertEqual(controller.commands()[-4:], [OPEN, MODE, CONTROL_OFF, MOTOR])
+        orders.put([528, 1, 1])
+        worker.join(timeout=30)
+        self.assertFalse(worker.is_alive())
+
+
+class CommandResultTests(unittest.TestCase):
+    """What ``Scorbot._command`` makes of the jog's results (fake queues, no worker)."""
+
+    def test_a_joint_error_reported_with_a_stop_latches_a_fault(self):
+        robot = Scorbot(command_timeout=0.5)
+        robot._device = object()
+        robot._buffer = bytearray(64)
+        robot._stop_event.set()
+        for result in (1, 0):         # what the jog reports when both happen at once
+            robot._results.put(result)
+        with self.assertRaises(ScorbotError) as caught:
+            robot._command([5, 10, 1.0])
+        self.assertNotIsInstance(caught.exception, MotionStopped)
+        self.assertIn("error code 1", str(caught.exception))
+        self.assertIsNotNone(robot._fault)
 
 
 class SdkStopTests(SimulatedRobotCase):

@@ -318,22 +318,26 @@ def closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
 # (docs/protocol/VENDOR_DLL_PROTOCOL.md section 5); it is from disassembly and
 # unverified on the controller.
 #
-# Unlike closeMov, no message carries the jog target: every joint's region is
-# the smoothed measured position (get_encoder), as in openMov and the idle
-# messages. The vendor's stop likewise copies the measured positions over its
-# setpoints first, so the controller is asked to hold where the arm is, not
-# to finish the jog.
+# Unlike closeMov, no message carries the jog target. The vendor's stop first
+# copies the counts of the last reply over its setpoints, once (lab build:
+# Stop('A') -> 0x100217c9 -> 0x100212d1 copies the measured array, which
+# 0x10006c17 fills from every reply as raw24 - 0x7FFFFF, 0x1000b130; no
+# averaging), and every message then carries those setpoints. So all four
+# messages here carry the counts and sign words of the last reply, not the
+# smoothed `media` (get_media lags a moving joint by a few counts), and the
+# returned media is that same hold, so the idle messages keep it.
 #
-# Arguments as for openMov.
+# Arguments as for openMov; `media` is replaced, not read.
 def stopMov(b_1, media, epout, epin, buffer, write, read):
-	[b_1, buffer, media] = openMov(b_1, media, epout, epin, buffer, write, read)
-	for i in range(3, 6):
+	media = [transform([buffer[pos], buffer[pos+1]]) for pos in VEC_POS]
+	hold = get_encoder(buffer, media)
+	for i in range(2, 6):
 		cadena = libhex.mov_comm(i)
 		b_1 = countByte1(b_1)
 		cadena = cadena.format(f_byte(b_1))
-		cadena += get_encoder(buffer, media)
+		cadena = fill_msg(cadena, 24)
+		cadena += hold
 		set_msg(cadena, epout, epin, buffer, write, read)
-		media = get_media(buffer,media)
 
 	return [b_1, buffer, media]
 
@@ -367,7 +371,9 @@ def getStruct(orden, signal_out, msg):
 	elif orden == 14 or orden == 15:
 		section = msg[0:40] + signal_out + msg[48:len(msg)]
 	elif orden == 20:
-		section = signal_out + msg[24:len(msg)]
+		# From base on: three fields (base, shoulder, elbow) or five (a wrist stream adds both
+		# wrist motors, where the wrist jog puts them); the rest stays the measured position.
+		section = signal_out + msg[len(signal_out):len(msg)]
 
 	return section
 
