@@ -1,5 +1,6 @@
 """scorbot/policy_arm.py: PolicyArm on the simulated controller (no USB, no arm)."""
 
+from dataclasses import replace
 from importlib.util import find_spec
 from pathlib import Path
 import tempfile
@@ -8,7 +9,7 @@ import unittest
 from unittest import mock
 
 from scorbot import SimulatedScorbot
-from scorbot.policy_arm import STEP_MAX_DEG, PolicyArm
+from scorbot.policy_arm import LEAD_MARGIN_DEG, STEP_MAX_DEG, PolicyArm
 from scorbot.robot import ScorbotError
 
 
@@ -60,6 +61,59 @@ class PolicyArmTests(unittest.TestCase):
             self.arm.close()     # a faulted stream reports its fault here; the fault is what this test checks
         except Exception:
             pass
+
+    def slow_replies(self, delay_s=0.024, base_counts=None):
+        """Each controller read waits ``delay_s`` (one stream period) like a real fresh reply; returns the
+        read count. ``base_counts`` (a list) overrides the measured base, one value per read."""
+        real, reads = self.arm.robot._motion_state, []
+
+        def read(**kw):
+            time.sleep(delay_s)
+            state = real(**kw)
+            if base_counts:
+                state = replace(state, encoder_counts={**state.encoder_counts, "base": base_counts.pop(0) % 65535})    # one's-complement wrap
+            reads.append(state)
+            return state
+        patcher = mock.patch.object(self.arm.robot, "_motion_state", side_effect=read)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return reads
+
+    def test_observe_then_act_waits_for_one_reply_not_two(self):
+        reads = self.slow_replies()
+        for _ in range(3):
+            self.arm.observe()
+            self.arm.act({"base": 90.0})
+        self.assertEqual(len(reads), 3)
+
+    def test_act_reads_fresh_when_nothing_was_observed_since_the_last_act(self):
+        reads = self.slow_replies()
+        self.arm.observe()
+        self.arm.act({"base": 90.0})
+        self.arm.act({"base": 90.0})
+        self.assertEqual(len(reads), 2)
+
+    def test_act_uses_the_newest_observation(self):
+        per = self.arm._per_degree["base"]
+        reads = self.slow_replies(base_counts=[self.arm._home["base"], self.arm._home["base"] - round(1.5 * per)])
+        self.arm.observe()
+        newest = self.arm.observe()["base"]
+        target = self.arm.act({"base": 90.0})["base"]
+        self.assertEqual(len(reads), 2)
+        self.assertLessEqual(target, newest + LEAD_MARGIN_DEG + 1e-9)
+
+    def test_a_stale_reading_never_widens_the_lead_clamp(self):
+        # observe sees home, act (holding) uses it; the arm then reads 1.5 deg back. The next act must
+        # clamp against that fresh reading (target about 0), not the stale home one (which allows 0.5).
+        per = self.arm._per_degree["base"]
+        home = self.arm._home["base"]
+        reads = self.slow_replies(base_counts=[home, home - round(1.5 * per)])
+        self.arm.observe()
+        self.arm.act({"base": 0.0})
+        target = self.arm.act({"base": 90.0})["base"]
+        self.assertEqual(len(reads), 2)
+        fresh = (-round(1.5 * per)) / per
+        self.assertLessEqual(target, fresh + LEAD_MARGIN_DEG + 1e-9)
 
     def test_close_is_safe_twice_and_act_after_close_fails(self):
         self.arm.close()

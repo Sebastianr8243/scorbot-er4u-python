@@ -141,6 +141,7 @@ class PolicyArm:
         self.speed_pct = _check_speed(speed_pct)
         self._stack: ExitStack | None = None
         self._stream = None
+        self._seen: dict[str, float] | None = None    # the last observe(), until one act() uses it
 
     def set_speed(self, speed_pct: float) -> None:
         """Change the speed (percent of the vendor's MaxSpeed, 1 to 100), live if connected."""
@@ -202,24 +203,34 @@ class PolicyArm:
             pass                    # the session is already faulted or gone
 
     def observe(self) -> dict[str, float]:
-        """Degrees from home, measured."""
+        """Degrees from home, measured. Each call waits for a controller reply newer than the last read.
+
+        The next ``act()`` clamps against this reading instead of waiting for another one.
+        """
         self._require_connected()
+        self._seen = None
         counts = self.robot._motion_state().encoder_counts     # latches the session if feedback is unavailable
         seen = {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
         if self.wrist:
             seen.update(wrist_degrees({m: signed_count_delta(counts[m], self._home[m])
                                        for m in limits.WRIST_MOTORS}))
-        return seen
+        self._seen = seen
+        return dict(seen)
 
     def act(self, goal_deg: dict) -> dict[str, float]:
         """Move toward ``goal_deg`` (absolute degrees from home); return the target now commanded.
 
         Raises ``StreamRefused`` if the stream has faulted or ended. Bad values hold their motor.
+        Clamps against the reading of the ``observe()`` just before it, used once; with none since the
+        last ``act()`` it reads a fresh one. Either way one controller wait per observe/act pair.
         """
         self._require_connected()
         delta = {m: g - self.target[m] if isinstance(g, (int, float)) and not isinstance(g, bool)
                  else math.nan for m, g in goal_deg.items() if m in self.target}
-        measured = self.observe()
+        measured, self._seen = self._seen, None
+        if measured is None:
+            self.observe()
+            measured, self._seen = self._seen, None
         if self.step_limit == "speed":
             now = monotonic()
             step = speed_step_deg(self.speed_pct, now - self._last_act, self._step_per_degree)
@@ -235,6 +246,6 @@ class PolicyArm:
 
     def close(self) -> None:
         """Slow to rest, motors off, disconnect. Safe to call twice."""
-        stack, self._stack = self._stack, None
+        stack, self._stack, self._seen = self._stack, None, None
         if stack is not None:
             stack.close()
