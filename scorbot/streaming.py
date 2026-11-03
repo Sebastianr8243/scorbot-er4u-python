@@ -28,6 +28,7 @@ from .state import decode_state
 from .vendor_profile import MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION, VendorProfile
 
 MOTORS = limits.ARM_MOTORS
+WRIST_STREAM_MOTORS = MOTORS + limits.WRIST_MOTORS   # a wrist stream: setpoint order
 DEFAULT_PERIOD_S = 0.024          # vendor planner period (PCPeriod x USBCPeriod); a prior
 DEFAULT_HOLD_TIMEOUT_S = 0.5      # ours
 # What Scorbot.start_stream accepts (ours). A long period turns each step into
@@ -105,27 +106,33 @@ class StreamCore:
                  lead_limit: dict[str, float], limits: StreamLimits | None = None,
                  period_s: float = DEFAULT_PERIOD_S,
                  hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
-                 error_limit: int = DEFAULT_ERROR_LIMIT, now: float = 0.0):
+                 error_limit: int = DEFAULT_ERROR_LIMIT, now: float = 0.0,
+                 motors: tuple[str, ...] = MOTORS):
         from ruckig import ControlInterface, InputParameter, OutputParameter, Ruckig
+        # The motors this stream drives, in setpoint order: base, shoulder, elbow, or those and
+        # both wrist motors (Scorbot.start_stream(wrist=True)). Every other motor is left alone.
+        if tuple(motors) not in (MOTORS, WRIST_STREAM_MOTORS):
+            raise StreamRefused(f"motors must be {MOTORS} or {WRIST_STREAM_MOTORS}")
+        self.motors = tuple(motors)
         for name, value in (("period_s", period_s), ("hold_timeout_s", hold_timeout_s)):
             if isinstance(value, bool) or not isinstance(value, (int, float)) \
                     or not math.isfinite(value) or value <= 0:
                 raise StreamRefused(f"{name} must be a positive finite number")
         for name, mapping in (("travel_cap", travel_cap), ("lead_limit", lead_limit)):
-            if set(mapping) != set(MOTORS) or any(
+            if set(mapping) != set(self.motors) or any(
                     isinstance(v, bool) or not isinstance(v, (int, float))
                     or not math.isfinite(v) or v <= 0 for v in mapping.values()):
-                raise StreamRefused(f"{name} needs a positive value for each of {MOTORS}")
-        if set(start) != set(MOTORS) or any(type(v) is not int for v in start.values()):
-            raise StreamRefused(f"start needs an integer count for each of {MOTORS}")
+                raise StreamRefused(f"{name} needs a positive value for each of {self.motors}")
+        if set(start) != set(self.motors) or any(type(v) is not int for v in start.values()):
+            raise StreamRefused(f"start needs an integer count for each of {self.motors}")
         # Allowed counts from home per motor: the travel cap either side, cut
         # short where ``window`` (a joint limit) is nearer.
         self.bounds = {m: (max(-travel_cap[m], (window or {}).get(m, (-math.inf, math.inf))[0]),
                            min(travel_cap[m], (window or {}).get(m, (-math.inf, math.inf))[1]))
-                       for m in MOTORS}
-        if any(not self.bounds[m][0] <= start[m] <= self.bounds[m][1] for m in MOTORS):
+                       for m in self.motors}
+        if any(not self.bounds[m][0] <= start[m] <= self.bounds[m][1] for m in self.motors):
             raise StreamRefused("the arm is already outside the travel cap or a joint limit")
-        # ``pose_check`` sees all three counts at once and returns a sentence if
+        # ``pose_check`` sees every streamed count at once and returns a sentence if
         # they put a joint past its limit: a joint's angle can depend on another
         # motor's count, which ``window`` (one motor at a time) cannot see.
         self._pose_check = pose_check
@@ -142,16 +149,16 @@ class StreamCore:
         self._lock = threading.Lock()
         self._position_interface = ControlInterface.Position
         self._velocity_interface = ControlInterface.Velocity
-        self._otg = Ruckig(len(MOTORS), period_s)
-        self._input = InputParameter(len(MOTORS))
-        self._output = OutputParameter(len(MOTORS))
-        positions = [float(start[m]) for m in MOTORS]
+        self._otg = Ruckig(len(self.motors), period_s)
+        self._input = InputParameter(len(self.motors))
+        self._output = OutputParameter(len(self.motors))
+        positions = [float(start[m]) for m in self.motors]
         self._input.current_position = positions
         self._input.target_position = positions
-        self._input.max_velocity = [limits.max_velocity] * len(MOTORS)
-        self._input.max_acceleration = [limits.max_acceleration] * len(MOTORS)
-        self._input.max_jerk = [limits.max_jerk] * len(MOTORS)
-        self._target = {m: float(start[m]) for m in MOTORS}
+        self._input.max_velocity = [limits.max_velocity] * len(self.motors)
+        self._input.max_acceleration = [limits.max_acceleration] * len(self.motors)
+        self._input.max_jerk = [limits.max_jerk] * len(self.motors)
+        self._target = {m: float(start[m]) for m in self.motors}
         self._commanded = dict(start)
         self._last_target_time = now
         self._stop_requested = False
@@ -162,8 +169,8 @@ class StreamCore:
 
     def set_target(self, target: dict, now: float) -> None:
         """Replace the target. Refused, with nothing changed, if it is invalid."""
-        if not isinstance(target, dict) or not target or set(target) - set(MOTORS):
-            raise StreamRefused(f"a target names one or more of {MOTORS}")
+        if not isinstance(target, dict) or not target or set(target) - set(self.motors):
+            raise StreamRefused(f"a target names one or more of {self.motors}")
         for motor, value in target.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)) \
                     or not math.isfinite(value):
@@ -183,8 +190,8 @@ class StreamCore:
                                         f"{problem}")
             self._target.update({m: float(v) for m, v in target.items()})
             self._input.control_interface = self._position_interface
-            self._input.target_position = [self._target[m] for m in MOTORS]
-            self._input.target_velocity = [0.0] * len(MOTORS)
+            self._input.target_position = [self._target[m] for m in self.motors]
+            self._input.target_velocity = [0.0] * len(self.motors)
             self._last_target_time = now
             self.state = TRACKING
 
@@ -198,7 +205,7 @@ class StreamCore:
         with self._lock:
             if self.state not in (TRACKING, HOLDING):
                 raise StreamRefused(f"the stream is {self.state}; its speed is fixed")
-            self._input.max_velocity = [limits.max_velocity] * len(MOTORS)
+            self._input.max_velocity = [limits.max_velocity] * len(self.motors)
             # Never lower acceleration or jerk mid-stream: with less jerk, an acceleration already
             # under way takes longer to end and the speed overshoots past MaxSpeed (review 2026-11-01).
             self._input.max_acceleration = [max(a, limits.max_acceleration)
@@ -226,20 +233,30 @@ class StreamCore:
             self.fault = reason
         self.state = FAULTED
 
+    def _leads_too_far(self, lead: dict) -> bool:
+        """Any motor past its lead limit, or, on a wrist stream, pitch or roll past theirs.
+
+        A wrist motor's limit is pitch's plus roll's, and pitch is half the wrist motors' difference,
+        roll half their sum, so each stays within half that limit exactly when |m1| + |m2| is within it.
+        """
+        if any(abs(lead[m]) > self.lead_limit[m] for m in self.motors):
+            return True
+        return self.motors == WRIST_STREAM_MOTORS and             abs(lead["wrist_motor_1"]) + abs(lead["wrist_motor_2"]) > self.lead_limit["wrist_motor_1"]
+
     def _decelerate(self) -> None:
         self._input.control_interface = self._velocity_interface
-        self._input.target_velocity = [0.0] * len(MOTORS)
+        self._input.target_velocity = [0.0] * len(self.motors)
 
     def step(self, measured: dict[str, int], now: float, *, error_counts: dict | None = None,
              emergency: bool = False) -> Step:
         """One period. Never raises: a problem becomes a fault and a stop."""
         from ruckig import Result
         with self._lock:
-            lead = {m: self._commanded[m] - int(measured[m]) for m in MOTORS}
+            lead = {m: self._commanded[m] - int(measured[m]) for m in self.motors}
 
             def result(action):
                 return Step(action, dict(self._commanded), dict(self._target),
-                            {m: int(measured[m]) for m in MOTORS}, lead, self.state, self.fault)
+                            {m: int(measured[m]) for m in self.motors}, lead, self.state, self.fault)
 
             if self.state in (FAULTED, STOPPED):
                 return result(STOP)
@@ -247,9 +264,9 @@ class StreamCore:
                 return result(END)
             if emergency:
                 self._fault("the controller reports an emergency stop")
-            elif error_counts and any(error_counts.get(m, 0) >= self.error_limit for m in MOTORS):
+            elif error_counts and any(error_counts.get(m, 0) >= self.error_limit for m in self.motors):
                 self._fault(f"controller error word at or above {self.error_limit}: {error_counts}")
-            elif any(abs(lead[m]) > self.lead_limit[m] for m in MOTORS):
+            elif self._leads_too_far(lead):
                 self._fault(f"the arm is not following: command leads by {lead} counts")
             if self.state == FAULTED:
                 return result(STOP)
@@ -266,8 +283,8 @@ class StreamCore:
                 self._fault(f"the trajectory generator failed: {outcome}")
                 return result(STOP)
             self._output.pass_to_input(self._input)
-            proposed = {m: round(p) for m, p in zip(MOTORS, self._output.new_position)}
-            if any(not self.bounds[m][0] <= proposed[m] <= self.bounds[m][1] for m in MOTORS):
+            proposed = {m: round(p) for m, p in zip(self.motors, self._output.new_position)}
+            if any(not self.bounds[m][0] <= proposed[m] <= self.bounds[m][1] for m in self.motors):
                 self._fault(f"commanded position left the travel cap: {proposed}")
                 return result(STOP)
             if self._pose_check is not None and (problem := self._pose_check(dict(proposed))):
@@ -275,8 +292,8 @@ class StreamCore:
                 return result(STOP)
             # Checked before it is sent: the limit bounds every setpoint, so a
             # stalled arm is never asked for one more step past it.
-            ahead = {m: proposed[m] - int(measured[m]) for m in MOTORS}
-            if any(abs(ahead[m]) > self.lead_limit[m] for m in MOTORS):
+            ahead = {m: proposed[m] - int(measured[m]) for m in self.motors}
+            if self._leads_too_far(ahead):
                 self._fault(f"the arm is not following: the next command would lead by "
                             f"{ahead} counts")
                 return result(STOP)
@@ -298,7 +315,7 @@ class Stream:
     """A running stream on a ``Scorbot``. Made by ``Scorbot.start_stream``.
 
     ``set_target`` takes motor counts from this session's home, for any of
-    base, shoulder and elbow, at any time. ``close`` slows to rest and ends;
+    base, shoulder and elbow (and both wrist motors on a wrist stream), at any time. ``close`` slows to rest and ends;
     ``stop`` ends at once with the stop sequence. Neither is an emergency
     stop. Use it as a context manager so it always ends.
     """
@@ -390,8 +407,8 @@ class Stream:
             self._pace()
             state = decode_state(reply, connected=True, enabled=None, homed=True, fault=None)
             measured = {m: signed_count_delta(state.encoder_counts[m], self._home[m])
-                        for m in MOTORS}
-            errors = {m: _legacy_error(state.controller_error_counts[m]) for m in MOTORS}
+                        for m in self.core.motors}
+            errors = {m: _legacy_error(state.controller_error_counts[m]) for m in self.core.motors}
             emergency = self._use_emergency_bit and bool(reply[2] & 1)
             step = self.core.step(measured, time.monotonic(), error_counts=errors,
                                   emergency=emergency)
@@ -411,7 +428,7 @@ class Stream:
             # would wrap but the controller's wider counter does not (from
             # disassembly, unverified): that is a fault, never a wrapped value.
             absolute = tuple(state.signed_encoder_counts[m] + step.commanded[m] - measured[m]
-                             for m in MOTORS)
+                             for m in self.core.motors)
             if any(abs(value) > 65535 for value in absolute):
                 self.core.fail(f"setpoint outside the counter range: {absolute}")
                 return (STOP,)

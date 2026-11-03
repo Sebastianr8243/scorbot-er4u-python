@@ -10,7 +10,8 @@ an entry in project/PROJECT_LOG.md (in git history).
 """
 
 # The motors a motion command may move. Wrist jogs stay disabled: the two
-# wrist motors are coupled and unmeasured.
+# wrist motors are coupled and unmeasured. Only an opt-in wrist stream
+# (Scorbot.start_stream(wrist=True), PolicyArm(wrist=True)) moves them.
 ARM_MOTORS = ("base", "shoulder", "elbow")
 WRIST_MOTORS = ("wrist_motor_1", "wrist_motor_2")
 # The five motors whose counts are logged with every action and exported.

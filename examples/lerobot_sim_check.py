@@ -23,9 +23,10 @@ from pathlib import Path
 
 REPO_ID = "local/scorbot_sim_check"
 EPISODES, SECONDS, FPS = 2, 3, 10
-SCRIPT = "1,0,0;1,1,0;0,1,-1;0,0,0"     # absolute degrees, ends at home
+SCRIPT = "1,0,0,0,0;1,1,0,1,0;0,1,-1,1,-1;0,0,0,0,0"     # absolute degrees (base..roll), ends at home
 STEP_DEG, CAP_DEG = 0.5, 2.0
-NAMES = ["base.pos", "shoulder.pos", "elbow.pos"]
+NAMES = ["base.pos", "shoulder.pos", "elbow.pos", "pitch.pos", "roll.pos"]
+ACTION = {"base.pos": 1.0, "shoulder.pos": -0.5, "elbow.pos": 0.5, "pitch.pos": -1.0, "roll.pos": 0.5}
 TRACK_TOL_DEG = 1.5         # observation vs the target it was asked for: PolicyArm's lead margin
 REPLAY_TOL_DEG = 0.25       # replayed observation vs the recorded one at the same frame
 ROBOT = {"speed_pct": 25.0, "step_limit": "fixed"}     # the plugin's defaults; set from the command line
@@ -74,14 +75,14 @@ def check_drive(scratch):
         first = robot.get_observation()
         assert first == dict.fromkeys(NAMES, 0.0), f"first observation {first}"
         for _ in range(8):
-            sent = robot.send_action({"base.pos": 1.0, "shoulder.pos": -0.5, "elbow.pos": 0.5})
+            sent = robot.send_action(ACTION)
             time.sleep(1 / FPS)
         time.sleep(0.5)
         last = robot.get_observation()
     finally:
         robot.disconnect()
     assert not robot.is_connected, "still connected after disconnect"
-    assert sent == {"base.pos": 1.0, "shoulder.pos": -0.5, "elbow.pos": 0.5}, f"last target {sent}"
+    assert sent == ACTION, f"last target {sent}"
     assert all(abs(last[k] - sent[k]) < 0.1 for k in NAMES), f"arm at {last}, asked {sent}"
     return f"{type(robot).__name__} connect, 8 actions, reached {', '.join(f'{k} {last[k]:.2f}' for k in NAMES)}"
 
@@ -110,7 +111,7 @@ def check_dataset(dataset):
     for episode in range(EPISODES):
         frames = sum(1 for row in data if row[0] == episode)
         assert 0.8 * SECONDS * FPS <= frames <= 1.2 * SECONDS * FPS + 1, f"episode {episode} has {frames} frames"
-    assert data[0][1] == [0.0, 0.0, 0.0], f"first state {data[0][1]}"
+    assert data[0][1] == [0.0] * len(NAMES), f"first state {data[0][1]}"
     worst = 0.0
     for (ep, _, action), (ep2, after, nxt) in zip(data, data[1:]):
         assert all(abs(v) <= CAP_DEG + 1e-9 for v in action), f"action {action} outside the cap"
