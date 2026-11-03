@@ -39,9 +39,14 @@ HANDSHAKE_WAIT_TIMEOUT_S = 30.0
 # epout     -> Controller output endpoint object
 # epin      -> Controller input endpoint object
 # buffer    -> Vector storing the most recent read data
+# command_waiting -> Optional threading.Event that execute sets while a command waits for the sequence
+#                    byte. Without it this loop eats the pause marker, puts the byte back and takes it
+#                    again at once, so a late-scheduled command worker can wait forever.
 #
-def syncro(cola_sync, cola_read, epout, epin, buffer):
+def syncro(cola_sync, cola_read, epout, epin, buffer, command_waiting=None):
 	while 1:
+		while command_waiting is not None and command_waiting.is_set():
+			time.sleep(READ)
 		b_1 = cola_sync.get()
 		if b_1 == conf.readData("general","EXIT"):
 			break

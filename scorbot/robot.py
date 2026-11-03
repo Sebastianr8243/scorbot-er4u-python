@@ -116,6 +116,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         self._commands = queue.Queue()
         self._results = queue.Queue()
         self._sync = queue.Queue()
+        self._command_waiting = threading.Event()   # the legacy workers hand the sequence byte over with it
         self._reads = queue.Queue()
         self._lock = threading.Lock()
         self._cancel_event = threading.Event()
@@ -245,7 +246,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             self._reads.put(encoder_mean)
             self._sync_thread = threading.Thread(
                 target=self._run_sync_worker,
-                args=(legacy_sync, self._sync, self._reads, endpoint_out, endpoint_in, buffer),
+                args=(legacy_sync, self._sync, self._reads, endpoint_out, endpoint_in, buffer,
+                      self._command_waiting),
                 daemon=True,
                 name="scorbot-sync")
             self._command_thread = threading.Thread(
@@ -304,9 +306,11 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
     def _run_command_worker(self, *args):
         *legacy_args, legacy_comm = args
         try:
-            legacy_comm.execute(*legacy_args, self._cancel_event, self._stop_event)
+            legacy_comm.execute(*legacy_args, self._cancel_event, self._stop_event, self._command_waiting)
         except Exception as exc:
             self._worker_died("command", exc)
+        finally:
+            self._command_waiting.clear()   # the sync worker must not wait for a byte nobody will take
 
     def _worker_died(self, name: str, exc: Exception) -> None:
         # The legacy loops have no error handling. A dead worker stops idle packets,
