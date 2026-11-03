@@ -46,7 +46,7 @@ Named apart from the Stack 1 teleoperators (`scorbot_keys`, `scorbot_scripted` o
 ## Not done yet
 
 - **The gripper is binary and blocking.** Open or closed only, no width or force; each change stalls the loop for the vendor move plus a stream restart. Unverified on the arm. Teleop: `scorbot_joint_keys` opens with right ctrl and closes with left ctrl; `scorbot_joint_scripted` takes an optional sixth number per waypoint (0 to 100).
-- `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with three joints (2026-11-01); its five-joint version (wrist in the script and the drive) has not been run against lerobot yet.
+- `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with the five joints and the gripper on 2026-11-03: all six checks passed. Its replay check (0.25 degree between replayed and recorded observations) is tight and failed some runs on simulator timing alone, with or without the gripper.
 - The real arm (refused on purpose), cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
 
 ## Tests
