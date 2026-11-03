@@ -74,6 +74,14 @@ class PolicyArmGripperTests(unittest.TestCase):
         self.assertAlmostEqual(arm.observe(gripper=True)["gripper"], 0.0, delta=1.0)
         self.assertEqual(arm.act({"base": 0.3}), {**dict.fromkeys(arm.joints, 0.0), "base": 0.3})
 
+    def test_act_after_a_gripper_move_reads_the_arm_again(self):
+        arm = self.arm()
+        arm.observe(gripper=True)                 # a reading from before the move (cached by PR #113)
+        arm.set_gripper(100.0)
+        with mock.patch.object(arm.robot, "_motion_state", wraps=arm.robot._motion_state) as read:
+            arm.act({"base": 0.2})
+        self.assertGreaterEqual(read.call_count, 1)
+
     def test_gripper_percent_is_the_jaw_count_over_range_enc(self):
         arm = self.arm()
         for counts, pct in ((2857, 57.14), (714, 14.28), (vg.RANGE_ENC, 100.0)):

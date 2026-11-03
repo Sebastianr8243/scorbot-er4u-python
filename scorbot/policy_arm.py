@@ -245,6 +245,7 @@ class PolicyArm:
             raise MotionStopped("A stop was requested; the gripper was not moved", state=state, started=False)
         result = self.robot.move_gripper(direction)
         self._start_stream()
+        self._seen = None       # a reading from before the move is stale; act() must read again
         return result
 
     def _disable(self) -> None:
