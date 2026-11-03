@@ -196,7 +196,7 @@ class LegacyStopTests(unittest.TestCase):
         # The vendor's Stop('A') copies the counts of the last reply over its
         # setpoints once, then sends 47, 4F 3F 53, 73 20, 42 20 with them. The
         # legacy get_media average lags a moving joint by a few counts.
-        for mover, order, index, region in MOVERS:
+        for mover, order, index, _ in MOVERS:
             with self.subTest(mover=mover):
                 controller, results = self.jog(mover, order, stop_after=6, rate=3)
                 self.assertEqual(results, [STOPPED])
@@ -223,9 +223,9 @@ class LegacyStopTests(unittest.TestCase):
                     self.assertLess(target, last_step_target)
 
     def test_joint_error_with_a_stop_in_the_settle_loop_is_still_a_fault(self):
-        cases = [(mover, order, index, region, index) for mover, order, index, region in MOVERS]
-        cases.append(("move_wrist", 12, 3, 24, 4))      # the second wrist motor's error word
-        for mover, order, index, region, error_joint in cases:
+        cases = [(mover, order, index) for mover, order, index, _ in MOVERS]
+        cases.append(("move_wrist", 12, 4))      # the second wrist motor's error word
+        for mover, order, error_joint in cases:
             with self.subTest(mover=mover, error_joint=error_joint):
                 at = 1 + self.steps(order) + 1          # the first settle message
                 # rate 0: a stuck arm, so the settle loop runs whatever the jog's size
@@ -235,7 +235,7 @@ class LegacyStopTests(unittest.TestCase):
                 self.assertEqual(results, [1])
 
     def test_joint_error_without_a_stop_is_unchanged(self):
-        for mover, order, index, region in MOVERS:
+        for mover, order, index, _ in MOVERS:
             with self.subTest(mover=mover):
                 controller, results = self.jog(mover, order, rate=3, error_at=(6, index))
                 self.assertEqual(controller.commands(),
