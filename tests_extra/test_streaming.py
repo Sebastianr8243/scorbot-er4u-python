@@ -111,6 +111,18 @@ class LegacyStreamTests(unittest.TestCase):
         for packet in controller.packets:
             self.assertEqual([field(packet, i) for i in (3, 4, 5)], [START] * 3)
 
+    def test_five_setpoints_fill_the_wrist_fields_and_leave_the_gripper_measured(self):
+        # A wrist stream (start_stream(wrist=True)) sends both wrist motors in the same
+        # message, where the legacy wrist jog puts them; the packet keeps its length.
+        script = [("send", (1010, 990, 1005, 1100, 900)), ("end",)]
+        controller, results, _ = self.stream(script)
+        self.assertEqual(controller.commands(), [OPEN, STEP, MODE, CONTROL_OFF, MOTOR])
+        self.assertEqual(results, [])
+        self.assertEqual({len(packet) for packet in controller.packets}, {64})
+        for packet in controller.packets[1:]:
+            self.assertEqual([field(packet, i) for i in range(5)], [1010, 990, 1005, 1100, 900])
+            self.assertEqual(field(packet, 5), START)
+
     def test_negative_setpoints_use_the_legacy_sign_form(self):
         controller, _, _ = self.stream([("send", (-1, 0, -142)), ("end",)])
         step = controller.packets[1]
@@ -261,6 +273,81 @@ class SdkStreamTests(SimulatedRobotCase):
                 stream.set_target({"elbow": -2000})
             self.assertIn("pitch", str(caught.exception))
         self.assertIsNone(robot._fault)
+
+    def test_a_wrist_stream_follows_both_wrist_motors(self):
+        robot = self.robot()
+        with robot.start_stream(wrist=True) as stream:
+            self.assertEqual(stream.core.motors, ("base", "shoulder", "elbow", "wrist_motor_1",
+                                                  "wrist_motor_2"))
+            self.assertTrue(self.follow(stream, robot, {"wrist_motor_1": 120, "wrist_motor_2": -80}))
+            self.assertTrue(self.follow(stream, robot, {"base": 50, "wrist_motor_1": 0,
+                                                        "wrist_motor_2": 0}))
+        self.assertIsNone(robot._fault)
+        self.assertTrue(all(len(step) == 5 for step in robot.sim.stream_sent))
+        final = stream.final_state.signed_encoder_counts
+        self.assertEqual((final["base"], final["wrist_motor_1"], final["wrist_motor_2"]), (50, 0, 0))
+
+    def test_a_wrist_motor_bound_is_pitch_plus_roll_at_the_cap(self):
+        # Each wrist motor carries pitch and roll (m1 = p + r, m2 = r - p), so its bound is
+        # twice the cap in the wrist's counts per degree, plus a count of rounding per joint.
+        from scorbot import source_model
+        robot = self.robot()
+        with robot.start_stream(wrist=True, travel_cap_deg=2.0) as stream:
+            bound = 2 * 2.0 * source_model.COUNTS_PER_DEGREE["wrist_motor_1"] + 2
+            self.assertEqual(stream.core.bounds["wrist_motor_1"], (-bound, bound))
+            with self.assertRaises(StreamRefused):
+                stream.set_target({"wrist_motor_1": int(bound) + 1})
+            self.assertTrue(self.follow(stream, robot, {"wrist_motor_1": int(bound)}))
+        self.assertIsNone(robot._fault)
+
+    def test_a_wrist_target_inside_each_motor_bound_but_past_the_roll_cap_is_refused(self):
+        robot = self.robot()
+        with robot.start_stream(wrist=True, travel_cap_deg=2.0) as stream:
+            with self.assertRaises(StreamRefused) as caught:
+                stream.set_target({"wrist_motor_1": -110, "wrist_motor_2": -13})   # roll about -2.2 degrees
+            self.assertIn("travel cap", str(caught.exception))
+        self.assertIsNone(robot._fault)
+
+    def test_a_stalled_wrist_faults_on_pitch_or_roll_lead_not_on_the_doubled_motor_limit(self):
+        # Review 2026-11-02: 3 degrees of pure pitch (or roll) is 83 counts per motor, inside each motor's
+        # doubled limit of 111.6, but past the 2 degree lead limit of pitch (or roll) itself.
+        for target in ({"wrist_motor_1": -83, "wrist_motor_2": 83}, {"wrist_motor_1": 83, "wrist_motor_2": 83}):
+            with self.subTest(target=target):
+                robot = self.robot()
+                robot.sim.stream_stuck = True
+                stream = robot.start_stream(wrist=True, travel_cap_deg=10.0, lead_limit_deg=2.0)
+                stream.set_target(target)
+                time.sleep(0.5)
+                with self.assertRaises(ScorbotError) as caught:
+                    stream.close()
+                self.assertIn("not following", str(caught.exception))
+                self.assertTrue(all(abs(m1) + abs(m2) <= 2 * 2.0 * 27.9
+                                    for *_, m1, m2 in robot.sim.stream_sent))
+
+    def test_a_wrist_stream_checks_the_pitch_limit_on_the_streamed_wrist(self):
+        # Source model, not measured: home pitch is -88.8 degrees and its limit -109.65, so
+        # about 21 degrees of pitch down (m1 up, m2 down, 27.9 counts per degree each) is the edge.
+        robot = self.robot()
+        with robot.start_stream(wrist=True) as stream:
+            with self.assertRaises(StreamRefused) as caught:
+                stream.set_target({"wrist_motor_1": 620, "wrist_motor_2": -620})
+            self.assertIn("pitch", str(caught.exception))
+            self.assertTrue(self.follow(stream, robot, {"wrist_motor_1": 280, "wrist_motor_2": -280}))
+        self.assertIsNone(robot._fault)
+
+    def test_a_wrist_controller_error_word_latches_a_fault_only_on_a_wrist_stream(self):
+        robot = self.robot()
+        robot.sim.stream_wrist_error_word = 40
+        with robot.start_stream() as stream:              # the wrist is not streamed: not its business
+            self.assertTrue(self.follow(stream, robot, {"base": 50}))
+        self.assertIsNone(robot._fault)
+        stream = robot.start_stream(wrist=True)
+        stream.set_target({"wrist_motor_1": 50})
+        time.sleep(0.1)
+        with self.assertRaises(ScorbotError) as caught:
+            stream.close()
+        self.assertIn("error word", str(caught.exception))
+        self.assert_latched(robot)
 
     def test_r4_the_cap_cannot_be_raised_past_its_stage(self):
         robot = self.robot()
@@ -628,11 +715,47 @@ class SdkStreamTests(SimulatedRobotCase):
         self.assertNotIn("stream_trace", events)
 
 
+class WristReversalTests(unittest.TestCase):
+    """Review 2026-11-02: a pitch and roll reversal made Ruckig overshoot one wrist motor, past the roll cap
+    while inside that motor's own bound (63 counts against a cap of 56.8 without the check). Replayed on the
+    core with a perfect arm, one action per 24 ms step: the stream must stop, never send past the cap."""
+
+    @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
+    def test_no_setpoint_puts_pitch_or_roll_past_the_cap(self):
+        from scorbot import source_model
+        from scorbot.policy_arm import clamp, wrist_counts
+        from scorbot.stream_control import wrist_cap_problem
+        from scorbot.streaming import WRIST_STREAM_MOTORS, StreamCore
+        cap_deg, per = 2.0, source_model.COUNTS_PER_DEGREE["wrist_motor_1"]
+        cap_counts = cap_deg * per + 1
+        motors = WRIST_STREAM_MOTORS
+        core = StreamCore(dict.fromkeys(motors, 0),
+                          travel_cap={m: (2 * cap_deg * per + 2) if m.startswith("wrist") else 1000.0
+                                      for m in motors},
+                          lead_limit={m: (4 * per) if m.startswith("wrist") else 300.0 for m in motors},
+                          pose_check=lambda counts: wrist_cap_problem(counts, cap_counts),
+                          period_s=0.024, now=0.0, motors=motors)
+        target, measured, now = {"pitch": 0.0, "roll": 0.0}, dict.fromkeys(motors, 0), 0.0
+        for goal in [{"pitch": 9.0, "roll": -9.0}] * 8 + [{"pitch": -9.0, "roll": -9.0}] * 44:
+            seen = {"pitch": (measured["wrist_motor_1"] - measured["wrist_motor_2"]) / (-2 * per),
+                    "roll": (measured["wrist_motor_1"] + measured["wrist_motor_2"]) / (2 * per)}
+            target, _ = clamp({j: goal[j] - target[j] for j in goal}, target, seen, cap_deg=cap_deg)
+            core.set_target(wrist_counts(target["pitch"], target["roll"]), now)
+            now += 0.024
+            step = core.step(measured, now)
+            if step.action != "send":
+                break
+            self.assertIsNone(wrist_cap_problem(step.commanded, cap_counts), step.commanded)
+            measured = dict(step.commanded)
+        self.assertIn("travel cap", core.fault or "")
+
+
 class _QuietRobot:
     """The parts of ``Scorbot`` a ``Stream`` touches from the worker."""
 
     def __init__(self):
         self._cancel_event = threading.Event()
+        self._stop_event = threading.Event()   # read on every step since the pendant Abort change
         self._fault = None
         self.faults = []
 

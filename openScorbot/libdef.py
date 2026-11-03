@@ -371,7 +371,9 @@ def getStruct(orden, signal_out, msg):
 	elif orden == 14 or orden == 15:
 		section = msg[0:40] + signal_out + msg[48:len(msg)]
 	elif orden == 20:
-		section = signal_out + msg[24:len(msg)]
+		# From base on: three fields (base, shoulder, elbow) or five (a wrist stream adds both
+		# wrist motors, where the wrist jog puts them); the rest stays the measured position.
+		section = signal_out + msg[len(signal_out):len(msg)]
 
 	return section
 

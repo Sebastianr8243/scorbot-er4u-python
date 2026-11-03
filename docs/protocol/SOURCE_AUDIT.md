@@ -73,6 +73,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `pacing.QUEUE_LIMIT` | 45 | vendor | `Buffers` | PL03 |
 | `pacing.FAST_DELAY_S` | 0.001 | vendor | the DLL waits 1 ms below the queue limit | `VENDOR_DLL_PROTOCOL.md` section 2 |
 | `packet.MAX_TRACE_PACKETS` | 4000 | ours | size of the in-memory packet log | n/a |
+| `packet.PENDANT_ABORT` | 0x21, 0xA1 | vendor | reply byte 3 with the pendant's Abort key pressed; the DLL calls `Stop('&')` on it (`0x1002cfa7`) | `LEDGER.md` PL63, PL64 |
 
 ### Reply decoding
 
@@ -133,6 +134,11 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `vendor_gripper.AT_TARGET_COUNTS` | 50 | ours | 1 % of `RangeEnc`: the DLL skips the move at 0 % or 100 % open; its percent rounding was not traced | PL48 |
 | `vendor_gripper.GRIPPER_ORDER` | 23 | ours | internal worker order code; `libcomm` runs it with the order 22 runner; never on the wire | n/a |
 | `vendor_gripper.TOTAL_SECONDS` | 30 | ours | bound on one gripper move of about 45 messages | n/a |
+| `vendor_torque.SHOW_TORQUE`, `vendor_torque.ALL_ARM_AXES` | 0x57, 0x3F | vendor | the command and the `'A'` mask `ShowTorque` makes the comm thread send in place of its idle `0D` (`0x1003ccc8`, `FUN_1003f888`); recorded from the lab DLL on the desk: `57 01` (axis 0), `57 04` (axis 2), `57 3F` (`'A'`) | `LEDGER.md` PL74 |
+| `vendor_torque.RESULT_OFFSET` | 244 | vendor | the comm thread's `57` case subtracts `0xF4` from reply bytes 11-14 before storing the reading at `+0xbc` (`0x1003ccc8`); desk run 2026-11-02: replies of 1001, 1004 and 1063 reached the callback as 757, 760 and 819. What the number means on the arm (units, sign) is unverified | `LEDGER.md` PL74 |
+| `vendor_torque.TORQUE_ORDER` | 25 | ours | internal worker order code; `libcomm` runs it with the order 22 runner; never on the wire (24 is the outputs, PR #86) | n/a |
+| `vendor_torque.MAX_MESSAGES` | 80 | ours | `57` messages to send before giving up on an answer; above `vendor_home.MAX_LAG` (60) | n/a |
+| `vendor_torque.TOTAL_SECONDS` | 5.0 | ours | bound on one reading | n/a |
 
 ### Streaming, pacing and the policy clamp
 
@@ -146,12 +152,15 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `streaming.DEFAULT_SPEED_FRACTION` | 0.25 | ours | start at a quarter of the vendor limit | n/a |
 | `streaming.VENDOR_MAX_ACCEL_COUNTS_S2` | 11000 | vendor | `ER4AxN.ini MaxAccel`; unit counts/s^2, from the DLL's acceleration check. The vendor checks 1.5 x the peak, so its real peak is about 7300; ours caps the peak at 11000, which is looser above a speed fraction of about 0.32 (post-lab) | `LEDGER.md` PL56, PL59; `VENDOR_DLL_PROTOCOL.md` section 11.6 |
 | `streaming.MAX_STREAM_STEPS` | 20000 | ours | step records kept for the log | n/a |
+| `streaming.WRIST_STREAM_MOTORS` | the arm motors and both wrist motors | ours | setpoint order of an opt-in wrist stream (`start_stream(wrist=True)`), the wrist fields where the legacy wrist jog puts them | n/a |
 | `streaming.MOTORS` | `limits.ARM_MOTORS` | ours | alias | n/a |
 | `streaming.TRACKING`, `streaming.HOLDING`, `streaming.STOPPED`, `streaming.FAULTED`, `streaming.ENDED`, `streaming.SEND`, `streaming.STOP`, `streaming.END` | state and action names | ours | internal labels | n/a |
 | `policy_arm.MOTORS` | `limits.ARM_MOTORS` | ours | alias | n/a |
 | `policy_arm.DEFAULT_SPEED_PCT` | 25 | ours | starting stream speed, a quarter of the vendor `MaxSpeed`, matching `streaming.DEFAULT_SPEED_FRACTION` | n/a |
 | `policy_arm.DEFAULT_TRAVEL_CAP_DEG`, `policy_arm.LEAD_LIMIT_DEG`, `policy_arm.LEAD_MARGIN_DEG`, `policy_arm.STEP_MAX_DEG` | 2.0, 2.0, 1.5, 0.5 | ours | the PolicyArm clamp | n/a |
 | `policy_arm.STEP_LIMITS` | ("fixed", "speed") | ours | step limit modes: "fixed" is `STEP_MAX_DEG` per call (the default); "speed" (opt-in) is what the vendor `MaxSpeed` (`streaming.VENDOR_MAX_SPEED_COUNTS_S`) at `speed_pct` covers since the last call, never above `LEAD_MARGIN_DEG` | n/a |
+| `policy_arm.WRIST_JOINTS` | ("pitch", "roll") | ours | `PolicyArm(wrist=True)` joint names, from `source_model.JOINTS`; pitch is the gripper's angle to the floor, from the two wrist motors alone | n/a |
+| `policy_arm.JOINTS` | `MOTORS` + `WRIST_JOINTS` | ours | every joint `clamp` knows | n/a |
 | `vendor_profile.MIN_TOTAL_TIME` | 0.001 | vendor | the profile set-up rejects T below 1 ms (`0x1001295d`) | `VENDOR_DLL_PROTOCOL.md` section 11.1 |
 | `vendor_profile.DEFAULT_TOTAL_TIME`, `vendor_profile.DEFAULT_ACCEL_FRACTION`, `vendor_profile.DEFAULT_JERK_FRACTION` | 3.0, 0.3, 0.3 | vendor | `ROB_4u.INI [Motion] TotalTimeA`, `AccelA`, `AccelAccelA` | `VENDOR_DLL_PROTOCOL.md` section 11.1 |
 | `vendor_profile.MANUAL_ACCEL_FRACTION`, `vendor_profile.MANUAL_JERK_FRACTION` | 0.3, 0.05 | vendor | the velocity jog's A and J (`MoveManual`, `0x1001ba0c`) | `VENDOR_DLL_PROTOCOL.md` section 11.4 |
@@ -247,4 +256,4 @@ Ranked by whether the gap reaches the controller, then by how soon it runs on th
    - Orders 21 and 22 are internal.
    - Done for the `ROB_4u.INI` link lengths and angle limits (they cite `docs/manual/` notes that quote them). Still unverified: the manual and datasheet citation rows, whose values no note quotes one by one.
    - Done: PL26, PL27 and the `vendor_home.py` docstring (section 3).
-8. **Untraced reply bytes: done 2026-11-02** (`LEDGER.md` PL63 to PL67). Bytes 4, 15-18 and 60-63 are unused by the DLL. Byte 3 is the teach pendant, and the DLL acts on it. **Open, post-lab safety follow-up (PL67):** Stack 2 ignores the pendant's Abort key, which the vendor turns into `Stop('&')`. Because it is a stop path, rank it above items 5 to 7 when it is picked up.
+8. **Untraced reply bytes: done 2026-11-02** (`LEDGER.md` PL63 to PL67). Bytes 4, 15-18 and 60-63 are unused by the DLL. Byte 3 is the teach pendant, and the DLL acts on it. **Open, post-lab safety follow-up (PL67):** Stack 2 ignores the pendant's Abort key, which the vendor turns into `Stop('&')`. Because it is a stop path, rank it above items 5 to 7 when it is picked up. **Code on branch `stack2-pendant-abort` (2026-11-02, merge after the lab):** an Abort press now calls `request_stop`, the same stop as the software stop, through `packet.TrackedInputEndpoint`, where every reply passes. That is the vendor's `Stop('&')`. It is a stop, not the latched fault PL67 suggested, because the vendor does not fault on it.
