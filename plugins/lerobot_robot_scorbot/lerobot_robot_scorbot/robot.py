@@ -4,7 +4,8 @@ Observation and action: ``base.pos``, ``shoulder.pos``, ``elbow.pos``, ``pitch.p
 degrees from home (uncalibrated vendor prior; pitch is the gripper's angle to the floor and, with roll,
 comes from the two coupled wrist motors through ``scorbot.source_model``), plus ``gripper.pos`` (0 closed
 .. 100 open), plus any cameras LeRobot configures. A joint action is an absolute target; ``PolicyArm``
-clamps it to 0.5 degree per call, the travel cap and the lead limit. The gripper is binary
+clamps it to 0.5 degree per call and the lead limit, holding frames outside Intelitek's
+joint and encoder windows after vendor Home. The gripper is binary
 (``PolicyArm.set_gripper``): below 50 closes, 50 or more opens, and a change pauses the stream for the
 blocking vendor move, so that frame is slow. Its observation is the measured jaw in percent. The real arm is
 refused: LeRobot's tools connect outside their cleanup and have no stop key. Works without the
@@ -59,7 +60,6 @@ REAL_ARM_REFUSED = ("The LeRobot plugin is simulator-only (simulate=true). Use p
 @dataclass
 class ScorbotRobotConfig(RobotConfig):
     simulate: bool = False          # must be true: the real arm is refused
-    travel_cap_deg: float = 2.0     # most degrees from home, per joint
     speed_pct: float = 25.0         # stream speed, percent of the vendor's MaxSpeed (1 to 100)
     step_limit: str = "fixed"       # "speed": the step per action follows speed_pct (PolicyArm)
     log_dir: Path = Path("rehearsal/lerobot")
@@ -119,7 +119,7 @@ class ScorbotRobot(Robot):
             raise RuntimeError(f"{self} is already connected.")
         log = Path(self.config.log_dir) / f"lerobot-{time.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}.jsonl"
         arm = PolicyArm(SimulatedScorbot(log_path=log, robot_id=self.config.robot_id),
-                        travel_cap_deg=self.config.travel_cap_deg, speed_pct=self.config.speed_pct,
+                        speed_pct=self.config.speed_pct,
                         step_limit=self.config.step_limit, wrist=True)
         arm.connect(operator_at_stop=self.config.operator_at_stop, jaws_empty=self.config.jaws_empty,
                     wrist_clear=self.config.wrist_clear)    # unwinds itself on failure: LeRobot calls us outside its cleanup

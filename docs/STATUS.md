@@ -41,6 +41,7 @@
 | Packet codec (`scorbot/transport/`) | E3 | no | `tests/test_transport_codec.py` | Not wired into `Scorbot` |
 | Joint jog, streaming, gripper, inch home, software stop | E2 | no | `tests/`, `tests_extra/` | Never ran on the arm |
 | PolicyArm binary gripper (`open_gripper`, `close_gripper`) | E2 | no | `tests_extra/test_policy_arm_gripper.py`: simulator and real SDK workers on desk fake against the existing DLL fixture; [API notes](STACK2_SDK.md#policyarm-binary-gripper-desk-only) | Physical-arm behaviour unverified; LeRobot plugin gripper schema still absent |
+| PolicyArm / LeRobot vendor travel guard | E2 | no | `tests_extra/test_policy_vendor_limits.py`; [requirements](requirements/vendor-limits.md), [vendor windows](protocol/VENDOR_DLL_PROTOCOL.md#115-per-axis-limits) | Both Intelitek windows after session vendor Home; whole-frame hold outside either, no policy degree cap. Physical zero and signs unverified until lab G/X |
 | Simulator, recording, replay (`scorbot/session/`) | E2 | no | `tests/` | Offline only |
 | LeRobot plugin (`plugins/lerobot_robot_scorbot`) | E2 | no | `examples/lerobot_sim_check.py` against lerobot 0.6.1 in its own venv (2026-11-01: `lerobot-record`, reload, replay), `tests_extra/test_lerobot_scorbot_plugin.py` | Simulator only, real arm refused; wrist pitch and roll added 2026-11-02 (simulator tests only, not yet run against lerobot); no gripper yet |
 

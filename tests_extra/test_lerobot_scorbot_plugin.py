@@ -165,45 +165,46 @@ class SimDriveTests(unittest.TestCase):
 
 
 class TeleopMapTests(unittest.TestCase):
-    def test_keys_step_the_target_and_stop_at_the_cap(self):
+    def test_keys_step_the_target_beyond_the_old_cap(self):
         target = home()
-        target = keyboard_to_target({"delta_x": 1, "delta_y": -1, "delta_z": 0}, target, 0.5, 2.0)
+        target = keyboard_to_target({"delta_x": 1, "delta_y": -1, "delta_z": 0}, target, 0.5)
         self.assertEqual(target, {"base": 0.5, "shoulder": -0.5, "elbow": 0.0, "pitch": 0.0, "roll": 0.0,
                                   "gripper": 0.0})
         for _ in range(10):
-            target = keyboard_to_target({"delta_x": 1, "delta_y": 0, "delta_z": -1}, target, 0.5, 2.0)
-        self.assertEqual(target, {"base": 2.0, "shoulder": -0.5, "elbow": -2.0, "pitch": 0.0, "roll": 0.0,
+            target = keyboard_to_target({"delta_x": 1, "delta_y": 0, "delta_z": -1}, target, 0.5)
+        self.assertEqual(target, {"base": 5.5, "shoulder": -0.5, "elbow": -5.0, "pitch": 0.0, "roll": 0.0,
                                   "gripper": 0.0})
 
     def test_a_bigger_raw_value_is_still_one_step(self):
-        self.assertEqual(keyboard_to_target({"delta_x": 5.0}, home(), 0.5, 2.0)["base"], 0.5)
+        self.assertEqual(keyboard_to_target({"delta_x": 5.0}, home(), 0.5)["base"], 0.5)
 
     def test_the_gripper_keys_open_close_and_hold(self):
-        target = keyboard_to_target({"gripper": 2}, home(), 0.5, 2.0)      # keyboard_ee: right ctrl
+        target = keyboard_to_target({"gripper": 2}, home(), 0.5)      # keyboard_ee: right ctrl
         self.assertEqual(target, {**home(), "gripper": 100.0})
         for raw in ({"gripper": 1}, {"gripper": -1}, {"gripper": 3}, {"gripper": True}, {"gripper": "x"}, {}):
             with self.subTest(raw=raw):
-                self.assertEqual(keyboard_to_target(raw, target, 0.5, 2.0)["gripper"], 100.0)
-        self.assertEqual(keyboard_to_target({"gripper": 0}, target, 0.5, 2.0)["gripper"], 0.0)   # left ctrl
+                self.assertEqual(keyboard_to_target(raw, target, 0.5)["gripper"], 100.0)
+        self.assertEqual(keyboard_to_target({"gripper": 0}, target, 0.5)["gripper"], 0.0)   # left ctrl
 
     def test_no_key_and_bad_values_hold(self):
         start = {"base": 1.0, "shoulder": 0.0, "elbow": -1.0, "pitch": 0.5, "roll": -0.5, "gripper": 100.0}
         for raw in ({}, {"gripper": 1}, {"delta_x": float("nan")}, {"delta_x": "x"}, {"delta_x": True}):
             with self.subTest(raw=raw):
-                self.assertEqual(keyboard_to_target(raw, start, 0.5, 2.0), start)
+                self.assertEqual(keyboard_to_target(raw, start, 0.5), start)
 
     def test_action_keys(self):
         self.assertEqual(tuple(to_action(home())), KEYS)
 
     def test_limits(self):
-        for step, cap in ((0, 2), (0.6, 2), (0.5, 0), (0.5, 2.1), (math.nan, 2), (0.5, math.inf), (True, 2)):
-            with self.subTest(step=step, cap=cap), self.assertRaises(ValueError):
-                check_limits(step, cap)
-        check_limits(0.5, 2.0)
-        check_limits(0.1, 0.5)
+        for step in (0, 0.6, math.nan, math.inf, True):
+            with self.subTest(step=step), self.assertRaises(ValueError):
+                check_limits(step)
+        check_limits(0.5)
+        check_limits(0.1)
 
     def test_scripts(self):
         self.assertEqual(parse_script(DEFAULT_SCRIPT)[-1], home())
+        self.assertEqual(parse_script("-170,0,0,0,400")[0]["roll"], 400)
         self.assertEqual(parse_script(" 1, -0.5 ,2 "),
                          [{"base": 1.0, "shoulder": -0.5, "elbow": 2.0, "pitch": 0.0, "roll": 0.0,
                            "gripper": 0.0}])
@@ -211,7 +212,7 @@ class TeleopMapTests(unittest.TestCase):
                          [{"base": 1.0, "shoulder": -0.5, "elbow": 2.0, "pitch": 0.5, "roll": -1.0,
                            "gripper": 0.0}])
         self.assertEqual(parse_script("0,0,0,0,0,100")[0]["gripper"], 100.0)
-        for text in ("", "1,2", "1,2,3,4", "1,2,3,4,5,6,7", "a,0,0", "nan,0,0", "2.1,0,0", "0,0,0,0,2.1",
+        for text in ("", "1,2", "1,2,3,4", "1,2,3,4,5,6,7", "a,0,0", "nan,0,0",
                      "0,0,0,0,0,101", "0,0,0,0,0,-1", "0,0,0,0,0,nan",
                      "1,0,0;;0,0,0"):
             with self.subTest(text=text), self.assertRaises(ValueError):
@@ -219,7 +220,7 @@ class TeleopMapTests(unittest.TestCase):
 
     def test_the_walk_moves_one_step_per_call_and_visits_every_waypoint(self):
         waypoints = parse_script(DEFAULT_SCRIPT)
-        walk = script_walk(waypoints, 0.5, 2.0)
+        walk = script_walk(waypoints, 0.5)
         last, visited = home(), []
         for _ in range(40):
             target = next(walk)
@@ -230,12 +231,12 @@ class TeleopMapTests(unittest.TestCase):
         self.assertEqual(len(visited), len(waypoints))
 
     def test_step_toward_stops_at_the_goal(self):
-        self.assertEqual(step_toward(home(), {"base": 0.2}, 0.5, 2.0)["base"], 0.2)
+        self.assertEqual(step_toward(home(), {"base": 0.2}, 0.5)["base"], 0.2)
 
     def test_step_toward_sets_the_gripper_at_once(self):
-        target = step_toward(home(), {"base": 2.0, "gripper": 100.0}, 0.5, 2.0)
+        target = step_toward(home(), {"base": 2.0, "gripper": 100.0}, 0.5)
         self.assertEqual((target["base"], target["gripper"]), (0.5, 100.0))
-        self.assertEqual(step_toward(target, {"base": 2.0}, 0.5, 2.0)["gripper"], 100.0)
+        self.assertEqual(step_toward(target, {"base": 2.0}, 0.5)["gripper"], 100.0)
 
 
 class CheckCommandTests(unittest.TestCase):

@@ -10,6 +10,7 @@
 | [`STATUS.md`](STATUS.md) | What works and how sure we are |
 | [`STACK2_SDK.md`](STACK2_SDK.md) | The experimental own-USB-protocol SDK (`scorbot.Scorbot`); never moved the arm |
 | [`requirements/policy-gripper.md`](requirements/policy-gripper.md) | PolicyArm binary gripper requirements and desk-only checks; physical-arm behaviour unverified |
+| [`requirements/vendor-limits.md`](requirements/vendor-limits.md) | PolicyArm / LeRobot vendor travel guards and simulator checks; physical zero and signs unverified until lab G/X |
 
 ## lab/
 

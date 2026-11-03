@@ -25,7 +25,7 @@ from pathlib import Path
 REPO_ID = "local/scorbot_sim_check"
 EPISODES, SECONDS, FPS = 2, 3, 10
 SCRIPT = "1,0,0,0,0;1,1,0,1,0;0,1,-1,1,-1;0,0,0,0,0"     # absolute degrees (base..roll), ends at home
-STEP_DEG, CAP_DEG = 0.5, 2.0
+STEP_DEG = 0.5
 JOINT_NAMES = ["base.pos", "shoulder.pos", "elbow.pos", "pitch.pos", "roll.pos"]
 NAMES = [*JOINT_NAMES, "gripper.pos"]    # gripper 0 closed .. 100 open; the scripted record keeps it closed
 ACTION = {"base.pos": 1.0, "shoulder.pos": -0.5, "elbow.pos": 0.5, "pitch.pos": -1.0, "roll.pos": 0.5,
@@ -128,12 +128,11 @@ def check_dataset(dataset):
         frames = sum(1 for row in data if row[0] == episode)
         assert 0.8 * SECONDS * FPS <= frames <= 1.2 * SECONDS * FPS + 1, f"episode {episode} has {frames} frames"
     assert data[0][1] == [0.0] * len(NAMES), f"first state {data[0][1]}"
-    joints = len(JOINT_NAMES)       # cap, step and tracking are joint checks; the gripper column is its own
+    joints = len(JOINT_NAMES)       # step and tracking are joint checks; the gripper column is its own
     assert all(row[1][joints] == 0.0 and row[2][joints] == 0.0 for row in data), "the gripper left closed"
     worst = 0.0
     for (ep, _, action), (ep2, after, nxt) in zip(data, data[1:]):
         action, after, nxt = action[:joints], after[:joints], nxt[:joints]
-        assert all(abs(v) <= CAP_DEG + 1e-9 for v in action), f"action {action} outside the cap"
         if ep == ep2:
             assert all(abs(a - b) <= STEP_DEG + 1e-6 for a, b in zip(action, nxt)), f"step {action} -> {nxt}"
             worst = max(worst, *(abs(a - b) for a, b in zip(after, action)))

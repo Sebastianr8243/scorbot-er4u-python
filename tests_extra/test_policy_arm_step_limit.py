@@ -142,7 +142,7 @@ class PolicyArmStepLimitTests(unittest.TestCase):
         return arm
 
     def test_the_default_is_the_fixed_step(self):
-        arm = self.arm(travel_cap_deg=30.0)
+        arm = self.arm()
         self.assertEqual(arm.step_limit, "fixed")
         with mock.patch.object(policy_arm, "clamp", wraps=policy_arm.clamp) as spy:
             self.assertEqual(arm.act({"base": 90.0})["base"], STEP_MAX_DEG)
@@ -151,7 +151,7 @@ class PolicyArmStepLimitTests(unittest.TestCase):
     def test_speed_mode_steps_by_the_vendor_speed_since_the_last_call(self):
         now = [100.0]
         with mock.patch.object(policy_arm, "monotonic", lambda: now[0]):
-            arm = self.arm(travel_cap_deg=30.0, step_limit="speed")
+            arm = self.arm(step_limit="speed")
             now[0] += 0.05
             first = arm.act({"base": 90.0})["base"]
         self.assertAlmostEqual(first, VENDOR_MAX_SPEED_COUNTS_S * 0.25 * 0.05 / abs(arm._per_degree["base"]))
@@ -160,7 +160,7 @@ class PolicyArmStepLimitTests(unittest.TestCase):
     def test_speed_mode_follows_a_live_speed_change(self):
         now = [100.0]
         with mock.patch.object(policy_arm, "monotonic", lambda: now[0]):
-            arm = self.arm(travel_cap_deg=30.0, step_limit="speed", speed_pct=10)
+            arm = self.arm(step_limit="speed", speed_pct=10)
             arm.set_speed(20)
             now[0] += 0.05
             first = arm.act({"base": 90.0})["base"]
@@ -169,7 +169,7 @@ class PolicyArmStepLimitTests(unittest.TestCase):
     def test_a_speed_raise_never_counts_the_time_before_it(self):
         now = [100.0]
         with mock.patch.object(policy_arm, "monotonic", lambda: now[0]):
-            arm = self.arm(travel_cap_deg=30.0, step_limit="speed", speed_pct=1)
+            arm = self.arm(step_limit="speed", speed_pct=1)
             now[0] += 0.099
             arm.set_speed(100)
             now[0] += 0.001
