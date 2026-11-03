@@ -233,6 +233,16 @@ class StreamCore:
             self.fault = reason
         self.state = FAULTED
 
+    def _leads_too_far(self, lead: dict) -> bool:
+        """Any motor past its lead limit, or, on a wrist stream, pitch or roll past theirs.
+
+        A wrist motor's limit is pitch's plus roll's, and pitch is half the wrist motors' difference,
+        roll half their sum, so each stays within half that limit exactly when |m1| + |m2| is within it.
+        """
+        if any(abs(lead[m]) > self.lead_limit[m] for m in self.motors):
+            return True
+        return self.motors == WRIST_STREAM_MOTORS and             abs(lead["wrist_motor_1"]) + abs(lead["wrist_motor_2"]) > self.lead_limit["wrist_motor_1"]
+
     def _decelerate(self) -> None:
         self._input.control_interface = self._velocity_interface
         self._input.target_velocity = [0.0] * len(self.motors)
@@ -256,7 +266,7 @@ class StreamCore:
                 self._fault("the controller reports an emergency stop")
             elif error_counts and any(error_counts.get(m, 0) >= self.error_limit for m in self.motors):
                 self._fault(f"controller error word at or above {self.error_limit}: {error_counts}")
-            elif any(abs(lead[m]) > self.lead_limit[m] for m in self.motors):
+            elif self._leads_too_far(lead):
                 self._fault(f"the arm is not following: command leads by {lead} counts")
             if self.state == FAULTED:
                 return result(STOP)
@@ -283,7 +293,7 @@ class StreamCore:
             # Checked before it is sent: the limit bounds every setpoint, so a
             # stalled arm is never asked for one more step past it.
             ahead = {m: proposed[m] - int(measured[m]) for m in self.motors}
-            if any(abs(ahead[m]) > self.lead_limit[m] for m in self.motors):
+            if self._leads_too_far(ahead):
                 self._fault(f"the arm is not following: the next command would lead by "
                             f"{ahead} counts")
                 return result(STOP)

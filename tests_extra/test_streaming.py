@@ -308,6 +308,22 @@ class SdkStreamTests(SimulatedRobotCase):
             self.assertIn("travel cap", str(caught.exception))
         self.assertIsNone(robot._fault)
 
+    def test_a_stalled_wrist_faults_on_pitch_or_roll_lead_not_on_the_doubled_motor_limit(self):
+        # Review 2026-11-02: 3 degrees of pure pitch (or roll) is 83 counts per motor, inside each motor's
+        # doubled limit of 111.6, but past the 2 degree lead limit of pitch (or roll) itself.
+        for target in ({"wrist_motor_1": -83, "wrist_motor_2": 83}, {"wrist_motor_1": 83, "wrist_motor_2": 83}):
+            with self.subTest(target=target):
+                robot = self.robot()
+                robot.sim.stream_stuck = True
+                stream = robot.start_stream(wrist=True, travel_cap_deg=10.0, lead_limit_deg=2.0)
+                stream.set_target(target)
+                time.sleep(0.5)
+                with self.assertRaises(ScorbotError) as caught:
+                    stream.close()
+                self.assertIn("not following", str(caught.exception))
+                self.assertTrue(all(abs(m1) + abs(m2) <= 2 * 2.0 * 27.9
+                                    for *_, m1, m2 in robot.sim.stream_sent))
+
     def test_a_wrist_stream_checks_the_pitch_limit_on_the_streamed_wrist(self):
         # Source model, not measured: home pitch is -88.8 degrees and its limit -109.65, so
         # about 21 degrees of pitch down (m1 up, m2 down, 27.9 counts per degree each) is the edge.
