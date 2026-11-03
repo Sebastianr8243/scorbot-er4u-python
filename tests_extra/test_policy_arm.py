@@ -17,7 +17,7 @@ class PolicyArmTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t")
         self.arm = PolicyArm(robot, travel_cap_deg=2.0)
-        self.arm.connect()
+        self.arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)     # the simulator; the confirmations are this test's
         self.addCleanup(self.arm.close)
 
     def test_starts_at_home(self):

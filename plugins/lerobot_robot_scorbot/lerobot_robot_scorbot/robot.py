@@ -60,6 +60,10 @@ class ScorbotRobotConfig(RobotConfig):
     log_dir: Path = Path("rehearsal/lerobot")
     robot_id: str = "lab-er4u-1"
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
+    # The vendor Home on connect (moves the wrist, closes the gripper) needs all three, passed as given.
+    operator_at_stop: bool = False  # an operator is at the physical stop
+    jaws_empty: bool = False        # the gripper jaws are empty
+    wrist_clear: bool = False       # the wrist's path is clear
 
 
 class ScorbotRobot(Robot):
@@ -112,7 +116,8 @@ class ScorbotRobot(Robot):
         arm = PolicyArm(SimulatedScorbot(log_path=log, robot_id=self.config.robot_id),
                         travel_cap_deg=self.config.travel_cap_deg, speed_pct=self.config.speed_pct,
                         step_limit=self.config.step_limit)
-        arm.connect()           # unwinds itself on failure: LeRobot calls us outside its cleanup
+        arm.connect(operator_at_stop=self.config.operator_at_stop, jaws_empty=self.config.jaws_empty,
+                    wrist_clear=self.config.wrist_clear)    # unwinds itself on failure: LeRobot calls us outside its cleanup
         self._arm = arm
         try:
             for cam in self.cameras.values():

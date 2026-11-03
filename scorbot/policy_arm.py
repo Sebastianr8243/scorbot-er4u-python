@@ -126,14 +126,23 @@ class PolicyArm:
         if self._stack is None:
             raise ConnectionError("PolicyArm is not connected")
 
-    def connect(self) -> None:
+    def connect(self, *, operator_at_stop: bool = False, jaws_empty: bool = False,
+                wrist_clear: bool = False) -> None:
+        """Connect, enable, home with ``Scorbot.vendor_home`` (moves the wrist, closes the gripper), stream.
+
+        The three confirmations go straight to ``vendor_home``; without all three nothing is sent.
+        """
         if self._stack is not None:
             raise RuntimeError("already connected")
+        if not (operator_at_stop and jaws_empty and wrist_clear):
+            raise ValueError("Confirm an operator is at the physical stop, the gripper jaws are "
+                             "empty and the wrist's path is clear first")
         with ExitStack() as stack:           # any failure below unwinds what was opened
             stack.enter_context(self.robot)  # connects; leaving disconnects
             self.robot.enable()
             stack.callback(self._disable)
-            self.robot.home(start_position_confirmed=True)
+            self.robot.vendor_home(operator_at_stop=operator_at_stop, jaws_empty=jaws_empty,
+                                   wrist_clear=wrist_clear)
             self._home = dict(self.robot.get_state().encoder_counts)
             self._per_degree = {m: self.robot.preview_jog(m, 1.0)["motor_count_deltas"][m]
                                 for m in MOTORS}
