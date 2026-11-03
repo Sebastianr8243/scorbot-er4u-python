@@ -7,11 +7,13 @@ Refusing to stream in teach mode is Stack 2's own rule; the DLL refuses nothing 
 """
 
 import dataclasses
+from contextlib import contextmanager
 from importlib.util import find_spec
+import time
 import unittest
 from unittest import mock
 
-from scorbot import ScorbotError
+from scorbot import ScorbotError, StreamRefused
 from scorbot.packet import TrackedInputEndpoint
 from scorbot.state import ENCODER_OFFSETS, decode_state, teach_mode_after
 
@@ -36,6 +38,33 @@ def reply(byte3=0, byte2=0x08):
         packet[offset + 2] = 128
     packet[2], packet[3] = byte2, byte3
     return bytes(packet)
+
+
+@contextmanager
+def teach_after_setpoints(robot):
+    """Flip the simulated reply after three sends; mirror the real endpoint's teach flag."""
+    from scorbot.simulated import encode_packet
+    snapshot = robot.sim.snapshot
+
+    def packet(*args, **kwargs):
+        data = bytearray(encode_packet(*args, **kwargs))
+        data[3] = 0x40 if len(robot.sim.stream_sent) >= 3 else 0x47
+        return bytes(data)
+
+    def sample(**kwargs):
+        result = snapshot(**kwargs)
+        return dataclasses.replace(result, teach_mode=teach_mode_after(False, result.data))
+
+    with mock.patch("scorbot.simulated.encode_packet", side_effect=packet), \
+            mock.patch.object(robot.sim, "snapshot", side_effect=sample):
+        yield
+
+
+def wait_for_stop(stream):
+    deadline = time.monotonic() + 3
+    while stream.core.state != "stopped" and time.monotonic() < deadline:
+        time.sleep(0.002)
+    return stream.core.state == "stopped"
 
 
 class DecodeTests(unittest.TestCase):
@@ -95,9 +124,51 @@ class StreamRefusalTests(SimulatedRobotCase):
         robot.start_stream().close()
         self.assertIn("stream_start", self.events())
 
+    @unittest.skipUnless(find_spec("ruckig"), "needs the planning extra")
+    def test_teach_mode_mid_stream_stops_without_the_caller_and_refuses_restart(self):
+        robot = self.robot()
+        with teach_after_setpoints(robot):
+            self.assertFalse(robot.get_state().teach_mode)
+            stream = robot.start_stream()
+            stream.set_target({"base": 1000})
+            self.assertTrue(wait_for_stop(stream), "teach mode must stop without close() or stop()")
+            self.assertEqual(len(robot.sim.stream_sent), 3)
+            with self.assertRaises(StreamRefused):
+                stream.set_target({"base": 0})
+            final = stream.close()
+            self.assertTrue(final.teach_mode)
+            self.assertIsNone(robot._fault)
+            self.assertEqual([r for r in self.rows() if r["event"] == "stream_stopped"][-1]["reason"],
+                             "teach mode")
+            before = list(robot.sim.commands)
+            with self.assertRaisesRegex(ScorbotError, "teach mode"):
+                robot.start_stream()
+            self.assertEqual(robot.sim.commands, before)
+            self.assertTrue(robot._commands.empty())
+
 
 @unittest.skipUnless(find_spec("ruckig"), "needs the planning extra")
 class PolicyArmTeachTests(unittest.TestCase):
+    def test_teach_mode_mid_stream_stops_policy_actions(self):
+        import tempfile
+        from pathlib import Path
+        from scorbot import SimulatedScorbot
+        from scorbot.policy_arm import PolicyArm
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t")
+        arm = PolicyArm(robot, travel_cap_deg=2.0)
+        with teach_after_setpoints(robot):
+            arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
+            self.addCleanup(arm.close)
+            arm.act({"base": 1.0})
+            self.assertTrue(wait_for_stop(arm._stream))
+            self.assertEqual(len(robot.sim.stream_sent), 3)
+            with self.assertRaises(StreamRefused):
+                arm.act({"base": 0.0})
+            arm.close()
+            self.assertIsNone(robot._fault)
+
     def test_connect_refuses_before_enabling_in_teach_mode(self):
         import tempfile
         from pathlib import Path

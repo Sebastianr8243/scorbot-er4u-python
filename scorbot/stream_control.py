@@ -234,7 +234,7 @@ class StreamMixin:
                 raise ScorbotError(self._fault)
             if result == self._STOPPED_CODE:
                 after = self._settled_after_stop(stream._before)
-                self._record("stream_stopped", state=asdict(after))
+                self._record("stream_stopped", state=asdict(after), reason=stream.stop_reason)
             else:
                 after = self._motion_state(after_index=stream._before.packet_index)
                 self._record("stream_complete", state=asdict(after))
