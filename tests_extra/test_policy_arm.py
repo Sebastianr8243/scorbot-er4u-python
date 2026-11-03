@@ -90,6 +90,12 @@ class PolicyArmTests(unittest.TestCase):
             self.arm.act({"base": 90.0})
         self.assertEqual(len(reads), 3)
 
+    def test_the_plugins_gripper_observation_is_reused_too(self):
+        reads = self.slow_replies()
+        self.arm.observe(gripper=True)          # what the LeRobot plugin calls
+        self.arm.act({"base": 90.0})
+        self.assertEqual(len(reads), 1)
+
     def test_act_reads_fresh_when_nothing_was_observed_since_the_last_act(self):
         reads = self.slow_replies()
         self.arm.observe()
