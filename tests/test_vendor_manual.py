@@ -12,6 +12,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scorbot import ScorbotError, source_model, vendor_home as vh, vendor_manual as vm
 from scorbot.robot import MotionStopped
@@ -181,6 +182,23 @@ class Planner(unittest.TestCase):
         self.assertEqual(caught.exception.code, vh.ERR_EMERGENCY)
         self.assertEqual([vh.encode_out(o, 0)[4] for o in sent[-4:]], [0x47, 0x4F, 0x73, 0x42])
 
+    def test_an_impact_while_closing_or_stopping_still_closes_then_faults(self):
+        for stop_at in (None, 30):
+            with self.subTest(stop_at=stop_at):
+                generator = vm.velocity_jog(reply(), 0, -20, StopAfter(40), OPEN)
+                sent = [next(generator)]
+                with self.assertRaises(vh.HomeError) as caught:
+                    while True:
+                        last = sent[-1]
+                        hit = last.cmd != vh.NOP and last.cmd != vh.CLEAR or (stop_at and len(sent) > stop_at)
+                        answer = reply(last.setpoints, impact=1 if hit else 0)
+                        if stop_at and len(sent) == stop_at:
+                            sent.append(generator.throw(vh.HomeError(vh.ERR_STOPPED, "a stop was requested")))
+                        else:
+                            sent.append(generator.send(answer))
+                self.assertEqual(caught.exception.code, vh.ERR_IMPACT)
+                self.assertEqual([vh.encode_out(o, 0)[4] for o in sent[-3:]], [0x4F, 0x73, 0x42])
+
     def test_an_arm_that_does_not_follow_is_a_fault(self):
         with self.assertRaises(vh.HomeError) as caught:
             drive(vm.velocity_jog(reply(), 0, -100, vm.JogControl(3.0), OPEN), follow=False)
@@ -256,6 +274,24 @@ class Simulated(unittest.TestCase):
             self.assertGreater(after.signed_encoder_counts["shoulder"], 0)
             self.assertEqual(source_model.pose_limit_excess({"shoulder": after.signed_encoder_counts["shoulder"]}), {})
         self.robot.start_velocity_jog("shoulder", -20).stop()       # away from it is still allowed
+
+    def test_the_window_is_measured_from_where_the_worker_starts(self):
+        # The arm creeps 300 counts toward the shoulder's limit (422 from home) after the start-up checks read it.
+        real = self.robot._settled_after_stop
+
+        def settle_then_drift(*args, **kwargs):
+            state = real(*args, **kwargs)
+            with self.robot.sim._lock:
+                self.robot.sim.counts["shoulder"] += 300
+            return state
+        with mock.patch.object(self.robot, "_settled_after_stop", settle_then_drift):
+            jog = self.robot.start_velocity_jog("shoulder", 20, deadline_s=3.0)
+        deadline = time.monotonic() + 10
+        while jog.reason is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        after = jog.stop()
+        self.assertEqual(jog.reason, "limit")
+        self.assertLessEqual(after.signed_encoder_counts["shoulder"], source_model.motion_window()["shoulder"][1])
 
     def test_refusals(self):
         with self.assertRaisesRegex(ValueError, "one of"):

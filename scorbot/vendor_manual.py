@@ -18,7 +18,8 @@ to the recording (within a few counts at every message at speed 20). Ours, not t
   last reply's counts and sends ``47``, ``4F 3F 53``, ``73 20``, ``42 20 00``, the legacy jog's stop (``libdef.stopMov``),
   and returns ``stopped``. The DLL's own ``Stop('&')`` switches control off instead (``73 FF``, ``42 FF``).
 * A setpoint more than ``LEAD_LIMIT_COUNTS`` ahead of the measured count, or an impact flag, is a fault: the same
-  stop messages, then the error is raised and the runner switches the motors off.
+  stop messages, then the error is raised and the runner switches the motors off. An impact flag during the close
+  or the stop is a fault too, raised once those messages are out.
 
 Counts are the controller's (``raw24 - 0x7FFFFF``), as in ``vendor_home``. Unverified on the arm.
 """
@@ -147,23 +148,29 @@ def velocity_jog(first, axis, speed, control, window):
         if velocity:
             position += velocity * velocity / (2 * decel)
         run.setp[axis] = start + int(position)
-        yield from run.send(vh.MODE, 0x3F, vh.MODE_S)
-        yield from run.send(vh.CONTROL_OFF, 0x20)
-        yield from run.send(vh.MOTORS, 0x20)
+        impact = 0
+        for cmd, mask, arg in ((vh.MODE, 0x3F, vh.MODE_S), (vh.CONTROL_OFF, 0x20, 0), (vh.MOTORS, 0x20, 0)):
+            yield from run.send(cmd, mask, arg)
+            impact = impact or run.reply.impact
     except vh.HomeError as error:
         # The legacy jog's stop: hold the last reply's counts on every message (libdef.stopMov), whatever the replies say.
         run.aborting = True
         run.setp = list(run.reply.counts)
-        alarm = False
+        alarm, impact = False, 0
         for cmd, mask, arg in ((vh.CLEAR, 0, 0), (vh.MODE, 0x3F, vh.MODE_S), (vh.CONTROL_OFF, 0x20, 0),
                                (vh.MOTORS, 0x20, 0)):
             yield from run.send(cmd, mask, arg)
             alarm = alarm or run.reply.emergency
+            impact = impact or run.reply.impact
         if error.code != vh.ERR_STOPPED:
             raise
         if alarm:
             raise vh.HomeError(vh.ERR_EMERGENCY, "emergency input active while the jog stopped") from error
+        if impact:
+            raise vh.HomeError(vh.ERR_IMPACT, f"impact flag {impact:#04x} while the jog stopped", axis) from error
         return JogRun(axis, speed, start, run.setp[axis], "stopped")
+    if impact:      # the close went out in full; the runner now switches the motors off and the session faults
+        raise vh.HomeError(vh.ERR_IMPACT, f"impact flag {impact:#04x} while the jog closed", axis)
     return JogRun(axis, speed, start, run.setp[axis], reason)
 
 

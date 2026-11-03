@@ -45,6 +45,22 @@ def _edge(now: dict, motor: str, sign: int) -> int:
     return high
 
 
+def _window(now: dict, motor: str) -> tuple:
+    """(low, high) counts ``motor`` may move from ``now``, cut ``WINDOW_MARGIN_COUNTS`` short."""
+    return tuple(sign * max(0, _edge(now, motor, sign) - WINDOW_MARGIN_COUNTS) for sign in (-1, 1))
+
+
+def _from_home_at(first, now: dict, before: RobotState) -> dict:
+    """``now`` (counts from home at ``before``) moved by what the worker's first reply reads since then, so the
+    window is measured from where the jog really starts. ``first`` holds controller counts, which read one higher
+    than ``scorbot.state`` counts on the positive side."""
+    shifted = dict(now)
+    for slot, motor in enumerate(limits.RECORDED_MOTORS):
+        then = before.signed_encoder_counts[motor]
+        shifted[motor] += first.counts[slot] - (then + 1 if then > 0 else then)
+    return shifted
+
+
 class VelocityJog:
     """A running velocity jog. Made by ``Scorbot.start_velocity_jog``; until ``stop`` returns, every other command
     is refused. Use it as a context manager, or call ``stop`` yourself."""
@@ -130,13 +146,14 @@ class ManualJogMixin:
                        for m in limits.RECORDED_MOTORS}
             except (KeyError, ValueError) as exc:
                 raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
-            window = tuple(sign * max(0, _edge(now, joint, sign) - WINDOW_MARGIN_COUNTS) for sign in (-1, 1))
+            window = _window(now, joint)
             direction = 1 if speed * vendor_manual.COUNTS_PER_TICK[axis] > 0 else -1
             if window[direction > 0] == 0:
                 raise ValueError(f"The {joint} is at the edge of its travel cap or joint limits that way "
                                  "(source model, not measured)")
             source = VendorHomeSource(
-                start=lambda first: vendor_manual.velocity_jog(first, axis, speed, control, window),
+                start=lambda first: vendor_manual.velocity_jog(
+                    first, axis, speed, control, _window(_from_home_at(first, now, before), joint)),
                 stop_event=self._stop_event, cancel_event=self._cancel_event,
                 total_seconds=vendor_manual.MAX_SECONDS + 10.0)
             jog = VelocityJog(self, joint, speed, control, source, before)
