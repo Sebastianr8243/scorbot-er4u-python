@@ -633,6 +633,7 @@ class _QuietRobot:
 
     def __init__(self):
         self._cancel_event = threading.Event()
+        self._stop_event = threading.Event()   # read on every step since the pendant Abort change
         self._fault = None
         self.faults = []
 
