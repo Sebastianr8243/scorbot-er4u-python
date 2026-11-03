@@ -1,4 +1,4 @@
-"""The lab USBC.dll's ``MoveJoint`` setpoints, as a pure function. Never imports ``usb``; wired into no motion command.
+"""The lab USBC.dll's ``MoveJoint`` setpoints. Never imports ``usb``; only ``Scorbot.move_joint_vendor`` opts in.
 
 What the DLL does, read from the lab build (sha256 ``6118465d...``) and recorded on the pipe fake (LEDGER, this PR):
 a joint move is one ``VendorProfile`` S-curve, in the DLL's joint radians, from the joints it last commanded to the
@@ -21,7 +21,7 @@ the controller's.
 
 from math import sqrt, trunc
 
-from . import vendor_model
+from . import limits, source_model, vendor_home as vh, vendor_model
 from .vendor_profile import DEFAULT_ACCEL_FRACTION, DEFAULT_JERK_FRACTION, VendorProfile
 
 TICK_SECONDS = 24.0 / 1000
@@ -82,3 +82,39 @@ def setpoints(start, target, total_ms, *, accel=DEFAULT_ACCEL_FRACTION, jerk=DEF
             break
     out.append(_counts(target))
     return out
+
+
+def run_move(first, ramp, *, lead_limit_deg):
+    """Feed a validated profile to ``VendorHomeSource``; return whether a stop ended it early.
+
+    Lead and whole-pose checks are Stack 2's, not decoded DLL behavior. A stop holds the measured arm
+    counts and switches its control and motors off, using the same abort path as the post-Home gripper.
+    """
+    run = vh._Run(first, 0)
+    try:
+        for counts in ramp:
+            if run.reply.emergency:
+                raise vh.HomeError(vh.ERR_EMERGENCY, "emergency input active")
+            run.check_impact(0)
+            problem = source_model.pose_limit_problem(dict(zip(limits.RECORDED_MOTORS, counts)))
+            if problem:
+                raise vh.HomeError(vh.ERR_TRAVEL, f"joint limit: {problem}")
+            lead = [abs(a - b) / source_model.COUNTS_PER_DEGREE[m]
+                    for m, a, b in zip(limits.RECORDED_MOTORS, counts, run.reply.counts)]
+            if any(value > lead_limit_deg for value in lead[:3]) or sum(lead[3:]) > 2 * lead_limit_deg:
+                raise vh.HomeError(vh.ERR_TRAVEL, "the arm is not following: the next command leads too far")
+            run.setp = [*counts, 0, 0, 0]
+            yield from run.cycle()
+    except vh.HomeError as error:
+        run.aborting = True
+        run.setp = [*run.reply.counts[:5], 0, 0, 0]
+        yield from run.send(vh.CONTROL_OFF, 0x1F)
+        alarm = run.reply.emergency
+        yield from run.send(vh.MOTORS, 0x1F)
+        alarm = alarm or run.reply.emergency
+        if error.code != vh.ERR_STOPPED:
+            raise
+        if alarm:
+            raise vh.HomeError(vh.ERR_EMERGENCY, "emergency input active while the arm stopped") from error
+        return True
+    return False

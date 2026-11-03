@@ -7,6 +7,7 @@ from pathlib import Path
 _SOURCE_FILES = (
     "openScorbot/libcomm.py",
     "openScorbot/libdef.py",
+    "openScorbot/libsync.py",
     "openScorbot/motion_profile.py",
     "scorbot/calibration.py",
     "scorbot/errors.py",
@@ -28,6 +29,8 @@ _SOURCE_FILES = (
     "scorbot/vendor_home.py",
     "scorbot/vendor_home_source.py",
     "scorbot/vendor_io.py",
+    "scorbot/vendor_model.py",
+    "scorbot/vendor_move.py",
     "scorbot/vendor_profile.py",
     "scorbot/vendor_torque.py",
 )

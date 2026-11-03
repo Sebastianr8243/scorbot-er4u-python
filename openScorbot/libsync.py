@@ -43,7 +43,7 @@ HANDSHAKE_WAIT_TIMEOUT_S = 30.0
 #                    byte. Without it this loop eats the pause marker, puts the byte back and takes it
 #                    again at once, so a late-scheduled command worker can wait forever.
 #
-def syncro(cola_sync, cola_read, epout, epin, buffer, command_waiting=None):
+def syncro(cola_sync, cola_read, epout, epin, buffer, command_waiting=None, setpoint_hold=None):
 	while 1:
 		while command_waiting is not None and command_waiting.is_set():
 			time.sleep(READ)
@@ -58,7 +58,8 @@ def syncro(cola_sync, cola_read, epout, epin, buffer, command_waiting=None):
 			cadena = cadena.format(libdef.f_byte(b_1))
 			cadena = libdef.fill_msg(cadena, 24)
 			media = libdef.get_media(buffer,cola_read.get())
-			cadena += libdef.get_encoder(buffer,media)
+			hold = setpoint_hold() if setpoint_hold is not None else None
+			cadena += hold.hex() if hold is not None else libdef.get_encoder(buffer,media)
 			libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
 			media = libdef.get_media(buffer,media)
 			cola_read.put(media)

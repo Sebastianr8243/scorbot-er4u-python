@@ -146,6 +146,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         # True only after a vendor Home, which zeroes the gripper; read together with _homed, so every clear of
         # _homed (a fault, a lost link) also ends it.
         self._gripper_homed = False
+        self._vendor_joint_target = None   # () after vendor Home; otherwise the last completed target, in radians
+        self._vendor_joint_hold = None     # opt-in idle setpoint bytes; the legacy default still follows encoders
         self._fault = None
 
     def __enter__(self):
@@ -318,6 +320,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         self._enabled = None
         self._homed = False
         self._home_counts = None
+        self._vendor_joint_target = None
+        self._vendor_joint_hold = None
         self._reset_prehome()
 
     def _sync_dead(self) -> bool:
@@ -334,7 +338,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
 
     def _run_sync_worker(self, legacy_sync, *args):
         try:
-            legacy_sync.syncro(*args)
+            legacy_sync.syncro(*args, lambda: self._vendor_joint_hold)
         except Exception as exc:
             self._worker_died("sync", exc)
 
@@ -382,6 +386,9 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             raise ScorbotError(f"Controller is faulted: {self._fault}")
         if self._stream is not None:
             raise ScorbotError("A stream is active; close or stop it first")
+        if payload[0] in (*range(4, 19), 22, 23, 528):
+            self._vendor_joint_target = None
+            self._vendor_joint_hold = None
         wait_timeout = self.command_timeout if timeout is None else timeout
         with self._lock:
             self._record("command_start", payload=_loggable(payload))
@@ -794,6 +801,83 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                 self._record("calibration_fault", error=self._fault)
                 raise ScorbotError(self._fault) from exc
             return result
+
+    def move_joint_vendor(self, target_joints, *, total_ms):
+        """Move five joints (base, shoulder, elbow, pitch, roll) in vendor radians; desk only, not run on the arm.
+
+        Requires a fresh vendor Home and enabled motors. Starts from the last completed target, never the
+        encoders. Other motion and interruptions invalidate that target until another vendor Home.
+        ``total_ms`` is an explicit whole-millisecond duration at least the vendor acceleration bound;
+        speed-percent timing is not decoded. Uses the post-Home gripper's worker and reply/stop checks.
+        """
+        from . import vendor_move
+        from .vendor_gripper import GRIPPER_ORDER
+        from .vendor_home_source import VendorHomeSource
+
+        with self._motion_lock:
+            self._refuse_if_streaming()
+            if self._device is None:
+                raise ScorbotError("Not connected")
+            if not self._enabled:
+                raise ScorbotError("Enable motors before moving joints")
+            if not (self._homed and self._gripper_homed) or self._vendor_joint_target is None:
+                raise ScorbotError("A fresh vendor_home is required before moving joints with the vendor profile")
+            target = tuple(target_joints)
+            if len(target) != 5 or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                                       or not math.isfinite(v) for v in target):
+                raise ValueError("Target needs five finite joint radians: base, shoulder, elbow, pitch, roll")
+            angles = {name: sign * math.degrees(value)
+                      for name, sign, value in zip(source_model.JOINTS, (1, -1, -1, -1, 1), target)}
+            if source_model.outside_limits(angles):
+                raise ValueError("Target exceeds the source model's joint limits")
+            start = self._vendor_joint_target or vendor_move.home_joints()
+            ramp = vendor_move.setpoints(start, target, total_ms)
+            if total_ms < vendor_move.accel_bound_ms(start, target):
+                raise ValueError("total_ms is below the vendor acceleration bound")
+            before = self._motion_state()
+            if self._consume_stop():
+                raise MotionStopped("A stop was requested; the joint move was not started", state=before,
+                                    started=False)
+            before = self._settled_after_stop(before, fault="The arm was not at rest before a joint move")
+            seconds = total_ms / 1000 + 30.0
+            def start_move(first):
+                stopped = yield from vendor_move.run_move(first, ramp, lead_limit_deg=self.max_jog_degrees)
+                counts = source.last_reply.counts[:5] if stopped else ramp[-1]
+                self._vendor_joint_hold = b"".join(int(v).to_bytes(4, "little", signed=True)
+                                                 for v in (*counts, 0, 0, 0))
+                return stopped
+
+            source = VendorHomeSource(start=start_move,
+                stop_event=self._stop_event, cancel_event=self._cancel_event, total_seconds=seconds)
+            self._record("vendor_joint_start", start=start, target=target, total_ms=total_ms, state=asdict(before))
+            trace = self._trace
+            if trace is not None:
+                trace.start()
+            try:
+                self._command([GRIPPER_ORDER, source, 0], timeout=seconds + 30.0)
+            except ScorbotError as exc:
+                self._consume_stop()
+                self._record("vendor_joint_fault", error=self._fault, detail=str(source.error or exc))
+                raise ScorbotError(f"Vendor joint move failed: {source.error or exc}. Motors-off was sent but "
+                                   "is not confirmed: check the MOTORS LED") from exc
+            finally:
+                if trace is not None:
+                    packets, dropped = trace.stop()
+                    self._record("motion_trace", joint="vendor_joint", packets=packets, dropped_packets=dropped)
+            with self._stop_lock:
+                too_late = self._stop_event.is_set() and not source.result
+                self._stop_event.clear()
+            if too_late:
+                self._record("stop_too_late", joint="vendor_joint")
+            if source.result:
+                self._enabled = False    # the abort switched the arm motors off
+                after = self._settled_after_stop(before)
+                self._record("vendor_joint_stopped", state=asdict(after))
+                raise MotionStopped("The joint move ended early on a stop request", state=after)
+            after = self._settled_after_stop(before, fault="The arm was still moving after its joint move")
+            self._record("vendor_joint_complete", target=target, state=asdict(after))
+            self._vendor_joint_target = target
+            return after
 
     def move_joint(self, joint: str, target_degrees: float, *, speed: int = 10):
         """One bounded calibrated target step, using the existing jog backend."""
