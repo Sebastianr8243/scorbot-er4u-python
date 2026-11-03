@@ -84,6 +84,8 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `state.PACKET_MIN_LENGTH` | 49 | ours | derived: the last field decoded ends at byte 48 | n/a |
 | `state.HOME_SWITCH_BITS` | 1, 2, 4, 8, 16 | legacy | `libdef.get_switch`; byte 5 bit N in the DLL, order confirmed by the ULPGC thesis | `VENDOR_DLL_PROTOCOL.md` section 6; `ULPGC_THESIS_FINDINGS.md` |
 | `state.COLLISION_OFFSET` | 59 | vendor | impact byte (`0x1000b270`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
+| `state.DIGITAL_INPUT_OFFSET` | 6 | vendor | digital input word, returned by `GetDigitalInputs` (`0x10019631`) | `LEDGER.md` PL65, PL69 |
+| `state.ANALOG_INPUT_OFFSETS` | 7, 8, 9, 10 | vendor | four analog inputs, returned by `GetAnalogInput` (`0x100199fc`) | `LEDGER.md` PL65, PL69 |
 | `state.COLLISION_MOTORS` | names for bits 0-7 | ours | labels; bit-per-motor reading from the ULPGC thesis p. 57 | `ULPGC_THESIS_FINDINGS.md` |
 | `vendor_home.ZERO24` | `0x7FFFFF` | vendor | count = raw24 - `0x7FFFFF` (`0x1000b160`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `vendor_home.REPLY_MIN_LENGTH` | 60 | ours | the last byte decoded is the impact byte 59 | n/a |
@@ -121,9 +123,18 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `vendor_gripper.RANGE_ENC`, `vendor_gripper.RANGE_MM` | 5000, 70 | vendor | `ROB_4u.ini` `RangeEnc` and `RangeMM`: the same in all six copies on the desk PC (five lab sets and the desk tree); `JawMetric` target = `RangeEnc` x mm / `RangeMM` | PL46, PL48, PL50. The arm PC's own `ROB_4u.ini` is still to be read (lab) |
 | `vendor_gripper.PROFILE_TICKS`, `vendor_gripper.ACCEL_FRACTION`, `vendor_gripper.JERK_FRACTION` | 40.1, 0.264, 0.11 | vendor | fitted to the lab DLL's post-Home gripper setpoints (PL51): `VendorProfile` sampled at ticks 1, 2, ... matches every setpoint within 8 counts. Measured in ticks, not from the recording's timestamps: the fake answers in about 1 ms, and the DLL planner advances a fixed tick per reply, so wall time on the fake says nothing about the profile | `tests/fixtures/dll_lab_gripper.json`; `VENDOR_DLL_PROTOCOL.md` section 11 (sampling) |
 | `vendor_gripper.TICK_SECONDS` | 0.024 | vendor | the DLL planner tick, `PCPeriod` x `USBCPeriod` = 16 x 1.5 ms: the profile is about 0.96 s on the vendor. Not used to pace: Stack 2 sends one setpoint per message at its own pace | `VENDOR_DLL_PROTOCOL.md` section 11 (sampling) |
+| `vendor_io.CLEAR`, `vendor_io.SET_DIGITAL`, `vendor_io.SET_ANALOG` | 0x47, 0x44, 0x41 | vendor | the commands `SetDigitalOutput` and `SetAnalogOutput` send, recorded from the lab DLL on the desk | `LEDGER.md` PL68, PL70 |
+| `vendor_io.DIGITAL_OUTPUTS`, `vendor_io.ANALOG_OUTPUTS`, `vendor_io.ANALOG_MAX` | 32, 2, 255 | vendor | the range checks in `SetDigitalOutput` (`0x10019697`) and `SetAnalogOutput` (`0x10019a4c`); the value is a byte | `LEDGER.md` PL68, PL70 |
+| `vendor_io.IO_ORDER` | 24 | ours | worker command code for an output write | n/a |
+| `vendor_io.TOTAL_SECONDS` | 5.0 | ours | bound on one output write (two messages) | n/a |
 | `vendor_gripper.AT_TARGET_COUNTS` | 50 | ours | 1 % of `RangeEnc`: the DLL skips the move at 0 % or 100 % open; its percent rounding was not traced | PL48 |
 | `vendor_gripper.GRIPPER_ORDER` | 23 | ours | internal worker order code; `libcomm` runs it with the order 22 runner; never on the wire | n/a |
 | `vendor_gripper.TOTAL_SECONDS` | 30 | ours | bound on one gripper move of about 45 messages | n/a |
+| `vendor_torque.SHOW_TORQUE`, `vendor_torque.ALL_ARM_AXES` | 0x57, 0x3F | vendor | the command and the `'A'` mask `ShowTorque` makes the comm thread send in place of its idle `0D` (`0x1003ccc8`, `FUN_1003f888`); recorded from the lab DLL on the desk: `57 01` (axis 0), `57 04` (axis 2), `57 3F` (`'A'`) | `LEDGER.md` PL74 |
+| `vendor_torque.RESULT_OFFSET` | 244 | vendor | the comm thread's `57` case subtracts `0xF4` from reply bytes 11-14 before storing the reading at `+0xbc` (`0x1003ccc8`); desk run 2026-11-02: replies of 1001, 1004 and 1063 reached the callback as 757, 760 and 819. What the number means on the arm (units, sign) is unverified | `LEDGER.md` PL74 |
+| `vendor_torque.TORQUE_ORDER` | 25 | ours | internal worker order code; `libcomm` runs it with the order 22 runner; never on the wire (24 is the outputs, PR #86) | n/a |
+| `vendor_torque.MAX_MESSAGES` | 80 | ours | `57` messages to send before giving up on an answer; above `vendor_home.MAX_LAG` (60) | n/a |
+| `vendor_torque.TOTAL_SECONDS` | 5.0 | ours | bound on one reading | n/a |
 
 ### Streaming, pacing and the policy clamp
 

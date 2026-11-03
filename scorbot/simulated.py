@@ -45,6 +45,8 @@ from .streaming import MOTORS as STREAM_MOTORS
 from .streaming import STREAM_ORDER
 from .vendor_home_model import Plant
 from .vendor_gripper import GRIPPER_ORDER as VENDOR_GRIPPER_ORDER
+from .vendor_io import IO_ORDER as VENDOR_IO_ORDER
+from .vendor_torque import SHOW_TORQUE, TORQUE_ORDER as VENDOR_TORQUE_ORDER
 from .vendor_home_source import VENDOR_HOME_ORDER
 
 FAULT_KINDS = ("timeout", "late_answer", "controller_error", "worker_crash",
@@ -184,6 +186,10 @@ class SimulatedController:
         self.vendor_plant: Plant | None = None
         self.vendor_hook = None
         self.vendor_packets: list[bytes] = []
+        # Torque readout model (modeled, not measured): a reply to ``57`` carries ``torque_raw`` in bytes
+        # 11-14, except the first ``torque_lag`` replies, which still echo ``0D`` (a controller behind).
+        self.torque_raw = 0
+        self.torque_lag = 0
 
     def inject(self, kind: str) -> None:
         """Arm a one-shot fault for the next command or feedback read.
@@ -303,6 +309,12 @@ class SimulatedController:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
             return self._vendor_home(payload[1])
+        elif order == VENDOR_IO_ORDER:
+            # Output writes need no motors; their setpoints hold the counts, so the gripper model stays put.
+            return self._vendor_gripper(payload[1])
+        elif order == VENDOR_TORQUE_ORDER:
+            # A reading needs no motors; its setpoints hold the counts, so nothing moves.
+            return self._vendor_torque(payload[1])
         elif order == VENDOR_GRIPPER_ORDER:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
@@ -426,6 +438,33 @@ class SimulatedController:
                 self.counts[motor] += counts
         return 0
 
+    def _vendor_torque(self, source) -> int:
+        """Run the torque readout the way ``libcomm.vendor_home_run`` does (order 25). Each reply echoes the
+        last message's ID and command; nothing moves. A failure switches the motors off and answers 1."""
+        self.vendor_packets = []
+        sequence, command, answered = 1, 0x0D, 0
+        while True:
+            with self._lock:
+                reply = bytearray(encode_packet(self.counts, self.switch_bits))
+            reply[0] = sequence
+            if command == SHOW_TORQUE:
+                answered += 1
+                if answered > self.torque_lag:
+                    reply[1] = SHOW_TORQUE
+                    reply[11:15] = int(self.torque_raw).to_bytes(4, "little", signed=True)
+                else:
+                    reply[1] = 0x0D
+            sequence = sequence % 255 + 1
+            step = source(bytes(reply), sequence)
+            if step[0] == "end":
+                return 0
+            if step[0] != "send":
+                with self._lock:
+                    self.motors_on = False
+                return 1
+            self.vendor_packets.append(step[1])
+            command = step[1][4]
+
     def _gripper(self, sign: int) -> int:
         """Ramp the gripper count like openScorbot/libcomm.py:clamp, with an object model."""
         stopped = False
@@ -543,6 +582,9 @@ class SimulatedController:
                 for value in path:
                     if not step(motor, value):
                         return _ERROR_MOTORS_OFF
+                    # Like setHome.search_must_stop: a stop request ends the search.
+                    if self._stop_event is not None and self._stop_event.is_set():
+                        return _STOPPED
         finally:
             self._moving = False
         return 0
