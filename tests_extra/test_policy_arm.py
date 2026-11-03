@@ -115,6 +115,16 @@ class PolicyArmTests(unittest.TestCase):
         fresh = (-round(1.5 * per)) / per
         self.assertLessEqual(target, fresh + LEAD_MARGIN_DEG + 1e-9)
 
+    def test_act_on_a_reused_reading_still_refuses_a_session_faulted_since(self):
+        self.arm.observe()
+        self.arm.robot._fault = "faulted between observe and act (test)"
+        with self.assertRaises(ScorbotError):
+            self.arm.act({"base": 1.0})
+        try:
+            self.arm.close()     # a faulted stream reports its fault here; the refusal is what this test checks
+        except Exception:
+            pass
+
     def test_close_is_safe_twice_and_act_after_close_fails(self):
         self.arm.close()
         self.arm.close()

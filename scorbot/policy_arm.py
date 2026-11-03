@@ -231,6 +231,8 @@ class PolicyArm:
         if measured is None:
             self.observe()
             measured, self._seen = self._seen, None
+        elif self.robot._fault:      # latched since that reading: refuse as a fresh read would
+            raise ScorbotError(f"Controller is faulted: {self.robot._fault}")
         if self.step_limit == "speed":
             now = monotonic()
             step = speed_step_deg(self.speed_pct, now - self._last_act, self._step_per_degree)
