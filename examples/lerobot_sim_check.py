@@ -30,6 +30,7 @@ ACTION = {"base.pos": 1.0, "shoulder.pos": -0.5, "elbow.pos": 0.5, "pitch.pos": 
 TRACK_TOL_DEG = 1.5         # observation vs the target it was asked for: PolicyArm's lead margin
 REPLAY_TOL_DEG = 0.25       # replayed observation vs the recorded one at the same frame
 ROBOT = {"speed_pct": 25.0, "step_limit": "fixed"}     # the plugin's defaults; set from the command line
+CONFIRMED = {"operator_at_stop": True, "jaws_empty": True, "wrist_clear": True}    # the simulator's vendor Home
 
 
 def env():
@@ -41,6 +42,7 @@ def command(root, scratch):
             "--robot.type=scorbot", "--robot.simulate=true", f"--robot.log_dir={scratch}/sim_logs",
             f"--robot.speed_pct={ROBOT['speed_pct']}", f"--robot.step_limit={ROBOT['step_limit']}",
             f"--robot.calibration_dir={scratch}/calibration",
+            *(f"--robot.{k}=true" for k in CONFIRMED),
             "--teleop.type=scorbot_joint_scripted", f"--teleop.script={SCRIPT}", f"--teleop.step_deg={STEP_DEG}",
             f"--teleop.calibration_dir={scratch}/calibration",
             f"--dataset.repo_id={REPO_ID}", f"--dataset.root={root}", "--dataset.single_task=check",
@@ -61,7 +63,7 @@ def check_discovery():
 def make(scratch):
     from lerobot.robots.utils import make_robot_from_config
     from lerobot_robot_scorbot import ScorbotRobotConfig
-    config = ScorbotRobotConfig(simulate=True, log_dir=Path(scratch) / "sim_logs", **ROBOT,
+    config = ScorbotRobotConfig(simulate=True, log_dir=Path(scratch) / "sim_logs", **ROBOT, **CONFIRMED,
                                 calibration_dir=Path(scratch) / "calibration")
     return make_robot_from_config(config)
 

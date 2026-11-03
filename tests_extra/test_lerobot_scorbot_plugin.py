@@ -25,9 +25,12 @@ KEYS = ("base.pos", "shoulder.pos", "elbow.pos", "pitch.pos", "roll.pos")
 HAVE_LEROBOT = find_spec("lerobot") is not None
 
 
-def sim_config(tmp, **kw):
+CONFIRMED = dict(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
+
+
+def sim_config(tmp, confirmed=True, **kw):
     extra = {"calibration_dir": Path(tmp) / "cal"} if HAVE_LEROBOT else {}
-    return ScorbotRobotConfig(simulate=True, log_dir=Path(tmp) / "logs", **extra, **kw)
+    return ScorbotRobotConfig(simulate=True, log_dir=Path(tmp) / "logs", **extra, **(CONFIRMED if confirmed else {}), **kw)
 
 
 class RobotShapeTests(unittest.TestCase):
@@ -75,6 +78,30 @@ class SimDriveTests(unittest.TestCase):
                 robot.disconnect()
             self.assertFalse(robot.is_connected)
             robot.disconnect()
+
+    def test_the_home_confirmations_default_to_false(self):
+        config = ScorbotRobotConfig()
+        self.assertEqual((config.operator_at_stop, config.jaws_empty, config.wrist_clear), (False, False, False))
+
+    def test_connect_without_the_confirmations_fails_before_anything_is_sent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            robot = ScorbotRobot(sim_config(tmp, confirmed=False))
+            with self.assertRaises(ValueError):
+                robot.connect()
+            self.assertIsNone(robot._arm)
+            self.assertFalse(robot.is_connected)
+
+    def test_connect_runs_the_vendor_home(self):
+        from scorbot.vendor_home_source import VENDOR_HOME_ORDER
+        with tempfile.TemporaryDirectory() as tmp:
+            robot = ScorbotRobot(sim_config(tmp))
+            robot.connect()
+            try:
+                orders = [c[0] for c in robot._arm.robot.sim.commands]
+                self.assertIn(VENDOR_HOME_ORDER, orders)
+                self.assertNotIn([18, 1, 1], robot._arm.robot.sim.commands)     # the legacy Home
+            finally:
+                robot.disconnect()
 
     def test_the_config_speed_reaches_the_arm(self):
         with tempfile.TemporaryDirectory() as tmp:
