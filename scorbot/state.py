@@ -94,6 +94,7 @@ class RobotState:
     digital_inputs: int = 0       # IN byte 6, bit N = input N
     analog_inputs: list[int] = field(default_factory=lambda: [0, 0, 0, 0])   # IN bytes 7-10
     teach_mode: bool = False      # the pendant is in teach mode (IN byte 3 over time, ``teach_mode_after``)
+    emergency: bool = False       # IN byte 2 bit 0
 
 
 def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
@@ -134,4 +135,5 @@ def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
         digital_inputs=packet[DIGITAL_INPUT_OFFSET],
         analog_inputs=[packet[offset] for offset in ANALOG_INPUT_OFFSETS],
         teach_mode=teach_mode,
+        emergency=bool(packet[2] & 1),
     )

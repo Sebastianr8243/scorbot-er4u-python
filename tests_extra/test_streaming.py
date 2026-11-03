@@ -516,18 +516,27 @@ class SdkStreamTests(SimulatedRobotCase):
         self.assertIn("error word", str(caught.exception))
         self.assert_latched(robot)
 
-    def test_r6_emergency_bit_faults_only_when_enabled(self):
+    def test_r6_emergency_bit_faults_by_default_without_the_caller_ending_the_stream(self):
         robot = self.robot()
+        stream = robot.start_stream()
+        self.assertTrue(self.running(stream))
         robot.sim.stream_emergency = True
-        with robot.start_stream() as stream:               # the bit is unverified: off by default
-            self.assertTrue(self.follow(stream, robot, {"base": 40}))
-        self.assertIsNone(robot._fault)
-        stream = robot.start_stream(use_emergency_bit=True)
-        time.sleep(0.1)
+        deadline = time.monotonic() + 2
+        while robot._fault is None and time.monotonic() < deadline:
+            time.sleep(0.002)
+        self.assertIn("emergency", robot._fault or "")
+        self.assert_latched(robot)
         with self.assertRaises(ScorbotError) as caught:
             stream.close()
         self.assertIn("emergency", str(caught.exception))
         self.assert_latched(robot)
+
+    def test_r6_emergency_bit_check_can_be_explicitly_disabled_on_the_simulator(self):
+        robot = self.robot()
+        robot.sim.stream_emergency = True
+        with robot.start_stream(use_emergency_bit=False) as stream:
+            self.assertTrue(self.follow(stream, robot, {"base": 40}))
+        self.assertIsNone(robot._fault)
 
     def test_r7_arm_holds_when_targets_stop_arriving(self):
         robot = self.robot(step_delay_s=0.004)

@@ -299,6 +299,23 @@ class InterruptTests(unittest.TestCase):
         step, sent = drive(source, Plant(), on_message=lambda n, p: setattr(p, "emergency", n > 100))
         self.assert_aborted(step, sent, source, vh.ERR_EMERGENCY, 100)
 
+    def test_abort_in_the_first_reply_is_not_interrupted_by_the_endpoint_stop_event(self):
+        stop = threading.Event()
+        stop.set()                    # the endpoint callback saw the same held Abort
+        source = VendorHomeSource(stop_event=stop)
+        plant = Plant()
+        original = plant.reply
+
+        def reply(data):
+            packet = bytearray(original(data))
+            packet[3] = 0xA1
+            return bytes(packet)
+
+        plant.reply = reply
+        step, sent = drive(source, plant)
+        self.assert_aborted(step, sent, source, vh.ERR_STOPPED, 0)
+        self.assertEqual(len(sent), 10)
+
     def test_an_unreadable_reply_aborts_instead_of_crashing(self):
         source = VendorHomeSource()
         plant = Plant()

@@ -47,6 +47,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_limits.py` | Every module's travel cap, motor list and count band is the one in `scorbot/limits.py` |
 | `test_source_audit.py` | Every module-level constant in `scorbot/` has a row in `docs/protocol/SOURCE_AUDIT.md` tagged vendor, legacy or ours, and no row names a constant that is gone |
 | `test_pendant_abort.py` | The pendant's Abort key: reply byte 3 = `0x21` or `0xA1` calls `request_stop` once per press, a held key once, other keys never; the legacy jog stops on it |
+| `test_emergency_feedback.py` | Emergency bit decode, refusal before a jog, and a single-reply pulse during a real-worker jog on fake endpoints: existing stop, latched fault, invalid home/enable state and queued motors-off; physical-arm behavior is unverified |
 | `test_io_outputs.py` | Digital and analog outputs through the simulator: `47` then `44` with the whole word, `41` with value and number, range checks, setpoints held, log rows |
 | `test_reply_inputs.py` | The digital input word (IN byte 6) and the four analog inputs (bytes 7-10) in `RobotState` |
 | `test_teach_mode.py` | Teach mode from IN byte 3, against `IsTeachMode` values read from the lab DLL on the pipe fake; `start_stream` and `PolicyArm.connect` refuse in teach mode with nothing sent; teach mode turning on mid-stream stops Scorbot and PolicyArm, records the reason and refuses restart |

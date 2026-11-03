@@ -129,6 +129,7 @@ class VendorHomeSource:
             except StopIteration as done:
                 self.result = done.value
                 return ("end",)
+            self.aborting = bool(out.aborting)
             return self._send(out, sequence)
         reply = None
         lag = self._measure_lag(reply_bytes, sequence)

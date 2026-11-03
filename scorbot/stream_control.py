@@ -46,7 +46,7 @@ class StreamMixin:
                      lead_limit_deg: float = 2.0,
                      hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
                      period_s: float = DEFAULT_PERIOD_S,
-                     use_emergency_bit: bool = False,
+                     use_emergency_bit: bool = True,
                      adaptive_pacing: bool = False,
                      wrist: bool = False) -> Stream:
         """Start following a stream of targets for base, shoulder and elbow.

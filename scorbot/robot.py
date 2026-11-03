@@ -252,7 +252,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                     raise ScorbotError("The USB controller endpoints were not found")
             # Copies packets during jogs (motion_trace); packets are unchanged.
             self._trace = PacketTrace()
-            endpoint_in = TrackedInputEndpoint(endpoint_in, self._trace, on_pendant_abort=self._pendant_abort)
+            endpoint_in = TrackedInputEndpoint(endpoint_in, self._trace, on_pendant_abort=self._pendant_abort,
+                                              on_emergency=self._emergency_input)
             endpoint_out = TrackedOutputEndpoint(endpoint_out, self._trace)
             self._input = endpoint_in
             if link is not None:
@@ -394,6 +395,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                         self._record("command_stopped", payload=_loggable(payload))
                         raise MotionStopped("The jog ended early on a stop request")
                     raise ScorbotError(f"Legacy controller returned error code {result}")
+                if self._fault:
+                    raise ScorbotError(f"Controller is faulted: {self._fault}")
             except MotionStopped:
                 raise  # not a fault; jog_joint checks that the arm settled
             except queue.Empty as exc:
@@ -460,6 +463,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
     def _motion_state(self, *, after_index=None):
         try:
             state = self.get_state(after_index=after_index)
+            if state.emergency:
+                raise ScorbotError("Controller emergency input active")
         except (ScorbotError, ValueError) as exc:
             self._latch_fault(f"Controller feedback is unavailable: {exc}")
             if self._link_alive():
@@ -521,6 +526,14 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             stream.request_stop()
         threading.Thread(target=self._record_quietly, args=("pendant_abort",), daemon=True,
                          name="scorbot-pendant-log").start()
+
+    def _emergency_input(self) -> None:
+        """Latch even a one-reply emergency pulse and use the existing worker stop and disable paths."""
+        with self._stop_lock:
+            self._stop_event.set()
+        self._latch_fault("Controller emergency input active", keep_first=True)
+        if self._link_alive():
+            self._commands.put([16, 1, 1])
 
     def _record_quietly(self, event: str) -> None:
         try:
