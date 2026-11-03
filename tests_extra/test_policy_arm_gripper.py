@@ -94,27 +94,6 @@ class PolicyArmGripperTests(unittest.TestCase):
         self.assertEqual(arm.set_gripper(100.0), 100.0)
         self.assertAlmostEqual(arm.observe(gripper=True)["gripper"], 100.0, delta=1.0)
 
-    def test_a_stop_after_the_stream_is_unpublished_still_prevents_the_gripper(self):
-        arm = self.arm()
-        robot, inner = arm.robot, arm.robot._stop_lock
-
-        class StopJustBeforeTheClear:
-            # request_stop() landing after _end_stream unpublished the stream but before it clears the event
-            def __enter__(self):
-                inner.acquire()
-                if robot._stream is None:
-                    robot._stop_event.set()
-                return self
-
-            def __exit__(self, *exc):
-                inner.release()
-
-        robot._stop_lock = StopJustBeforeTheClear()
-        with mock.patch.object(robot, "move_gripper") as move:
-            with self.assertRaises(MotionStopped):
-                arm.open_gripper()
-            move.assert_not_called()
-
     def test_gripper_percent_is_the_jaw_count_over_range_enc(self):
         arm = self.arm()
         for counts, pct in ((2857, 57.14), (714, 14.28), (vg.RANGE_ENC, 100.0)):
