@@ -543,6 +543,9 @@ class SimulatedController:
                 for value in path:
                     if not step(motor, value):
                         return _ERROR_MOTORS_OFF
+                    # Like setHome.search_must_stop: a stop request ends the search.
+                    if self._stop_event is not None and self._stop_event.is_set():
+                        return _STOPPED
         finally:
             self._moving = False
         return 0

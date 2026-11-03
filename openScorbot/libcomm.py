@@ -699,9 +699,11 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					b_1 = motors_on(b_1, epout, epin, buffer, cola_read)
 				elif orden == 18:
 					[b_1, status] = setHome.homing(b_1, epout, epin, buffer,
-						cola_read, cola_result, cancel_event)
+						cola_read, cola_result, cancel_event, stop_event)
 					if status == 0:
 						home = True
+					elif status == STOPPED:
+						pass  # a stop request ended the search; result 14 is queued, the motors stay on
 					else:
 						try:
 							b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
