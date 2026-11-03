@@ -47,6 +47,8 @@ VENDOR_HOME = 22
 # Order for the post-Home gripper move (SDK only): scorbot/vendor_gripper.py decides every message, same runner
 VENDOR_GRIPPER = 23
 VENDOR_IO = 24
+# Order for the torque (PWM) readout (SDK only): scorbot/vendor_torque.py, same runner; 24 is the outputs (PR #86)
+VENDOR_TORQUE = 25
 
 #------------------------------ARGUMENTOS USADOS-------------------------------#
 # b_1		-> Byte de secuencia
@@ -562,13 +564,16 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 	media = libdef.get_media(buffer,media)
 	cola_read.put(media)
 
-# Follows a stream of setpoints for base, shoulder and elbow together.
+# Follows a stream of setpoints for base, shoulder and elbow together (and, for a
+# wrist stream, both wrist motors).
 #
 # Opens a movement like every jog, then sends one ordinary setpoint message
-# (mov_comm(1)) per step. The three joints' fields are placed with
-# getStruct(20, ...), the layout moveXYZ already uses. The steps come from
+# (mov_comm(1)) per step. The joints' fields are placed with
+# getStruct(20, ...), the layout moveXYZ already uses; two more fields fill the
+# wrist motors' slots, where the wrist jog puts them. The steps come from
 # `source`, which is called with a copy of the last reply and returns:
-#   ("send", (base, shoulder, elbow))  signed counts to send
+#   ("send", (base, shoulder, elbow))  signed counts to send, or five with
+#                                      wrist motor 1 and 2 after the elbow
 #   ("end",)                           finish like a normal movement
 #   ("stop",)                          finish with the stop sequence
 # Any other answer is treated as a stop.
@@ -692,7 +697,7 @@ def vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 # las redirige a las acciones que debe realizar el robot.
 #################################################################################
 def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
-		cola_result=None, cancel_event=None, stop_event=None):
+		cola_result=None, cancel_event=None, stop_event=None, command_waiting=None):
 	# The GUI historically used one queue in both directions. SDK clients pass a
 	# separate result queue so they cannot consume their own command.
 	if cola_result is None:
@@ -707,12 +712,16 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 		if orden != 19:
 			vel = select[1]
 			ite = select[2]
+		if command_waiting is not None:
+			command_waiting.set()	# syncro holds off until this worker has the byte (see libsync.syncro)
 		cola_sync.put(MAX_COUNT)
 		while orden != None:
 			b_1 = cola_sync.get()
 			if b_1 == MAX_COUNT:
 				cola_sync.put(MAX_COUNT)
 			else:
+				if command_waiting is not None:
+					command_waiting.clear()
 				if orden != 19 and orden != 16 and orden != 17:
 					home = False
 					posRef = conf.readData("general", "posRef")
@@ -728,7 +737,7 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read, cola_result, stop_event)
 				elif orden == STREAM:
 					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1], ite if callable(ite) else None)
-				elif orden in (VENDOR_HOME, VENDOR_GRIPPER, VENDOR_IO):
+				elif orden in (VENDOR_HOME, VENDOR_GRIPPER, VENDOR_IO, VENDOR_TORQUE):
 					b_1 = vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:
 					b_1 = motors_off(b_1, epout, epin, buffer, cola_read)

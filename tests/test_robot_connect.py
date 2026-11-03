@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from scorbot import Scorbot, ScorbotError
+from scorbot.lab.dry_link import DryLink, DryScorbot
 from scorbot.state import ENCODER_OFFSETS, decode_state
 
 
@@ -170,6 +171,77 @@ class ConnectTests(unittest.TestCase):
             with self.assertRaisesRegex(ScorbotError, "Already connected"):
                 robot.connect()
         self.assertEqual(device.resets, 1)
+
+
+class HandshakeFailureTests(unittest.TestCase):
+    def failed_connect(self, *, after_motor_on=True, later_read=False, fail_off=False):
+        link = DryLink()
+        robot = DryScorbot(link=link)
+        read, write, close = link.endpoint_in.read, link.endpoint_out.write, link.close
+        motor_on_seen = False
+        closed_after = []
+        off_attempts = []
+
+        def failing_read(buffer, timeout=None):
+            if not after_motor_on or (motor_on_seen and (
+                    not later_read or link.sent[-1][4:7] != b"\x42\xff\x01")):
+                raise OSError("handshake read failed")
+            return read(buffer, timeout)
+
+        def failing_write(data, timeout=None):
+            nonlocal motor_on_seen
+            self.assertFalse(link.closed)
+            if motor_on_seen and data[4:7] == b"\x42\xff\x00":
+                off_attempts.append(bytes(data))
+                if fail_off:
+                    raise OSError("motor-off write failed")
+            result = write(data, timeout)
+            if data[4:7] == b"\x42\xff\x01":
+                motor_on_seen = True
+            return result
+
+        def record_close():
+            closed_after.extend(off_attempts)
+            close()
+
+        with mock.patch.object(link.endpoint_in, "read", side_effect=failing_read), \
+                mock.patch.object(link.endpoint_out, "write", side_effect=failing_write), \
+                mock.patch.object(link, "close", side_effect=record_close):
+            with self.assertRaisesRegex(
+                    ScorbotError, "handshake read failed.*motor state is unverified; use the physical stop") as error:
+                robot.connect()
+        self.assertTrue(link.closed)
+        self.assertIsNone(robot._device)
+        self.assertIsNone(robot._sync_thread)
+        self.assertIsNone(robot._command_thread)
+        self.assertTrue(robot._cancel_event.is_set())
+        self.assertIn("handshake read failed", robot._fault)
+        with self.assertRaisesRegex(ScorbotError, "new Scorbot instance"):
+            robot.connect()
+        return link, off_attempts, closed_after, error.exception
+
+    def test_read_failure_after_motor_on_sends_motor_off_before_close(self):
+        for later_read in (False, True):
+            with self.subTest(later_read=later_read):
+                link, attempts, closed_after, _ = self.failed_connect(later_read=later_read)
+                self.assertEqual(len(attempts), 1)
+                self.assertEqual(closed_after, attempts)
+                self.assertEqual(link.sent[-1], attempts[0])
+                self.assertEqual(attempts[0][0], link.sent[-2][0] + 1)
+                self.assertEqual(attempts[0][12:], link.sent[-2][12:])
+                self.assertEqual(attempts[0][1:12], bytes.fromhex("00000042FF000000000000"))
+
+    def test_failed_motor_off_still_closes_and_warns(self):
+        _, attempts, closed_after, error = self.failed_connect(fail_off=True)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(closed_after, attempts)
+        self.assertIn("handshake read failed", str(error.__cause__))
+
+    def test_failure_before_motor_on_only_closes(self):
+        link, attempts, closed_after, _ = self.failed_connect(after_motor_on=False)
+        self.assertEqual(len(link.sent), 1)
+        self.assertEqual(attempts, [])
+        self.assertEqual(closed_after, [])
 
 
 if __name__ == "__main__":

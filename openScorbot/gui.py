@@ -22,6 +22,7 @@ online = True
 
 # Queue to store the synchronization byte
 cola_sync = queue.Queue()
+command_waiting = threading.Event()	# hands the sequence byte to a waiting command (libsync.syncro)
 # Queue to indicate pending orders to be executed
 cola_orden = queue.Queue()
 # Queue with the averaged encoder read vector
@@ -120,9 +121,9 @@ def set_conection():
 		cola_read.put(media)
 
 		# Main synchronization thread
-		h1	= threading.Thread(target = libsync.syncro, args = [cola_sync, cola_read, epout, epin, buffer])
+		h1	= threading.Thread(target = libsync.syncro, args = [cola_sync, cola_read, epout, epin, buffer, command_waiting])
 		# Command execution thread
-		h2	= threading.Thread(target = libcomm.execute, args = [cola_sync, cola_orden, cola_read, epout, epin, buffer])
+		h2	= threading.Thread(target = libcomm.execute, args = [cola_sync, cola_orden, cola_read, epout, epin, buffer, None, None, None, command_waiting])
 
 		# Start the threads
 # Class defining the graphical window of the program.

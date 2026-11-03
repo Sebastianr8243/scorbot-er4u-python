@@ -1,8 +1,9 @@
 """Two LeRobot teleoperators for ScorbotRobot, found by lerobot-record once this package is installed.
 
     scorbot_joint_keys      LeRobot's keyboard_ee keys (left/right: base, up/down: shoulder, shifts: elbow) step an absolute
-                            joint target by step_deg per loop, within travel_cap_deg of home. Needs pynput.
-    scorbot_joint_scripted  walks through fixed waypoints at step_deg per loop, for unattended runs and
+                            joint target by step_deg per loop, within travel_cap_deg of home; right ctrl opens the
+                            gripper, left ctrl closes it. Needs pynput.
+    scorbot_joint_scripted  walks through fixed waypoints (base,shoulder,elbow[,pitch,roll[,gripper]]) at step_deg per loop, for unattended runs and
                             examples/lerobot_sim_check.py.
 
 Both output exactly ScorbotRobot's action keys (absolute degrees from home). Named apart from the Stack 1
@@ -31,7 +32,7 @@ class ScorbotJointKeysConfig(KeyboardEndEffectorTeleopConfig):
 
     def __post_init__(self):
         check_limits(self.step_deg, self.travel_cap_deg)
-        self.use_gripper = False        # PolicyArm drives base, shoulder and elbow only
+        self.use_gripper = True         # ctrl keys: gripper 0 close, 2 open, 1 stay; no wrist keys: they hold
 
 
 class ScorbotJointKeys(KeyboardEndEffectorTeleop):
@@ -55,7 +56,7 @@ class ScorbotJointKeys(KeyboardEndEffectorTeleop):
 @TeleoperatorConfig.register_subclass("scorbot_joint_scripted")
 @dataclass
 class ScorbotJointScriptedConfig(TeleoperatorConfig):
-    script: str = DEFAULT_SCRIPT        # "base,shoulder,elbow;..." absolute degrees, repeated
+    script: str = DEFAULT_SCRIPT        # "base,shoulder,elbow[,pitch,roll[,gripper]];..." absolute, repeated
     step_deg: float = STEP_MAX_DEG
     travel_cap_deg: float = DEFAULT_TRAVEL_CAP_DEG
 

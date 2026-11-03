@@ -39,6 +39,8 @@ section 6), not ``scorbot.state`` counts, which read one low on the positive sid
 from collections.abc import Generator
 from dataclasses import dataclass
 
+from .packet import PENDANT_ABORT
+
 ZERO24 = 0x7FFFFF
 """Raw 24-bit reading of a count of zero."""
 UNUSED_SLOT = 0x800001 - 0x1000000
@@ -177,6 +179,11 @@ class Reply:
     """How many messages the controller is behind (sent ID minus the ID this reply echoes), measured by the caller."""
     echo: int = -1
     """The message ID this reply echoes (IN byte 0). The same ID twice in a row is a repeated, stale reply."""
+    command: int = 0
+    """The command this reply answers (IN byte 1, the controller's echo)."""
+    result: int = 0
+    """The command's 32-bit result, signed (IN bytes 11-14): the ``57`` torque reading, the ``72`` version."""
+    pendant_abort: bool = False
 
 
 @dataclass(frozen=True)
@@ -205,12 +212,14 @@ REPLY_MIN_LENGTH = 60
 
 
 def decode_reply(packet, now):
-    """Parse an IN packet: byte 2 bit 0 emergency, byte 5 switches, 24-bit counts, byte 59 impact."""
+    """Parse an IN packet: byte 1 command echo, byte 2 bit 0 emergency, byte 5 switches, bytes 11-14 result,
+    24-bit counts, byte 59 impact."""
     if len(packet) < 60:
         raise ValueError(f"reply too short: {len(packet)} bytes")
     counts = tuple(int.from_bytes(packet[19 + 5 * n:22 + 5 * n], "little") - ZERO24 for n in range(6))
     return Reply(counts=counts, switches=packet[5], now=now, impact=packet[59], emergency=bool(packet[2] & 1),
-                 echo=packet[0])
+                 echo=packet[0], command=packet[1], result=int.from_bytes(packet[11:15], "little", signed=True),
+                 pendant_abort=packet[3] in PENDANT_ABORT)
 
 
 class _Run:
@@ -233,6 +242,8 @@ class _Run:
         self.cycles += 1
         if self.reply.emergency and not self.aborting:
             raise HomeError(ERR_EMERGENCY, "emergency input active")
+        if self.reply.pendant_abort and not self.aborting:
+            raise HomeError(ERR_STOPPED, "pendant Abort pressed")
         return self.reply
 
     def cycle(self):
@@ -582,6 +593,8 @@ class _Run:
 
     def run(self, axes):
         try:
+            if self.reply.pendant_abort:
+                raise HomeError(ERR_STOPPED, "pendant Abort pressed")
             return (yield from self.home(axes))
         except HomeError:
             yield from self.abort()

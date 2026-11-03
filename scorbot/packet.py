@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import threading
 import time
 
-from .state import PACKET_MIN_LENGTH
+from .state import PACKET_MIN_LENGTH, teach_mode_after
 
 
 @dataclass(frozen=True)
@@ -13,9 +13,14 @@ class PacketSnapshot:
     data: bytes
     index: int
     host_monotonic_ns: int
+    teach_mode: bool = False      # the DLL's teach flag after this reply (``state.teach_mode_after``)
 
 
 MAX_TRACE_PACKETS = 4000
+
+PENDANT_ABORT = (0x21, 0xA1)
+"""Reply byte 3 with the teach pendant's Abort key pressed (key 0x21, bit 6 clear; bit 7 either way).
+The vendor DLL calls ``Stop('&')`` on it (``docs/protocol/LEDGER.md`` PL63, PL64)."""
 
 
 class PacketTrace:
@@ -81,14 +86,25 @@ class TrackedOutputEndpoint:
 
 
 class TrackedInputEndpoint:
-    """Endpoint proxy shared by the legacy sync and command workers."""
+    """Endpoint proxy shared by the legacy sync and command workers.
 
-    def __init__(self, endpoint, trace: PacketTrace | None = None):
+    Every reply passes here, so this is where the pendant's Abort key is seen: when reply byte 3 changes to
+    one of ``PENDANT_ABORT``, ``on_pendant_abort`` is called once, on the reading thread. A held key does
+    not call it again, as the DLL ignores repeats of the same code. A failing callback never breaks the read.
+    ``on_emergency`` sees the first active emergency bit, including a pulse absent from later snapshots.
+    """
+
+    def __init__(self, endpoint, trace: PacketTrace | None = None, on_pendant_abort=None, on_emergency=None):
         self._endpoint = endpoint
         self._trace = trace
+        self._on_pendant_abort = on_pendant_abort
+        self._on_emergency = on_emergency
+        self._emergency_seen = False
+        self._pendant = None
         self._condition = threading.Condition()
         self._latest = None
         self._index = 0
+        self._teach_mode = False
 
     def __getattr__(self, name):
         return getattr(self._endpoint, name)
@@ -96,18 +112,38 @@ class TrackedInputEndpoint:
     def read(self, buffer, timeout=None):
         result = self._endpoint.read(buffer, timeout)
         size = result if isinstance(result, int) else len(result)
-        if size < 0 or size > len(buffer):
-            raise ValueError("Invalid USB response length")
+        if size != len(buffer):
+            raise ValueError(f"Invalid USB response length: expected {len(buffer)} bytes, got {size}")
         # Copy immediately. The legacy code reuses this mutable buffer.
         with self._condition:
             self._index += 1
-            self._latest = PacketSnapshot(
-                bytes(buffer[:size]), self._index, time.monotonic_ns())
+            data = bytes(buffer[:size])
+            self._teach_mode = teach_mode_after(self._teach_mode, data)   # every reply, as the DLL does
+            self._latest = PacketSnapshot(data, self._index, time.monotonic_ns(), self._teach_mode)
             self._condition.notify_all()
             latest = self._latest
+        if self._on_emergency is not None and len(latest.data) > 2 and latest.data[2] & 1:
+            if not self._emergency_seen:
+                self._emergency_seen = True
+                try:
+                    self._on_emergency()
+                except Exception:
+                    pass  # the read must return so the worker can send the stop
         if self._trace is not None:
             self._trace.add("in", latest.data, latest.host_monotonic_ns)
+        if self._on_pendant_abort is not None and len(latest.data) > 3:
+            previous, self._pendant = self._pendant, latest.data[3]
+            if self._pendant in PENDANT_ABORT and self._pendant != previous:
+                try:
+                    self._on_pendant_abort()
+                except Exception:
+                    pass  # the read must go on; request_stop sets its event before it logs
         return result
+
+    @property
+    def pendant_abort_held(self) -> bool:
+        """Whether the last reply had the pendant's Abort key pressed."""
+        return self._pendant in PENDANT_ABORT
 
     def snapshot(self, *, after_index=None, timeout=2.0, max_age=2.0):
         deadline = time.monotonic() + timeout

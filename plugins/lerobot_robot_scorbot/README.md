@@ -20,32 +20,47 @@ The keyboard teleoperator needs `pynput` even to be built (`pip install "lerobot
 
 ```powershell
 lerobot-record --robot.type=scorbot --robot.simulate=true --teleop.type=scorbot_joint_keys `
+  --robot.operator_at_stop=true --robot.jaws_empty=true --robot.wrist_clear=true `
   --dataset.repo_id=local/my_first_demo --dataset.root=rehearsal/my_first_demo --dataset.single_task="move the arm" `
   --dataset.push_to_hub=false --dataset.num_episodes=2 --dataset.episode_time_s=20 --dataset.reset_time_s=5 --dataset.fps=10
 ```
+
+## Twin cameras (simulator images)
+
+`type: scorbot_twin` (`sim_cameras.py`, needs `mujoco`; 3.17.0 used) renders the MuJoCo twin (`scorbot/mujoco_twin.py`). On every `get_observation` the robot reads the simulator's five encoder counts, turns them into the twin's joint angles through `scorbot.source_model` (`mujoco_twin.chain_angles`: the elbow motor sets the forearm's angle to the floor and the wrist motors the gripper's, so it is not degrees from home plus the home angle), poses the twin (`set_pose`, no physics step) and renders the cameras, so each frame shows the pose in the same observation. Frames are `uint8` `(height, width, 3)` RGB, at most 640x480.
+
+```powershell
+lerobot-record --robot.type=scorbot --robot.simulate=true `
+  --robot.cameras="{front: {type: scorbot_twin, camera: front, width: 320, height: 240}, wrist: {type: scorbot_twin, camera: wrist, width: 320, height: 240}}" `
+  ...   # the rest as above
+```
+
+Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1, mujoco 3.17.0, Windows 11): 3 episodes of 3 s at 10 fps with both cameras at 160x120, 90 frames reloaded with image features, replayed frame 0 identical to the recorded one. The scene is nominal solids, not CAD and not measured. The gripper is fixed open (follow-up: drive it once `gripper.pos` exists), and the block never moves because the arm is posed, not simulated. Off-screen rendering that fails raises with the reason. Two 160x120 renders take about 30 ms per observation on this laptop.
 
 ## Shape
 
 | | |
 |---|---|
-| Observation | `base.pos`, `shoulder.pos`, `elbow.pos`: measured degrees from home (vendor prior, uncalibrated), plus one `(height, width, 3)` frame per camera |
-| Action | the same three keys, an absolute target. `PolicyArm` clamps it: 0.5 degree per call (or, with `step_limit=speed`, what `speed_pct` of the vendor's MaxSpeed covers since the last call, at most 1.5 degrees), `travel_cap_deg` from home (default 2), 1.5 degrees ahead of the measured joint. Call at least every 0.5 s or the stream holds |
-| Config | `simulate` (must be true), `travel_cap_deg`, `log_dir` (the simulator's event log, default `rehearsal/lerobot`), `robot_id`, `cameras`, plus LeRobot's `id` and `calibration_dir` |
+| Observation | `base.pos`, `shoulder.pos`, `elbow.pos`, `pitch.pos`, `roll.pos`: measured degrees from home (vendor prior, uncalibrated), plus one `(height, width, 3)` frame per camera. Pitch is the gripper's angle to the floor and roll its roll, both from the two coupled wrist motors through `scorbot.source_model` (`PolicyArm(wrist=True)`); holding pitch while the shoulder or elbow moves leaves the wrist motors still. Signs from the source model (positive pitch lifts), unverified; the legacy wrist-pitch jog moves about 1.22 times further per degree than the model says. `gripper.pos`: the measured jaw in percent open, `100 x count / RangeEnc` (0 closed, 100 open) |
+| Action | the same six keys. `gripper.pos` is binary: below 50 closes, 50 or more opens, missing or not a number holds; a change pauses the stream for the blocking vendor gripper move and restarts it (that frame is slow), and `send_action` returns the value applied, 0 or 100. A fault during the move disconnects. The five joints are an absolute target. `PolicyArm` clamps it: 0.5 degree per call (or, with `step_limit=speed`, what `speed_pct` of the vendor's MaxSpeed covers since the last call, at most 1.5 degrees), `travel_cap_deg` from home (default 2), 1.5 degrees ahead of the measured joint; for pitch and roll each, one wrist motor carrying both. Call at least every 0.5 s or the stream holds |
+| Config | `simulate` (must be true), `operator_at_stop`, `jaws_empty`, `wrist_clear` (all three must be true, default false: connect runs the vendor Home, which moves the wrist and closes the gripper), `travel_cap_deg`, `log_dir` (the simulator's event log, default `rehearsal/lerobot`), `robot_id`, `cameras`, plus LeRobot's `id` and `calibration_dir` |
 | Name | `scorbot_sim`, which `lerobot-record` writes as the dataset's `robot_type` (a v3 dataset has no `data_source` field) |
 
 ## Teleoperators
 
 | Type | What it does |
 |---|---|
-| `scorbot_joint_keys` | LeRobot's `keyboard_ee` keys: left/right arrows base, up/down arrows shoulder, left/right shift elbow (which way the arm turns is unverified). Each loop with a key held moves an absolute target by `step_deg` (default and most 0.5), never past `travel_cap_deg` (default and most 2) from home, through `scorbot.policy_arm.clamp`. Needs `pynput`. **No person has tried it** |
-| `scorbot_joint_scripted` | Walks `--teleop.script="base,shoulder,elbow;..."` (absolute degrees) at `step_deg` per loop, around again. For unattended runs and the check |
+| `scorbot_joint_keys` | LeRobot's `keyboard_ee` keys: left/right arrows base, up/down arrows shoulder, left/right shift elbow (which way the arm turns is unverified); it has no wrist keys, so pitch and roll hold at home. Each loop with a key held moves an absolute target by `step_deg` (default and most 0.5), never past `travel_cap_deg` (default and most 2) from home, through `scorbot.policy_arm.clamp`. Needs `pynput`. **No person has tried it** |
+| `scorbot_joint_scripted` | Walks `--teleop.script="base,shoulder,elbow[,pitch,roll];..."` (absolute degrees; pitch and roll 0 when left out) at `step_deg` per loop, around again. For unattended runs and the check |
 
 Named apart from the Stack 1 teleoperators (`scorbot_keys`, `scorbot_scripted` on `main`) so both plugins can share one venv. The map logic is in `teleop_map.py` and needs no lerobot.
 
 ## Not done yet
 
-- **The gripper.** `PolicyArm` drives base, shoulder and elbow only; no `gripper.pos` in the observation or action. This is the next gap for pick-and-place demos.
-- The real arm (refused on purpose), cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
+- **The gripper is binary and blocking.** Open or closed only, no width or force; each change stalls the loop for the vendor move plus a stream restart. Unverified on the arm. Teleop: `scorbot_joint_keys` opens with right ctrl and closes with left ctrl; `scorbot_joint_scripted` takes an optional sixth number per waypoint (0 to 100).
+- `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with the five joints and the gripper on 2026-11-03: all six checks passed. Its replay check (0.25 degree between replayed and recorded observations) is tight and failed some runs on simulator timing alone, with or without the gripper.
+- The twin's gripper (fixed open) and block contact (the arm is posed, not simulated).
+- The real arm (refused on purpose), real cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
 
 ## Tests
 

@@ -38,6 +38,7 @@ class LibdefConfigReads(unittest.TestCase):
 
     def test_set_msg_reads_only_the_read_timeout(self):
         epout, epin = mock.Mock(), mock.Mock()
+        epin.read.return_value = 64
         with mock.patch.object(self.lib.time, "sleep"):
             _, calls = self.reads(self.lib.set_msg, "48", epout, epin, bytearray(64), 0.008, 0.012)
         self.assertEqual(calls, [("general", "TIME_OUT_R")])

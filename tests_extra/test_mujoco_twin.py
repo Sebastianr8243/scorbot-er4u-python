@@ -7,7 +7,7 @@ from importlib.util import find_spec
 import math
 import unittest
 
-from scorbot import arm_chain, mujoco_twin
+from scorbot import arm_chain, mujoco_twin, source_model
 from scorbot.nominal import AXIS_RANGES
 
 POSES = [(0, 0, 0, 0, 0), (30, 40, -60, -50, 10), (-120, 100, -120, 90, -300), (150, -30, 120, -120, 560)]
@@ -42,6 +42,39 @@ class MujocoTwinTests(unittest.TestCase):
             self.mj.mj_step(self.model, self.data)
         for name, want in zip(arm_chain.JOINTS, target):
             self.assertAlmostEqual(self.data.joint(name).qpos[0], want, delta=math.radians(2), msg=name)
+
+
+# Counts from the session home, all five motors off home, so coupled joints move together.
+COUNTS = {"base": -1418, "shoulder": 900, "elbow": -2000, "wrist_motor_1": 600, "wrist_motor_2": -150}
+
+
+class ChainAnglesTests(unittest.TestCase):
+    """Counts from home to arm_chain degrees: through source_model, never joint-by-joint sums."""
+
+    def test_home_is_the_vendor_home_pose(self):
+        q = mujoco_twin.chain_angles(dict.fromkeys(source_model.MOTORS, 0))
+        self.assertEqual(q, [source_model.HOME_ANGLES[j] for j in source_model.JOINTS])
+
+    def test_coupled_counts_give_the_source_model_angles(self):
+        angles = source_model.angles_from_counts(COUNTS)
+        self.assertEqual(mujoco_twin.chain_angles(COUNTS), [angles[j] for j in source_model.JOINTS])
+
+
+@unittest.skipUnless(find_spec("mujoco"), "needs mujoco")
+class SetPoseTests(unittest.TestCase):
+    def test_qpos_is_radians_and_the_tool_tip_matches_arm_chain(self):
+        model, data = mujoco_twin.load()
+        block = data.qpos[:7].copy()                    # the block's free joint comes first
+        q = mujoco_twin.chain_angles(COUNTS)
+        mujoco_twin.set_pose(model, data, q)
+        for name, deg in zip(arm_chain.JOINTS, q):
+            self.assertAlmostEqual(data.joint(name).qpos[0], math.radians(deg), places=12, msg=name)
+        tip = data.site("tool").xpos * 1000.0
+        want = arm_chain.link_poses(q)["tool"][:3, 3]
+        for got, w in zip(tip, want):
+            self.assertAlmostEqual(got, w, delta=0.01)
+        self.assertEqual(list(data.qpos[:7]), list(block))      # the block is left alone
+        self.assertEqual(data.time, 0.0)                          # kinematic: no physics step
 
 
 class SceneTextTests(unittest.TestCase):
