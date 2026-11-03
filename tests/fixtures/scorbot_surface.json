@@ -26,6 +26,7 @@
  "park_at_home": "def(self, *, operator_at_stop: bool = False, speed: int = 6, tolerance_counts: int = 45) -> dict",
  "pre_home_jog": "def(self, joint, degrees, *, operator_at_stop: bool = False, speed: int = 6, coupled: bool = False)",
  "preview_jog": "def(self, joint: str, delta_degrees: float, *, speed: int = 10, starting_signed_counts: dict[str, int] | None = None) -> dict",
+ "read_torque": "def(self, axis) -> int",
  "request_stop": "def(self) -> None",
  "set_analog_output": "def(self, number: int, value: int) -> None",
  "set_digital_output": "def(self, number: int, on: bool) -> None",
