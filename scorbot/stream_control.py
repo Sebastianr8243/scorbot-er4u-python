@@ -159,6 +159,8 @@ class StreamMixin:
             if self._trace is not None:
                 self._trace.start()
             with self._lock:
+                self._vendor_joint_target = None
+                self._vendor_joint_hold = None
                 self._stream = stream
                 self._commands.put([STREAM_ORDER, stream.source,
                                        pacing.make_pace() if adaptive_pacing else 0])

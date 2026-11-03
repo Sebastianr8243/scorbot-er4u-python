@@ -680,6 +680,7 @@ class HomingMixin:
                 self._home_counts = after.encoder_counts.copy()
                 self._homed = True
                 self._gripper_homed = True       # the vendor Home zeroes the gripper (48); the others do not
+                self._vendor_joint_target = ()   # lazily use the vendor's home joints on the first opt-in move
                 self._reset_prehome()
                 result = source.result
                 self._record("home_complete", method="vendor", wrist_homed=True, gripper_homed=True,
