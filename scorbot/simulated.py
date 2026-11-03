@@ -45,6 +45,7 @@ from .streaming import MOTORS as STREAM_MOTORS
 from .streaming import STREAM_ORDER
 from .vendor_home_model import Plant
 from .vendor_gripper import GRIPPER_ORDER as VENDOR_GRIPPER_ORDER
+from .vendor_io import IO_ORDER as VENDOR_IO_ORDER
 from .vendor_home_source import VENDOR_HOME_ORDER
 
 FAULT_KINDS = ("timeout", "late_answer", "controller_error", "worker_crash",
@@ -302,6 +303,9 @@ class SimulatedController:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
             return self._vendor_home(payload[1])
+        elif order == VENDOR_IO_ORDER:
+            # Output writes need no motors; their setpoints hold the counts, so the gripper model stays put.
+            return self._vendor_gripper(payload[1])
         elif order == VENDOR_GRIPPER_ORDER:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
