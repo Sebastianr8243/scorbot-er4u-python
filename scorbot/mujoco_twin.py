@@ -3,13 +3,17 @@
 ``mjcf()`` builds the scene text from ``arm_chain`` geometry, so the simulator and the 3D
 drawings share one set of numbers (manual, vendor INI and community CAD placements; none measured
 on our arm). It imports nothing beyond the standard library; only ``load()`` needs ``mujoco``
-(``pip install mujoco``, not a dependency of this package). Wired into no motion command.
+(``pip install mujoco``, not a dependency of this package). Wired into no motion command: the
+LeRobot plugin's twin cameras pose it to follow the simulator (``chain_angles``, ``set_pose``).
 Joint angles are ``arm_chain``'s convention (degrees, zero = arm stretched out level), not
 degrees from home. The gripper is fixed open: driving it is a later step.
 """
 
 from __future__ import annotations
 
+import math
+
+from . import source_model
 from .arm_chain import JOINTS, MESH_MODEL, ChainGeometry
 from .nominal import AXIS_RANGES
 
@@ -118,3 +122,25 @@ def load(geometry: ChainGeometry = MESH_MODEL):
     import mujoco
     model = mujoco.MjModel.from_xml_string(mjcf(geometry))
     return model, mujoco.MjData(model)
+
+
+def chain_angles(counts_from_home) -> list[float]:
+    """The five motors' counts from the session home as this scene's joint angles (degrees).
+
+    Through ``source_model`` (the vendor formula, not measured): the elbow motor sets the forearm's
+    angle to the floor and the wrist motors the gripper's, so a joint here is not its motor's
+    degrees from home plus the home angle. Its angles are already ``arm_chain``'s convention (both
+    measure pitch from the forearm line; ``tests_extra/test_arm_chain.py``).
+    """
+    angles = source_model.angles_from_counts(counts_from_home)
+    return [angles[j] for j in source_model.JOINTS]
+
+
+def set_pose(model, data, q_deg) -> None:
+    """Put the arm at ``q_deg`` (``arm_chain`` degrees) and update positions. No physics step:
+    the arm is posed, not driven, so the block is never pushed. Needs ``mujoco``."""
+    import mujoco
+    for name, deg in zip(JOINTS, q_deg, strict=True):
+        data.qpos[model.jnt_qposadr[model.joint(name).id]] = math.radians(deg)
+        data.ctrl[model.actuator(name).id] = math.radians(deg)      # the actuators hold it if stepped
+    mujoco.mj_forward(model, data)
