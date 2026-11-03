@@ -10,6 +10,7 @@ import time
 import unittest
 from importlib.util import find_spec
 from pathlib import Path
+from unittest import mock
 
 from scorbot import MotionStopped, Scorbot
 from scorbot.simulated import SimulatorProfile
@@ -63,6 +64,21 @@ class SdkHomeStopTests(SimulatedRobotCase):
         robot.home(start_position_confirmed=True)
         self.assertTrue(robot._homed)
 
+    def test_a_stop_after_the_search_ended_is_cleared_not_kept(self):
+        robot = self.homing_robot()
+        search = robot.sim._model_homing
+
+        def then_stop():
+            code = search()
+            robot.request_stop()     # lands after the last switch: the Home has finished
+            return code
+
+        robot.sim._model_homing = then_stop
+        robot.home(start_position_confirmed=True)
+        self.assertTrue(robot._homed)
+        self.assertIn("stop_too_late", self.events())
+        robot.jog_joint("base", 1.0)     # not refused by a stale stop
+
 
 @unittest.skipUnless(find_spec("usb"), "PyUSB is needed to import the legacy modules")
 class LegacyHomeStopTests(unittest.TestCase):
@@ -79,9 +95,31 @@ class LegacyHomeStopTests(unittest.TestCase):
         legacy = Path(__file__).resolve().parents[1] / "openScorbot"
         home = (legacy / "setHome.py").read_text(encoding="utf-8")
         self.assertEqual(home.count("search_must_stop(deadline, cancel_event, cola_orden)"), 0)
-        self.assertEqual(home.count("search_must_stop(deadline, cancel_event, cola_orden, stop_event)"), 5)
+        self.assertEqual(home.count("search_must_stop(deadline, cancel_event, cola_orden, stop_event, stopped)"), 5)
         comm = (legacy / "libcomm.py").read_text(encoding="utf-8")
         self.assertIn("cola_read, cola_result, cancel_event, stop_event)", comm)
+
+    def test_a_stopped_home_leaves_the_motors_on_and_reports_only_stopped(self):
+        robot = Scorbot()
+        comm, home = robot._legacy("libcomm"), robot._legacy("setHome")
+        sync, orders, reads, results = (queue.Queue() for _ in range(4))
+        sync.put(1)
+        reads.put([0] * 6)
+
+        def stopped_search(b_1, *args):
+            args[4].put(STOPPED)     # cola_orden, as search_must_stop does
+            return [b_1, STOPPED]
+
+        with mock.patch.object(home, "homing", side_effect=stopped_search),                 mock.patch.object(comm, "motors_off") as motors_off:
+            worker = threading.Thread(target=comm.execute, args=(sync, orders, reads, None, None, bytearray(64),
+                                      results, threading.Event(), threading.Event()), daemon=True)
+            worker.start()
+            orders.put([18, 1, 1])
+            self.assertEqual(results.get(timeout=10), STOPPED)
+            self.assertEqual(results.get(timeout=10), 0)
+            motors_off.assert_not_called()     # the exit below sends its own motors-off
+            orders.put([528, 1, 1])
+            worker.join(timeout=30)
 
 
 if __name__ == "__main__":

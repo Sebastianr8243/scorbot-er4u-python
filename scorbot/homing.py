@@ -72,6 +72,11 @@ class HomingMixin:
                 raise
             if trace is not None:
                 self._record_home_trace(trace, failing=False)
+            with self._stop_lock:     # a stop after the search ended: the Home finished, keep no stale stop
+                too_late = self._stop_event.is_set()
+                self._stop_event.clear()
+            if too_late:
+                self._record("stop_too_late", joint="home")
             after = self._motion_state(after_index=before.packet_index)
             counts = after.encoder_counts
             if self._calibration:
