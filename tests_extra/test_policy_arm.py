@@ -1,5 +1,6 @@
 """scorbot/policy_arm.py: PolicyArm on the simulated controller (no USB, no arm)."""
 
+from dataclasses import replace
 from importlib.util import find_spec
 from pathlib import Path
 import tempfile
@@ -8,7 +9,8 @@ import unittest
 from unittest import mock
 
 from scorbot import SimulatedScorbot
-from scorbot.policy_arm import STEP_MAX_DEG, PolicyArm
+from scorbot.policy_arm import (LEAD_MARGIN_DEG, MAX_REUSE_AGE_S, STEP_MAX_DEG, PolicyArm, wrist_counts,
+                                 wrist_degrees)
 from scorbot.robot import ScorbotError
 
 
@@ -58,6 +60,101 @@ class PolicyArmTests(unittest.TestCase):
         self.assertIsNotNone(self.arm.robot._fault)
         try:
             self.arm.close()     # a faulted stream reports its fault here; the fault is what this test checks
+        except Exception:
+            pass
+
+    def slow_replies(self, delay_s=0.024, base_counts=None, stamp=None):
+        """Each controller read waits ``delay_s`` (one stream period) like a real fresh reply; returns the
+        read count. ``base_counts`` (a list) overrides the measured base, one value per read; ``stamp``
+        (no arguments, seconds) overrides when each reply arrived."""
+        real, reads = self.arm.robot._motion_state, []
+
+        def read(**kw):
+            time.sleep(delay_s)
+            state = real(**kw)
+            if base_counts:
+                state = replace(state, encoder_counts={**state.encoder_counts, "base": base_counts.pop(0) % 65535})    # one's-complement wrap
+            if stamp:
+                state = replace(state, host_monotonic_ns=round(stamp() * 1e9))
+            reads.append(state)
+            return state
+        patcher = mock.patch.object(self.arm.robot, "_motion_state", side_effect=read)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return reads
+
+    def test_observe_then_act_waits_for_one_reply_not_two(self):
+        reads = self.slow_replies()
+        for _ in range(3):
+            self.arm.observe()
+            self.arm.act({"base": 90.0})
+        self.assertEqual(len(reads), 3)
+
+    def test_the_plugins_gripper_observation_is_reused_too(self):
+        reads = self.slow_replies()
+        self.arm.observe(gripper=True)          # what the LeRobot plugin calls
+        self.arm.act({"base": 90.0})
+        self.assertEqual(len(reads), 1)
+
+    def test_act_reads_fresh_when_nothing_was_observed_since_the_last_act(self):
+        reads = self.slow_replies()
+        self.arm.observe()
+        self.arm.act({"base": 90.0})
+        self.arm.act({"base": 90.0})
+        self.assertEqual(len(reads), 2)
+
+    def test_act_uses_the_newest_observation(self):
+        per = self.arm._per_degree["base"]
+        reads = self.slow_replies(base_counts=[self.arm._home["base"], self.arm._home["base"] - round(1.5 * per)])
+        self.arm.observe()
+        newest = self.arm.observe()["base"]
+        target = self.arm.act({"base": 90.0})["base"]
+        self.assertEqual(len(reads), 2)
+        self.assertLessEqual(target, newest + LEAD_MARGIN_DEG + 1e-9)
+
+    def test_a_stale_reading_never_widens_the_lead_clamp(self):
+        # observe sees home, act (holding) uses it; the arm then reads 1.5 deg back. The next act must
+        # clamp against that fresh reading (target about 0), not the stale home one (which allows 0.5).
+        per = self.arm._per_degree["base"]
+        home = self.arm._home["base"]
+        reads = self.slow_replies(base_counts=[home, home - round(1.5 * per)])
+        self.arm.observe()
+        self.arm.act({"base": 0.0})
+        target = self.arm.act({"base": 90.0})["base"]
+        self.assertEqual(len(reads), 2)
+        fresh = (-round(1.5 * per)) / per
+        self.assertLessEqual(target, fresh + LEAD_MARGIN_DEG + 1e-9)
+
+    def test_act_reads_fresh_when_the_observation_is_older_than_the_reuse_bound(self):
+        # A slow policy (VLA inference) between observe and act: past the bound act reads again.
+        clock = [1000.0]
+        reads = self.slow_replies(delay_s=0, stamp=lambda: clock[0])
+        with mock.patch("scorbot.policy_arm.monotonic", side_effect=lambda: clock[0]):
+            self.arm.observe()
+            clock[0] += MAX_REUSE_AGE_S + 0.001
+            self.arm.act({"base": 90.0})
+            self.assertEqual(len(reads), 2)
+            self.arm.observe()
+            clock[0] += MAX_REUSE_AGE_S - 0.001      # just inside the bound: reused
+            self.arm.act({"base": 90.0})
+            self.assertEqual(len(reads), 3)
+
+    def test_act_reads_fresh_when_the_reply_was_already_old_when_observed(self):
+        # observe() accepts a reply up to the response timeout old; the bound counts from the reply.
+        clock = [1000.0]
+        reads = self.slow_replies(delay_s=0, stamp=lambda: clock[0] - MAX_REUSE_AGE_S - 0.001)
+        with mock.patch("scorbot.policy_arm.monotonic", side_effect=lambda: clock[0]):
+            self.arm.observe()
+            self.arm.act({"base": 90.0})
+        self.assertEqual(len(reads), 2)
+
+    def test_act_on_a_reused_reading_still_refuses_a_session_faulted_since(self):
+        self.arm.observe()
+        self.arm.robot._fault = "faulted between observe and act (test)"
+        with self.assertRaises(ScorbotError):
+            self.arm.act({"base": 1.0})
+        try:
+            self.arm.close()     # a faulted stream reports its fault here; the refusal is what this test checks
         except Exception:
             pass
 
@@ -142,10 +239,22 @@ class PolicyArmWristTests(unittest.TestCase):
 
     def test_pitch_and_roll_at_the_cap_together_stay_inside_every_limit(self):
         arm = self.arm()
+        # More than one stream period: reproduce a worker falling behind policy calls.
+        arm.robot.sim.step_delay_s = 0.05
         for goal in ({"pitch": 9.0, "roll": 9.0}, {"pitch": -9.0, "roll": 9.0}, {"pitch": -9.0, "roll": -9.0}):
-            target = self.settle(arm, goal, calls=12)
+            corner = {j: 2.0 if g > 0 else -2.0 for j, g in goal.items()}
+            expected = wrist_degrees(wrist_counts(corner["pitch"], corner["roll"]))
+            deadline = time.monotonic() + 3.0
+            while True:
+                target = arm.act(goal)
+                seen = arm.observe()
+                # Reversing a still-moving motor can overshoot a coupled joint and correctly fault.
+                # Twelve sleeps never guaranteed arrival, especially on a busy CI worker.
+                if all(target[j] == corner[j] and seen[j] == expected[j] for j in corner):
+                    break
+                self.assertLess(time.monotonic(), deadline, f"did not reach {corner}: {target=}, {seen=}")
+                time.sleep(0.03)
             self.assertEqual((abs(target["pitch"]), abs(target["roll"])), (2.0, 2.0))
-            seen = arm.observe()
             self.assertLessEqual(max(abs(seen["pitch"]), abs(seen["roll"])), 2.0 + 0.08)
         self.assertIsNone(arm.robot._fault)
 

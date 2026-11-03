@@ -18,10 +18,11 @@ from contextlib import ExitStack
 import math
 from time import monotonic
 
-from . import limits, source_model
+from . import limits, source_model, vendor_gripper
 from .calibration import signed_count_delta
-from .errors import ScorbotError
-from .streaming import DEFAULT_HOLD_TIMEOUT_S, VENDOR_MAX_SPEED_COUNTS_S
+from .errors import MotionStopped, ScorbotError
+from .gripper import GripperMove
+from .streaming import DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, VENDOR_MAX_SPEED_COUNTS_S
 
 MOTORS = limits.ARM_MOTORS
 WRIST_JOINTS = ("pitch", "roll")    # source_model's names; PolicyArm(wrist=True) only
@@ -30,6 +31,9 @@ DEFAULT_TRAVEL_CAP_DEG = 2.0
 LEAD_LIMIT_DEG = 2.0            # the SDK's own lead limit; our targets stay inside LEAD_MARGIN_DEG of it
 LEAD_MARGIN_DEG = 1.5           # a target never leads the measured position by more than this
 STEP_MAX_DEG = 0.5              # largest delta applied in one call
+# ours: act() reuses the preceding observe() only this soon after it (two stream periods); older
+# (a slow policy between them) and act() reads fresh, so the lead clamp never uses an old position.
+MAX_REUSE_AGE_S = 2 * DEFAULT_PERIOD_S
 DEFAULT_SPEED_PCT = 25          # percent of the vendor's MaxSpeed (streaming.VENDOR_MAX_SPEED_COUNTS_S)
 # ours: "fixed" is STEP_MAX_DEG per call (the default); "speed" is what the vendor's MaxSpeed
 # (vendor: ER4AxN.ini MaxSpeed, via streaming) at speed_pct covers since the previous call.
@@ -141,6 +145,9 @@ class PolicyArm:
         self.speed_pct = _check_speed(speed_pct)
         self._stack: ExitStack | None = None
         self._stream = None
+        self._seen: dict[str, float] | None = None    # the last observe(), until one act() uses it
+        self.counts_seen: dict[str, int] = {}    # the last observe()'s five motor counts from home
+        self._seen_at = 0.0
 
     def set_speed(self, speed_pct: float) -> None:
         """Change the speed (percent of the vendor's MaxSpeed, 1 to 100), live if connected."""
@@ -184,16 +191,68 @@ class PolicyArm:
             # pitch and as much again for a degree of roll, so each gets half its speed.
             self._step_per_degree = {**self._per_degree, **{
                 j: 2 * source_model.COUNTS_PER_DEGREE["wrist_motor_1"] for j in self.joints[3:]}}
-            self._stream = stack.enter_context(self.robot.start_stream(
-                travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
-                speed_fraction=self.speed_pct / 100, wrist=self.wrist))
+            self._start_stream()
+            stack.push(self._exit_stream)
             self.target = dict.fromkeys(self.joints, 0.0)
-            self._last_act = monotonic()
+            self.gripper = 0.0               # vendor Home closes the jaw
             self._stack = stack.pop_all()
 
     def _refuse_teach_mode(self) -> None:
         if self.robot.get_state().teach_mode:
             raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before connecting")
+
+    def _start_stream(self) -> None:
+        self._stream = self.robot.start_stream(
+            travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
+            speed_fraction=self.speed_pct / 100, wrist=self.wrist)
+        self._last_act = monotonic()
+
+    def _exit_stream(self, kind, value, traceback):
+        # Gripper calls replace the stream; unwind the current one, including on exceptions.
+        return self._stream.__exit__(kind, value, traceback)
+
+    def open_gripper(self) -> GripperMove:
+        """Stop the joint stream, open with the vendor gripper, then resume streaming.
+
+        Blocking; needs this connection's vendor Home. Returns measured counts and full_travel,
+        not a force or object measurement. On failure the stream stays ended; close and reconnect.
+        Physical-arm behaviour is unverified.
+        """
+        return self._move_gripper("open")
+
+    def close_gripper(self) -> GripperMove:
+        """Close with the vendor gripper; same blocking checks and result as ``open_gripper``."""
+        return self._move_gripper("close")
+
+    def set_gripper(self, pct) -> float:
+        """Binary jaw from a 0 (closed) .. 100 (open) request; return the value applied (0.0 or 100.0).
+
+        Below 50 closes, 50 or more opens. Unchanged, or not a finite number: nothing moves (hold).
+        A change is a blocking ``open_gripper``/``close_gripper`` (stream paused and restarted), so the
+        caller's loop stalls for the move. Compared with the last value applied, not the measured jaw: a
+        jaw stopped by an object is not re-commanded every call. Physical-arm behaviour is unverified.
+        """
+        self._require_connected()
+        if isinstance(pct, bool) or not isinstance(pct, (int, float)) or not math.isfinite(pct):
+            return self.gripper
+        want = 100.0 if pct >= 50 else 0.0
+        if want != self.gripper:
+            self._move_gripper("open" if want else "close")
+        return self.gripper
+
+    def _move_gripper(self, direction: str) -> GripperMove:
+        self._require_connected()
+        if not (self.robot._homed and self.robot._gripper_homed):
+            raise ScorbotError("Home the arm before moving the gripper (vendor_home)")
+        state = self._stream.close()
+        # Ending a stream consumes the session stop; keep it from starting the jaw instead.
+        if self._stream.core._stop_requested:
+            raise MotionStopped("A stop was requested; the gripper was not moved", state=state, started=False)
+        result = self.robot.move_gripper(direction)
+        self.gripper = 100.0 if direction == "open" else 0.0     # open_gripper/close_gripper too
+        self._start_stream()
+        self._seen = None       # a reading from before the move is stale; act() must read again
+        return result
 
     def _disable(self) -> None:
         try:
@@ -201,29 +260,45 @@ class PolicyArm:
         except Exception:
             pass                    # the session is already faulted or gone
 
-    def observe(self, counts: dict[str, int] | None = None) -> dict[str, float]:
-        """Degrees from home, measured; or from ``counts`` (a ``counts_from_home()`` snapshot)."""
-        counts = self.counts_from_home() if counts is None else counts
-        seen = {m: counts[m] / self._per_degree[m] for m in MOTORS}
-        if self.wrist:
-            seen.update(wrist_degrees({m: counts[m] for m in limits.WRIST_MOTORS}))
-        return seen
+    def observe(self, *, gripper: bool = False) -> dict[str, float]:
+        """Degrees from home, measured. ``gripper=True`` adds ``"gripper"``: the jaw in percent open,
+        ``100 x count / RangeEnc`` (``GetJaw``: 2857 counts is 57 %), from the same reading.
 
-    def counts_from_home(self) -> dict[str, int]:
-        """All five motors' encoder counts from the session home, measured."""
+        Each call waits for a controller reply newer than the last read. The next ``act()`` clamps
+        against this reading instead of waiting for another one, if it comes within
+        ``MAX_REUSE_AGE_S`` of the controller reply.
+        """
         self._require_connected()
-        counts = self.robot._motion_state().encoder_counts     # latches the session if feedback is unavailable
-        return {m: signed_count_delta(counts[m], self._home[m]) for m in source_model.MOTORS}
+        self._seen = None
+        state = self.robot._motion_state()      # latches the session if feedback is unavailable
+        counts = state.encoder_counts
+        self.counts_seen = {m: signed_count_delta(counts[m], self._home[m]) for m in source_model.MOTORS}
+        seen = {m: self.counts_seen[m] / self._per_degree[m] for m in MOTORS}
+        if self.wrist:
+            seen.update(wrist_degrees({m: self.counts_seen[m] for m in limits.WRIST_MOTORS}))
+        arrived = state.host_monotonic_ns     # when the reply arrived; none and act() never reuses it
+        self._seen, self._seen_at = dict(seen), -math.inf if arrived is None else arrived / 1e9
+        if gripper:
+            seen["gripper"] = 100 * state.signed_encoder_counts["gripper"] / vendor_gripper.RANGE_ENC
+        return seen
 
     def act(self, goal_deg: dict) -> dict[str, float]:
         """Move toward ``goal_deg`` (absolute degrees from home); return the target now commanded.
 
         Raises ``StreamRefused`` if the stream has faulted or ended. Bad values hold their motor.
+        Clamps against the reading of the ``observe()`` just before it, used once and only within
+        ``MAX_REUSE_AGE_S``; otherwise it reads a fresh one. One controller wait per frame when act
+        follows observe promptly.
         """
         self._require_connected()
         delta = {m: g - self.target[m] if isinstance(g, (int, float)) and not isinstance(g, bool)
                  else math.nan for m, g in goal_deg.items() if m in self.target}
-        measured = self.observe()
+        measured, self._seen = self._seen, None
+        if measured is None or monotonic() - self._seen_at > MAX_REUSE_AGE_S:
+            self.observe()
+            measured, self._seen = self._seen, None
+        elif self.robot._fault:      # latched since that reading: refuse as a fresh read would
+            raise ScorbotError(f"Controller is faulted: {self.robot._fault}")
         if self.step_limit == "speed":
             now = monotonic()
             step = speed_step_deg(self.speed_pct, now - self._last_act, self._step_per_degree)
@@ -239,6 +314,6 @@ class PolicyArm:
 
     def close(self) -> None:
         """Slow to rest, motors off, disconnect. Safe to call twice."""
-        stack, self._stack = self._stack, None
+        stack, self._stack, self._seen = self._stack, None, None
         if stack is not None:
             stack.close()

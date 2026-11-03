@@ -41,8 +41,8 @@ Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1
 
 | | |
 |---|---|
-| Observation | `base.pos`, `shoulder.pos`, `elbow.pos`, `pitch.pos`, `roll.pos`: measured degrees from home (vendor prior, uncalibrated), plus one `(height, width, 3)` frame per camera. Pitch is the gripper's angle to the floor and roll its roll, both from the two coupled wrist motors through `scorbot.source_model` (`PolicyArm(wrist=True)`); holding pitch while the shoulder or elbow moves leaves the wrist motors still. Signs from the source model (positive pitch lifts), unverified; the legacy wrist-pitch jog moves about 1.22 times further per degree than the model says |
-| Action | the same five keys, an absolute target. `PolicyArm` clamps it: 0.5 degree per call (or, with `step_limit=speed`, what `speed_pct` of the vendor's MaxSpeed covers since the last call, at most 1.5 degrees), `travel_cap_deg` from home (default 2), 1.5 degrees ahead of the measured joint; for pitch and roll each, one wrist motor carrying both. Call at least every 0.5 s or the stream holds |
+| Observation | `base.pos`, `shoulder.pos`, `elbow.pos`, `pitch.pos`, `roll.pos`: measured degrees from home (vendor prior, uncalibrated), plus one `(height, width, 3)` frame per camera. Pitch is the gripper's angle to the floor and roll its roll, both from the two coupled wrist motors through `scorbot.source_model` (`PolicyArm(wrist=True)`); holding pitch while the shoulder or elbow moves leaves the wrist motors still. Signs from the source model (positive pitch lifts), unverified; the legacy wrist-pitch jog moves about 1.22 times further per degree than the model says. `gripper.pos`: the measured jaw in percent open, `100 x count / RangeEnc` (0 closed, 100 open) |
+| Action | the same six keys. `gripper.pos` is binary: below 50 closes, 50 or more opens, missing or not a number holds; a change pauses the stream for the blocking vendor gripper move and restarts it (that frame is slow), and `send_action` returns the value applied, 0 or 100. A fault during the move disconnects. The five joints are an absolute target. `PolicyArm` clamps it: 0.5 degree per call (or, with `step_limit=speed`, what `speed_pct` of the vendor's MaxSpeed covers since the last call, at most 1.5 degrees), `travel_cap_deg` from home (default 2), 1.5 degrees ahead of the measured joint; for pitch and roll each, one wrist motor carrying both. Call at least every 0.5 s or the stream holds |
 | Config | `simulate` (must be true), `operator_at_stop`, `jaws_empty`, `wrist_clear` (all three must be true, default false: connect runs the vendor Home, which moves the wrist and closes the gripper), `travel_cap_deg`, `log_dir` (the simulator's event log, default `rehearsal/lerobot`), `robot_id`, `cameras`, plus LeRobot's `id` and `calibration_dir` |
 | Name | `scorbot_sim`, which `lerobot-record` writes as the dataset's `robot_type` (a v3 dataset has no `data_source` field) |
 
@@ -57,8 +57,8 @@ Named apart from the Stack 1 teleoperators (`scorbot_keys`, `scorbot_scripted` o
 
 ## Not done yet
 
-- **The gripper.** `PolicyArm` drives base, shoulder, elbow, pitch and roll; no `gripper.pos` in the observation or action. This is the next gap for pick-and-place demos.
-- `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with three joints (2026-11-01); its five-joint version (wrist in the script and the drive) has not been run against lerobot yet.
+- **The gripper is binary and blocking.** Open or closed only, no width or force; each change stalls the loop for the vendor move plus a stream restart. Unverified on the arm. Teleop: `scorbot_joint_keys` opens with right ctrl and closes with left ctrl; `scorbot_joint_scripted` takes an optional sixth number per waypoint (0 to 100).
+- `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with the five joints and the gripper on 2026-11-03: all six checks passed. Its replay check (0.25 degree between replayed and recorded observations) is tight and failed some runs on simulator timing alone, with or without the gripper.
 - The twin's gripper (fixed open) and block contact (the arm is posed, not simulated).
 - The real arm (refused on purpose), real cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
 
