@@ -26,7 +26,7 @@ flowchart LR
 
 ## 2. Action format, smoothing, speed ceiling
 
-- **Action:** a dict of absolute joint targets, `base.pos`, `shoulder.pos`, `elbow.pos`, in degrees from this session's home (vendor counts-per-degree prior, uncalibrated). No gripper, no wrist pitch or roll. `so101_follower` uses the same shape plus `wrist_flex`, `wrist_roll` and `gripper.pos` (0 to 100).
+- **Action:** a dict of absolute joint targets, `base.pos`, `shoulder.pos`, `elbow.pos`, in degrees from this session's home (vendor counts-per-degree prior, uncalibrated), plus a binary `gripper.pos` (section 3). No wrist pitch or roll. `so101_follower` uses the same shape plus `wrist_flex`, `wrist_roll` and `gripper.pos` (0 to 100).
 - **What LeRobot stores:** `lerobot-record` writes the action it *asked for*, not what `send_action` returned (its own TODO at the `send_action` call). Our teleoperators pre-clamp with the same `clamp`, so their stored actions match; a policy's stored or evaluated action can be ahead of what the arm got.
 - **Smoothing happens twice:** `PolicyArm.clamp` limits each call's step (a hard per-frame cut), then `StreamCore` runs Ruckig every 24 ms with velocity `speed_pct` x MaxSpeed, acceleration and jerk from the vendor's jog profile. Action chunks from a policy arrive as one target per frame; nothing interpolates between frames except Ruckig.
 - **Default reach:** `travel_cap_deg` is 2 degrees from home. Any real demo needs it raised; the speed below only matters once it is.
@@ -44,7 +44,9 @@ Two more limits apply on the arm: the target never leads the measured joint by m
 
 ## 3. The gripper gap
 
-`PolicyArm` drives `limits.ARM_MOTORS` only, so the plugin has no `gripper.pos`. Three things stand in the way:
+Closed on the simulator (#112) with the binary pick below: `PolicyArm.set_gripper` and the plugin's `gripper.pos`. The observation is the measured jaw, `100 x count / RangeEnc` (the `GetJaw` percent: 2857 counts is 57 %). The action thresholds at 50; an unchanged or non-numeric value moves nothing; a change pauses the stream, runs the vendor gripper move and restarts the stream, and `send_action` returns the value applied (0 or 100). The no-op compares with the last value applied, not the measured jaw, so a jaw stopped by an object is not re-commanded every frame. A fault during the move disconnects (motors off). Unverified on the arm: no bench log exists, and the length of the slow frame there is unknown.
+
+What stood in the way, before #112: `PolicyArm` drove `limits.ARM_MOTORS` only. Three things:
 
 1. `Scorbot.move_gripper` is refused while a stream runs (`_refuse_if_streaming`), and the stream carries arm slots only.
 2. Fixed (#96): the gripper needs a **vendor** Home in the session, and `PolicyArm.connect` used to run the **legacy** `home(start_position_confirmed=True)` (the routine that failed on the arm on 2026-10-06, and one that clears `_gripper_homed`). It now runs `vendor_home` with the operator's three confirmations (`operator_at_stop`, `jaws_empty`, `wrist_clear`, each default false in the plugin config), which leaves `_gripper_homed` set. On the simulator only; unverified on the arm.
@@ -58,7 +60,7 @@ They are not behind the same plugin today: Stack 1 has its own, `lerobot_robot_s
 
 | | Stack 1 plugin (vendor DLL) | Stack 2 plugin (this chain) |
 |---|---|---|
-| Effort to a first real LeRobot run | Low: built, has `allow_real`, gripper and cameras included | Medium: lift the real-arm refusal behind a stop key, raise the travel cap, add the gripper |
+| Effort to a first real LeRobot run | Low: built, has `allow_real`, gripper and cameras included | Medium: lift the real-arm refusal behind a stop key, raise the travel cap (binary gripper built, #112, simulator only) |
 | Risk | Lower: the vendor plans each move inside a measured box; but each frame is one blocking point move (no new target mid-move), so motion is stop-and-go | Higher: streaming, its period and its stop sequence have never run on the arm; first trials are one motor, about a degree |
 | Proof | Vendor Home E4 (2026-10-20); bridge E3 (desk run on the lab DLL, fake controller); plugin sim and FakeArm with lerobot 0.6.1 (2026-10-28) | Plugin sim with lerobot 0.6.1 (2026-11-01, E2); USB connect E4, legacy home failed (2026-10-06), vendor-home port E3 |
 | Fits | Chunked "go there" actions, slow demos | Continuous joint control at a steady rate, which is what VLA policies expect |

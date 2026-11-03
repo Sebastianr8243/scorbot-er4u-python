@@ -18,7 +18,7 @@ from contextlib import ExitStack
 import math
 from time import monotonic
 
-from . import limits, source_model
+from . import limits, source_model, vendor_gripper
 from .calibration import signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .gripper import GripperMove
@@ -188,6 +188,7 @@ class PolicyArm:
             self._start_stream()
             stack.push(self._exit_stream)
             self.target = dict.fromkeys(self.joints, 0.0)
+            self.gripper = 0.0               # vendor Home closes the jaw
             self._stack = stack.pop_all()
 
     def _refuse_teach_mode(self) -> None:
@@ -217,6 +218,23 @@ class PolicyArm:
         """Close with the vendor gripper; same blocking checks and result as ``open_gripper``."""
         return self._move_gripper("close")
 
+    def set_gripper(self, pct) -> float:
+        """Binary jaw from a 0 (closed) .. 100 (open) request; return the value applied (0.0 or 100.0).
+
+        Below 50 closes, 50 or more opens. Unchanged, or not a finite number: nothing moves (hold).
+        A change is a blocking ``open_gripper``/``close_gripper`` (stream paused and restarted), so the
+        caller's loop stalls for the move. Compared with the last value applied, not the measured jaw: a
+        jaw stopped by an object is not re-commanded every call. Physical-arm behaviour is unverified.
+        """
+        self._require_connected()
+        if isinstance(pct, bool) or not isinstance(pct, (int, float)) or not math.isfinite(pct):
+            return self.gripper
+        want = 100.0 if pct >= 50 else 0.0
+        if want != self.gripper:
+            self._move_gripper("open" if want else "close")
+            self.gripper = want
+        return self.gripper
+
     def _move_gripper(self, direction: str) -> GripperMove:
         self._require_connected()
         if not (self.robot._homed and self.robot._gripper_homed):
@@ -235,14 +253,18 @@ class PolicyArm:
         except Exception:
             pass                    # the session is already faulted or gone
 
-    def observe(self) -> dict[str, float]:
-        """Degrees from home, measured."""
+    def observe(self, *, gripper: bool = False) -> dict[str, float]:
+        """Degrees from home, measured. ``gripper=True`` adds ``"gripper"``: the jaw in percent open,
+        ``100 x count / RangeEnc`` (``GetJaw``: 2857 counts is 57 %), from the same reading."""
         self._require_connected()
-        counts = self.robot._motion_state().encoder_counts     # latches the session if feedback is unavailable
+        state = self.robot._motion_state()      # latches the session if feedback is unavailable
+        counts = state.encoder_counts
         seen = {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
         if self.wrist:
             seen.update(wrist_degrees({m: signed_count_delta(counts[m], self._home[m])
                                        for m in limits.WRIST_MOTORS}))
+        if gripper:
+            seen["gripper"] = 100 * state.signed_encoder_counts["gripper"] / vendor_gripper.RANGE_ENC
         return seen
 
     def act(self, goal_deg: dict) -> dict[str, float]:

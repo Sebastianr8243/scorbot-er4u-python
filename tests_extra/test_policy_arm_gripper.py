@@ -54,6 +54,39 @@ class PolicyArmGripperTests(unittest.TestCase):
         arm.close()
         self.assertIsNone(arm.robot._stream)
 
+    def test_set_gripper_thresholds_holds_and_returns_the_applied_value(self):
+        arm = self.arm(wrist=True)
+        self.assertEqual(arm.gripper, 0.0)                    # vendor Home closes the jaw
+        self.assertEqual(arm.observe(gripper=True)["gripper"], 0.0)
+        self.assertNotIn("gripper", arm.observe())            # the joint schema is unchanged
+        stream = arm._stream
+        for asked in (0.0, 49.9, -5.0, float("nan"), None, True, "open"):
+            self.assertEqual(arm.set_gripper(asked), 0.0)     # closed or not a number: no move
+        self.assertIs(arm._stream, stream)
+        self.assertEqual(arm.set_gripper(50.0), 100.0)
+        self.assertIsNot(arm._stream, stream)                 # stream paused for the move, restarted
+        self.assertIs(arm.robot._stream, arm._stream)
+        self.assertAlmostEqual(arm.observe(gripper=True)["gripper"], 100.0, delta=1.0)
+        stream = arm._stream
+        self.assertEqual(arm.set_gripper(250.0), 100.0)       # unchanged: no move
+        self.assertIs(arm._stream, stream)
+        self.assertEqual(arm.set_gripper(10.0), 0.0)
+        self.assertAlmostEqual(arm.observe(gripper=True)["gripper"], 0.0, delta=1.0)
+        self.assertEqual(arm.act({"base": 0.3}), {**dict.fromkeys(arm.joints, 0.0), "base": 0.3})
+
+    def test_gripper_percent_is_the_jaw_count_over_range_enc(self):
+        arm = self.arm()
+        for counts, pct in ((2857, 57.14), (714, 14.28), (vg.RANGE_ENC, 100.0)):
+            arm.robot.sim.counts["gripper"] = counts
+            self.assertAlmostEqual(arm.observe(gripper=True)["gripper"], pct, delta=0.01)
+
+    def test_set_gripper_needs_a_connection(self):
+        arm = self.arm(connect=False)
+        with self.assertRaises(ConnectionError):
+            arm.set_gripper(100.0)
+        with self.assertRaises(ConnectionError):
+            arm.observe(gripper=True)
+
     def test_disconnected_and_unhomed_refuse_without_commands(self):
         arm = self.arm(connect=False)
         for method in (arm.open_gripper, arm.close_gripper):
