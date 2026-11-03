@@ -142,6 +142,39 @@ class LegacyStreamTests(unittest.TestCase):
             self.assertLessEqual(field(packet, 0), 1300)
             self.assertEqual([field(packet, i) for i in (1, 2)], [1000, 1000])
 
+    @unittest.skipUnless(HAS_RUCKIG, "needs the planning extra")
+    def test_teach_mode_mid_stream_sends_exactly_the_normal_stop_bytes(self):
+        from scorbot.streaming import Stream, StreamCore
+        packets = []
+        for teach in (False, True):
+            controller = Controller()
+            buffer = bytearray(controller.reply)
+            reads, results = queue.Queue(), queue.Queue()
+            reads.put([START] * len(JOINTS))
+            robot = Scorbot()
+            zero = dict.fromkeys(("base", "shoulder", "elbow"), 0)
+            core = StreamCore(zero, travel_cap=dict.fromkeys(zero, 1400),
+                              lead_limit=dict.fromkeys(zero, 300))
+            stream = Stream(robot, core, dict.fromkeys(JOINTS, START), None)
+            core.set_target({"base": 500}, time.monotonic())
+            calls = []
+
+            def source(reply, teach=teach, calls=calls, stream=stream):
+                data = bytearray(reply)
+                data[3] = 0x40 if teach and len(calls) >= 3 else 0x47
+                if (not teach and len(calls) >= 3) or len(calls) >= 5:
+                    stream.request_stop()       # bound the failing test too
+                answer = stream.source(bytes(data))
+                calls.append(answer[0])
+                return answer
+
+            self.comm.stream_targets(1, controller, controller, buffer, reads, results, source)
+            self.assertEqual(calls, ["send"] * 3 + ["stop"])
+            self.assertEqual(list(results.queue), [STOPPED])
+            self.assertIsNone(core.fault)
+            packets.append(controller.packets)
+        self.assertEqual(packets[1], packets[0])
+
     def test_ending_before_anything_was_sent_closes_on_the_measured_position(self):
         controller, results, _ = self.stream([("end",)])
         self.assertEqual(controller.commands(), [OPEN, OPEN, MODE, CONTROL_OFF, MOTOR])
