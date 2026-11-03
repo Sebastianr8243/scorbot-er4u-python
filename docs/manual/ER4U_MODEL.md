@@ -20,9 +20,9 @@ Written 2026-10-05. This is the one place that says what this project believes a
 | Shoulder axis ahead of the base axis | 16 mm | 16 | 16 | 29 | not given | same |
 | Upper arm | 221 mm | 221 | 221 | 220 | 220 | none needed |
 | Forearm | 221 mm | 221 | 221 | 220 | 220 | none needed |
-| Wrist to tool point | 145.125 mm | 145 | 145.125 | not modelled | not given | none needed |
+| Wrist to tool point | 145 mm | 145 | 145.125 | not modelled | not given | none needed |
 
-The vendor and the toolbox agree on all five. The CAD model's 29 mm offset is the odd one out; it is used only to place that model's meshes in the 3D view.
+The vendor and the toolbox agree on all but the tool length; 145 mm is what the lab `USBC.dll`'s ShowXYZ uses (`tests/fixtures/dll_lab_xyz.json`). The CAD model's 29 mm offset is the odd one out; it is used only to place that model's meshes in the 3D view.
 
 ## Counts to angles
 
