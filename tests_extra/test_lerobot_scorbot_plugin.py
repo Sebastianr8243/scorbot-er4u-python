@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "plugins" / "lerobot_robot_scorbot"))
@@ -250,6 +251,36 @@ class CheckCommandTests(unittest.TestCase):
 
     def test_the_script_ends_at_home(self):
         self.assertEqual(parse_script(lerobot_sim_check.SCRIPT)[-1], home())
+
+
+class ReplayCheckTests(unittest.TestCase):
+    def replay(self, recorded_base, replayed_base):
+        states = [[base, 0.0, 0.0, 0.0, 0.0, 0.0] for base in recorded_base]
+        observations = [dict(zip(KEYS, [base, 0.0, 0.0, 0.0, 0.0, 0.0])) for base in replayed_base]
+        action = [0.5, 0.0, 0.0, 0.0, 0.0, 0.0]
+        robot = mock.Mock()
+        robot.get_observation.side_effect = lambda: observations[robot.send_action.call_count]
+        with mock.patch.object(lerobot_sim_check, "rows", return_value=[(0, state, action) for state in states]), \
+                mock.patch.object(lerobot_sim_check, "make", return_value=robot), \
+                mock.patch.object(lerobot_sim_check.time, "sleep"):
+            try:
+                lerobot_sim_check.check_replay(None, "scratch")
+            finally:
+                robot.disconnect.assert_called_once_with()
+        return robot
+
+    def test_replay_reads_one_observation_before_each_action(self):
+        robot = self.replay([0.0, 0.5], [0.0, 0.5])
+        self.assertEqual(robot.get_observation.call_count, 2)
+        self.assertEqual([call[0] for call in robot.method_calls],
+                         ["connect", "get_observation", "send_action", "get_observation", "send_action", "disconnect"])
+
+    def test_replay_allows_different_progress_toward_the_same_previous_action(self):
+        self.replay([0.0, 0.1], [0.0, 0.5])
+
+    def test_replay_still_rejects_observations_too_far_from_the_previous_action(self):
+        with self.assertRaisesRegex(AssertionError, "replayed observations lag actions"):
+            self.replay([0.0, 2.1], [0.0, 2.1])
 
 
 HAVE_TWIN = HAVE_LEROBOT and find_spec("mujoco") is not None and find_spec("ruckig") is not None
