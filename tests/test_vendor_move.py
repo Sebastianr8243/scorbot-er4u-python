@@ -2,7 +2,9 @@
 
 The golden fixture (``fixtures/dll_lab_move_joint.json``, made by ``scripts/make_move_joint_fixture.py``) holds
 slots 0-4 of every message of 26 recorded moves: base alone at speeds 1 to 100, shoulder, elbow, pitch and roll,
-all five joints at once, and a ``Time(3000)`` move. Each must come out of the pure function message for message.
+all five joints at once, and a ``Time(3000)`` move. Each must come out of the pure function message for message from the first change to the last. The lead
+(messages that still hold the start counts) and the total message count are the model's own and cannot be
+seen on the wire: they are pinned here as a regression check, not as evidence.
 The fake arm is our model, so this says what the DLL sends, not how the arm follows it.
 """
 

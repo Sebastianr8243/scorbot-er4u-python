@@ -129,8 +129,9 @@ def main(paths, out):
             start, start_name = target, "previous"
     fixture = {"source": SOURCE,
                "fields": "per move: slots 0-4 of every message from the first change through the last (counts); "
-                         "start home = the DLL's joints at zero counts, previous = the last target; lead = messages "
-                         "of the move before the first change; messages = its whole length",
+                         "start home = the DLL's joints at zero counts, previous = the last target; lead and messages = "
+                         "the model's messages before the first change and its whole length, inferred, not "
+                         "recorded; total_ms = the one duration that reproduces the recorded setpoints",
                "moves": calls}
     Path(out).write_text(json.dumps(fixture, separators=(",", ":")) + "\n", encoding="utf-8")
     print(f"{len(calls)} moves to {out}")

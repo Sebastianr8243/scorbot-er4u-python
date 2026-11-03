@@ -5,8 +5,11 @@ a joint move is one ``VendorProfile`` S-curve, in the DLL's joint radians, from 
 target. Every reply moves the planner clock on by one fixed tick (``TICK_SECONDS``), the clock is a running sum
 starting at 0, and each message carries ``joints_to_counts(start + s * (target - start))`` in slots 0-4. Once the
 clock passes the duration, the next message carries the target's counts and the setpoints then hold. Nothing else
-is sent: no mode, drive or end command. ``setpoints`` reproduces all 26 recorded moves message for message
-(``tests/fixtures/dll_lab_move_joint.json``), single and multi-axis, at speeds 1 to 100 and with ``Time``.
+is sent: no mode, drive or end command. For all 26 recorded moves (``tests/fixtures/dll_lab_move_joint.json``),
+single and multi-axis, at speeds 1 to 100 and with ``Time``, ``setpoints`` gives every message from the first change
+of a setpoint to the last, repeats included. The messages before the first change and after the last hold the
+start and target counts, so the wire cannot show where a move begins or ends: the lead and the message count are
+this model's, read from the decompile, not measured.
 
 The duration is in whole milliseconds. ``accel_bound_ms`` is the DLL's acceleration check (PL56), which sets it for
 every recorded move at speed 80 and above, for every multi-axis move and wrist move in the recordings, and gives
