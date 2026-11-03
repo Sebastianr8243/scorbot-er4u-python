@@ -27,7 +27,7 @@ import time
 
 from scorbot import Scorbot, ScorbotError, SimulatedScorbot, StreamRefused
 from scorbot.calibration import signed_count_delta
-from scorbot.policy_arm import (DEFAULT_TRAVEL_CAP_DEG, LEAD_LIMIT_DEG, LEAD_MARGIN_DEG, STEP_MAX_DEG,
+from scorbot.policy_arm import (LEAD_LIMIT_DEG, LEAD_MARGIN_DEG, STEP_MAX_DEG,
                                 clamp)
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
@@ -187,7 +187,7 @@ def _run() -> int:
     parser.add_argument("--steps", type=int, default=20, help=f"control ticks, 1 to {MAX_STEPS}")
     parser.add_argument("--rate-hz", type=float, default=5.0,
                         help="control rate, %g to %g" % RATE_RANGE_HZ)
-    parser.add_argument("--travel-cap-deg", type=float, default=DEFAULT_TRAVEL_CAP_DEG,
+    parser.add_argument("--travel-cap-deg", type=float, default=2.0,
                         help=f"most degrees from home, up to {MAX_TRAVEL_CAP_DEG:g}")
     parser.add_argument("--acknowledge-supervised-motion", action="store_true")
     parser.add_argument("--inch-home", action="store_true",

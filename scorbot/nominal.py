@@ -9,7 +9,9 @@ What the manual does NOT give: encoder counts per revolution, encoder zero,
 where each joint's 0 degrees is, and which direction is positive. Vendor
 parameter-file defaults for some of these are kept separately below as
 ``VendorPrior`` values, which are priors too, never calibration. That is why
-joint ranges are enforced as spans (max - min) and never as signed limits.
+calibration ranges are enforced as spans (max - min). PolicyArm separately
+uses the vendor's signed joint and encoder windows after vendor Home;
+physical zero and signs remain unverified until lab G/X.
 
 Standard library only: this module is imported by calibration loading and
 must stay cheap.
@@ -188,14 +190,14 @@ def _vendor_range(minimum: float, maximum: float, unit: str) -> VendorRange:
     return VendorRange(minimum, maximum, unit, f"{VENDOR_INI}, ER4Ax*.ini")
 
 
-# Controller angle limits. Reference only: no check uses them. The calibration gate
-# stays the manual's span in AXIS_RANGES (the elbow's 275 here is wider than 260).
+# PolicyArm travel guard: $Default ROB_4u.INI [Limits], vendor joint convention.
+# Zero and signs on our arm remain unverified until lab G/X. Calibration still
+# uses the manual's spans in AXIS_RANGES (the elbow's 275 here is wider than 260).
 VENDOR_JOINT_LIMITS_DEG = MappingProxyType({
-    "base": _vendor_range(-132.0, 174.0, "joint degrees"),
-    "shoulder": _vendor_range(-124.0, 31.0, "joint degrees"),
-    "elbow": _vendor_range(-115.0, 160.0, "joint degrees"),
-    "wrist_pitch": _vendor_range(-113.0, 115.0, "joint degrees"),
-    "wrist_roll": _vendor_range(-570.0, 570.0, "joint degrees"),
+    name: VendorRange(low, high, "joint degrees", f"{VENDOR_INI}, ROB_4u.INI [Limits]")
+    for name, low, high in (("base", -132.0, 174.0), ("shoulder", -124.0, 31.0),
+                            ("elbow", -115.0, 160.0), ("wrist_pitch", -113.0, 115.0),
+                            ("wrist_roll", -570.0, 570.0))
 })
 # Encoder soft limits, counts from the vendor's zero (at hard home, SCORBASE p. 23).
 # Whether our homing ends at the same zero, with the same signs, is unverified.
@@ -203,12 +205,30 @@ VENDOR_ENCODER_SOFT_LIMITS = MappingProxyType({
     "base": _vendor_range(-25000, 20000, "encoder counts"),
     "shoulder": _vendor_range(-18000, 1500, "encoder counts"),
     "elbow": _vendor_range(-25000, 20000, "encoder counts"),
-    "wrist_pitch": _vendor_range(-15000, 15000, "encoder counts"),
+    "wrist_motor_1": _vendor_range(-15000, 15000, "encoder counts"),
+    "wrist_motor_2": _vendor_range(-1000000, 1000000, "encoder counts"),
+    "gripper": _vendor_range(-200, 6000, "encoder counts"),
 })
 
-VENDOR_LIMIT_REPORT_STATUS = ("diagnostic only, not a guard: targets are counts from this "
-                              "session's home; vendor encoder zero (hard home) and sign "
-                              "convention are unverified on our arms")
+VENDOR_LIMIT_REPORT_STATUS = ("PolicyArm guard after vendor Home; physical zero and signs "
+                              "unverified until lab G/X; this jog report is diagnostic only")
+
+
+def vendor_limit_problem(absolute_counts: dict) -> str | None:
+    """Vendor 906/907 target checks, in counts from vendor zero. Pure, unverified on our arm."""
+    from . import vendor_model
+
+    for motor, value in absolute_counts.items():
+        limit = VENDOR_ENCODER_SOFT_LIMITS[motor]
+        if not limit.minimum <= value <= limit.maximum:
+            return f"{motor} outside vendor EncLimit ({limit.minimum:g} to {limit.maximum:g} counts)"
+    angles = vendor_model.counts_to_joints([round(absolute_counts[m]) for m in vendor_model.MOTORS])
+    for joint, radians in angles.items():
+        name = {"pitch": "wrist_pitch", "roll": "wrist_roll"}.get(joint, joint)
+        limit = VENDOR_JOINT_LIMITS_DEG[name]
+        if not limit.minimum <= math.degrees(radians) <= limit.maximum:
+            return f"{joint} outside vendor ROB_4u window ({limit.minimum:g} to {limit.maximum:g} degrees)"
+    return None
 
 
 def _side(value: int, limit: VendorRange) -> str:
@@ -225,8 +245,8 @@ def vendor_limit_report(target_from_home: dict[str, int | None]) -> dict:
     ``target_from_home`` is wrap-aware counts from the session home (None if
     unknown). Evidence for whether our homing zero and signs match the
     vendor's, judged under both sign hypotheses. Never used to allow or refuse
-    motion. Wrist motors have no per-motor vendor limit (pitch is a two-motor
-    differential).
+    motion by this report. PolicyArm applies these limits to absolute counts
+    after vendor Home, including the individual wrist motor limits.
     """
     motors = {}
     for motor, target in target_from_home.items():
