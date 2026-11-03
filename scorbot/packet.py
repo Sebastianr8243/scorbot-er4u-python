@@ -91,12 +91,15 @@ class TrackedInputEndpoint:
     Every reply passes here, so this is where the pendant's Abort key is seen: when reply byte 3 changes to
     one of ``PENDANT_ABORT``, ``on_pendant_abort`` is called once, on the reading thread. A held key does
     not call it again, as the DLL ignores repeats of the same code. A failing callback never breaks the read.
+    ``on_emergency`` sees the first active emergency bit, including a pulse absent from later snapshots.
     """
 
-    def __init__(self, endpoint, trace: PacketTrace | None = None, on_pendant_abort=None):
+    def __init__(self, endpoint, trace: PacketTrace | None = None, on_pendant_abort=None, on_emergency=None):
         self._endpoint = endpoint
         self._trace = trace
         self._on_pendant_abort = on_pendant_abort
+        self._on_emergency = on_emergency
+        self._emergency_seen = False
         self._pendant = None
         self._condition = threading.Condition()
         self._latest = None
@@ -119,6 +122,13 @@ class TrackedInputEndpoint:
             self._latest = PacketSnapshot(data, self._index, time.monotonic_ns(), self._teach_mode)
             self._condition.notify_all()
             latest = self._latest
+        if self._on_emergency is not None and len(latest.data) > 2 and latest.data[2] & 1:
+            if not self._emergency_seen:
+                self._emergency_seen = True
+                try:
+                    self._on_emergency()
+                except Exception:
+                    pass  # the read must return so the worker can send the stop
         if self._trace is not None:
             self._trace.add("in", latest.data, latest.host_monotonic_ns)
         if self._on_pendant_abort is not None and len(latest.data) > 3:
