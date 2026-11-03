@@ -117,6 +117,27 @@ class PolicyArmTeachTests(unittest.TestCase):
         self.assertFalse(arm.is_connected)
         self.assertIsNone(robot._device)
 
+    def test_teach_mode_seen_after_enabling_refuses_before_homing(self):
+        import tempfile
+        from pathlib import Path
+        from scorbot import SimulatedScorbot
+        from scorbot.policy_arm import PolicyArm
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t")
+        real = robot.get_state
+
+        def state(**kw):
+            return dataclasses.replace(real(**kw), teach_mode=robot._enabled)   # the enable reply turns it on
+
+        arm = PolicyArm(robot, travel_cap_deg=2.0)
+        with mock.patch.object(robot, "get_state", side_effect=state), \
+                mock.patch.object(robot, "home") as home, \
+                self.assertRaisesRegex(ScorbotError, "teach mode"):
+            arm.connect()
+        home.assert_not_called()
+        self.assertIsNone(robot._device)
+
 
 if __name__ == "__main__":
     unittest.main()

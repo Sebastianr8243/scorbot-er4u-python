@@ -132,10 +132,10 @@ class PolicyArm:
             raise RuntimeError("already connected")
         with ExitStack() as stack:           # any failure below unwinds what was opened
             stack.enter_context(self.robot)  # connects; leaving disconnects
-            if self.robot.get_state().teach_mode:    # refuse before enable and home move the arm
-                raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before connecting")
+            self._refuse_teach_mode()        # before enable, and again before home moves the arm
             self.robot.enable()
             stack.callback(self._disable)
+            self._refuse_teach_mode()
             self.robot.home(start_position_confirmed=True)
             self._home = dict(self.robot.get_state().encoder_counts)
             self._per_degree = {m: self.robot.preview_jog(m, 1.0)["motor_count_deltas"][m]
@@ -146,6 +146,10 @@ class PolicyArm:
             self.target = dict.fromkeys(MOTORS, 0.0)
             self._last_act = monotonic()
             self._stack = stack.pop_all()
+
+    def _refuse_teach_mode(self) -> None:
+        if self.robot.get_state().teach_mode:
+            raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before connecting")
 
     def _disable(self) -> None:
         try:
