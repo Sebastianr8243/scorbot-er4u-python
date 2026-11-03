@@ -133,6 +133,29 @@ class GeneratorTests(unittest.TestCase):
         self.assertIsNone(done.exception.value)
         self.assertEqual(sent, vendor_torque.MAX_MESSAGES)
 
+    def test_the_deadline_is_no_answer_and_takes_no_stop_path(self):
+        from scorbot.vendor_home_model import Plant
+        from scorbot.vendor_home_source import VendorHomeSource
+        now = [0.0]
+        source = VendorHomeSource(start=lambda first: vendor_torque.read(first, 0x01), clock=lambda: now[0],
+                                  total_seconds=vendor_torque.TOTAL_SECONDS)
+        plant = Plant()
+        reply, sequence, sent = plant.exchange(vh.encode_out(vh.Out(vh.NOP), 1)), 2, []
+        while True:
+            step = source(reply, sequence)
+            if step[0] != "send":
+                break
+            sent.append(step[1])
+            reply = bytearray(plant.exchange(step[1]))
+            reply[1] = 0x0D                      # a controller that never answers 57
+            sequence = sequence % 255 + 1
+            now[0] += 1.0                        # five messages reach the deadline
+        self.assertEqual(step, ("end",))
+        self.assertIsNone(source.error)
+        self.assertFalse(source.ok)
+        self.assertEqual({p[4] for p in sent}, {0x57}, "only 57 went out: no stop messages")
+        self.assertLess(len(sent), vendor_torque.MAX_MESSAGES)
+
 
 if __name__ == "__main__":
     unittest.main()

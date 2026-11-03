@@ -11,9 +11,10 @@ From the lab DLL (``docs/protocol/LEDGER.md`` PL74; desk recording 2026-11-02; u
 
 ``read(first, mask)`` sends ``57`` until a reply to one of its own messages echoes ``57``, the setpoints holding
 the first reply's counts, so it carries what an idle message would. It returns the value, or ``None`` after
-``MAX_MESSAGES`` with no answer; it never raises, so a missing answer never makes the runner switch the motors
-off. ``VendorHomeSource`` and the legacy runner carry it (order ``TORQUE_ORDER``). What the number is on the
-arm (units, sign, which axis for a multi-axis mask) is unverified.
+``MAX_MESSAGES`` or at the source's deadline with no answer, so a missing answer never makes the runner switch
+the motors off (a cancel, a USB error or a stale link still do). ``VendorHomeSource`` and the legacy runner
+carry it (order ``TORQUE_ORDER``). What the number is on the arm (units, sign, which axis for a multi-axis
+mask) is unverified.
 """
 
 from . import vendor_home as vh
@@ -44,7 +45,12 @@ def read(first, axis_mask: int):
     """Send ``57`` until our own message is answered. ``first`` is a ``vendor_home.Reply``, never decoded."""
     setpoints = tuple(first.counts)
     for sent in range(1, MAX_MESSAGES + 1):
-        reply = yield vh.Out(SHOW_TORQUE, axis_mask, 0, 0, setpoints)
+        try:
+            reply = yield vh.Out(SHOW_TORQUE, axis_mask, 0, 0, setpoints)
+        except vh.HomeError as error:
+            if error.code == vh.ERR_TIMEOUT:    # the source's deadline: no answer, not a fault
+                return None
+            raise                               # a cancel, a USB error, a stale link: the runner's stop path
         # ``lag`` counts our messages still unanswered, so lag < sent means this reply answers one of ours.
         if reply.command == SHOW_TORQUE and reply.lag < sent:
             return reply.result - RESULT_OFFSET
