@@ -42,6 +42,19 @@ Each step has its pass line fixed now, so the result cannot be argued afterwards
 | X | Hand-over: after H, move with Stack 1 to a pose off home (`by 20 0 0`, a go), close Stack 1, run P with `--log` (the probe itself sends no motion) | After Stack 2's handshake some joint still reads hundreds of counts from 0: its reset (`5A`) kept the vendor's zero | Every count near 0 after the handshake: the reset re-zeroes the counts, so every Stack 2 connect loses the vendor's Home. Record the counts |
 | G | Only if H, S, T and P pass and the operator says go, jaws empty: `bring_up.py` (vendor Home, 1 degree jog, then stop) | Home completes; each of the three gripper drives ends on a stall within 120 replies; every joint lines up with H's tape mark within about 2 degrees (eye or phone level). Write down the three gripper travels from the log: they set the per-arm minimum stroke (ledger PL29) | Note the error number. 574 "did not stall within the vendor's gripper budget" means the real gripper is slower than the vendor's 120 replies: stop, do not raise the limit at the bench. A joint off its mark: Stack 2's zero is not the vendor's; no streaming |
 
+## 3c. Numbers to write down for LeRobot
+
+These fill the priors in `docs/LEROBOT_CHAIN.md` section 5. Each comes from a step above or a supervised trial after G; the ones marked (moves) need a go each time.
+
+| Number | How |
+|---|---|
+| Streaming period (the LeRobot frame budget) | P gives the idle gap; the streaming period comes from the `host_monotonic_ns` of the step records in the `bench_stream.py` log below |
+| Counts per degree and direction, per joint | After G: `examples/bench_joint.py`, a 1 degree jog per joint read with a phone level, then `scripts/lab_summary.py --phone base=<deg>` (moves) |
+| Stream lag, overshoot, settle | After G: one `bench_stream.py` trial per motor, 1 degree out and back at speed 25, then `scripts/follow_report.py` on its log (moves) |
+| Repeatability (proxy) | The same `bench_stream.py` trial three times; compare the settled counts at the end of each leg, and the tape marks from H (moves) |
+| Gripper move time and travel | From G's log (`bring_up.py --logs`): time from first setpoint to stall, and counts travelled |
+| Stack 1 action rate | After H: `examples/arm_latency.py --speed 20`, then `--speed 50` (moves) |
+
 ## 4. If you did swap to WinUSB: get Intelitek's driver back
 
 Do this before leaving the lab PC, or Stack 1 (the vendor tools) cannot find the controller.
