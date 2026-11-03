@@ -16,6 +16,7 @@ from .calibration import signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .state import RobotState
 from .streaming import MOTORS as STREAM_MOTORS
+from .streaming import WRIST_STREAM_MOTORS
 from .streaming import (DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, DEFAULT_SPEED_FRACTION,
                         HOLD_TIMEOUT_RANGE_S, PERIOD_RANGE_S, STREAM_ORDER, Stream, StreamCore,
                         prior_limits)
@@ -31,7 +32,8 @@ class StreamMixin:
                      hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
                      period_s: float = DEFAULT_PERIOD_S,
                      use_emergency_bit: bool = False,
-                     adaptive_pacing: bool = False) -> Stream:
+                     adaptive_pacing: bool = False,
+                     wrist: bool = False) -> Stream:
         """Start following a stream of targets for base, shoulder and elbow.
 
         Returns a ``Stream``: call ``set_target`` with motor counts from home as
@@ -42,6 +44,11 @@ class StreamMixin:
         the physical stop is authoritative. Needs the ``planning`` extra.
         ``adaptive_pacing`` replaces the fixed read delay with the vendor's echoed-ID rule
         (``scorbot/pacing.py``); off by default, unverified on the arm.
+        ``wrist`` (off by default) streams both wrist motors as well. They are coupled (pitch
+        is half their difference, roll half their sum: ``source_model``), so each wrist motor's
+        travel cap and lead limit is the cap or limit of pitch plus that of roll, in the source
+        model's counts per degree, plus a count of rounding per joint on the cap. The wrist
+        jogs stay disabled; only this opt-in path streams the wrist. Unverified on the arm.
         """
         with self._motion_lock:
             if self._device is None:
@@ -60,6 +67,8 @@ class StreamMixin:
                 if isinstance(value, bool) or not isinstance(value, (int, float)) \
                         or not math.isfinite(value) or not low <= value <= high:
                     raise ValueError(f"{name} must be {low:g} through {high:g} seconds")
+            if not isinstance(wrist, bool):
+                raise ValueError("wrist must be True or False")
             if not self._enabled or not self._homed or self._home_counts is None:
                 raise ScorbotError("Enable and home before streaming")
             before = self._motion_state()
@@ -67,27 +76,31 @@ class StreamMixin:
                 self._record("stop_before_motion", joint="stream")
                 raise MotionStopped("A stop was requested; the stream was not started",
                                     state=before, started=False)
+            motors = WRIST_STREAM_MOTORS if wrist else STREAM_MOTORS
             per_degree = {m: abs(self.preview_jog(m, 1.0)["motor_count_deltas"][m])
                           for m in STREAM_MOTORS}
+            # One wrist motor carries pitch and roll (m1 = p + r, m2 = r - p, source model).
+            per_degree.update({m: 2 * source_model.COUNTS_PER_DEGREE[m] for m in motors[3:]})
+            rounding = {m: 2 if m in limits.WRIST_MOTORS else 0 for m in motors}
             try:
                 start = {m: signed_count_delta(before.encoder_counts[m], self._home_counts[m])
-                         for m in STREAM_MOTORS}
-                # The wrist pitch follows the wrist motors too, and a stream leaves
-                # them where they are: the pose check must use where they are now.
-                wrist = {m: signed_count_delta(before.encoder_counts[m], self._home_counts[m])
-                         for m in limits.WRIST_MOTORS}
+                         for m in motors}
+                # The wrist pitch follows the wrist motors too, and a stream without
+                # them leaves them where they are: the pose check must use where they are now.
+                held = {m: signed_count_delta(before.encoder_counts[m], self._home_counts[m])
+                        for m in limits.WRIST_MOTORS if m not in motors}
             except ValueError as exc:
                 raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
             try:
                 core = StreamCore(
                     start,
-                    travel_cap={m: travel_cap_deg * per_degree[m] for m in STREAM_MOTORS},
+                    travel_cap={m: travel_cap_deg * per_degree[m] + rounding[m] for m in motors},
                     window=source_model.limit_window(),
                     pose_check=lambda counts: source_model.pose_limit_problem(
-                        {**wrist, **counts}),
-                    lead_limit={m: lead_limit_deg * per_degree[m] for m in STREAM_MOTORS},
+                        {**held, **counts}),
+                    lead_limit={m: lead_limit_deg * per_degree[m] for m in motors},
                     limits=prior_limits(speed_fraction), period_s=period_s,
-                    hold_timeout_s=hold_timeout_s, now=time.monotonic())
+                    hold_timeout_s=hold_timeout_s, now=time.monotonic(), motors=motors)
             except ImportError as exc:
                 raise ScorbotError("Streaming needs the planning extra "
                                    "(pip install .[planning])") from exc
@@ -97,6 +110,7 @@ class StreamMixin:
                          speed_fraction=speed_fraction, lead_limit_deg=lead_limit_deg,
                          hold_timeout_s=hold_timeout_s, period_s=period_s,
                          use_emergency_bit=use_emergency_bit, adaptive_pacing=adaptive_pacing,
+                         wrist=wrist,
                          start_counts_from_home=start,
                          state=asdict(before))
             if self._trace is not None:

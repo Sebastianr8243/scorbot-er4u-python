@@ -26,6 +26,6 @@
  "pre_home_jog": "def(self, joint, degrees, *, operator_at_stop: bool = False, speed: int = 6, coupled: bool = False)",
  "preview_jog": "def(self, joint: str, delta_degrees: float, *, speed: int = 10, starting_signed_counts: dict[str, int] | None = None) -> dict",
  "request_stop": "def(self) -> None",
- "start_stream": "def(self, *, travel_cap_deg: float = 180.0, speed_fraction: float = 0.25, lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5, period_s: float = 0.024, use_emergency_bit: bool = False, adaptive_pacing: bool = False) -> Stream",
+ "start_stream": "def(self, *, travel_cap_deg: float = 180.0, speed_fraction: float = 0.25, lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5, period_s: float = 0.024, use_emergency_bit: bool = False, adaptive_pacing: bool = False, wrist: bool = False) -> Stream",
  "vendor_home": "def(self, *, operator_at_stop: bool = False, jaws_empty: bool = False, wrist_clear: bool = False, controller_version: int = 0)"
 }

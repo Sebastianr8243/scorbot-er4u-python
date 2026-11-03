@@ -511,13 +511,16 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 	media = libdef.get_media(buffer,media)
 	cola_read.put(media)
 
-# Follows a stream of setpoints for base, shoulder and elbow together.
+# Follows a stream of setpoints for base, shoulder and elbow together (and, for a
+# wrist stream, both wrist motors).
 #
 # Opens a movement like every jog, then sends one ordinary setpoint message
-# (mov_comm(1)) per step. The three joints' fields are placed with
-# getStruct(20, ...), the layout moveXYZ already uses. The steps come from
+# (mov_comm(1)) per step. The joints' fields are placed with
+# getStruct(20, ...), the layout moveXYZ already uses; two more fields fill the
+# wrist motors' slots, where the wrist jog puts them. The steps come from
 # `source`, which is called with a copy of the last reply and returns:
-#   ("send", (base, shoulder, elbow))  signed counts to send
+#   ("send", (base, shoulder, elbow))  signed counts to send, or five with
+#                                      wrist motor 1 and 2 after the elbow
 #   ("end",)                           finish like a normal movement
 #   ("stop",)                          finish with the stop sequence
 # Any other answer is treated as a stop.

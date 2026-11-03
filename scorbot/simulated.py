@@ -173,6 +173,7 @@ class SimulatedController:
         self.stream_follow = 1.0
         self.stream_stuck = False
         self.stream_error_word = 0
+        self.stream_wrist_error_word = 0      # the same, on the two wrist motors' error words
         self.stream_emergency = False
         self.stream_sent: list[tuple] = []
         # Vendor-home model (modeled, not measured): the home runs scorbot.vendor_home against
@@ -460,6 +461,8 @@ class SimulatedController:
                     reply[2] |= 1 if self.stream_emergency else 0
                     for offset in ERROR_OFFSETS[:len(STREAM_MOTORS)]:
                         reply[offset:offset + 2] = self.stream_error_word.to_bytes(2, "little")
+                    for offset in ERROR_OFFSETS[len(STREAM_MOTORS):len(STREAM_MOTORS) + 2]:
+                        reply[offset:offset + 2] = self.stream_wrist_error_word.to_bytes(2, "little")
                 step = source(bytes(reply))
                 if step[0] == "end":
                     return 0
@@ -472,7 +475,8 @@ class SimulatedController:
                 self.stream_sent.append(tuple(step[1]))
                 with self._lock:
                     if not self.stream_stuck:
-                        for motor, target in zip(STREAM_MOTORS, step[1]):
+                        # Three setpoints (base, shoulder, elbow) or five (and both wrist motors).
+                        for motor, target in zip(JOINTS, step[1]):
                             move = round((target - self.counts[motor]) * self.stream_follow)
                             self.counts[motor] += move
         finally:

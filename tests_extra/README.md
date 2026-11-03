@@ -12,7 +12,7 @@ Run from the repo root: these files import helpers as `tests.<name>`.
 
 | Files | Covers |
 |---|---|
-| `test_streaming_core.py`, `test_streaming.py`, `test_bench_stream.py` | The streaming driver (`start_stream`): core against a small arm model, legacy loop against fake endpoints, the stream trial rehearsed |
+| `test_streaming_core.py`, `test_streaming.py`, `test_bench_stream.py` | The streaming driver (`start_stream`): core against a small arm model, legacy loop against fake endpoints (three or five setpoints), the opt-in wrist stream (both wrist motors followed, their pitch-plus-roll bound, the pitch limit on the streamed wrist, their error words), the stream trial rehearsed |
 | `test_gripper.py`, `test_bench_gripper.py` | The gripper: legacy `clamp` loop (GUI), `move_gripper` after a vendor Home (order 23), the bench trial (vendor Home, then the gripper) |
 | `test_camera_*.py` | Webcam capture |
 | `test_rerun_view.py`, `test_plot.py`, `test_arm_chain.py`, `test_notes.py` | Viewers, plots, the link chain, the notes sheet |
@@ -20,7 +20,7 @@ Run from the repo root: these files import helpers as `tests.<name>`.
 | `test_build_calibration_csv.py`, `test_kinematics.py` | Offline calibration and kinematics tools |
 | `test_usbc_peread.py`, `test_usbc_query.py` | Ghidra dump tools |
 | `test_usbc_fake.py` | `tools/usbc_fake`: the fake arm's switch bands and drives, and the guards that refuse a `DriverLink` that is not the pipe |
-| `test_policy_arm.py` | `scorbot/policy_arm.py` on the simulated controller: starts at home, one clamped step, travel cap, bad values hold, close twice, act after close refused |
+| `test_policy_arm.py` | `scorbot/policy_arm.py` on the simulated controller: starts at home, one clamped step, travel cap, bad values hold, close twice, act after close refused; with `wrist=True`: pitch and roll signs on the two wrist motors, measured back within a count, an arm-only action never moves the wrist motors, pitch and roll at the cap together, the lead margin with a stuck wrist, the speed step shared on one motor |
 | `test_policy_arm_step_limit.py` | The opt-in `step_limit="speed"`: `speed_step_deg` (vendor MaxSpeed x speed over the elapsed time, at most the lead margin, time up to the hold timeout), a per-motor step in `clamp`, the lead correction never beating it, PolicyArm wiring with a patched clock; and a frozen copy of the old `clamp` swept against the default path (passes before and after: it guards, it does not test a feature) |
 | `test_lerobot_scorbot_plugin.py` | `plugins/lerobot_robot_scorbot` without lerobot (stand-in base class): the real-arm refusal, feature dicts, a simulated connect, act, disconnect (needs Ruckig), the two teleoperator maps (keys and scripted walk, step and cap through `clamp`), the `examples/lerobot_sim_check.py` record command (simulated, local, unattended). With lerobot importable: registration and `make_robot_from_config`; skipped otherwise |
 | `test_policy_loop.py`, `test_export_policy_dataset.py` | `examples/policy_loop.py` (the clamp on its own, then the supervised policy run rehearsed in the simulator, including a policy that crashes) and `scripts/export_policy_dataset.py` (episodes reload identically; failed, errored and mixed-source runs are refused) |
