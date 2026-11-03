@@ -137,7 +137,7 @@ class PolicyArmStepLimitTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         arm = PolicyArm(SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t"), **kw)
-        arm.connect()
+        arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)     # the simulator
         self.addCleanup(arm.close)
         return arm
 

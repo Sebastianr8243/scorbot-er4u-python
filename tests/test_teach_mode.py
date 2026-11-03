@@ -112,7 +112,7 @@ class PolicyArmTeachTests(unittest.TestCase):
                                side_effect=lambda **kw: dataclasses.replace(real(**kw), teach_mode=True)), \
                 mock.patch.object(robot, "enable") as enable, \
                 self.assertRaisesRegex(ScorbotError, "teach mode"):
-            arm.connect()
+            arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
         enable.assert_not_called()
         self.assertFalse(arm.is_connected)
         self.assertIsNone(robot._device)
@@ -132,9 +132,9 @@ class PolicyArmTeachTests(unittest.TestCase):
 
         arm = PolicyArm(robot, travel_cap_deg=2.0)
         with mock.patch.object(robot, "get_state", side_effect=state), \
-                mock.patch.object(robot, "home") as home, \
+                mock.patch.object(robot, "vendor_home") as home, \
                 self.assertRaisesRegex(ScorbotError, "teach mode"):
-            arm.connect()
+            arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
         home.assert_not_called()
         self.assertIsNone(robot._device)
 

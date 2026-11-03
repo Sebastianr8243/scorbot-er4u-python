@@ -5,9 +5,11 @@ is measured on our arm; these tests check that the model is the sources',
 that it is consistent, and that it keeps saying where it came from.
 """
 
+import json
 import math
 import random
 import unittest
+from pathlib import Path
 
 from scorbot import arm_chain, limits, source_model
 from scorbot.source_model import (HOME_ANGLES, JOINTS, MOTORS, angles_from_counts,
@@ -146,11 +148,11 @@ class MotionWindowTests(unittest.TestCase):
 class GeometryTests(unittest.TestCase):
     """Tool position from joint angles and back, with the vendor's dimensions."""
 
-    def test_the_dimensions_are_the_vendors_and_the_toolboxes(self):
-        # ROB_4u.INI and the USNA toolbox's DH table give the same five numbers.
+    def test_the_dimensions_are_the_vendors(self):
+        # ROB_4u.INI; the USNA toolbox's DH table agrees but has 145.125 for the tool.
         g = source_model.geometry()
         self.assertEqual((g.d[0], g.a[0], g.a[1], g.a[2], g.d[4]),
-                         (349.0, 16.0, 221.0, 221.0, 145.125))
+                         (349.0, 16.0, 221.0, 221.0, 145.0))
 
     def test_home_is_where_the_toolbox_says(self):
         x, y, z, pitch, roll = source_model.xyzpr_from_angles(HOME_ANGLES)
@@ -164,7 +166,7 @@ class GeometryTests(unittest.TestCase):
 
     def test_all_zero_angles_is_the_arm_stretched_out_level(self):
         x, y, z, pitch, roll = source_model.xyzpr_from_angles(dict.fromkeys(JOINTS, 0.0))
-        self.assertAlmostEqual(x, 16.0 + 221.0 + 221.0 + 145.125)      # 603.125
+        self.assertAlmostEqual(x, 16.0 + 221.0 + 221.0 + 145.0)      # 603
         self.assertAlmostEqual(z, 349.0)
         self.assertEqual((round(y, 9), round(pitch, 9), round(roll, 9)), (0.0, 0.0, 0.0))
 
@@ -195,6 +197,18 @@ class GeometryTests(unittest.TestCase):
             source_model.angles_from_xyzpr(900.0, 0.0, 349.0, 0.0, 0.0)
         with self.assertRaises(ValueError):
             source_model.angles_from_xyzpr(0.0, 0.0, 600.0, 90.0, 0.0)      # on the base axis
+
+    def test_tool_position_is_the_lab_dlls_for_the_same_counts(self):
+        # fixtures/dll_lab_xyz.json: the lab USBC.dll's ShowXYZ for 27 count sets
+        # (um and millidegrees, truncated). The DLL truncates to whole units, so
+        # 0.002 mm and 0.002 degrees; a 0.125 mm longer tool would fail.
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "dll_lab_xyz.json")
+                             .read_text(encoding="utf-8"))
+        for row in fixture["rows"]:
+            got = source_model.xyzpr_from_angles(angles_from_counts(dict(zip(MOTORS, row["counts"]))))
+            for name, value, dll in zip("x y z pitch roll".split(), got, row["xyz"]):
+                with self.subTest(counts=row["counts"], value=name):
+                    self.assertAlmostEqual(value, dll / 1000, delta=0.002)
 
 
 class LimitTests(unittest.TestCase):

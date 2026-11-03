@@ -34,7 +34,7 @@ WINDOW_S = 0.25
 def drive(pct, mode, motor, hz, folder):
     arm = PolicyArm(SimulatedScorbot(log_path=Path(folder) / f"{motor}-{mode}-{pct}.jsonl", robot_id="speed-sim"),
                     travel_cap_deg=CAP_DEG, speed_pct=pct, step_limit=mode)
-    arm.connect()
+    arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)     # simulator only
     fault = None
     try:
         seen, start = [], time.perf_counter()

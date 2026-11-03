@@ -173,12 +173,13 @@ def outside_window(angles) -> dict[str, int]:
 
 # -- geometry ---------------------------------------------------------------
 #
-# The same five dimensions in the vendor's ROB_4u.INI and in the USNA
-# toolbox's DH table (ScorDHtable.m): shoulder axis 349 mm up and 16 mm ahead
-# of the base axis, upper arm and forearm 221 mm, wrist to tool point 145.125.
+# The vendor's ROB_4u.INI: shoulder axis 349 mm up and 16 mm ahead of the
+# base axis, upper arm and forearm 221 mm, wrist to tool point 145 mm. The
+# USNA toolbox's DH table (ScorDHtable.m) agrees but for 145.125; 145 is what
+# the lab USBC.dll's ShowXYZ uses (tests/fixtures/dll_lab_xyz.json).
 # The community CAD model says 346 and 29 instead; it is the odd one out and
 # is used only to place its own meshes (arm_chain.MESH_MODEL).
-DH_OFFSETS_MM = (349.0, 0.0, 0.0, 0.0, 145.125)
+DH_OFFSETS_MM = (349.0, 0.0, 0.0, 0.0, 145.0)
 DH_LENGTHS_MM = (16.0, 221.0, 221.0, 0.0, 0.0)
 
 

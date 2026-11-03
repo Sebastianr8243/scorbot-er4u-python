@@ -19,7 +19,7 @@ class PolicyArmTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t")
         self.arm = PolicyArm(robot, travel_cap_deg=2.0)
-        self.arm.connect()
+        self.arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)     # the simulator; the confirmations are this test's
         self.addCleanup(self.arm.close)
 
     def test_starts_at_home(self):
@@ -82,7 +82,7 @@ class PolicyArmWristTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t")
         arm = PolicyArm(robot, **{"travel_cap_deg": 2.0, "wrist": True, **kw})
-        arm.connect()
+        arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)     # the simulator
         self.addCleanup(arm.close)
         return arm
 
@@ -100,7 +100,7 @@ class PolicyArmWristTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         arm = PolicyArm(SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t"))
-        arm.connect()
+        arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)     # the simulator
         self.addCleanup(arm.close)
         self.assertEqual(arm._stream.core.motors, ("base", "shoulder", "elbow"))
         self.assertEqual(arm.act({"pitch": 1.0, "roll": 1.0}), {"base": 0.0, "shoulder": 0.0, "elbow": 0.0})

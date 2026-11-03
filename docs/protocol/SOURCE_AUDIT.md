@@ -191,7 +191,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `vendor_model.STATUS`, `vendor_model.MOTORS`, `vendor_model.JOINTS` | text, names | ours | labels | n/a |
 | `source_model.COUNTS_PER_DEGREE` | from `vendor_model.ER4U` | vendor | `NoEnc90` / 90 | `VENDOR_DLL_PROTOCOL.md` section 10.1 |
 | `source_model.HOME_ANGLES` | angles at zero counts | vendor | the vendor's nominal zero-count pose | `VENDOR_DLL_PROTOCOL.md` section 10.3 |
-| `source_model.DH_OFFSETS_MM`, `source_model.DH_LENGTHS_MM` | 349, 145.125; 16, 221, 221 | vendor | `ROB_4u.INI` and the USNA toolbox `ScorDHtable.m` | `docs/manual/MANUAL_AND_PRIOR_ART_FINDINGS.md` "Geometry"; `docs/manual/ER4U_MODEL.md` |
+| `source_model.DH_OFFSETS_MM`, `source_model.DH_LENGTHS_MM` | 349, 145; 16, 221, 221 | vendor | `ROB_4u.INI` (the USNA toolbox `ScorDHtable.m` has 145.125 for the tool); the lab `USBC.dll`'s ShowXYZ matches (`tests/fixtures/dll_lab_xyz.json`) | `docs/manual/MANUAL_AND_PRIOR_ART_FINDINGS.md` "Geometry"; `docs/manual/ER4U_MODEL.md` |
 | `source_model.LIMITS_DEG` | per joint | vendor | the narrower of the USNA toolbox's `ScorBSEPRLimits.m` and `ROB_4u.INI` | `docs/manual/ER4U_MODEL.md` "Joint limits" |
 | `source_model.TIER`, `source_model.STATUS`, `source_model.JOINTS`, `source_model.MOTORS`, `source_model._AXES` | labels, aliases | ours | labels and aliases | n/a |
 | `nominal.ER4U_MANUAL`, `nominal.ER4U_CATALOG`, `nominal.SPECS`, `nominal.SIDE_VIEW`, `nominal.PARTS_LIST` | citations | vendor | the ER-4u user manual #100343 Rev. B | **unverified** (manual, not `docs/protocol/`) |
