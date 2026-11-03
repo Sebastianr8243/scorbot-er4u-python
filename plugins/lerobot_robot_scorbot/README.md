@@ -25,6 +25,18 @@ lerobot-record --robot.type=scorbot --robot.simulate=true --teleop.type=scorbot_
   --dataset.push_to_hub=false --dataset.num_episodes=2 --dataset.episode_time_s=20 --dataset.reset_time_s=5 --dataset.fps=10
 ```
 
+## Twin cameras (simulator images)
+
+`type: scorbot_twin` (`sim_cameras.py`, needs `mujoco`; 3.17.0 used) renders the MuJoCo twin (`scorbot/mujoco_twin.py`). On every `get_observation` the robot reads the simulator's five encoder counts, turns them into the twin's joint angles through `scorbot.source_model` (`mujoco_twin.chain_angles`: the elbow motor sets the forearm's angle to the floor and the wrist motors the gripper's, so it is not degrees from home plus the home angle), poses the twin (`set_pose`, no physics step) and renders the cameras, so each frame shows the pose in the same observation. Frames are `uint8` `(height, width, 3)` RGB, at most 640x480.
+
+```powershell
+lerobot-record --robot.type=scorbot --robot.simulate=true `
+  --robot.cameras="{front: {type: scorbot_twin, camera: front, width: 320, height: 240}, wrist: {type: scorbot_twin, camera: wrist, width: 320, height: 240}}" `
+  ...   # the rest as above
+```
+
+Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1, mujoco 3.17.0, Windows 11): 3 episodes of 3 s at 10 fps with both cameras at 160x120, 90 frames reloaded with image features, replayed frame 0 identical to the recorded one. The scene is nominal solids, not CAD and not measured. The gripper is fixed open (follow-up: drive it once `gripper.pos` exists), and the block never moves because the arm is posed, not simulated. Off-screen rendering that fails raises with the reason. Two 160x120 renders take about 30 ms per observation on this laptop.
+
 ## Shape
 
 | | |
@@ -47,7 +59,8 @@ Named apart from the Stack 1 teleoperators (`scorbot_keys`, `scorbot_scripted` o
 
 - **The gripper is binary and blocking.** Open or closed only, no width or force; each change stalls the loop for the vendor move plus a stream restart. Unverified on the arm. Teleop: `scorbot_joint_keys` opens with right ctrl and closes with left ctrl; `scorbot_joint_scripted` takes an optional sixth number per waypoint (0 to 100).
 - `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with the five joints and the gripper on 2026-11-03: all six checks passed. Its replay check (0.25 degree between replayed and recorded observations) is tight and failed some runs on simulator timing alone, with or without the gripper.
-- The real arm (refused on purpose), cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
+- The twin's gripper (fixed open) and block contact (the arm is posed, not simulated).
+- The real arm (refused on purpose), real cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
 
 ## Tests
 

@@ -146,6 +146,7 @@ class PolicyArm:
         self._stack: ExitStack | None = None
         self._stream = None
         self._seen: dict[str, float] | None = None    # the last observe(), until one act() uses it
+        self.counts_seen: dict[str, int] = {}    # the last observe()'s five motor counts from home
         self._seen_at = 0.0
 
     def set_speed(self, speed_pct: float) -> None:
@@ -271,10 +272,10 @@ class PolicyArm:
         self._seen = None
         state = self.robot._motion_state()      # latches the session if feedback is unavailable
         counts = state.encoder_counts
-        seen = {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
+        self.counts_seen = {m: signed_count_delta(counts[m], self._home[m]) for m in source_model.MOTORS}
+        seen = {m: self.counts_seen[m] / self._per_degree[m] for m in MOTORS}
         if self.wrist:
-            seen.update(wrist_degrees({m: signed_count_delta(counts[m], self._home[m])
-                                       for m in limits.WRIST_MOTORS}))
+            seen.update(wrist_degrees({m: self.counts_seen[m] for m in limits.WRIST_MOTORS}))
         arrived = state.host_monotonic_ns     # when the reply arrived; none and act() never reuses it
         self._seen, self._seen_at = dict(seen), -math.inf if arrived is None else arrived / 1e9
         if gripper:
