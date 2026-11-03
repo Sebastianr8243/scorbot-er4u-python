@@ -46,14 +46,14 @@ What this does not prove: that the controller accepts any of it. The fake arm is
 | `GetMode` | DLL mode (1 = online on the fake) | nothing | none | skip: host state |
 | **Control and safety** | | | | |
 | `Control` | Control on or off for a group | Section 5 sequences | `enable`, `disable` | match (`DESK_BYTE_CHECK.md`) |
-| `Stop` | Arm stop: `47`, `4F 3F 53`, `73 20`, `42 20 00` (seen twice in this run) | as stated | `request_stop` | match (`tests/test_software_stop.py`, `test_stop_mid_jog_sends_clear_buffer_then_close_and_reports_it`) |
+| `Stop` | Arm stop: `47`, `4F 3F 53`, `73 20`, `42 20 00` (seen twice in this run) | as stated | `request_stop` | match (`tests/test_software_stop.py`, `test_stop_mid_jog_sends_clear_buffer_then_close_and_reports_it`); legacy Home cancellation: `tests/test_home_stop.py`, `test_a_stop_at_any_packet_sends_the_stop_sequence_and_reports_stopped` (#93; unverified on the arm) |
 | `IsEmergency` | Reply byte 2 bit 0 | nothing | emergency check in the reply decode | match |
-| `IsTeachMode` | Pendant mode flag from reply byte 3 (PL64) | nothing | raw byte kept in records, not decoded (PL67) | build (with item 1) |
+| `IsTeachMode` | Pendant mode flag from reply byte 3 (PL64) | nothing | raw byte kept in records, not decoded (PL67) | build: #99 skipped in this cleanup; no #99 merge in the local `origin/stack2` log at start, so no merged test proof claimed |
 | `GetTPInfo` | Pendant key text; on the fake: "Code: 0x00 Button: Undefined" | nothing | none | build (item 1) |
 | `Impact` | Takes 8 values and runs them through the planner (`0x1001ca7a`, `0x10024e97`); returned 0 on the fake and sent nothing | nothing | the controller's own impact flag, byte 59, is decoded (`collision_bits`) | skip for now: not decoded, and byte 59 is already covered |
 | `ShowPositErr`, `ClosePositErr` | Callback with each axis's position error, from reply bytes 22 + 5N | nothing | `controller_error_counts` (`scorbot/state.py` `ERROR_OFFSETS`, 22 + 5N) | match |
 | **Homing and counters** | | | | |
-| `Home` | Vendor Home | 330 commands (PL10) | `vendor_home` | match (`tests/test_vendor_home.py`) |
+| `Home` | Vendor Home | 330 commands (PL10) | `vendor_home` | match (`tests/test_vendor_home.py`); `PolicyArm.connect`: `tests_extra/test_policy_arm_vendor_home.py`, `test_the_home_packets_are_the_vendor_dlls_recorded_sequence` (#97; unverified on the arm) |
 | `SetHome` | `'A'`: zero every arm counter where the arm is now, with no switch search (PL72). Single axis 1 was refused | `4F 3F 54`, then for each axis `48 <bit> 0`, `47`, `4F <bit> 53`; last `73 20`, `42 20 00` | the vendor Home's `48` steps | skip: it makes any position "home"; `vendor_home` covers zeroing |
 | `IsTheBasePosition` | Point-store check | not run | none | skip: point store |
 | **Motion** | | | | |
@@ -62,7 +62,7 @@ What this does not prove: that the controller accepts any of it. The fake arm is
 | `SetJoint`, `SetJoints` | Set the planner's target directly | `0D` stream (I) | `start_stream` | partial: same idea, Stack 2's own pacing |
 | `Speed`, `Time` | Store a speed percent or a time for the next move | nothing | `move_joint` arguments | match: host settings (PL55 to PL57 give the math) |
 | `MoveLinear`, `MoveCircularVect`, `SpeedLin` | Cartesian moves through the PC planner | not run (I: `0D` stream like `MoveJoint`) | none; `kinematics.py` has the forward and inverse model | skip for now: Stack 2 can stream Cartesian paths itself |
-| `ShowXYZ`, `CloseXYZ` | Callback with the tool position: x, y, z in um, pitch and roll in millidegrees, the same array as `GetCurrentPosition`'s xyz; it calls back at once and then on every monitoring tick until `CloseXYZ` | nothing | `source_model.xyzpr_from_angles(angles_from_counts(counts))` | match: within 0.001 mm and 0.001 degree on 27 count sets (`tests/fixtures/dll_lab_xyz.json`, `tools/usbc_fake/fake_xyz.py`), after the tool length was set to the INI's 145 mm |
+| `ShowXYZ`, `CloseXYZ` | Callback with the tool position: x, y, z in um, pitch and roll in millidegrees, the same array as `GetCurrentPosition`'s xyz; it calls back at once and then on every monitoring tick until `CloseXYZ` | nothing | `source_model.xyzpr_from_angles(angles_from_counts(counts))` | match: within the test tolerance of 0.002 mm and 0.002 degree on 27 count sets (`tests/test_source_model.py`, `test_tool_position_is_the_lab_dlls_for_the_same_counts`; `tests/fixtures/dll_lab_xyz.json`), with the INI's 145 mm tool length (#98); callback registration and `CloseXYZ` cancellation have no test here |
 | `Velocity` | Constant-velocity move of a peripheral axis | refused on axis 0 with error 910 "Invalid axis type", then `47`, `4F FF 53`, `73 20`, `42 20 00`, `64`, `61` | none | skip: the ER-4u has no peripheral axes here (`'B'` is empty) |
 | `MoveTorque` (2 overloads) | Open-loop PWM drive with no position loop | `4F FF 54` (mode T, all axes), `4D <bit> <value>` (PL73); ended by `Stop('A')` | the vendor Home's `4D` drives | skip: no position control and no stop on reaching anything |
 | `ShowTorque`, `CloseTorque` | Callback with the PWM read back | `57 <mask>` (`57 3F` for `'A'`, `57 01` for axis 0); answer in reply bytes 11-14 (PL74) | none | build (item 6) |
@@ -86,6 +86,8 @@ What this does not prove: that the controller accepts any of it. The fake arm is
 | `DefineVector`, `RenameVector`, `Teach`, `Here`, `SetEncoders`, `AddPoints`, `AttachPosit`, `BuildPositForWrite`, `SavePoints`, `DeletePoint`, `IsPointExist`, `GetNextPoint`, `GetPointInfo`, `GetPointsPeriphID`, `ClearPointsAttributes` | SCORBASE's named-position files | not run (host side) | session records and episode files | skip: SCORBASE's own file format, which Stack 2 does not use |
 
 The per-row count behind the totals: every name in a cell counts as one export, so the `Watch*` row is 14 and the point-store row is 15.
+
+#100 is skipped as an export verdict change: the sync-byte handoff is shared transport plumbing, not a DLL export; `tests/test_pause_marker.py` checks the waiting command receives the byte and marks its wait. Existing export verdicts and totals are unchanged.
 
 ## Not done here
 
