@@ -209,6 +209,10 @@ class StreamMixin:
             if too_late:
                 # As for a jog: the stream had already ended by itself, so the
                 # request cut nothing short. Say so instead of dropping it.
+                # Keep it on the ended stream too: a request that came after the
+                # stream was unpublished reached only the event, and PolicyArm's
+                # gripper handoff reads the stream to refuse the jaw move.
+                stream.core.request_stop()
                 self._record("stop_too_late", joint="stream")
             packets, dropped = self._trace.stop() if self._trace is not None else ([], 0)
             try:

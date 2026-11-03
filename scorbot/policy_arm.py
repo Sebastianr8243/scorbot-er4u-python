@@ -232,7 +232,6 @@ class PolicyArm:
         want = 100.0 if pct >= 50 else 0.0
         if want != self.gripper:
             self._move_gripper("open" if want else "close")
-            self.gripper = want
         return self.gripper
 
     def _move_gripper(self, direction: str) -> GripperMove:
@@ -244,6 +243,7 @@ class PolicyArm:
         if self._stream.core._stop_requested:
             raise MotionStopped("A stop was requested; the gripper was not moved", state=state, started=False)
         result = self.robot.move_gripper(direction)
+        self.gripper = 100.0 if direction == "open" else 0.0     # open_gripper/close_gripper too
         self._start_stream()
         self._seen = None       # a reading from before the move is stale; act() must read again
         return result
