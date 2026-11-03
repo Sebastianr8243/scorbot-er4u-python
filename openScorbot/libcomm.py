@@ -692,7 +692,7 @@ def vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 # las redirige a las acciones que debe realizar el robot.
 #################################################################################
 def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
-		cola_result=None, cancel_event=None, stop_event=None):
+		cola_result=None, cancel_event=None, stop_event=None, command_waiting=None):
 	# The GUI historically used one queue in both directions. SDK clients pass a
 	# separate result queue so they cannot consume their own command.
 	if cola_result is None:
@@ -707,12 +707,16 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 		if orden != 19:
 			vel = select[1]
 			ite = select[2]
+		if command_waiting is not None:
+			command_waiting.set()	# syncro holds off until this worker has the byte (see libsync.syncro)
 		cola_sync.put(MAX_COUNT)
 		while orden != None:
 			b_1 = cola_sync.get()
 			if b_1 == MAX_COUNT:
 				cola_sync.put(MAX_COUNT)
 			else:
+				if command_waiting is not None:
+					command_waiting.clear()
 				if orden != 19 and orden != 16 and orden != 17:
 					home = False
 					posRef = conf.readData("general", "posRef")
