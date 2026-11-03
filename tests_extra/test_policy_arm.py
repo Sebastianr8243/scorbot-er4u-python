@@ -32,8 +32,10 @@ class PolicyArmTests(unittest.TestCase):
         self.assertEqual(self.arm.act({"base": 90.0})["base"], STEP_MAX_DEG)
 
     def test_goal_can_pass_the_old_travel_cap(self):
-        for _ in range(10):
-            target = self.arm.act({"base": 3.0})
+        # The lead margin holds the target near the measured joint, so how many calls it takes
+        # depends on how fast the simulator moves on this machine: retry for a bounded time.
+        deadline = time.monotonic() + 5.0
+        while (target := self.arm.act({"base": 3.0}))["base"] != 3.0 and time.monotonic() < deadline:
             time.sleep(0.03)
         self.assertEqual(target["base"], 3.0)
 
