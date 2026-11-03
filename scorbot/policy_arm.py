@@ -14,6 +14,7 @@ from time import monotonic
 
 from . import limits
 from .calibration import signed_count_delta
+from .errors import ScorbotError
 from .streaming import DEFAULT_HOLD_TIMEOUT_S, VENDOR_MAX_SPEED_COUNTS_S
 
 MOTORS = limits.ARM_MOTORS
@@ -131,6 +132,8 @@ class PolicyArm:
             raise RuntimeError("already connected")
         with ExitStack() as stack:           # any failure below unwinds what was opened
             stack.enter_context(self.robot)  # connects; leaving disconnects
+            if self.robot.get_state().teach_mode:    # refuse before enable and home move the arm
+                raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before connecting")
             self.robot.enable()
             stack.callback(self._disable)
             self.robot.home(start_position_confirmed=True)

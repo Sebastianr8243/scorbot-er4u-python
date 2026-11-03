@@ -48,6 +48,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_source_audit.py` | Every module-level constant in `scorbot/` has a row in `docs/protocol/SOURCE_AUDIT.md` tagged vendor, legacy or ours, and no row names a constant that is gone |
 | `test_io_outputs.py` | Digital and analog outputs through the simulator: `47` then `44` with the whole word, `41` with value and number, range checks, setpoints held, log rows |
 | `test_reply_inputs.py` | The digital input word (IN byte 6) and the four analog inputs (bytes 7-10) in `RobotState` |
+| `test_teach_mode.py` | Teach mode from IN byte 3, against `IsTeachMode` values read from the lab DLL on the pipe fake; `start_stream` and `PolicyArm.connect` refuse in teach mode with nothing sent |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |
 | `test_home_stop.py` | A stop request ends the legacy Home's switch search: `MotionStopped`, no fault, not homed, the next Home runs; a stop asked before it refuses it once; a stop at any packet of the legacy Home sends the stop sequence with no motion setpoint after it and reports 14; every packet loop and `execute` pass the stop event |
 | `test_vendor_check.py` | The vendor-layout checker |

@@ -48,7 +48,7 @@ What this does not prove: that the controller accepts any of it. The fake arm is
 | `Control` | Control on or off for a group | Section 5 sequences | `enable`, `disable` | match (`DESK_BYTE_CHECK.md`) |
 | `Stop` | Arm stop: `47`, `4F 3F 53`, `73 20`, `42 20 00` (seen twice in this run) | as stated | `request_stop` | match (`tests/test_software_stop.py`, `test_stop_mid_jog_sends_clear_buffer_then_close_and_reports_it`) |
 | `IsEmergency` | Reply byte 2 bit 0 | nothing | emergency check in the reply decode | match |
-| `IsTeachMode` | Pendant mode flag from reply byte 3 (PL64) | nothing | raw byte kept in records, not decoded (PL67) | build (with item 1) |
+| `IsTeachMode` | Pendant mode flag kept from every reply's byte 3 (PL64): `40 4F C0 F9` set it, `47 7E F8 FE` clear it, `00` keeps it, any other code sets it unless byte 2 bit 0 (emergency) is set | nothing | `state.teach_mode_after`, `RobotState.teach_mode`; `start_stream` and `PolicyArm.connect` refuse while it is on (Stack 2's own rule: the DLL gates nothing on it) | match (decode only: `tests/test_teach_mode.py`, 22 values read from the lab DLL on the pipe fake) |
 | `GetTPInfo` | Pendant key text; on the fake: "Code: 0x00 Button: Undefined" | nothing | none | build (item 1) |
 | `Impact` | Takes 8 values and runs them through the planner (`0x1001ca7a`, `0x10024e97`); returned 0 on the fake and sent nothing | nothing | the controller's own impact flag, byte 59, is decoded (`collision_bits`) | skip for now: not decoded, and byte 59 is already covered |
 | `ShowPositErr`, `ClosePositErr` | Callback with each axis's position error, from reply bytes 22 + 5N | nothing | `controller_error_counts` (`scorbot/state.py` `ERROR_OFFSETS`, 22 + 5N) | match |

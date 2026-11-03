@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import threading
 import time
 
-from .state import PACKET_MIN_LENGTH
+from .state import PACKET_MIN_LENGTH, teach_mode_after
 
 
 @dataclass(frozen=True)
@@ -13,6 +13,7 @@ class PacketSnapshot:
     data: bytes
     index: int
     host_monotonic_ns: int
+    teach_mode: bool = False      # the DLL's teach flag after this reply (``state.teach_mode_after``)
 
 
 MAX_TRACE_PACKETS = 4000
@@ -89,6 +90,7 @@ class TrackedInputEndpoint:
         self._condition = threading.Condition()
         self._latest = None
         self._index = 0
+        self._teach_mode = False
 
     def __getattr__(self, name):
         return getattr(self._endpoint, name)
@@ -101,8 +103,9 @@ class TrackedInputEndpoint:
         # Copy immediately. The legacy code reuses this mutable buffer.
         with self._condition:
             self._index += 1
-            self._latest = PacketSnapshot(
-                bytes(buffer[:size]), self._index, time.monotonic_ns())
+            data = bytes(buffer[:size])
+            self._teach_mode = teach_mode_after(self._teach_mode, data)   # every reply, as the DLL does
+            self._latest = PacketSnapshot(data, self._index, time.monotonic_ns(), self._teach_mode)
             self._condition.notify_all()
             latest = self._latest
         if self._trace is not None:

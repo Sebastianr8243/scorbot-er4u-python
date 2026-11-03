@@ -63,6 +63,11 @@ class StreamMixin:
             if not self._enabled or not self._homed or self._home_counts is None:
                 raise ScorbotError("Enable and home before streaming")
             before = self._motion_state()
+            if before.teach_mode:
+                # Stack 2's own rule (the DLL refuses nothing in teach mode, LEDGER.md PL64); checked before
+                # the stop so a pending stop is kept for the next motion.
+                self._record("stream_refused_teach_mode")
+                raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before streaming")
             if self._consume_stop():
                 self._record("stop_before_motion", joint="stream")
                 raise MotionStopped("A stop was requested; the stream was not started",
