@@ -13,6 +13,7 @@ _SOURCE_FILES = (
     "scorbot/gripper.py",
     "scorbot/homing.py",
     "scorbot/inch_home.py",
+    "scorbot/io.py",
     "scorbot/joint_move.py",
     "scorbot/limits.py",
     "scorbot/pacing.py",
@@ -25,6 +26,7 @@ _SOURCE_FILES = (
     "scorbot/vendor_gripper.py",
     "scorbot/vendor_home.py",
     "scorbot/vendor_home_source.py",
+    "scorbot/vendor_io.py",
     "scorbot/vendor_profile.py",
     "scorbot/vendor_torque.py",
 )

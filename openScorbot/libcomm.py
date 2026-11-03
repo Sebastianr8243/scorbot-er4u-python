@@ -46,6 +46,7 @@ STREAM    = 21
 VENDOR_HOME = 22
 # Order for the post-Home gripper move (SDK only): scorbot/vendor_gripper.py decides every message, same runner
 VENDOR_GRIPPER = 23
+VENDOR_IO = 24
 # Order for the torque (PWM) readout (SDK only): scorbot/vendor_torque.py, same runner; 24 is the outputs (PR #86)
 VENDOR_TORQUE = 25
 
@@ -256,7 +257,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 # incremento de los valores de encoders (sentido según orden) y fin del
 # movimiento. Se deben de mover dos motores simultaneamente por lo que
 # las operaciones son dobles. Depende de la velocidad, las iteraciones y la orden.
-def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
+def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, stop_event=None):
 	write = conf.readData("wrist","write")
 	read = conf.readData("wrist","read")
 	media = cola_read.get()
@@ -272,6 +273,7 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 	dato_in_1 = [step_in_1, signo_1]
 	dato_in_2 = [step_in_2, signo_2]
 	signal_out= ''
+	stopped = False
 	for i in range(ite):
 		siguiente_1 = libdef.transform([buffer[VEC_POS[3]], buffer[VEC_POS[3]+1]])
 		siguiente_2 = libdef.transform([buffer[VEC_POS[4]], buffer[VEC_POS[4]+1]])
@@ -310,9 +312,13 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 			break
 
 		media = libdef.get_media(buffer,media)
+		# A stop request ends the jog where the arm is (not an emergency stop).
+		if stop_event is not None and stop_event.is_set():
+			stopped = True
+			break
 
 	cont = 0
-	while (motion_profile.count_distance(dato_in_1[0], media[3]) > 20 or motion_profile.count_distance(dato_in_2[0], media[4]) > 20) and value_err1 < MAX_ERROR and value_err2 < MAX_ERROR: #cambia media segun articulacion
+	while not stopped and (motion_profile.count_distance(dato_in_1[0], media[3]) > 20 or motion_profile.count_distance(dato_in_2[0], media[4]) > 20) and value_err1 < MAX_ERROR and value_err2 < MAX_ERROR: #cambia media segun articulacion
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena. format(libdef.f_byte(b_1))
@@ -321,6 +327,9 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
+		if stop_event is not None and stop_event.is_set():
+			stopped = True
+			break
 		if cont == 100:
 			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
@@ -328,7 +337,12 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang):
 			break
 		cont += 1
 
-	[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
+	if stopped:
+		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
+		cola_orden.put(STOPPED)
+		logging.warning(libdef.error_msg(STOPPED))
+	else:
+		[b_1, buffer, media] = libdef.closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read)
 	cola_read.put(media)
 
 	return b_1
@@ -674,12 +688,12 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 				elif orden == 8 or orden == 9:
 					b_1 = move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite, stop_event)
 				elif orden == 10 or orden == 11 or orden == 12 or orden == 13:
-					b_1 = move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite)
+					b_1 = move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite, stop_event)
 				elif orden == 14 or orden == 15:
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read, cola_result, stop_event)
 				elif orden == STREAM:
 					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1], ite if callable(ite) else None)
-				elif orden in (VENDOR_HOME, VENDOR_GRIPPER, VENDOR_TORQUE):
+				elif orden in (VENDOR_HOME, VENDOR_GRIPPER, VENDOR_IO, VENDOR_TORQUE):
 					b_1 = vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:
 					b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
@@ -687,9 +701,11 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					b_1 = motors_on(b_1, epout, epin, buffer, cola_read)
 				elif orden == 18:
 					[b_1, status] = setHome.homing(b_1, epout, epin, buffer,
-						cola_read, cola_result, cancel_event)
+						cola_read, cola_result, cancel_event, stop_event)
 					if status == 0:
 						home = True
+					elif status == STOPPED:
+						pass  # a stop request ended the search; result 14 is queued, the motors stay on
 					else:
 						try:
 							b_1 = motors_off(b_1, epout, epin, buffer, cola_read)

@@ -45,6 +45,7 @@ from .streaming import MOTORS as STREAM_MOTORS
 from .streaming import STREAM_ORDER
 from .vendor_home_model import Plant
 from .vendor_gripper import GRIPPER_ORDER as VENDOR_GRIPPER_ORDER
+from .vendor_io import IO_ORDER as VENDOR_IO_ORDER
 from .vendor_torque import SHOW_TORQUE, TORQUE_ORDER as VENDOR_TORQUE_ORDER
 from .vendor_home_source import VENDOR_HOME_ORDER
 
@@ -307,6 +308,9 @@ class SimulatedController:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
             return self._vendor_home(payload[1])
+        elif order == VENDOR_IO_ORDER:
+            # Output writes need no motors; their setpoints hold the counts, so the gripper model stays put.
+            return self._vendor_gripper(payload[1])
         elif order == VENDOR_TORQUE_ORDER:
             # A reading needs no motors; its setpoints hold the counts, so nothing moves.
             return self._vendor_torque(payload[1])
@@ -574,6 +578,9 @@ class SimulatedController:
                 for value in path:
                     if not step(motor, value):
                         return _ERROR_MOTORS_OFF
+                    # Like setHome.search_must_stop: a stop request ends the search.
+                    if self._stop_event is not None and self._stop_event.is_set():
+                        return _STOPPED
         finally:
             self._moving = False
         return 0

@@ -25,7 +25,8 @@ except ImportError:      # discovered with -s tests: the folder itself is on sys
 STOPPED = 14
 OPEN, STEP, MODE, CONTROL_OFF, MOTOR = 0x47, 0x0D, 0x4F, 0x73, 0x42
 # (legacy mover, positive order, index in JOINTS, OUT region offset)
-MOVERS = (("move_hips", 5, 0, 12), ("move_shoulder", 6, 1, 16), ("move_elbow", 9, 2, 20))
+MOVERS = (("move_hips", 5, 0, 12), ("move_shoulder", 6, 1, 16), ("move_elbow", 9, 2, 20),
+          ("move_wrist", 12, 3, 24))
 START = 1000
 
 
