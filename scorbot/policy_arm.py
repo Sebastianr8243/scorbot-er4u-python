@@ -20,7 +20,8 @@ from time import monotonic
 
 from . import limits, source_model
 from .calibration import signed_count_delta
-from .errors import ScorbotError
+from .errors import MotionStopped, ScorbotError
+from .gripper import GripperMove
 from .streaming import DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, VENDOR_MAX_SPEED_COUNTS_S
 
 MOTORS = limits.ARM_MOTORS
@@ -189,16 +190,49 @@ class PolicyArm:
             # pitch and as much again for a degree of roll, so each gets half its speed.
             self._step_per_degree = {**self._per_degree, **{
                 j: 2 * source_model.COUNTS_PER_DEGREE["wrist_motor_1"] for j in self.joints[3:]}}
-            self._stream = stack.enter_context(self.robot.start_stream(
-                travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
-                speed_fraction=self.speed_pct / 100, wrist=self.wrist))
+            self._start_stream()
+            stack.push(self._exit_stream)
             self.target = dict.fromkeys(self.joints, 0.0)
-            self._last_act = monotonic()
             self._stack = stack.pop_all()
 
     def _refuse_teach_mode(self) -> None:
         if self.robot.get_state().teach_mode:
             raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before connecting")
+
+    def _start_stream(self) -> None:
+        self._stream = self.robot.start_stream(
+            travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
+            speed_fraction=self.speed_pct / 100, wrist=self.wrist)
+        self._last_act = monotonic()
+
+    def _exit_stream(self, kind, value, traceback):
+        # Gripper calls replace the stream; unwind the current one, including on exceptions.
+        return self._stream.__exit__(kind, value, traceback)
+
+    def open_gripper(self) -> GripperMove:
+        """Stop the joint stream, open with the vendor gripper, then resume streaming.
+
+        Blocking; needs this connection's vendor Home. Returns measured counts and full_travel,
+        not a force or object measurement. On failure the stream stays ended; close and reconnect.
+        Physical-arm behaviour is unverified.
+        """
+        return self._move_gripper("open")
+
+    def close_gripper(self) -> GripperMove:
+        """Close with the vendor gripper; same blocking checks and result as ``open_gripper``."""
+        return self._move_gripper("close")
+
+    def _move_gripper(self, direction: str) -> GripperMove:
+        self._require_connected()
+        if not (self.robot._homed and self.robot._gripper_homed):
+            raise ScorbotError("Home the arm before moving the gripper (vendor_home)")
+        state = self._stream.close()
+        # Ending a stream consumes the session stop; keep it from starting the jaw instead.
+        if self._stream.core._stop_requested:
+            raise MotionStopped("A stop was requested; the gripper was not moved", state=state, started=False)
+        result = self.robot.move_gripper(direction)
+        self._start_stream()
+        return result
 
     def _disable(self) -> None:
         try:

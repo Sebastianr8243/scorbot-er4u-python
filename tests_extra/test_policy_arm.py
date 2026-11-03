@@ -9,7 +9,8 @@ import unittest
 from unittest import mock
 
 from scorbot import SimulatedScorbot
-from scorbot.policy_arm import LEAD_MARGIN_DEG, MAX_REUSE_AGE_S, STEP_MAX_DEG, PolicyArm
+from scorbot.policy_arm import (LEAD_MARGIN_DEG, MAX_REUSE_AGE_S, STEP_MAX_DEG, PolicyArm, wrist_counts,
+                                 wrist_degrees)
 from scorbot.robot import ScorbotError
 
 
@@ -232,10 +233,22 @@ class PolicyArmWristTests(unittest.TestCase):
 
     def test_pitch_and_roll_at_the_cap_together_stay_inside_every_limit(self):
         arm = self.arm()
+        # More than one stream period: reproduce a worker falling behind policy calls.
+        arm.robot.sim.step_delay_s = 0.05
         for goal in ({"pitch": 9.0, "roll": 9.0}, {"pitch": -9.0, "roll": 9.0}, {"pitch": -9.0, "roll": -9.0}):
-            target = self.settle(arm, goal, calls=12)
+            corner = {j: 2.0 if g > 0 else -2.0 for j, g in goal.items()}
+            expected = wrist_degrees(wrist_counts(corner["pitch"], corner["roll"]))
+            deadline = time.monotonic() + 3.0
+            while True:
+                target = arm.act(goal)
+                seen = arm.observe()
+                # Reversing a still-moving motor can overshoot a coupled joint and correctly fault.
+                # Twelve sleeps never guaranteed arrival, especially on a busy CI worker.
+                if all(target[j] == corner[j] and seen[j] == expected[j] for j in corner):
+                    break
+                self.assertLess(time.monotonic(), deadline, f"did not reach {corner}: {target=}, {seen=}")
+                time.sleep(0.03)
             self.assertEqual((abs(target["pitch"]), abs(target["roll"])), (2.0, 2.0))
-            seen = arm.observe()
             self.assertLessEqual(max(abs(seen["pitch"]), abs(seen["roll"])), 2.0 + 0.08)
         self.assertIsNone(arm.robot._fault)
 
