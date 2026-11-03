@@ -222,6 +222,18 @@ class LegacyStopTests(unittest.TestCase):
                     self.assertEqual(target, controller.reported[5][index])
                     self.assertLess(target, last_step_target)
 
+    def test_joint_error_with_a_stop_in_the_settle_loop_is_still_a_fault(self):
+        cases = [(mover, order, index, region, index) for mover, order, index, region in MOVERS]
+        cases.append(("move_wrist", 12, 3, 24, 4))      # the second wrist motor's error word
+        for mover, order, index, region, error_joint in cases:
+            with self.subTest(mover=mover, error_joint=error_joint):
+                at = 1 + self.steps(order) + 1          # the first settle message
+                # rate 0: a stuck arm, so the settle loop runs whatever the jog's size
+                controller, results = self.jog(mover, order, stop_after=at, rate=0,
+                                               error_at=(at, error_joint))
+                self.assertEqual(controller.commands()[-4:], [OPEN, MODE, CONTROL_OFF, MOTOR])
+                self.assertEqual(results, [1])
+
     def test_joint_error_without_a_stop_is_unchanged(self):
         for mover, order, index, region in MOVERS:
             with self.subTest(mover=mover):

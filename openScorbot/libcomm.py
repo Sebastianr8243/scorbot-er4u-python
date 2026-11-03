@@ -109,6 +109,11 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
 		if stop_event is not None and stop_event.is_set():
+			# An error in this reply is still a fault (result 1), not a clean stop.
+			value_err = libdef.getError(buffer, VEC_ERROR[0])
+			if value_err >= MAX_ERROR:
+				cola_orden.put(1)
+				logging.warning(libdef.error_msg(1))
 			stopped = True
 			break
 		if cont == 100:
@@ -175,6 +180,11 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
 		if stop_event is not None and stop_event.is_set():
+			# An error in this reply is still a fault (result 1), not a clean stop.
+			value_err = libdef.getError(buffer, VEC_ERROR[1])
+			if value_err >= MAX_ERROR:
+				cola_orden.put(1)
+				logging.warning(libdef.error_msg(1))
 			stopped = True
 			break
 		if cont == 100:
@@ -242,6 +252,11 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
 		if stop_event is not None and stop_event.is_set():
+			# An error in this reply is still a fault (result 1), not a clean stop.
+			value_err = libdef.getError(buffer, VEC_ERROR[2])
+			if value_err >= MAX_ERROR:
+				cola_orden.put(1)
+				logging.warning(libdef.error_msg(1))
 			stopped = True
 			break
 		if cont == 100:
@@ -340,6 +355,12 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
 		if stop_event is not None and stop_event.is_set():
+			# An error in this reply is still a fault (result 1), not a clean stop.
+			value_err1 = libdef.getError(buffer, VEC_ERROR[3])
+			value_err2 = libdef.getError(buffer, VEC_ERROR[4])
+			if value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR:
+				cola_orden.put(1)
+				logging.warning(libdef.error_msg(1))
 			stopped = True
 			break
 		if cont == 100:
