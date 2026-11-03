@@ -62,9 +62,10 @@ class PolicyArmTests(unittest.TestCase):
         except Exception:
             pass
 
-    def slow_replies(self, delay_s=0.024, base_counts=None):
+    def slow_replies(self, delay_s=0.024, base_counts=None, stamp=None):
         """Each controller read waits ``delay_s`` (one stream period) like a real fresh reply; returns the
-        read count. ``base_counts`` (a list) overrides the measured base, one value per read."""
+        read count. ``base_counts`` (a list) overrides the measured base, one value per read; ``stamp``
+        (no arguments, seconds) overrides when each reply arrived."""
         real, reads = self.arm.robot._motion_state, []
 
         def read(**kw):
@@ -72,6 +73,8 @@ class PolicyArmTests(unittest.TestCase):
             state = real(**kw)
             if base_counts:
                 state = replace(state, encoder_counts={**state.encoder_counts, "base": base_counts.pop(0) % 65535})    # one's-complement wrap
+            if stamp:
+                state = replace(state, host_monotonic_ns=round(stamp() * 1e9))
             reads.append(state)
             return state
         patcher = mock.patch.object(self.arm.robot, "_motion_state", side_effect=read)
@@ -117,8 +120,8 @@ class PolicyArmTests(unittest.TestCase):
 
     def test_act_reads_fresh_when_the_observation_is_older_than_the_reuse_bound(self):
         # A slow policy (VLA inference) between observe and act: past the bound act reads again.
-        reads = self.slow_replies(delay_s=0)
         clock = [1000.0]
+        reads = self.slow_replies(delay_s=0, stamp=lambda: clock[0])
         with mock.patch("scorbot.policy_arm.monotonic", side_effect=lambda: clock[0]):
             self.arm.observe()
             clock[0] += MAX_REUSE_AGE_S + 0.001
@@ -128,6 +131,15 @@ class PolicyArmTests(unittest.TestCase):
             clock[0] += MAX_REUSE_AGE_S - 0.001      # just inside the bound: reused
             self.arm.act({"base": 90.0})
             self.assertEqual(len(reads), 3)
+
+    def test_act_reads_fresh_when_the_reply_was_already_old_when_observed(self):
+        # observe() accepts a reply up to the response timeout old; the bound counts from the reply.
+        clock = [1000.0]
+        reads = self.slow_replies(delay_s=0, stamp=lambda: clock[0] - MAX_REUSE_AGE_S - 0.001)
+        with mock.patch("scorbot.policy_arm.monotonic", side_effect=lambda: clock[0]):
+            self.arm.observe()
+            self.arm.act({"base": 90.0})
+        self.assertEqual(len(reads), 2)
 
     def test_act_on_a_reused_reading_still_refuses_a_session_faulted_since(self):
         self.arm.observe()

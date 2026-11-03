@@ -210,16 +210,18 @@ class PolicyArm:
         """Degrees from home, measured. Each call waits for a controller reply newer than the last read.
 
         The next ``act()`` clamps against this reading instead of waiting for another one, if it
-        comes within ``MAX_REUSE_AGE_S``.
+        comes within ``MAX_REUSE_AGE_S`` of the controller reply.
         """
         self._require_connected()
         self._seen = None
-        counts = self.robot._motion_state().encoder_counts     # latches the session if feedback is unavailable
+        state = self.robot._motion_state()     # latches the session if feedback is unavailable
+        counts = state.encoder_counts
         seen = {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
         if self.wrist:
             seen.update(wrist_degrees({m: signed_count_delta(counts[m], self._home[m])
                                        for m in limits.WRIST_MOTORS}))
-        self._seen, self._seen_at = seen, monotonic()
+        arrived = state.host_monotonic_ns     # when the reply arrived; none and act() never reuses it
+        self._seen, self._seen_at = seen, -math.inf if arrived is None else arrived / 1e9
         return dict(seen)
 
     def act(self, goal_deg: dict) -> dict[str, float]:
