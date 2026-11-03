@@ -102,6 +102,10 @@ PROPERTIES = {
         "collision_bits": _t("integer", description=(
             "Controller collision flag, IN byte 59, one bit per motor (0x01 motor 1, "
             "0x18 motors 4 and 5, 0x20 gripper); absent in sessions recorded before 2026-10-08")),
+        "digital_inputs": _t("integer", description=(
+            "Controller digital input word, IN byte 6, bit N = input N; absent before 2026-11-02")),
+        "analog_inputs": {"type": "array", "items": {"type": "integer"}, "description": (
+            "Four controller analog inputs, IN bytes 7-10, one byte each; absent before 2026-11-02")},
         "raw_packet_hex": _t("string"),
     },
     "scorbot.Command": {

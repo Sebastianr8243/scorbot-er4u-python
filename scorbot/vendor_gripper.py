@@ -47,7 +47,17 @@ def target_counts(direction: str) -> int:
     """``JawMetric``'s target: ``RangeEnc`` x mm / ``RangeMM``, with 0 mm to close and ``RangeMM`` to open."""
     if direction not in ("open", "close"):
         raise ValueError('Gripper direction must be "open" or "close"')
-    mm = RANGE_MM if direction == "open" else 0
+    return metric_target_counts(RANGE_MM if direction == "open" else 0)
+
+
+def metric_target_counts(mm: int) -> int:
+    """``JawMetric(mm)``'s target: a whole number of mm from 0 to ``RangeMM`` (the DLL takes a short and accepts
+    ``mm < RangeMM + 0.0001``, ``0x10018ba0``). 40 mm gave 2857 counts and 10 mm 714 on the desk (PL71).
+
+    The commands and the target are the DLL's; the ramp is not. The DLL's ramp is shorter for a shorter move,
+    and that profile is not decoded, so ``setpoints`` always takes the full-stroke length (PL71)."""
+    if isinstance(mm, bool) or not isinstance(mm, int) or not 0 <= mm <= RANGE_MM:
+        raise ValueError(f"Jaw width must be a whole number of mm from 0 to {RANGE_MM}, not {mm!r}")
     return RANGE_ENC * mm // RANGE_MM
 
 

@@ -47,6 +47,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_limits.py` | Every module's travel cap, motor list and count band is the one in `scorbot/limits.py` |
 | `test_source_audit.py` | Every module-level constant in `scorbot/` has a row in `docs/protocol/SOURCE_AUDIT.md` tagged vendor, legacy or ours, and no row names a constant that is gone |
 | `test_pendant_abort.py` | The pendant's Abort key: reply byte 3 = `0x21` or `0xA1` calls `request_stop` once per press, a held key once, other keys never; the legacy jog stops on it |
+| `test_reply_inputs.py` | The digital input word (IN byte 6) and the four analog inputs (bytes 7-10) in `RobotState` |
 | `test_software_stop.py` | The software stop: legacy jog loops against fake endpoints (exact command sequence), `request_stop` through the simulator, the bench stop trial |
 | `test_vendor_check.py` | The vendor-layout checker |
 | `test_lab_session.py`, `test_lab_terminal.py`, `test_lab_profile.py`, `test_lab_operator.py`, `test_lab_moves.py`, `test_lab_faults.py`, `test_lab_teleop.py` | The guided session (`scorbot/lab`): engine through the simulator, terminal front end, profile file, moves, fault guidance, teleop mode (key `t`) |
