@@ -22,6 +22,21 @@ from .streaming import (DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, DEFAULT_SPEED_
                         prior_limits)
 
 
+def wrist_cap_problem(counts, cap_counts: float) -> str | None:
+    """A sentence if the wrist motors' counts from home put pitch or roll past ``cap_counts``, else None.
+
+    Pitch is half the motors' difference and roll half their sum (``source_model``), so a per-motor bound
+    alone lets a pair through whose pitch or roll is past the cap (Ruckig can overshoot one motor on a
+    reversal). Checked on the start, every target and every setpoint of a wrist stream.
+    """
+    m1, m2 = counts["wrist_motor_1"], counts["wrist_motor_2"]
+    pitch, roll = (m1 - m2) / 2, (m1 + m2) / 2
+    if abs(pitch) <= cap_counts and abs(roll) <= cap_counts:
+        return None
+    return (f"wrist pitch {pitch:g} or roll {roll:g} counts from home is past the travel cap of "
+            f"{cap_counts:g} counts")
+
+
 class StreamMixin:
     # Streaming travel from home: the shared cap in scorbot/limits.py.
     STREAM_TRAVEL_CAP_MAX_DEG = limits.TRAVEL_CAP_DEG
@@ -47,7 +62,8 @@ class StreamMixin:
         ``wrist`` (off by default) streams both wrist motors as well. They are coupled (pitch
         is half their difference, roll half their sum: ``source_model``), so each wrist motor's
         travel cap and lead limit is the cap or limit of pitch plus that of roll, in the source
-        model's counts per degree, plus a count of rounding per joint on the cap. The wrist
+        model's counts per degree, plus a count of rounding per joint on the cap; pitch and roll
+        are also each held to the cap on every target and setpoint (``wrist_cap_problem``). The wrist
         jogs stay disabled; only this opt-in path streams the wrist. Unverified on the arm.
         """
         with self._motion_lock:
@@ -82,6 +98,8 @@ class StreamMixin:
             # One wrist motor carries pitch and roll (m1 = p + r, m2 = r - p, source model).
             per_degree.update({m: 2 * source_model.COUNTS_PER_DEGREE[m] for m in motors[3:]})
             rounding = {m: 2 if m in limits.WRIST_MOTORS else 0 for m in motors}
+            # Pitch and roll each, in wrist counts, plus a count of rounding (source_model truncates).
+            wrist_cap = travel_cap_deg * source_model.COUNTS_PER_DEGREE["wrist_motor_1"] + 1
             try:
                 start = {m: signed_count_delta(before.encoder_counts[m], self._home_counts[m])
                          for m in motors}
@@ -97,7 +115,7 @@ class StreamMixin:
                     travel_cap={m: travel_cap_deg * per_degree[m] + rounding[m] for m in motors},
                     window=source_model.limit_window(),
                     pose_check=lambda counts: source_model.pose_limit_problem(
-                        {**held, **counts}),
+                        {**held, **counts}) or (wrist and wrist_cap_problem(counts, wrist_cap)) or None,
                     lead_limit={m: lead_limit_deg * per_degree[m] for m in motors},
                     limits=prior_limits(speed_fraction), period_s=period_s,
                     hold_timeout_s=hold_timeout_s, now=time.monotonic(), motors=motors)

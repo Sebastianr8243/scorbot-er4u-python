@@ -300,6 +300,14 @@ class SdkStreamTests(SimulatedRobotCase):
             self.assertTrue(self.follow(stream, robot, {"wrist_motor_1": int(bound)}))
         self.assertIsNone(robot._fault)
 
+    def test_a_wrist_target_inside_each_motor_bound_but_past_the_roll_cap_is_refused(self):
+        robot = self.robot()
+        with robot.start_stream(wrist=True, travel_cap_deg=2.0) as stream:
+            with self.assertRaises(StreamRefused) as caught:
+                stream.set_target({"wrist_motor_1": -110, "wrist_motor_2": -13})   # roll about -2.2 degrees
+            self.assertIn("travel cap", str(caught.exception))
+        self.assertIsNone(robot._fault)
+
     def test_a_wrist_stream_checks_the_pitch_limit_on_the_streamed_wrist(self):
         # Source model, not measured: home pitch is -88.8 degrees and its limit -109.65, so
         # about 21 degrees of pitch down (m1 up, m2 down, 27.9 counts per degree each) is the edge.
@@ -689,6 +697,41 @@ class SdkStreamTests(SimulatedRobotCase):
         events = self.events()
         self.assertIn("stream_fault", events)
         self.assertNotIn("stream_trace", events)
+
+
+class WristReversalTests(unittest.TestCase):
+    """Review 2026-11-02: a pitch and roll reversal made Ruckig overshoot one wrist motor, past the roll cap
+    while inside that motor's own bound (63 counts against a cap of 56.8 without the check). Replayed on the
+    core with a perfect arm, one action per 24 ms step: the stream must stop, never send past the cap."""
+
+    @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
+    def test_no_setpoint_puts_pitch_or_roll_past_the_cap(self):
+        from scorbot import source_model
+        from scorbot.policy_arm import clamp, wrist_counts
+        from scorbot.stream_control import wrist_cap_problem
+        from scorbot.streaming import WRIST_STREAM_MOTORS, StreamCore
+        cap_deg, per = 2.0, source_model.COUNTS_PER_DEGREE["wrist_motor_1"]
+        cap_counts = cap_deg * per + 1
+        motors = WRIST_STREAM_MOTORS
+        core = StreamCore(dict.fromkeys(motors, 0),
+                          travel_cap={m: (2 * cap_deg * per + 2) if m.startswith("wrist") else 1000.0
+                                      for m in motors},
+                          lead_limit={m: (4 * per) if m.startswith("wrist") else 300.0 for m in motors},
+                          pose_check=lambda counts: wrist_cap_problem(counts, cap_counts),
+                          period_s=0.024, now=0.0, motors=motors)
+        target, measured, now = {"pitch": 0.0, "roll": 0.0}, dict.fromkeys(motors, 0), 0.0
+        for goal in [{"pitch": 9.0, "roll": -9.0}] * 8 + [{"pitch": -9.0, "roll": -9.0}] * 44:
+            seen = {"pitch": (measured["wrist_motor_1"] - measured["wrist_motor_2"]) / (-2 * per),
+                    "roll": (measured["wrist_motor_1"] + measured["wrist_motor_2"]) / (2 * per)}
+            target, _ = clamp({j: goal[j] - target[j] for j in goal}, target, seen, cap_deg=cap_deg)
+            core.set_target(wrist_counts(target["pitch"], target["roll"]), now)
+            now += 0.024
+            step = core.step(measured, now)
+            if step.action != "send":
+                break
+            self.assertIsNone(wrist_cap_problem(step.commanded, cap_counts), step.commanded)
+            measured = dict(step.commanded)
+        self.assertIn("travel cap", core.fault or "")
 
 
 class _QuietRobot:
