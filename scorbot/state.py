@@ -23,6 +23,13 @@ COLLISION_OFFSET = 59
 DIGITAL_INPUT_OFFSET = 6
 ANALOG_INPUT_OFFSETS = (7, 8, 9, 10)
 COLLISION_MOTORS = JOINTS + ("motor7", "motor8")
+# Byte 3 is the teach pendant's byte. The vendor DLL keeps a teach-mode flag (``IsTeachMode``) that its pendant
+# handler (0x1002b56c) updates from every reply's byte 3 (docs/protocol/LEDGER.md PL64): these codes set it on
+# or off, 0 leaves it, and any other code (a key) sets it on unless the emergency bit (byte 2 bit 0) is set.
+# Checked against the lab DLL on the pipe fake (tests/test_teach_mode.py); unverified on the arm.
+PENDANT_OFFSET = 3
+TEACH_ON_CODES = (0x40, 0x4F, 0xC0, 0xF9)
+TEACH_OFF_CODES = (0x47, 0x7E, 0xF8, 0xFE)
 
 
 def collision_motors(packet: bytes) -> list[str]:
@@ -31,6 +38,18 @@ def collision_motors(packet: bytes) -> list[str]:
         return []
     flag = packet[COLLISION_OFFSET]
     return [name for bit, name in enumerate(COLLISION_MOTORS) if flag & (1 << bit)]
+
+
+def teach_mode_after(teach: bool, packet: bytes) -> bool:
+    """The DLL's teach-mode flag after one more reply; a reply too short to hold byte 3 keeps it."""
+    if len(packet) <= PENDANT_OFFSET or packet[PENDANT_OFFSET] == 0:
+        return teach
+    code = packet[PENDANT_OFFSET]
+    if code in TEACH_ON_CODES:
+        return True
+    if code in TEACH_OFF_CODES:
+        return False
+    return teach or not packet[2] & 1
 
 
 def switch_summary(bits: int) -> str:
@@ -74,11 +93,12 @@ class RobotState:
     collision_bits: int = 0       # IN byte 59, see ``collision_motors``
     digital_inputs: int = 0       # IN byte 6, bit N = input N
     analog_inputs: list[int] = field(default_factory=lambda: [0, 0, 0, 0])   # IN bytes 7-10
+    teach_mode: bool = False      # the pendant is in teach mode (IN byte 3 over time, ``teach_mode_after``)
 
 
 def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
                  homed: bool, fault: str | None, packet_index: int | None = None,
-                 host_monotonic_ns: int | None = None) -> RobotState:
+                 host_monotonic_ns: int | None = None, teach_mode: bool = False) -> RobotState:
     if len(packet) < PACKET_MIN_LENGTH:
         raise ValueError(f"Controller packet is too short: {len(packet)} bytes")
     counts = {
@@ -113,4 +133,5 @@ def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
         collision_bits=packet[COLLISION_OFFSET] if len(packet) > COLLISION_OFFSET else 0,
         digital_inputs=packet[DIGITAL_INPUT_OFFSET],
         analog_inputs=[packet[offset] for offset in ANALOG_INPUT_OFFSETS],
+        teach_mode=teach_mode,
     )

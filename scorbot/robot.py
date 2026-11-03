@@ -419,7 +419,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         state = decode_state(sample.data, connected=True,
                              enabled=self._enabled, homed=self._homed,
                              fault=self._fault, packet_index=sample.index,
-                             host_monotonic_ns=sample.host_monotonic_ns)
+                             host_monotonic_ns=sample.host_monotonic_ns,
+                             teach_mode=getattr(sample, "teach_mode", False))
         return state, bytes(sample.data)
 
     def _motion_state(self, *, after_index=None):

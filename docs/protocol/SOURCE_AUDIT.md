@@ -87,6 +87,9 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `state.COLLISION_OFFSET` | 59 | vendor | impact byte (`0x1000b270`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `state.DIGITAL_INPUT_OFFSET` | 6 | vendor | digital input word, returned by `GetDigitalInputs` (`0x10019631`) | `LEDGER.md` PL65, PL69 |
 | `state.ANALOG_INPUT_OFFSETS` | 7, 8, 9, 10 | vendor | four analog inputs, returned by `GetAnalogInput` (`0x100199fc`) | `LEDGER.md` PL65, PL69 |
+| `state.PENDANT_OFFSET` | 3 | vendor | pendant byte, passed to the pendant handler (`0x1002b56c`) on every reply | `LEDGER.md` PL63, PL64 |
+| `state.TEACH_ON_CODES` | `0x40`, `0x4F`, `0xC0`, `0xF9` | vendor | byte 3 codes that set the teach flag (`0x1002b56c` `this+0xc`, read by `IsTeachMode`); checked on the pipe fake | `LEDGER.md` PL64; `tests/test_teach_mode.py` |
+| `state.TEACH_OFF_CODES` | `0x47`, `0x7E`, `0xF8`, `0xFE` | vendor | byte 3 codes that clear it | `LEDGER.md` PL64; `tests/test_teach_mode.py` |
 | `state.COLLISION_MOTORS` | names for bits 0-7 | ours | labels; bit-per-motor reading from the ULPGC thesis p. 57 | `ULPGC_THESIS_FINDINGS.md` |
 | `vendor_home.ZERO24` | `0x7FFFFF` | vendor | count = raw24 - `0x7FFFFF` (`0x1000b160`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `vendor_home.REPLY_MIN_LENGTH` | 60 | ours | the last byte decoded is the impact byte 59 | n/a |

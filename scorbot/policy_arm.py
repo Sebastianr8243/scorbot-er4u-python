@@ -20,6 +20,7 @@ from time import monotonic
 
 from . import limits, source_model
 from .calibration import signed_count_delta
+from .errors import ScorbotError
 from .streaming import DEFAULT_HOLD_TIMEOUT_S, VENDOR_MAX_SPEED_COUNTS_S
 
 MOTORS = limits.ARM_MOTORS
@@ -170,8 +171,10 @@ class PolicyArm:
                              "empty and the wrist's path is clear first")
         with ExitStack() as stack:           # any failure below unwinds what was opened
             stack.enter_context(self.robot)  # connects; leaving disconnects
+            self._refuse_teach_mode()        # before enable, and again before home moves the arm
             self.robot.enable()
             stack.callback(self._disable)
+            self._refuse_teach_mode()
             self.robot.vendor_home(operator_at_stop=operator_at_stop, jaws_empty=jaws_empty,
                                    wrist_clear=wrist_clear)
             self._home = dict(self.robot.get_state().encoder_counts)
@@ -187,6 +190,10 @@ class PolicyArm:
             self.target = dict.fromkeys(self.joints, 0.0)
             self._last_act = monotonic()
             self._stack = stack.pop_all()
+
+    def _refuse_teach_mode(self) -> None:
+        if self.robot.get_state().teach_mode:
+            raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before connecting")
 
     def _disable(self) -> None:
         try:
