@@ -46,6 +46,22 @@ To record an experiment (commands, controller state, camera frames, operator dec
 
 Legacy homing switch searches now have a provisional 30-second deadline per axis and check a cancellation signal. That deadline has not been tuned on the physical arm. An error or `homed: true` from the SDK is not independent proof of motor state or home calibration.
 
+## PolicyArm binary gripper (desk-only)
+
+After `PolicyArm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)` finishes its
+vendor Home, call `arm.open_gripper()` or `arm.close_gripper()`. Each call blocks: it ends the joint
+stream, invokes the existing vendor gripper, then starts a new joint stream with the same speed,
+wrist setting and home reference. Joint targets remain unchanged; the new stream initially holds
+the measured pose until the next `act()` call. A stop during the handoff prevents the gripper move.
+Disconnected or unhomed calls are refused. If stopping, moving the gripper or restarting fails,
+the exception propagates; close and reconnect before continuing.
+
+Both methods return `GripperMove`: `state.signed_encoder_counts["gripper"]`, `moved_counts` and
+`full_travel` describe the result. Stopping short cannot distinguish an object from the travel end;
+there is no force control. `observe()` retains its joint-degree schema; gripper feedback is in the
+move result. Physical-arm behaviour is **unverified**. Desk tests reuse the existing recorded DLL
+fixture; they never open USB or load the DLL. See [requirements](requirements/policy-gripper.md).
+
 ## Current design
 
 ```text
