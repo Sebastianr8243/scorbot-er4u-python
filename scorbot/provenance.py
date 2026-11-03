@@ -17,6 +17,7 @@ _SOURCE_FILES = (
     "scorbot/joint_move.py",
     "scorbot/limits.py",
     "scorbot/pacing.py",
+    "scorbot/packet.py",
     "scorbot/robot.py",
     "scorbot/state.py",
     "scorbot/stream_control.py",

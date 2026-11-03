@@ -106,6 +106,11 @@ PROPERTIES = {
             "Controller digital input word, IN byte 6, bit N = input N; absent before 2026-11-02")),
         "analog_inputs": {"type": "array", "items": {"type": "integer"}, "description": (
             "Four controller analog inputs, IN bytes 7-10, one byte each; absent before 2026-11-02")},
+        "teach_mode": {"type": "boolean", "description": (
+            "The vendor DLL's IsTeachMode flag, kept from IN byte 3 of every reply; absent before 2026-11-03")},
+        "emergency": _t("boolean", description=(
+            "Controller emergency input, IN byte 2 bit 0; absent in older sessions. "
+            "Physical-arm behavior is unverified")),
         "raw_packet_hex": _t("string"),
     },
     "scorbot.Command": {

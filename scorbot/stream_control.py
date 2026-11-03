@@ -46,7 +46,7 @@ class StreamMixin:
                      lead_limit_deg: float = 2.0,
                      hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
                      period_s: float = DEFAULT_PERIOD_S,
-                     use_emergency_bit: bool = False,
+                     use_emergency_bit: bool = True,
                      adaptive_pacing: bool = False,
                      wrist: bool = False) -> Stream:
         """Start following a stream of targets for base, shoulder and elbow.
@@ -88,6 +88,11 @@ class StreamMixin:
             if not self._enabled or not self._homed or self._home_counts is None:
                 raise ScorbotError("Enable and home before streaming")
             before = self._motion_state()
+            if before.teach_mode:
+                # Stack 2's own rule (the DLL refuses nothing in teach mode, LEDGER.md PL64); checked before
+                # the stop so a pending stop is kept for the next motion.
+                self._record("stream_refused_teach_mode")
+                raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before streaming")
             if self._consume_stop():
                 self._record("stop_before_motion", joint="stream")
                 raise MotionStopped("A stop was requested; the stream was not started",
@@ -229,7 +234,7 @@ class StreamMixin:
                 raise ScorbotError(self._fault)
             if result == self._STOPPED_CODE:
                 after = self._settled_after_stop(stream._before)
-                self._record("stream_stopped", state=asdict(after))
+                self._record("stream_stopped", state=asdict(after), reason=stream.stop_reason)
             else:
                 after = self._motion_state(after_index=stream._before.packet_index)
                 self._record("stream_complete", state=asdict(after))

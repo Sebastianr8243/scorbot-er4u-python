@@ -226,6 +226,33 @@ class FailureTests(Case):
         self.check_failure(robot, error, vh.ERR_EMERGENCY, "emergency")
         self.assert_stop_sent(robot)
 
+    def test_pendant_abort_held_at_entry_or_pressed_during_home_stops_and_latches(self):
+        for code in (0x21, 0xA1):
+            for pressed_at in (0, 250):
+                with self.subTest(code=code, pressed_at=pressed_at):
+                    plant = Plant()
+                    original = plant.reply
+                    cycle = [0]
+
+                    def reply(data, original=original, code=code, cycle=cycle, pressed_at=pressed_at):
+                        packet = bytearray(original(data))
+                        packet[3] = code if cycle[0] >= pressed_at else 0
+                        return bytes(packet)
+
+                    def hook(n, _plant, cycle=cycle):
+                        cycle[0] = n
+
+                    with mock.patch.object(plant, "reply", side_effect=reply):
+                        robot, error = self.fail(plant=plant, hook=hook)
+                    self.check_failure(robot, error, vh.ERR_STOPPED, "pendant Abort")
+                    self.assert_stop_sent(robot)
+                    self.assertIsNone(robot._enabled)
+                    # Once Abort has been reported, only the existing stop may follow.
+                    tail = robot.sim.vendor_packets[pressed_at:]
+                    self.assertFalse(any(p[4] == vh.MOVE and int.from_bytes(p[8:12], "little", signed=True)
+                                         for p in tail))
+                    self.assertLessEqual(len(robot.sim.vendor_packets), pressed_at + 10)
+
     def test_an_impact_during_a_search_stops_and_latches(self):
         robot, error = self.fail(hook=lambda n, p: setattr(p, "impact", 0x02 if 60 < n < 70 else 0))
         self.check_failure(robot, error, vh.ERR_IMPACT, "shoulder")

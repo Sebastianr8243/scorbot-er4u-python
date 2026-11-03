@@ -48,6 +48,24 @@ def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int
     return targets
 
 
+class _HandshakeOutputEndpoint:
+    """Keep the last attempted packet: even a failed write may have reached USB."""
+
+    def __init__(self, endpoint):
+        self._endpoint = endpoint
+        self.last_packet = None
+        self.motors_may_be_on = False
+
+    def __getattr__(self, name):
+        return getattr(self._endpoint, name)
+
+    def write(self, data, timeout=None):
+        self.last_packet = bytes(data)
+        if data[4:7] == b"\x42\xff\x01":
+            self.motors_may_be_on = True
+        return self._endpoint.write(data, timeout)
+
+
 class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
     """ER-4U legacy USB adapter.
 
@@ -191,6 +209,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         self._legacy("conf").setup()
         legacy_sync = self._legacy("libsync")
         legacy_comm = self._legacy("libcomm")
+        handshake_out = None
         try:
             link = self._open_link() if self.transport != "pyusb" else None
             if link is None and usb is None:
@@ -233,14 +252,16 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                     raise ScorbotError("The USB controller endpoints were not found")
             # Copies packets during jogs (motion_trace); packets are unchanged.
             self._trace = PacketTrace()
-            endpoint_in = TrackedInputEndpoint(endpoint_in, self._trace, on_pendant_abort=self._pendant_abort)
+            endpoint_in = TrackedInputEndpoint(endpoint_in, self._trace, on_pendant_abort=self._pendant_abort,
+                                              on_emergency=self._emergency_input)
             endpoint_out = TrackedOutputEndpoint(endpoint_out, self._trace)
             self._input = endpoint_in
             if link is not None:
                 buffer = array.array("B", bytes(endpoint_in.wMaxPacketSize))
             else:
                 buffer = usb.util.create_buffer(endpoint_in.wMaxPacketSize)
-            sequence, encoder_mean = legacy_sync.msg_start(endpoint_out, endpoint_in, buffer)
+            handshake_out = _HandshakeOutputEndpoint(endpoint_out)
+            sequence, encoder_mean = legacy_sync.msg_start(handshake_out, endpoint_in, buffer)
             self._buffer = buffer
             self._sync.put(sequence)
             self._reads.put(encoder_mean)
@@ -261,10 +282,24 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             # The legacy handshake sends motor-on packets. Disable immediately
             # after it completes; enabling requires a separate explicit call.
             self._command([16, 1, 1])
+            handshake_out = None
             self._enabled = False
             self._record("connect", state=asdict(self.get_state()))
             return self
         except Exception as exc:
+            if (handshake_out is not None and handshake_out.motors_may_be_on
+                    and not any(worker is not None and worker.is_alive()
+                                for worker in (self._sync_thread, self._command_thread))):
+                try:
+                    # No workers can disable yet; do not let a broken IN endpoint block motor-off.
+                    libdef, libhex = self._legacy("libdef"), self._legacy("libhex")
+                    last = handshake_out.last_packet
+                    sequence = libdef.countByte1(last[0])
+                    header = libhex.motorsoff(4).format(libdef.f_byte(sequence))
+                    packet = bytes.fromhex(libdef.fill_msg(header, 24)) + last[12:]
+                    endpoint_out.write(packet, libdef.TIME_OUT_W)
+                except Exception:
+                    pass  # The connection error below always warns that motor state is unverified.
             self._latch_fault(str(exc))
             self._record("connect_failed", error=self._fault)
             self._cancel_event.set()
@@ -360,6 +395,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                         self._record("command_stopped", payload=_loggable(payload))
                         raise MotionStopped("The jog ended early on a stop request")
                     raise ScorbotError(f"Legacy controller returned error code {result}")
+                if self._fault:
+                    raise ScorbotError(f"Controller is faulted: {self._fault}")
             except MotionStopped:
                 raise  # not a fault; jog_joint checks that the arm settled
             except queue.Empty as exc:
@@ -419,12 +456,15 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         state = decode_state(sample.data, connected=True,
                              enabled=self._enabled, homed=self._homed,
                              fault=self._fault, packet_index=sample.index,
-                             host_monotonic_ns=sample.host_monotonic_ns)
+                             host_monotonic_ns=sample.host_monotonic_ns,
+                             teach_mode=getattr(sample, "teach_mode", False))
         return state, bytes(sample.data)
 
     def _motion_state(self, *, after_index=None):
         try:
             state = self.get_state(after_index=after_index)
+            if state.emergency:
+                raise ScorbotError("Controller emergency input active")
         except (ScorbotError, ValueError) as exc:
             self._latch_fault(f"Controller feedback is unavailable: {exc}")
             if self._link_alive():
@@ -486,6 +526,14 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             stream.request_stop()
         threading.Thread(target=self._record_quietly, args=("pendant_abort",), daemon=True,
                          name="scorbot-pendant-log").start()
+
+    def _emergency_input(self) -> None:
+        """Latch even a one-reply emergency pulse and use the existing worker stop and disable paths."""
+        with self._stop_lock:
+            self._stop_event.set()
+        self._latch_fault("Controller emergency input active", keep_first=True)
+        if self._link_alive():
+            self._commands.put([16, 1, 1])
 
     def _record_quietly(self, event: str) -> None:
         try:

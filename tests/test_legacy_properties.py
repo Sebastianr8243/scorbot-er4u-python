@@ -518,17 +518,18 @@ class TrackedEndpointProperties(unittest.TestCase):
         ep = TrackedInputEndpoint(_FakeEndpoint(packets))
         buffer = bytearray(64)
         last_index = 0
-        for n, data in enumerate(packets, start=1):
+        for data in packets:
+            if len(data) != len(buffer):
+                with self.assertRaises(ValueError):
+                    ep.read(buffer, 0.1)
+                with self.assertRaises(TimeoutError):
+                    ep.snapshot(after_index=last_index, timeout=0.0, max_age=3600)
+                continue
             ep.read(buffer, 0.1)
             buffer[:] = bytes(64)  # legacy code reuses/mutates the buffer
-            try:
-                sample = ep.snapshot(timeout=0.0, max_age=3600)
-            except TimeoutError:
-                self.assertLess(len(data), 49)  # latest packet is short: no stale fallback
-                continue
-            self.assertGreaterEqual(len(data), 49)
+            sample = ep.snapshot(timeout=0.0, max_age=3600)
             self.assertEqual(sample.data, data)  # a private copy
-            self.assertEqual(sample.index, n)
+            self.assertEqual(sample.index, last_index + 1)
             self.assertGreater(sample.index, last_index)
             last_index = sample.index
             with self.assertRaises(TimeoutError):
@@ -559,10 +560,11 @@ class TrackedEndpointProperties(unittest.TestCase):
 
         thread = threading.Thread(target=waiter)
         thread.start()
-        ep.read(bytearray(64))  # short: must not satisfy the waiter
+        with self.assertRaises(ValueError):
+            ep.read(bytearray(64))  # short: must not satisfy the waiter
         ep.read(bytearray(64))
         thread.join(3)
-        self.assertEqual(result["s"].index, 3)
+        self.assertEqual(result["s"].index, 2)
 
 
 if __name__ == "__main__":
