@@ -22,7 +22,7 @@ from . import limits, source_model, vendor_gripper
 from .calibration import signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .gripper import GripperMove
-from .streaming import DEFAULT_HOLD_TIMEOUT_S, VENDOR_MAX_SPEED_COUNTS_S
+from .streaming import DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, VENDOR_MAX_SPEED_COUNTS_S
 
 MOTORS = limits.ARM_MOTORS
 WRIST_JOINTS = ("pitch", "roll")    # source_model's names; PolicyArm(wrist=True) only
@@ -31,6 +31,9 @@ DEFAULT_TRAVEL_CAP_DEG = 2.0
 LEAD_LIMIT_DEG = 2.0            # the SDK's own lead limit; our targets stay inside LEAD_MARGIN_DEG of it
 LEAD_MARGIN_DEG = 1.5           # a target never leads the measured position by more than this
 STEP_MAX_DEG = 0.5              # largest delta applied in one call
+# ours: act() reuses the preceding observe() only this soon after it (two stream periods); older
+# (a slow policy between them) and act() reads fresh, so the lead clamp never uses an old position.
+MAX_REUSE_AGE_S = 2 * DEFAULT_PERIOD_S
 DEFAULT_SPEED_PCT = 25          # percent of the vendor's MaxSpeed (streaming.VENDOR_MAX_SPEED_COUNTS_S)
 # ours: "fixed" is STEP_MAX_DEG per call (the default); "speed" is what the vendor's MaxSpeed
 # (vendor: ER4AxN.ini MaxSpeed, via streaming) at speed_pct covers since the previous call.
@@ -142,6 +145,8 @@ class PolicyArm:
         self.speed_pct = _check_speed(speed_pct)
         self._stack: ExitStack | None = None
         self._stream = None
+        self._seen: dict[str, float] | None = None    # the last observe(), until one act() uses it
+        self._seen_at = 0.0
 
     def set_speed(self, speed_pct: float) -> None:
         """Change the speed (percent of the vendor's MaxSpeed, 1 to 100), live if connected."""
@@ -256,14 +261,22 @@ class PolicyArm:
 
     def observe(self, *, gripper: bool = False) -> dict[str, float]:
         """Degrees from home, measured. ``gripper=True`` adds ``"gripper"``: the jaw in percent open,
-        ``100 x count / RangeEnc`` (``GetJaw``: 2857 counts is 57 %), from the same reading."""
+        ``100 x count / RangeEnc`` (``GetJaw``: 2857 counts is 57 %), from the same reading.
+
+        Each call waits for a controller reply newer than the last read. The next ``act()`` clamps
+        against this reading instead of waiting for another one, if it comes within
+        ``MAX_REUSE_AGE_S`` of the controller reply.
+        """
         self._require_connected()
+        self._seen = None
         state = self.robot._motion_state()      # latches the session if feedback is unavailable
         counts = state.encoder_counts
         seen = {m: signed_count_delta(counts[m], self._home[m]) / self._per_degree[m] for m in MOTORS}
         if self.wrist:
             seen.update(wrist_degrees({m: signed_count_delta(counts[m], self._home[m])
                                        for m in limits.WRIST_MOTORS}))
+        arrived = state.host_monotonic_ns     # when the reply arrived; none and act() never reuses it
+        self._seen, self._seen_at = dict(seen), -math.inf if arrived is None else arrived / 1e9
         if gripper:
             seen["gripper"] = 100 * state.signed_encoder_counts["gripper"] / vendor_gripper.RANGE_ENC
         return seen
@@ -272,11 +285,19 @@ class PolicyArm:
         """Move toward ``goal_deg`` (absolute degrees from home); return the target now commanded.
 
         Raises ``StreamRefused`` if the stream has faulted or ended. Bad values hold their motor.
+        Clamps against the reading of the ``observe()`` just before it, used once and only within
+        ``MAX_REUSE_AGE_S``; otherwise it reads a fresh one. One controller wait per frame when act
+        follows observe promptly.
         """
         self._require_connected()
         delta = {m: g - self.target[m] if isinstance(g, (int, float)) and not isinstance(g, bool)
                  else math.nan for m, g in goal_deg.items() if m in self.target}
-        measured = self.observe()
+        measured, self._seen = self._seen, None
+        if measured is None or monotonic() - self._seen_at > MAX_REUSE_AGE_S:
+            self.observe()
+            measured, self._seen = self._seen, None
+        elif self.robot._fault:      # latched since that reading: refuse as a fresh read would
+            raise ScorbotError(f"Controller is faulted: {self.robot._fault}")
         if self.step_limit == "speed":
             now = monotonic()
             step = speed_step_deg(self.speed_pct, now - self._last_act, self._step_per_degree)
@@ -292,6 +313,6 @@ class PolicyArm:
 
     def close(self) -> None:
         """Slow to rest, motors off, disconnect. Safe to call twice."""
-        stack, self._stack = self._stack, None
+        stack, self._stack, self._seen = self._stack, None, None
         if stack is not None:
             stack.close()
