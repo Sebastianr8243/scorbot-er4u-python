@@ -43,7 +43,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | Offline analysis scripts |
 | `test_nominal.py`, `test_motion_profile.py` | Manual values and span bound, jog planning |
 | `test_legacy_properties.py` | Hypothesis properties of encoder and packet arithmetic; known bugs are pinned as `test_known_bug_*` with `expectedFailure`; none is open since 2026-10-06 (the two for `suma`/`resta` were fixed and flipped), and an equivalence test pins that real steps are unchanged |
-| `test_source_model.py` | The source-based joint model: it reproduces the USNA toolbox's home position, uses the vendor's scales, round-trips, couples shoulder and elbow as the vendor does, and stays inside the travel cap |
+| `test_source_model.py` | The source-based joint model: it reproduces the USNA toolbox's home position, uses the vendor's scales, round-trips, couples shoulder and elbow as the vendor does, stays inside the travel cap, and gives the lab `USBC.dll`'s ShowXYZ x, y, z, pitch and roll for 27 count sets (`fixtures/dll_lab_xyz.json`, made by `tools/usbc_fake/fake_xyz.py`) |
 | `test_limits.py` | Every module's travel cap, motor list and count band is the one in `scorbot/limits.py` |
 | `test_source_audit.py` | Every module-level constant in `scorbot/` has a row in `docs/protocol/SOURCE_AUDIT.md` tagged vendor, legacy or ours, and no row names a constant that is gone |
 | `test_pendant_abort.py` | The pendant's Abort key: reply byte 3 = `0x21` or `0xA1` calls `request_stop` once per press, a held key once, other keys never; the legacy jog stops on it |
