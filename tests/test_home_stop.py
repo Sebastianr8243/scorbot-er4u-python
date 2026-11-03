@@ -6,7 +6,6 @@ for before the Home starts refuses it once. Not an emergency stop; unverified on
 
 import queue
 import threading
-import time
 import unittest
 from importlib.util import find_spec
 from pathlib import Path
