@@ -195,5 +195,40 @@ class PolicyArmGripperTests(unittest.TestCase):
         self.assertIsNone(arm.robot._stream)
 
 
+    def test_a_stop_after_the_stream_is_unpublished_still_prevents_the_gripper(self):
+        arm = self.arm()
+        robot, inner = arm.robot, arm.robot._stop_lock
+
+        class StopJustBeforeTheClear:
+            # request_stop() landing after _end_stream unpublished the stream but before it clears the event
+            def __enter__(self):
+                inner.acquire()
+                if robot._stream is None:
+                    robot._stop_event.set()
+                return self
+
+            def __exit__(self, *exc):
+                inner.release()
+
+        robot._stop_lock = StopJustBeforeTheClear()
+        with mock.patch.object(robot, "move_gripper") as move:
+            with self.assertRaises(MotionStopped):
+                arm.open_gripper()
+            move.assert_not_called()
+
+    def test_a_stop_after_the_handoff_guard_still_prevents_the_gripper(self):
+        arm = self.arm()
+        stream, close = arm._stream, arm._stream.close
+
+        def close_then_stop():
+            state = close()
+            arm.robot.request_stop()        # lands with no stream: only the session's stop event is set
+            return state
+
+        stream.close = close_then_stop
+        with self.assertRaises(MotionStopped):
+            arm.open_gripper()
+        self.assertLess(abs(arm.robot.sim.counts["gripper"]), vg.AT_TARGET_COUNTS)
+
 if __name__ == "__main__":
     unittest.main()
