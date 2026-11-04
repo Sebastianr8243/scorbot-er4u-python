@@ -1,4 +1,4 @@
-"""ScorBot ER-4U as a LeRobot ``Robot`` (Stack 2, simulator only). See the plugin README."""
+"""ScorBot ER-4U as a LeRobot ``Robot`` (Stack 2, real-arm opt-in unverified). See the plugin README."""
 
 from .robot import ACTION_KEYS, HAVE_LEROBOT, REAL_ARM_REFUSED, ScorbotRobot, ScorbotRobotConfig
 

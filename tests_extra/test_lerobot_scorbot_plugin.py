@@ -1,10 +1,11 @@
-"""plugins/lerobot_robot_scorbot (Stack 2, simulator only) and examples/lerobot_sim_check.py.
+"""plugins/lerobot_robot_scorbot (Stack 2, real-arm opt-in patched to simulator) and examples/lerobot_sim_check.py.
 
 Pure parts run everywhere: feature dicts, the real-arm refusal, the teleoperator maps, the record command. A drive
 on the simulated controller runs where Ruckig is installed (the stand-in base class without lerobot). The checks
 against a real lerobot run only where lerobot is importable; the full record and replay is the example, by hand.
 """
 
+from contextlib import ExitStack
 from importlib.util import find_spec
 import math
 from pathlib import Path
@@ -18,6 +19,7 @@ sys.path.insert(0, str(ROOT / "plugins" / "lerobot_robot_scorbot"))
 sys.path.insert(0, str(ROOT))
 
 from examples import lerobot_sim_check  # noqa: E402
+from lerobot_robot_scorbot import robot as plugin  # noqa: E402
 from lerobot_robot_scorbot import REAL_ARM_REFUSED, ScorbotRobot, ScorbotRobotConfig  # noqa: E402
 from lerobot_robot_scorbot.teleop_map import (  # noqa: E402
     DEFAULT_SCRIPT, check_limits, home, keyboard_to_target, parse_script, script_walk, step_toward, to_action)
@@ -40,6 +42,7 @@ class RobotShapeTests(unittest.TestCase):
             ScorbotRobot(ScorbotRobotConfig())
         self.assertEqual(str(caught.exception), REAL_ARM_REFUSED)
         self.assertFalse(ScorbotRobotConfig().simulate)
+        self.assertFalse(ScorbotRobotConfig().real_arm_confirmed)
 
     def test_features_are_five_joints_in_degrees_and_the_gripper(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -58,6 +61,147 @@ class RobotShapeTests(unittest.TestCase):
         with self.assertRaises(ConnectionError):
             robot.send_action(dict.fromkeys(KEYS, 0.0))
         robot.disconnect()      # nothing to close
+
+
+class RealArmGateTests(unittest.TestCase):
+    def test_opt_in_still_requires_each_home_confirmation_before_hardware(self):
+        for missing in CONFIRMED:
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as tmp, \
+                    mock.patch.object(plugin, "Scorbot") as hardware:
+                config = sim_config(tmp, real_arm_confirmed=True)
+                config.simulate = False
+                setattr(config, missing, False)
+                robot = ScorbotRobot(config)
+                with self.assertRaisesRegex(ValueError, "physical stop"):
+                    robot.connect()
+                hardware.assert_not_called()
+                self.assertFalse(robot.is_connected)
+
+    def test_connect_rechecks_the_opt_in_before_hardware(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(plugin, "Scorbot") as hardware:
+            config = sim_config(tmp)
+            robot = ScorbotRobot(config)
+            self.addCleanup(robot.disconnect)
+            config.simulate = False
+            with self.assertRaisesRegex(ValueError, "real_arm_confirmed"):
+                robot.connect()
+            hardware.assert_not_called()
+
+
+@unittest.skipUnless(find_spec("ruckig"), "needs the planning extra")
+class RealArmCleanupTests(unittest.TestCase):
+    def setUp(self):
+        from scorbot import SimulatedScorbot
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.hardware = self.stack.enter_context(mock.patch.object(plugin, "Scorbot",
+                                                            side_effect=SimulatedScorbot))
+        self.register = self.stack.enter_context(mock.patch("atexit.register"))
+        self.unregister = self.stack.enter_context(mock.patch("atexit.unregister"))
+        config = sim_config(self.tmp.name, real_arm_confirmed=True, speed_pct=30, step_limit="speed")
+        config.simulate = False
+        self.robot = ScorbotRobot(config)
+        self.addCleanup(self.robot.disconnect)
+
+    def connect(self):
+        self.robot.connect()
+        self.hardware.assert_called_once()
+        self.assertEqual(self.hardware.call_args.kwargs["robot_id"], self.robot.config.robot_id)
+        self.assertEqual(self.hardware.call_args.kwargs["transport"], "auto")   # Intelitek's driver first
+        self.assertEqual(self.robot.name, "scorbot")
+        self.assertEqual((self.robot._arm.speed_pct, self.robot._arm.step_limit, self.robot._arm.wrist),
+                         (30, "speed", True))
+        controller = self.robot._arm.robot
+        self.assertTrue(controller.sim.motors_on)
+        self.disable = self.stack.enter_context(mock.patch.object(controller, "disable", wraps=controller.disable))
+        self.exit_cleanup = self.register.call_args.args[0]
+        return controller
+
+    def assert_stopped_once(self, controller):
+        self.exit_cleanup()
+        self.robot.disconnect()
+        self.disable.assert_called_once_with()
+        self.assertFalse(controller.sim.motors_on)
+        self.assertFalse(self.robot.is_connected)
+        self.unregister.assert_called_once_with(self.exit_cleanup)
+
+    def test_real_class_atexit_and_disconnect_disable_exactly_once(self):
+        controller = self.connect()
+        self.exit_cleanup()
+        self.assert_stopped_once(controller)
+
+    def test_disconnect_then_atexit_disable_exactly_once(self):
+        controller = self.connect()
+        self.robot.disconnect()
+        self.assert_stopped_once(controller)
+
+    def assert_operation_stops(self, source, error):
+        controller = self.connect()
+        if source == "camera":
+            camera = mock.Mock(is_connected=True)
+            camera.async_read.side_effect = error
+            camera.disconnect.side_effect = RuntimeError("cleanup fault")
+            self.robot.cameras = {"front": camera}
+            operation = self.robot.get_observation
+            patch = mock.patch.object(self.robot._arm, "observe", return_value={})
+        else:
+            operation = (self.robot.get_observation if source == "observe"
+                         else lambda: self.robot.send_action({"base.pos": 0.1}))
+            patch = mock.patch.object(self.robot._arm, source, side_effect=error)
+        with patch, self.assertRaises(type(error)) as caught:
+            operation()
+        self.assertIs(caught.exception, error)
+        self.assert_stopped_once(controller)
+
+    def test_observation_error_stops_without_masking(self):
+        self.assert_operation_stops("observe", RuntimeError("loop fault"))
+
+    def test_action_interrupt_stops_without_masking(self):
+        self.assert_operation_stops("act", KeyboardInterrupt())
+
+    def test_camera_error_stops_even_when_camera_cleanup_raises(self):
+        self.assert_operation_stops("camera", RuntimeError("camera fault"))
+
+    def test_failed_camera_connect_stops_and_cleans_other_cameras(self):
+        first = mock.Mock(spec=["is_connected", "connect", "disconnect"], is_connected=True)
+        first.connect.side_effect = KeyboardInterrupt
+        first.disconnect.side_effect = RuntimeError("camera cleanup fault")
+        second = mock.Mock(spec=["is_connected", "connect", "disconnect"], is_connected=True)
+        self.robot.cameras = {"first": first, "second": second}
+        with self.assertRaises(KeyboardInterrupt):
+            self.robot.connect()
+        first.disconnect.assert_called_once_with()
+        second.disconnect.assert_called_once_with()
+        self.assertFalse(self.robot.is_connected)
+
+    def test_interrupt_during_home_unwinds_and_motors_end_off(self):
+        from scorbot import SimulatedScorbot
+        controller = SimulatedScorbot(log_path=Path(self.tmp.name) / "home-fault.jsonl")
+        self.hardware.side_effect = None
+        self.hardware.return_value = controller
+        with mock.patch.object(controller, "vendor_home", side_effect=KeyboardInterrupt), \
+                mock.patch.object(controller, "disable", wraps=controller.disable) as disable:
+            with self.assertRaises(KeyboardInterrupt):
+                self.robot.connect()
+            self.robot.disconnect()
+            disable.assert_called_once_with()
+        self.assertFalse(controller.sim.motors_on)
+        self.assertFalse(self.robot.is_connected)
+        self.unregister.assert_called_once_with(self.register.call_args.args[0])
+
+    def test_arm_close_error_never_raises_or_repeats_cleanup(self):
+        controller = self.connect()
+        arm = self.robot._arm
+        close = arm.close
+        def fail_after_close():
+            close()
+            raise KeyboardInterrupt
+        with mock.patch.object(arm, "close", side_effect=fail_after_close) as closer:
+            self.robot.disconnect()
+            self.assert_stopped_once(controller)
+            closer.assert_called_once_with()
 
 
 @unittest.skipUnless(find_spec("ruckig"), "needs the planning extra")

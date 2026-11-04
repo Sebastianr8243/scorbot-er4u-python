@@ -1,6 +1,6 @@
 # lerobot_robot_scorbot
 
-The ScorBot ER-4U as a LeRobot `Robot`, on Stack 2 (`scorbot.policy_arm.PolicyArm` over `Scorbot.start_stream`). **Simulator only:** `simulate=false` (the default) is refused with `REAL_ARM_REFUSED`, because LeRobot's tools connect outside their cleanup and have no stop key. Nothing here has run on the arm.
+The ScorBot ER-4U as a LeRobot `Robot`, on Stack 2 (`scorbot.policy_arm.PolicyArm` over `Scorbot.start_stream`). **Real arm OFF by default:** `simulate=false` (the default) is refused with `REAL_ARM_REFUSED` unless `real_arm_confirmed=true` is also set. The real-arm path is **unverified on the arm**. LeRobot's tools connect outside their cleanup and have no stop key; the plugin installs cleanup hooks for an opted-in real session.
 
 Checked 2026-11-01 against `lerobot` 0.6.1 (Python 3.12.2, torch 2.11.0 CPU, `lerobot[dataset]` for `datasets` 4.8.5 and `av` 15.1.0, `ruckig` 0.19.4) with `examples/lerobot_sim_check.py`: LeRobot's plugin loader finds `robot.type=scorbot` and both teleoperators; `make_robot_from_config`, connect, observe, eight small actions and disconnect; the real `lerobot-record` for 2 episodes of 3 s at 10 fps with the scripted teleoperator and no cameras; the dataset reloaded with `LeRobotDataset` (60 frames, `robot_type` `scorbot_sim`, every action within 0.5 degree of the last, the next observation within 0.7 degree of each action); episode 0 replayed through a fresh simulated robot (observations within 0.1 degree of the recorded ones). `lerobot-record` without `--robot.simulate=true` stops with the refusal. That says nothing about the arm, a camera, a person at the keyboard teleoperator, training or `lerobot-eval`.
 
@@ -25,6 +25,22 @@ lerobot-record --robot.type=scorbot --robot.simulate=true --teleop.type=scorbot_
   --dataset.push_to_hub=false --dataset.num_episodes=2 --dataset.episode_time_s=20 --dataset.reset_time_s=5 --dataset.fps=10
 ```
 
+## Real-arm switch (unverified on the arm)
+
+Use only after the lab **Home, jog, stream and gripper** steps all pass. Keep an operator at the physical stop with empty jaws and a clear wrist path. Connect runs vendor Home, which moves the wrist and closes the gripper. All three Home confirmations still default to false and are required separately from the real-arm switch.
+
+After those checks, the existing record command can select the real `scorbot.Scorbot` through `PolicyArm` with these robot arguments (keep the dataset local and use a separate real-data directory):
+
+```powershell
+--robot.type=scorbot --robot.simulate=false --robot.real_arm_confirmed=true `
+  --robot.operator_at_stop=true --robot.jaws_empty=true --robot.wrist_clear=true `
+  --robot.log_dir=logs/lerobot-real
+```
+
+Use a single real connection. The plugin registers an `atexit` cleanup before connecting. Any error or Ctrl+C inside `connect`, `get_observation` or `send_action` closes the arm before it propagates; one between calls ends the program, and the `atexit` cleanup closes the arm then. There is deliberately no Ctrl+C handler: stopping from inside one could cut into a command the main thread is sending. Cleanup calls `PolicyArm.close()` (stream end, motors off, disconnect) once per connection and tolerates cleanup errors. `transport` defaults to `auto` (Intelitek's driver first, as `scripts/lab_day.py`). With missing Home confirmations or either real-arm switch absent, no hardware is constructed. Simulator sessions install no process hooks.
+
+These are desk-tested cleanup attempts, **unverified on the arm**; Python cleanup cannot run after forced process termination or power loss, and cannot guarantee motor-off delivery over a failed USB link. The physical stop remains authoritative. There is still no LeRobot stop key.
+
 ## Twin cameras (simulator images)
 
 `type: scorbot_twin` (`sim_cameras.py`, needs `mujoco`; 3.17.0 used) renders the MuJoCo twin (`scorbot/mujoco_twin.py`). On every `get_observation` the robot reads the simulator's five encoder counts, turns them into the twin's joint angles through `scorbot.source_model` (`mujoco_twin.chain_angles`: the elbow motor sets the forearm's angle to the floor and the wrist motors the gripper's, so it is not degrees from home plus the home angle), poses the twin (`set_pose`, no physics step) and renders the cameras, so each frame shows the pose in the same observation. Frames are `uint8` `(height, width, 3)` RGB, at most 640x480.
@@ -43,8 +59,8 @@ Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1
 |---|---|
 | Observation | `base.pos`, `shoulder.pos`, `elbow.pos`, `pitch.pos`, `roll.pos`: measured degrees from home (vendor prior, uncalibrated), plus one `(height, width, 3)` frame per camera. Pitch is the gripper's angle to the floor and roll its roll, both from the two coupled wrist motors through `scorbot.source_model` (`PolicyArm(wrist=True)`); holding pitch while the shoulder or elbow moves leaves the wrist motors still. Signs from the source model (positive pitch lifts), unverified; the legacy wrist-pitch jog moves about 1.22 times further per degree than the model says. `gripper.pos`: the measured jaw in percent open, `100 x count / RangeEnc` (0 closed, 100 open) |
 | Action | the same six keys. `gripper.pos` is binary: below 50 closes, 50 or more opens, missing or not a number holds; a change pauses the stream for the blocking vendor gripper move and restarts it (that frame is slow), and `send_action` returns the value applied, 0 or 100. A fault during the move disconnects. The five joints are an absolute target. `PolicyArm` clamps it: 0.5 degree per call (or, with `step_limit=speed`, what `speed_pct` of the vendor's MaxSpeed covers since the last call, at most 1.5 degrees), both Intelitek travel windows (ROB_4u joint angles and EncLimit absolute counts) after vendor Home, 1.5 degrees ahead of the measured joint; for pitch and roll each, one wrist motor carrying both. Call at least every 0.5 s or the stream holds |
-| Config | `simulate` (must be true), `operator_at_stop`, `jaws_empty`, `wrist_clear` (all three must be true, default false: connect runs the vendor Home, which moves the wrist and closes the gripper), `log_dir` (the simulator's event log, default `rehearsal/lerobot`), `robot_id`, `cameras`, plus LeRobot's `id` and `calibration_dir` |
-| Name | `scorbot_sim`, which `lerobot-record` writes as the dataset's `robot_type` (a v3 dataset has no `data_source` field) |
+| Config | `simulate` (true for rehearsal; false requires `real_arm_confirmed=true`, default false), `operator_at_stop`, `jaws_empty`, `wrist_clear` (all three must be true, default false: connect runs the vendor Home, which moves the wrist and closes the gripper), `log_dir` (the controller event log, default `rehearsal/lerobot`), `robot_id`, `cameras`, plus LeRobot's `id` and `calibration_dir` |
+| Name | `scorbot_sim` for simulation, `scorbot` for real sessions; `lerobot-record` writes this as the dataset's `robot_type` (a v3 dataset has no `data_source` field) |
 
 ## Teleoperators
 
@@ -62,8 +78,8 @@ PolicyArm holds the entire frame at the last allowed target when either vendor w
 - **The gripper is binary and blocking.** Open or closed only, no width or force; each change stalls the loop for the vendor move plus a stream restart. Unverified on the arm. Teleop: `scorbot_joint_keys` opens with right ctrl and closes with left ctrl; `scorbot_joint_scripted` takes an optional sixth number per waypoint (0 to 100).
 - `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with the five joints and the gripper on 2026-11-03: all six checks passed. Its replay check (0.25 degree between replayed and recorded observations) is tight and failed some runs on simulator timing alone, with or without the gripper.
 - The twin's gripper (fixed open) and block contact (the arm is posed, not simulated).
-- The real arm (refused on purpose), real cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
+- The real-arm path (explicit opt-in, unverified on the arm), real cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
 
 ## Tests
 
-`tests_extra/test_lerobot_scorbot_plugin.py`: without lerobot it uses stand-in base classes (refusal, features, a simulated drive, both teleoperator maps, the check's record command); with lerobot importable it also checks registration, `make_robot_from_config` and both teleoperators. Run the repository's full suite in the lab `.venv`: in the lerobot venv, draccus 0.11.6 installs its own top-level `tests` package, which hides this repository's `tests/` (8 modules fail to import there). In the lerobot venv run only this file.
+`tests_extra/test_lerobot_scorbot_plugin.py`: without lerobot it uses stand-in base classes (default refusal, real-arm opt-in patched to the simulator, idempotent cleanup and process hooks, features, a simulated drive, both teleoperator maps, the check's record command); with lerobot importable it also checks registration, `make_robot_from_config` and both teleoperators. Run the repository's full suite in the lab `.venv`: in the lerobot venv, draccus 0.11.6 installs its own top-level `tests` package, which hides this repository's `tests/` (8 modules fail to import there). In the lerobot venv run only this file.
