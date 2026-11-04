@@ -17,12 +17,13 @@ Layout of an OUT packet (offsets 0-based)::
     0       sequence byte, 1..255
     1-3     header, zero except in the handshake's get_msg2(84)
     4-11    command bytes (libhex tables), zero padded
-    12-35   encoder region: six joints x (2-byte count LE + 2-byte sign word)
+    12-35   encoder region: six joints x signed 32-bit controller count LE
     36-63   zero padding
 
 Signs use the IN sign byte that ``scorbot.state.decode_state`` reports
-(``encoder_sign_bytes``): 128 is written as the sign word ``00 00`` and 127 as
-``FF FF`` (``libdef.get_signo``). The legacy code keeps the word as the text
+(``encoder_sign_bytes``): a low word with sign byte 128 is the controller count
+``low + 1``, with 127 ``low - 65535`` (raw24 - 0x7FFFFF), and the slot carries
+that count (``libdef.countField``). The legacy code keeps the sign as the text
 ``'0000'``/``'ffff'``; this module keeps the byte, so a state read from the
 controller can be echoed without translation.
 
@@ -41,13 +42,13 @@ MSG_LEN = 64
 MAX_SEQUENCE = 255
 """Largest sequence byte; ``next_sequence`` wraps 255 -> 1 (legacy ``MAX_COUNT`` - 1)."""
 MAX_COUNT = 65535
-"""Largest encoder count. Counts are unsigned 16-bit with modulus 65535, not 65536."""
+"""Largest low word of an encoder count."""
 COUNT_MODULUS = 65535
 
 SIGN_POSITIVE = 128
-"""IN sign byte written as the OUT sign word ``00 00``."""
+"""IN sign byte of counts 1..65536 (low word + 1)."""
 SIGN_NEGATIVE = 127
-"""IN sign byte written as the OUT sign word ``FF FF``."""
+"""IN sign byte of counts -65535..0 (low word - 65535)."""
 _SIGN_WORDS = {SIGN_POSITIVE: b"\x00\x00", SIGN_NEGATIVE: b"\xff\xff"}
 
 HEADER = b"\x00\x00\x00"
@@ -168,14 +169,18 @@ def next_sequence(sequence: int) -> int:
 
 
 def encode_count(count: int, sign: int) -> bytes:
-    """One joint's 4-byte field: count little-endian, then the sign word.
+    """One joint's 4-byte field: the controller count as a signed 32-bit slot.
 
-    Legacy ``libdef.detrans(count)`` followed by ``get_signo`` (echo) or the
-    ``suma``/``resta`` sign text (jog target). ``sign`` is the IN sign byte
-    (128 -> ``00 00``, 127 -> ``FF FF``), not the legacy text.
+    ``count`` is the low word and ``sign`` the IN sign byte, as the reply carries
+    them; the controller count is raw24 - 0x7FFFFF (``count + 1`` for 128,
+    ``count - 65535`` for 127). Legacy ``libdef.countField``, which
+    ``get_encoder`` (echo) and ``builder`` (jog target) use. Writing the low
+    word then the sign word sent every count one low
+    (``docs/requirements/count-frame.md``).
     """
     _require_int("count", count, 0, MAX_COUNT)
-    return count.to_bytes(2, "little") + _SIGN_WORDS[_require_sign(sign)]
+    controller = count + 1 if _require_sign(sign) == SIGN_POSITIVE else count - COUNT_MODULUS
+    return controller.to_bytes(4, "little", signed=True)
 
 
 def encode_region(joints: Mapping[str, tuple[int, int]]) -> bytes:
@@ -206,9 +211,11 @@ def encode_region(joints: Mapping[str, tuple[int, int]]) -> bytes:
 def step_count(count: int, sign: int, step: int) -> tuple[int, int]:
     """Move one joint target by ``step`` counts with the legacy wrap.
 
-    Positive ``step`` is ``libdef.suma``: add; above 65535 subtract 65535 and
+    Positive ``step`` is ``libdef.suma``: add; above 65535 subtract 65536 and
     the sign becomes 128. Negative ``step`` is ``libdef.resta`` by ``-step``:
-    below 0 add 65535 and the sign becomes 127. Otherwise the sign is kept.
+    below 0 add 65536 and the sign becomes 127. Otherwise the sign is kept.
+    Across zero (127 to 128 or back) the controller count moves by exactly
+    ``step``; above 65535 on the 128 side it wraps to a small count.
     Zero returns the input. Returns ``(count, sign)``.
 
     ``|step|`` must be at most 65535. Larger steps raise ``ValueError``; the
@@ -222,9 +229,9 @@ def step_count(count: int, sign: int, step: int) -> tuple[int, int]:
     _require_int("step", step, -COUNT_MODULUS, COUNT_MODULUS)
     count += step
     if count > MAX_COUNT:
-        return count - COUNT_MODULUS, SIGN_POSITIVE
+        return count - (MAX_COUNT + 1), SIGN_POSITIVE
     if count < 0:
-        return count + COUNT_MODULUS, SIGN_NEGATIVE
+        return count + MAX_COUNT + 1, SIGN_NEGATIVE
     return count, sign
 
 

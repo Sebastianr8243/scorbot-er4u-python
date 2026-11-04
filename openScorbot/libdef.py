@@ -130,16 +130,12 @@ def get_media(buffer, media):
 	return media
 
 
-# Extracts the encoder reading values from the buffer in order, converting them to
-# hexadecimal and appending the sign associated with each encoder.
+# The setpoint region that echoes the smoothed positions: each joint's `media` low word with the sign
+# byte of the last reply, written as the controller count (countField).
 #
 # The data order by joint is:
 #
 # 				base-shoulder-elbow-wrist1-wrist2-gripper
-#
-# The structure of each joint's data is:
-#
-# 							position-sign
 #
 # buffer -> Vector storing the most recent read data
 # media  -> Encoder position adjustment vector
@@ -148,17 +144,15 @@ def get_encoder(buffer, media):
 	msg = ''
 	vec_pos = VEC_POS
 	for i in range(len(vec_pos)):
-		dato = detrans(media[i])
-		msg += dato
-		dato = get_signo((vec_pos[i]+2),buffer)
-		msg += dato
+		msg += countField(media[i], get_signo((vec_pos[i]+2),buffer))
 	return msg
 
 
 # The setpoint region that holds the counts of the last reply, for the stop and the enable snapshot.
 # The controller's count is raw24 - 0x7FFFFF and it reads each setpoint as a signed 32-bit count
 # (docs/protocol/VENDOR_DLL_PROTOCOL.md sections 3 and 6), so -1 is held as ffffffff and +1 as
-# 01000000. get_encoder's echo of the low word and sign word would hold every count one low.
+# 01000000, as countField writes the echo. The old echo of the low word and sign word held every count
+# one low.
 # Unverified on the arm.
 #
 # buffer -> Vector storing the most recent read data
@@ -170,6 +164,20 @@ def get_hold(buffer):
 		count = int.from_bytes(bytes(buffer[pos:pos+3]), 'little') - 0x7FFFFF
 		msg += count.to_bytes(4, 'little', signed=True).hex()
 	return msg
+
+
+# One joint's setpoint slot from a low word and its sign word (the legacy pair that media, get_signo
+# and suma/resta keep): the controller count raw24 - 0x7FFFFF as a signed 32-bit count, as get_hold
+# writes it. Sign word '0000' is the IN sign byte 128 (count = low + 1), 'ffff' is 127
+# (count = low - 65535). Echoing the low word and sign word sent every count one low
+# (docs/requirements/count-frame.md). Unverified on the arm.
+#
+# low   -> Low word, 0..65535 (a suma above 65535 on the '0000' side is past this range)
+# signo -> '0000' or 'ffff'
+#
+def countField(low, signo):
+	count = low + 1 if signo == '0000' else low - 65535
+	return count.to_bytes(4, 'little', signed=True).hex()
 
 
 # Message library shown in the graphical interface after successful actions.
@@ -418,8 +426,7 @@ def builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=None):
 	else:
 		dato_in = resta(dato_in, i+1, vel, ite, step=step)
 
-	signal_out = detrans(dato_in[0])
-	signal_out += dato_in[1]
+	signal_out = countField(dato_in[0], dato_in[1])
 	msg = get_encoder(buffer, media)
 	cadena += getStruct(orden, signal_out, msg)
 
@@ -566,8 +573,10 @@ def suma(dato_in,cont,vel,ite,step=None):
 	dato_in[0] += incremento(cont,vel,ite) if step is None else step
 	# A step of a full turn or more wraps more than once (fixed 2026-10-06); a real
 	# step wraps at most once, so nothing sent for a real move changes.
+	# Crossing zero ('ffff' low 65535 is count 0, '0000' low 0 is count 1) moves the low word by
+	# 65536, so the count goes on by exactly the step (countField). It was 65535, which skipped a count.
 	while dato_in[0] > 65535:
-		dato_in[0] -= 65535
+		dato_in[0] -= 65536
 		dato_in[1] = '0000'
 	return dato_in
 
@@ -589,8 +598,9 @@ def suma(dato_in,cont,vel,ite,step=None):
 def resta(dato_in,cont,vel,ite,step=None):
 	dato_in[0] -= incremento(cont,vel,ite) if step is None else step
 	# As in suma: wraps more than once for a step of a full turn or more (fixed 2026-10-06).
+	# Crossing zero moves the low word by 65536, as in suma.
 	while dato_in[0] < 0:
-		dato_in[0] = 65535 + dato_in[0]
+		dato_in[0] = 65536 + dato_in[0]
 		dato_in[1] = 'ffff'
 	return dato_in
 

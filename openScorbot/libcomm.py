@@ -321,10 +321,7 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			dato_in_1 = libdef.resta(dato_in_1, i+1,vel,ite,step=profile[i])
 			dato_in_2 = libdef.resta(dato_in_2, i+1,vel,ite,step=profile[i])
 
-		signal_out = libdef.detrans(dato_in_1[0])
-		signal_out += dato_in_1[1]
-		signal_out += libdef.detrans(dato_in_2[0])
-		signal_out += dato_in_2[1]
+		signal_out = libdef.countField(*dato_in_1) + libdef.countField(*dato_in_2)
 		msg = libdef.get_encoder(buffer,media)
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
@@ -520,7 +517,8 @@ def motors_off(b_1, epout, epin, buffer,cola_read):
 
 # Activa el control sobre los motores
 # Like USBC.dll's Control('&', 1), the measured counts of the last reply are taken once before the
-# motors go on and the idle messages hold them (LEDGER.md PL98). The motor-on messages are unchanged.
+# motors go on and the idle messages hold them (LEDGER.md PL98). The motor-on messages echo the same
+# counts (get_encoder, docs/requirements/count-frame.md).
 def motors_on(b_1, epout, epin, buffer,cola_read):
 	libdef.ultimo_hold = bytes.fromhex(libdef.get_hold(buffer))
 	media = libdef.get_media(buffer,cola_read.get())

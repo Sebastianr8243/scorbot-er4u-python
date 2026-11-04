@@ -38,7 +38,9 @@ class FollowingController:
 
     Each OUT message carries a target per joint; the arm moves toward it by at
     most ``rate`` counts per message (``None``: it arrives at once, so the
-    legacy settle loop converges). The reply reports where the arm is.
+    legacy settle loop converges). The reply reports where the arm is, as the
+    low word with sign byte 128 (controller count = low word + 1); each slot is
+    read as the controller count (``slot_low_word``).
     ``stop_after`` sets the stop event while the message with that 1-based
     index is being written. ``error_at`` = (message index, joint index): from
     that message on, the reply reports a position error of ``ERROR_WORD`` (above
@@ -68,8 +70,9 @@ class FollowingController:
         # A one-reply impact also checks that the fault survives the stop replies.
         self.reply[59] = self.steady_bits | (self.impact_bits if self.impact_at == len(self.packets) else 0)
         for value, offset in zip(self.position, ENCODER_OFFSETS):
-            self.reply[offset:offset + 2] = value.to_bytes(2, "little")
-            self.reply[offset + 2] = 128
+            # raw24 = controller count + 0x7FFFFF, and the count is the low word + 1: for value >= 0 the
+            # low word is value under sign byte 128 (an all-zero slot, count 0, is value -1)
+            self.reply[offset:offset + 3] = (value + 1 + 0x7FFFFF).to_bytes(3, "little")
         if self.error_at is not None and len(self.packets) >= self.error_at[0]:
             offset = ENCODER_OFFSETS[self.error_at[1]] + 3
             self.reply[offset:offset + 2] = self.ERROR_WORD.to_bytes(2, "little")
@@ -78,7 +81,7 @@ class FollowingController:
         data = bytes(data)
         self.packets.append(data)
         for index in range(len(JOINTS)):
-            target = int.from_bytes(data[12 + 4 * index:14 + 4 * index], "little")
+            target = self.slot_low_word(data, 12 + 4 * index)
             move = target - self.position[index]
             if self.rate is not None:
                 move = max(-self.rate, min(self.rate, move))
@@ -96,8 +99,14 @@ class FollowingController:
     def commands(self):
         return [packet[4] for packet in self.packets]
 
+    @staticmethod
+    def slot_low_word(packet, region):
+        """The low word a setpoint slot asks for: the slot is the controller count (signed 32-bit),
+        which is the low word + 1 under sign byte 128 (docs/requirements/count-frame.md)."""
+        return int.from_bytes(packet[region:region + 4], "little", signed=True) - 1
+
     def targets(self, region):
-        return [int.from_bytes(packet[region:region + 2], "little") for packet in self.packets]
+        return [self.slot_low_word(packet, region) for packet in self.packets]
 
 
 class StopAtStep:
@@ -231,7 +240,7 @@ class LegacyStopTests(unittest.TestCase):
                 self.assertEqual(results, [1], "the fault is reported, and only the fault")
                 last_step_target = controller.targets(region)[5]
                 for target in controller.targets(region)[6:]:
-                    self.assertEqual(target, controller.reported[5][index] + 1)   # sign 128: L + 1
+                    self.assertEqual(target, controller.reported[5][index])
                     self.assertLess(target, last_step_target)
 
     def test_joint_error_with_a_stop_in_the_settle_loop_is_still_a_fault(self):

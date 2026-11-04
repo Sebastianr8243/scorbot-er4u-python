@@ -286,9 +286,9 @@ Result codes put on the result queue (`cola_result`, or `cola_orden` when none w
 
 ## 8. Encoder number format
 
-- Wire value: unsigned 16-bit little-endian, plus a sign byte (IN) or sign word (OUT). IN sign byte: 128 -> `00 00`, 127 -> `FF FF`. K (`libdef.get_signo`, `transform`, `detrans`).
+- IN: unsigned 16-bit little-endian low word plus a sign byte (128 or 127); the three bytes are the 24-bit raw value, controller count = raw24 - 0x7FFFFF (sign 128: `L + 1`, sign 127: `L - 65535`). OUT: each slot is that count as signed 32-bit little-endian (`libdef.countField`, `get_hold`; `docs/requirements/count-frame.md`). Until 2026-11-04 the OUT slot was the low word and a sign word (128 -> `00 00`, 127 -> `FF FF`), one count low. K (`libdef.get_signo`, `transform`, `countField`).
 - Signed reading (`state.decode_state`): sign 128 -> `count`; sign 127 -> `count - 65535`. The modulus is 65535, not 65536, so 0 and 65535 both denote zero (ones'-complement-like; I: which form the firmware uses is U). `signed_encoder_counts` jumps by 65536 at the seam; differences must use `scorbot/calibration.py:signed_count_delta`: `(value - origin) % 65535`, mapped to `delta` if below 32767 else `delta - 65535`; it raises for 32767 and 32768.
-- `libdef.suma`: `value += step`; if above 65535, `value -= 65535` and sign word becomes `0000`. `resta`: `value -= step`; if below 0, `value = 65535 + value` and sign word becomes `ffff`. The sign word changes only on wrap; otherwise it stays as read at the start of the move. K.
+- `libdef.suma`: `value += step`; if above 65535, `value -= 65536` and sign word becomes `0000`. `resta`: `value -= step`; if below 0, `value = 65536 + value` and sign word becomes `ffff` (65535 until 2026-11-04, which skipped a count across zero). The sign word changes only on wrap; otherwise it stays as read at the start of the move. K.
 - `detrans` uses `format(x, '04x')` and then takes characters 2, 3, 0, 1, so it always emits 4 hex digits. A value above 65535 therefore keeps the packet layout intact but writes a silently wrong count: `detrans(65536)` is `'0010'` (count 4096), `detrans(131070)` is `'ff1f'`. `suma` keeps values in range except when a single step exceeds 65535.
 
 ## 9. Homing (`setHome.py:homing`)
@@ -333,7 +333,7 @@ Trace commands: `python scripts/usb_trace.py summary CAP`, `export CAP --device 
 
 - every `libhex.py` table under its legacy index: `MOV_COMM`, `GET_MSG1`, `GET_MSG2`, `MOTORS_ON`, `MOTORS_OFF`, `SCORBOT_OFF`, `CLAMP`;
 - the pkt2 message formats: `pkt2_mode_command`, `PKT2_SETUP_1`/`PKT2_SETUP_2`, `pkt2_table_command`, `PKT2_END_HEADER`/`PKT2_END_COMMAND`;
-- `next_sequence` (`countByte1`), `encode_count`/`encode_region` (`detrans` plus sign word, `get_encoder`), `step_count` (`suma`/`resta`), and `build_out` (the 64-byte packet).
+- `next_sequence` (`countByte1`), `encode_count`/`encode_region` (`countField`, `get_encoder`), `step_count` (`suma`/`resta`), and `build_out` (the 64-byte packet).
 
 Signs are the IN sign byte as `state.decode_state` reports it: 128 is written as `00 00`, 127 as `FF FF`. Where the legacy code is wrong (a step above 65535, a sequence byte outside 1..255) the codec raises `ValueError` instead of reproducing the bug.
 

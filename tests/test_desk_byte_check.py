@@ -51,10 +51,12 @@ class DeskByteCheckTests(unittest.TestCase):
             region = bytes.fromhex(region_hex)
             joints = {}
             for index, joint in enumerate(JOINTS):
-                field = region[4 * index:4 * index + 4]
-                sign = {bytes(2): codec.SIGN_POSITIVE, bytes([255, 255]): codec.SIGN_NEGATIVE}.get(field[2:])
-                self.assertIsNotNone(sign, f"{joint} sign word {field[2:].hex()} in {region_hex}")
-                joints[joint] = (int.from_bytes(field[:2], "little"), sign)
+                # The DLL writes the controller count as signed 32-bit; as a reply's low word and sign
+                # byte that is (count - 1, 128) for 1..65536 and (count + 65535, 127) for -65535..0.
+                count = int.from_bytes(region[4 * index:4 * index + 4], "little", signed=True)
+                self.assertTrue(-65535 <= count <= 65536, f"{joint} count {count} in {region_hex}")
+                joints[joint] = (count - 1, codec.SIGN_POSITIVE) if count > 0 else \
+                    (count + 65535, codec.SIGN_NEGATIVE)
             self.assertEqual(codec.encode_region(joints), region)
 
     def test_the_dll_wraps_the_sequence_to_zero_and_the_codec_to_one(self):

@@ -20,7 +20,7 @@ CONNECT_OPCODES = {
     0x5A: "handshake initial Z", 0x61: "legacy mode a", 0x64: "legacy mode d",
     0x72: "legacy mode r", 0x73: "legacy control flag s",
 }
-HANDSHAKE_SHA256 = "76786a8fa135fc205778b0c8cbdd2d534c5a6eb8c2d0d79642c6d0c547fdf975"
+HANDSHAKE_SHA256 = "df4d9b5ef276c788e8c589a4b2587cf91d93fa15c89cc17731493a87f4a4a0b8"
 
 
 def connection_commands():
