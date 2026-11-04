@@ -158,7 +158,7 @@ With count = raw24 - `0x7FFFFF`, what the legacy code calls a "sign byte" is the
 | `7F` | L | L - 65535 | L - 65535 |
 | `80` | L | L + 1 | L |
 
-So the legacy decoder is exact on the negative side and one count low on the positive side, which amounts to having two zeros. That is where the 65535 modulus in `scorbot.calibration.signed_count_delta` comes from (I). It also means counts beyond +/-65535 are legal for the controller (top byte `81`, `7E`, ...), where `scorbot/state.py:decode_state` raises on any sign byte other than 127/128.
+So the legacy decoder is exact on the negative side and one count low on the positive side, which amounts to having two zeros. That is where the 65535 modulus in `scorbot.calibration.signed_count_delta` comes from (I). It also means counts beyond +/-65535 are legal for the controller (top byte `81`, `7E`, ...), where `scorbot/state.py:decode_state` raises on any sign byte other than 127/128. Since 2026-11-04 `decode_state` and every legacy setpoint use the vendor count (`docs/requirements/count-frame.md`).
 
 Real data, consistent but not proof: the 2026-09-29 idle capture from the arm (`evidence/ (in git history)`), taken after power-on and before homing, has the six joints at raw `0x7FFFFE`, `0x7FFFFF`, `0x7FFFFF`, `0x7FFFFF`, `0x7FFFFE` and `0x800001` in all 20 samples. A controller that has not moved since power-on reading within 2 counts of `0x7FFFFF` is what a zero at `0x7FFFFF` predicts. The legacy reading fits the same numbers, so this does not separate the two.
 

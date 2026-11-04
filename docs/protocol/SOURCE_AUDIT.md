@@ -44,7 +44,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 |---|---|---|---|---|
 | `transport.codec.MSG_LEN` | 64 | vendor | 64-byte `WriteFile`/`ReadFile` (communication thread `0x1003ce38`); legacy `MSG_LEN` 128 hex characters agrees | `VENDOR_DLL_PROTOCOL.md` sections 2, 14 |
 | `transport.codec.MAX_SEQUENCE` | 255 | legacy | `libdef.countByte1` wraps 255 to 1; the DLL goes 255 to 0 | `DESK_BYTE_CHECK.md` (differs, both accepted on the arm per `BRING_UP_SEQUENCE.md`) |
-| `transport.codec.MAX_COUNT`, `transport.codec.COUNT_MODULUS` | 65535 | legacy | `libdef.suma`/`resta`; the vendor count is 24-bit, so 65535 is the legacy double-zero modulus | `VENDOR_DLL_PROTOCOL.md` section 6 |
+| `transport.codec.MAX_COUNT`, `transport.codec.COUNT_MODULUS` | 65535 | legacy | largest low word, and the 65535 in count = low - 65535 under sign byte 127; `step_count`'s step bound. Since 2026-11-04 no longer a wrap modulus (`docs/requirements/count-frame.md`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `transport.codec.SIGN_POSITIVE`, `transport.codec.SIGN_NEGATIVE`, `transport.codec._SIGN_WORDS` | 128 / 127, `00 00` / `FF FF` | legacy | `libdef.get_signo`; the vendor reads them as the top byte of a 24-bit count | `VENDOR_DLL_PROTOCOL.md` section 6; `DESK_BYTE_CHECK.md` (DLL uses only these two words) |
 | `transport.codec.HEADER` | `00 00 00` | legacy | bytes 1-3 of every legacy packet; the vendor's are zero except two small queues | `VENDOR_DLL_PROTOCOL.md` section 3 |
 | `transport.codec.COMMAND_OFFSET`, `transport.codec.REGION_OFFSET`, `transport.codec.FIELD_LEN`, `transport.codec.REGION_LEN` | 4, 12, 4, 24 | vendor | OUT layout from `0x1003e7fc` / `0x1003ee7e`; same offsets in the legacy code | `VENDOR_DLL_PROTOCOL.md` section 3; `DESK_BYTE_CHECK.md` region match |
@@ -84,6 +84,8 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `state.ERROR_OFFSETS` | 22 + 5N | vendor | axis position error at 22 + 5N | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `state.IMPACT_DETECT_COUNTS` | 70 (axes 1-5), 300 (gripper) | vendor | `ER4AxN.ini ImpactDetect`; compared strictly with abs(signed error word), error 201 (`0x10030142`) | `LEDGER.md` PL98; `VENDOR_DLL_PROTOCOL.md` section 11.5 |
 | `state.PACKET_MIN_LENGTH` | 49 | ours | derived: the last field decoded ends at byte 48 | n/a |
+| `state.COUNT_ZERO` | 0x7FFFFF | vendor | count = raw24 - 0x7FFFFF, the DLL's count decoder (`0x10006c17`, `0x1000b130`) | `VENDOR_DLL_PROTOCOL.md` sections 3 and 6 |
+| `state.COUNT_MIN`, `state.COUNT_MAX` | -0x7FFFFF, 0x800000 | ours | derived: raw 0x000000 and 0xFFFFFF under `COUNT_ZERO` | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `state.HOME_SWITCH_BITS` | 1, 2, 4, 8, 16 | legacy | `libdef.get_switch`; byte 5 bit N in the DLL, order confirmed by the ULPGC thesis | `VENDOR_DLL_PROTOCOL.md` section 6; `ULPGC_THESIS_FINDINGS.md` |
 | `state.COLLISION_OFFSET` | 59 | vendor | impact byte (`0x1000b270`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `state.DIGITAL_INPUT_OFFSET` | 6 | vendor | digital input word, returned by `GetDigitalInputs` (`0x10019631`) | `LEDGER.md` PL65, PL69 |
@@ -222,6 +224,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `arm_chain.MANUAL` | from `nominal` | vendor | user manual | **unverified** (manual) |
 | `arm_chain.VENDOR_INI` | from `nominal` | vendor | `ROB_4u.INI` | **unverified** |
 | `calibration.CALIBRATED_JOINTS` | base, shoulder, elbow | ours | the joints calibration fits | n/a |
+| `calibration.MAX_COUNTS_FROM_HOME` | 32766 | ours | derived: the largest offset `signed_count_delta` reads from two 16-bit low words (32767-32769 are refused as ambiguous) | `docs/requirements/count-frame.md` CT14 |
 | `mujoco_twin.CAMERAS`, `mujoco_twin._AXES` | names, axis vectors | ours | simulation twin set-up | n/a |
 | `bridge.XYZ_UNITS_PER_MM` | 1000 | vendor | the DLL's xyz unit, read back on the fake (2026-10-20); physical scale unmeasured | **unverified** |
 | `bridge.HOST`, `bridge.PORT`, `bridge.POSITIONS`, `bridge.BOX`, `bridge.REPLY_TIMEOUT_S`, `bridge.POLL_S`, `bridge.LINE_END`, `bridge.FAILURE_CODES` | local server settings | ours | our link to `tools/usbc_server` and its exit codes | n/a |
@@ -233,7 +236,7 @@ None of these reach the controller.
 | Constant | Value | Tag | Source, or why it is ours | Backed by |
 |---|---|---|---|---|
 | `simulated._EXIT`, `simulated._MOTORS_OFF`, `simulated._MOTORS_ON`, `simulated._HOME`, `simulated._JOG_ORDERS`, `simulated._GRIPPER_OPEN`, `simulated._GRIPPER_CLOSE` | 528, 16, 17, 18, 4-13, 14, 15 | legacy | the legacy worker's order codes (`conf.py EXIT`, `libcomm.execute`, in `43b03b1`) | n/a |
-| `simulated.MAX_COUNT` | 65535 | legacy | as `transport.codec.MAX_COUNT` | `VENDOR_DLL_PROTOCOL.md` section 6 |
+| `simulated.MIN_COUNT`, `simulated.MAX_COUNT` | -0x7FFFFF, 0x800000 | ours | `state.COUNT_MIN`/`COUNT_MAX`: the fake reports the controller's whole 24-bit range (65535, the old decode's range, until 2026-11-04) | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `simulated._ERROR_UNKNOWN_ORDER`, `simulated._ERROR_INJECTED`, `simulated._ERROR_COUNT_RANGE`, `simulated._ERROR_MOTORS_OFF`, `simulated._ERROR_HOME_SEARCH`, `simulated._ERROR_NO_SETTLE`, `simulated._STOPPED` | 1, 3, 4, 5, 2, 2, 14 | ours | result codes the simulator puts in the result queue, matching what the worker reports | n/a |
 | `simulated.FAULT_KINDS`, `simulated.ARM_MOTORS`, `simulated.REHEARSAL_PROFILE` | names, profile | ours | simulator set-up | n/a |
 | `lab.camera.CAMERA_ID`, `lab.faults.COMMON_STEPS`, `lab.faults._RULES`, `lab.faults._UNKNOWN`, `lab.moves.RETURN_ORDER`, `lab.moves.MAX_MARKS`, `lab.moves.STEP_DEG`, `lab.moves.HALF_STEP_DEG`, `lab.moves._TOLERANCE`, `lab.operator.ENTER`, `lab.operator.TICK`, `lab.operator.CHOICE_ATTEMPTS`, `lab.profile.FIELDS`, `lab.profile.LABELS`, `lab.profile.EXAMPLE_VALUES`, `lab.profile.PROFILE_ATTEMPTS`, `lab.review.LAB_LED_STEPS`, `lab.review.UNJOGGED_TOLERANCE`, `lab.terminal.SPECIAL`, `lab.terminal.RELEASE_POLL_S`, `lab.terminal.RELEASE_WARN_S`, `lab.teleop.TELEOP_IDLE_DISARM_S`, `lab.teleop.TICK_S`, `lab.teleop.HELP`, `lab.__main__._REPO_ROOT` | text, keys, timings | ours | lab tool prompts, keys and timings | n/a |

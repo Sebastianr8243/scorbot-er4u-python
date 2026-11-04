@@ -17,8 +17,9 @@ from scorbot.simulated import SimulatedController, SimulatedScorbot
 
 TO_ENABLE = "n\ng\n" "EMPTY\nCLEAR\nHOME\n" "y\ng\n" "HOME_OK\n"
 AFTER = "y\ng\n" "jaws opened then closed\nnone\nno sounds\nnone\n" "n\ng\n"
-# The Home leaves the gripper at state count 0 (controller count 1); RangeEnc 5000 reads back as 4999.
-OPEN_PLANNED, TRAVEL, CLOSE_PLANNED = 4999, 4999, 5000
+# The Home leaves the gripper at count 0 and RangeEnc 5000 reads back as 5000 (until 2026-11-04 the old
+# decode read both one low on the positive side; docs/requirements/count-frame.md).
+OPEN_PLANNED, TRAVEL, CLOSE_PLANNED = 5000, 5000, 5000
 
 
 class BenchGripperTests(unittest.TestCase):

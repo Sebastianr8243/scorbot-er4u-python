@@ -234,9 +234,9 @@ class SdkGripperTests(SimulatedRobotCase):
         from scorbot import vendor_gripper
         robot = super().robot(**controller_kwargs)
         robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
-        # The Home leaves the gripper at state count 0, which is controller count 1 (state counts read one low
-        # on the positive side), and RangeEnc 5000 reads back as 4999: the move is 4999 either way.
-        self.travel = vendor_gripper.RANGE_ENC - 1
+        # The Home leaves the gripper at count 0 and RangeEnc 5000 reads back as 5000 (until 2026-11-04 the
+        # old decode read both one low on the positive side; docs/requirements/count-frame.md).
+        self.travel = vendor_gripper.RANGE_ENC
         return robot
 
     @staticmethod
@@ -457,7 +457,7 @@ class SdkGripperTests(SimulatedRobotCase):
         robot.open_gripper()
         rows = self.rows()
         start = next(row for row in rows if row["event"] == "gripper_start")
-        self.assertEqual((start["direction"], start["target_counts"]), ("open", self.travel + 1))   # RangeEnc
+        self.assertEqual((start["direction"], start["target_counts"]), ("open", self.travel))   # RangeEnc
         done = next(row for row in rows if row["event"] == "gripper_complete")
         self.assertEqual((done["planned_counts"], done["moved_counts"], done["full_travel"]),
                          (self.travel, self.travel, True))

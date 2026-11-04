@@ -129,8 +129,13 @@ class CodecContractTests(unittest.TestCase):
         self.assertEqual(codec.encode_count(0, 127), b"\x01\x00\xff\xff")
 
     def test_encode_count_rejects_bad_input(self):
-        for count, sign in ((-1, 128), (65536, 128), (True, 128), (1.0, 128),
-                            (0, 0), (0, 129), (0, "0000"), (0, True)):
+        # Any top byte and a jog target's low word past 0..65535 are counts; outside 24 bits they are not.
+        self.assertEqual(codec.encode_count(0, 0), (-0x7FFFFF).to_bytes(4, "little", signed=True))
+        self.assertEqual(codec.encode_count(65535, 255), (0x800000).to_bytes(4, "little", signed=True))
+        self.assertEqual(codec.encode_count(65536, 128), (65537).to_bytes(4, "little", signed=True))
+        self.assertEqual(codec.encode_count(-1, 128), bytes(4))
+        for count, sign in ((65536, 255), (-1, 0), (True, 128), (1.0, 128),
+                            (0, 256), (0, -1), (0, "0000"), (0, True)):
             with self.subTest(count=count, sign=sign), self.assertRaises(ValueError):
                 codec.encode_count(count, sign)
 
@@ -189,8 +194,8 @@ class CodecContractTests(unittest.TestCase):
         missing = dict(good)
         del missing["gripper"]
         unknown = dict(good, wrist=(0, 128))
-        bad_count = dict(good, base=(65536, 128))
-        bad_sign = dict(good, base=(0, 0))
+        bad_count = dict(good, base=(65536, 255))
+        bad_sign = dict(good, base=(0, 256))
         not_pair = dict(good, base=5)
         for joints in (missing, unknown, bad_count, bad_sign, not_pair, {}):
             with self.subTest(joints=joints), self.assertRaises(ValueError):
@@ -415,11 +420,14 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
     def test_step_beyond_domain_is_still_rejected_by_the_codec(self):
         # Until 2026-10-06 legacy suma left 65536 here (a double overflow) and
         # detrans, a pure function that is unchanged, turned that into a silently
-        # wrong count. suma now wraps repeatedly: 65535 + 65536 is 65535 (one 65536 wrap). A step of a
-        # full turn is still outside the codec's domain (real steps are at most
-        # about 100), so the codec refuses it instead of choosing a meaning.
+        # wrong count. Since 2026-11-04 suma only wraps across zero, so on the
+        # '0000' side the low word runs on and countField writes the count
+        # (docs/requirements/count-frame.md). A step of a full turn is still outside
+        # the codec's domain (real steps are at most about 100), so the codec
+        # refuses it instead of choosing a meaning.
         state = self.lib.suma([65535, "0000"], 1, 0, 0, step=65536)
-        self.assertEqual(state, [65535, "0000"])
+        self.assertEqual(state, [131071, "0000"])
+        self.assertEqual(self.lib.countField(*state), (131072).to_bytes(4, "little").hex())
         self.assertEqual(self.lib.detrans(1), "0100")
         self.assertEqual(self.lib.detrans(131070), "ff1f")      # detrans itself is unchanged
         with self.assertRaises(ValueError):

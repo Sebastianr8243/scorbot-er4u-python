@@ -72,10 +72,11 @@ class Counts(unittest.TestCase):
         self.assertEqual((report.warnings, report.notes), ([], []))
 
     def test_counts_unwrap_across_the_zero_seam_and_down(self):
+        # Low words wrap every 65536 (docs/requirements/count-frame.md): 65534 -> 3 is 5 counts.
         report = hs.analyse(walk("elbow", [65530, 65534, 3, 8]))
-        self.assertEqual(report.joints["elbow"], hs.JointSweep(0, 13, 13, 5, None))
+        self.assertEqual(report.joints["elbow"], hs.JointSweep(0, 14, 14, 5, None))
         report = hs.analyse(walk("elbow", [5, 2, 65533]))
-        self.assertEqual(report.joints["elbow"], hs.JointSweep(-7, 0, -7, 4, None))
+        self.assertEqual(report.joints["elbow"], hs.JointSweep(-8, 0, -8, 5, None))
 
     def test_counts_per_degree_is_end_over_the_angle_change_and_keeps_its_sign(self):
         report = hs.analyse(walk("shoulder", [0, 50, 100]), angles={"shoulder": (10, 20)})

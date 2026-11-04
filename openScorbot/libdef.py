@@ -144,7 +144,7 @@ def get_encoder(buffer, media):
 	msg = ''
 	vec_pos = VEC_POS
 	for i in range(len(vec_pos)):
-		msg += countField(media[i], get_signo((vec_pos[i]+2),buffer))
+		msg += slotHex(buffer[vec_pos[i]+2], media[i])
 	return msg
 
 
@@ -160,24 +160,27 @@ def get_encoder(buffer, media):
 def get_hold(buffer):
 	msg = ''
 	for pos in VEC_POS:
-		get_signo(pos+2, buffer)
-		count = int.from_bytes(bytes(buffer[pos:pos+3]), 'little') - 0x7FFFFF
-		msg += count.to_bytes(4, 'little', signed=True).hex()
+		msg += slotHex(buffer[pos+2], transform([buffer[pos], buffer[pos+1]]))
 	return msg
 
 
-# One joint's setpoint slot from a low word and its sign word (the legacy pair that media, get_signo
-# and suma/resta keep): the controller count raw24 - 0x7FFFFF as a signed 32-bit count, as get_hold
-# writes it. Sign word '0000' is the IN sign byte 128 (count = low + 1), 'ffff' is 127
-# (count = low - 65535). Echoing the low word and sign word sent every count one low
-# (docs/requirements/count-frame.md). Unverified on the arm.
+# One joint's setpoint slot: the controller count raw24 - 0x7FFFFF, with raw24 = top byte * 65536 +
+# low word, as a signed 32-bit count. The top byte is what the legacy code calls the sign byte (128
+# is count low + 1, 127 is low - 65535, the others are counts past +/-65535). Echoing the low word
+# and sign word sent every count one low (docs/requirements/count-frame.md). Unverified on the arm.
 #
-# low   -> Low word, 0..65535 (a suma above 65535 on the '0000' side is past this range)
-# signo -> '0000' or 'ffff'
+# top -> The reply's byte after the low word, 0..255
+# low -> Low word; a jog target may run past 0..65535 (suma/resta), which is the same count
+#
+def slotHex(top, low):
+	return (top * 65536 + low - 0x7FFFFF).to_bytes(4, 'little', signed=True).hex()
+
+
+# slotHex for the legacy pair of a low word and its sign word ('0000' for 128, 'ffff' for 127) that
+# media, get_signo and suma/resta keep.
 #
 def countField(low, signo):
-	count = low + 1 if signo == '0000' else low - 65535
-	return count.to_bytes(4, 'little', signed=True).hex()
+	return slotHex(128 if signo == '0000' else 127, low)
 
 
 # Message library shown in the graphical interface after successful actions.
@@ -378,16 +381,16 @@ def stopMov(b_1, media, epout, epin, buffer, write, read):
 
 	return [b_1, buffer, media]
 
-# Builds one joint's setpoint field from a signed count: the value in the
-# legacy unsigned form plus its sign word, as suma/resta produce it.
+# Builds one joint's setpoint field from a controller count (scorbot.state's signed_encoder_counts):
+# the count as a signed 32-bit slot, over the 24-bit range the controller reports
+# (docs/requirements/count-frame.md). Until 2026-11-04 it wrote the old decode's low word and sign
+# word, one count low.
 #
-# valor -> Signed encoder count, -65535..65535
+# valor -> Controller count, -0x7FFFFF..0x800000
 def setpointField(valor):
-	if valor < -65535 or valor > 65535:
+	if valor < -0x7FFFFF or valor > 0x800000:
 		raise ValueError("Setpoint out of range: {}".format(valor))
-	if valor < 0:
-		return detrans(valor + 65535) + 'ffff'
-	return detrans(valor) + '0000'
+	return valor.to_bytes(4, 'little', signed=True).hex()
 
 # Selects the standard structure for sending positions to the controller according to
 # the received command.
@@ -565,17 +568,16 @@ def get_signo(pos, buffer):
 # vel      -> Speed at which the summed value should increase
 # ite      -> Total number of iterations to be performed
 #
-## NOTE: If the result of the addition exceeds 65535, the encoder is treated as having
-## reached the maximum resolution and the summed value becomes the difference between the
-## previous added result and the maximum. In addition, the sign must change.
+## NOTE: The pair is a low word and its sign word, the count countField writes. Only a crossing of
+## zero moves it to the other sign word (docs/requirements/count-frame.md).
 #
 def suma(dato_in,cont,vel,ite,step=None):
 	dato_in[0] += incremento(cont,vel,ite) if step is None else step
-	# A step of a full turn or more wraps more than once (fixed 2026-10-06); a real
-	# step wraps at most once, so nothing sent for a real move changes.
 	# Crossing zero ('ffff' low 65535 is count 0, '0000' low 0 is count 1) moves the low word by
 	# 65536, so the count goes on by exactly the step (countField). It was 65535, which skipped a count.
-	while dato_in[0] > 65535:
+	# On the '0000' side the low word runs past 65535 (count 65537 and up): wrapping it there jumped
+	# the target back 65536 counts.
+	if dato_in[0] > 65535 and dato_in[1] == 'ffff':
 		dato_in[0] -= 65536
 		dato_in[1] = '0000'
 	return dato_in
@@ -590,16 +592,12 @@ def suma(dato_in,cont,vel,ite,step=None):
 # vel      -> Speed at which the subtracted value should decrease
 # ite      -> Total number of iterations to be performed
 #
-## NOTE: If the result of the subtraction is lower than the minimum of 0, the encoder is
-## treated as having reached its minimum resolution and the subtraction result becomes the
-## difference between the maximum and the previous subtraction result. In addition, the
-## sign must change.
+## NOTE: As in suma, only a crossing of zero changes the sign word.
 ###
 def resta(dato_in,cont,vel,ite,step=None):
 	dato_in[0] -= incremento(cont,vel,ite) if step is None else step
-	# As in suma: wraps more than once for a step of a full turn or more (fixed 2026-10-06).
-	# Crossing zero moves the low word by 65536, as in suma.
-	while dato_in[0] < 0:
+	# Crossing zero moves the low word by 65536, as in suma; on the 'ffff' side it runs below 0.
+	if dato_in[0] < 0 and dato_in[1] == '0000':
 		dato_in[0] = 65536 + dato_in[0]
 		dato_in[1] = 'ffff'
 	return dato_in
