@@ -531,6 +531,26 @@ class SdkStreamTests(SimulatedRobotCase):
         self.assertIn("emergency", str(caught.exception))
         self.assert_latched(robot)
 
+    def test_r6_collision_flag_on_a_streamed_motor_latches_a_fault(self):
+        robot = self.robot()
+        stream = robot.start_stream()
+        self.assertTrue(self.running(stream))
+        robot.sim.stream_collision_bits = 0x02          # shoulder
+        deadline = time.monotonic() + 2
+        while robot._fault is None and time.monotonic() < deadline:
+            time.sleep(0.002)
+        self.assertIn("collision flag is set for shoulder", robot._fault or "")
+        self.assert_latched(robot)
+        with self.assertRaises(ScorbotError):
+            stream.close()
+
+    def test_r6_collision_flag_of_a_motor_not_streamed_is_ignored(self):
+        robot = self.robot()
+        robot.sim.stream_collision_bits = 0x20 | 0x18   # gripper and the wrist, not streamed by default
+        with robot.start_stream() as stream:
+            self.assertTrue(self.follow(stream, robot, {"base": 40}))
+        self.assertIsNone(robot._fault)
+
     def test_r6_emergency_bit_check_can_be_explicitly_disabled_on_the_simulator(self):
         robot = self.robot()
         robot.sim.stream_emergency = True

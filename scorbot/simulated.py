@@ -177,6 +177,7 @@ class SimulatedController:
         self.stream_error_word = 0
         self.stream_wrist_error_word = 0      # the same, on the two wrist motors' error words
         self.stream_emergency = False
+        self.stream_collision_bits = 0        # IN byte 59 during a stream, one bit per motor
         self.stream_sent: list[tuple] = []
         # Vendor-home model (modeled, not measured): the home runs scorbot.vendor_home against
         # scorbot.vendor_home_model.Plant, packet by packet, as libcomm.vendor_home_run would.
@@ -498,6 +499,7 @@ class SimulatedController:
                 with self._lock:
                     reply = bytearray(encode_packet(self.counts, self.switch_bits))
                     reply[2] |= 1 if self.stream_emergency else 0
+                    reply[59] = self.stream_collision_bits
                     for offset in ERROR_OFFSETS[:len(STREAM_MOTORS)]:
                         reply[offset:offset + 2] = self.stream_error_word.to_bytes(2, "little")
                     for offset in ERROR_OFFSETS[len(STREAM_MOTORS):len(STREAM_MOTORS) + 2]:

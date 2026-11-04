@@ -12,6 +12,7 @@ import queue
 import sys
 import threading
 import traceback
+import warnings
 
 from . import joint_move, limits, nominal, vendor_model
 from .calibration import load_calibration, signed_count_delta
@@ -64,6 +65,17 @@ class _HandshakeOutputEndpoint:
         if data[4:7] == b"\x42\xff\x01":
             self.motors_may_be_on = True
         return self._endpoint.write(data, timeout)
+
+
+def slow_sleep_warning(platform: str = sys.platform, version=sys.version_info) -> str | None:
+    """Why the legacy pacing runs slow here, or None. On Windows before Python 3.11 every
+    ``time.sleep`` rounds up to the 15.6 ms system tick: the legacy layer's 5 ms read sleep
+    then takes about 16 ms, and a 24 ms stream period overshoots. Slower, never faster."""
+    if platform == "win32" and tuple(version[:2]) < (3, 11):
+        return (f"Python {version[0]}.{version[1]} on Windows: time.sleep rounds up to about 15.6 ms, "
+                "so the legacy read pacing and the stream period run slow. Use Python 3.11 or newer "
+                "(the bench kit ships 3.13).")
+    return None
 
 
 class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
@@ -206,6 +218,10 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             raise ScorbotError("Create a new Scorbot instance after a fault")
         self._cancel_event.clear()
         self._stop_event.clear()
+        slow = slow_sleep_warning()
+        if slow:
+            warnings.warn(slow, RuntimeWarning, stacklevel=2)
+            self._record("slow_sleep", message=slow)
         usb = self._import_usb() if self.transport == "pyusb" else None
 
         self._legacy("conf").setup()

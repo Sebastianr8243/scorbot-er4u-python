@@ -185,7 +185,9 @@ class PolicyArm:
             self._refuse_teach_mode()
             self.robot.vendor_home(operator_at_stop=operator_at_stop, jaws_empty=jaws_empty,
                                    wrist_clear=wrist_clear)
-            self._home = dict(self.robot.get_state().encoder_counts)
+            # The stream measures from the session home vendor Home recorded; a second read here
+            # could differ by the counts the arm settled in between.
+            self._home = dict(self.robot._home_counts)
             self._per_degree = {m: self.robot.preview_jog(m, 1.0)["motor_count_deltas"][m]
                                 for m in MOTORS}
             # The speed step's counts per degree. A wrist motor moves this much for a degree of
