@@ -203,7 +203,7 @@ flowchart TD
     H -->|no| J
     J --> K["record motion_start, _command with order, speed, degrees"]
     K --> L["_commands queue, command worker, move_hips or shoulder or elbow"]
-    L --> M["USB set_msg loop, legacy MAX_ERROR check"]
+    L --> M["USB set_msg loop, vendor ImpactDetect check (PL98)"]
     M --> N["_results: 0 or error code"]
     N -->|nonzero or timeout| FL2["latch fault, disable attempt"]
     N -->|0| O["_motion_state after packet_index: fresh read-back"]

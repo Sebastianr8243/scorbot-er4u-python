@@ -24,7 +24,7 @@ from .torque import TorqueMixin
 from .stream_control import StreamMixin
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
-from .state import JOINTS, RobotState, decode_state
+from .state import ERROR_OFFSETS, JOINTS, RobotState, decode_state, impact_motors, signed_error_word
 
 
 def _loggable(payload):
@@ -159,7 +159,10 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         # _homed (a fault, a lost link) also ends it.
         self._gripper_homed = False
         self._vendor_joint_target = None   # () after vendor Home; otherwise the last completed target, in radians
-        self._vendor_joint_hold = None     # opt-in idle setpoint bytes; the legacy default still follows encoders
+        self._vendor_joint_hold = None     # idle setpoint bytes after a vendor joint move; wins over _idle_hold
+        # Idle setpoint bytes the last legacy order left (jog target, stop or enable snapshot; LEDGER.md PL98).
+        # None: the idle messages follow the encoders (motors off, after a fault, homing).
+        self._idle_hold = None
         self._fault = None
 
     def __enter__(self):
@@ -338,6 +341,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         self._home_counts = None
         self._vendor_joint_target = None
         self._vendor_joint_hold = None
+        self._idle_hold = None
         self._reset_prehome()
 
     def _sync_dead(self) -> bool:
@@ -354,14 +358,53 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
 
     def _run_sync_worker(self, legacy_sync, *args):
         try:
-            legacy_sync.syncro(*args, lambda: self._vendor_joint_hold)
+            legacy_sync.syncro(*args, self._idle_setpoint, self._idle_reply)
         except Exception as exc:
             self._worker_died("sync", exc)
+
+    def _set_idle_hold(self, hold: bytes | None) -> None:
+        """The command worker's hand-off after each order: the setpoint bytes idle messages hold, or None."""
+        self._idle_hold = None if self._fault else hold   # a latched session follows the encoders
+
+    def _idle_setpoint(self) -> bytes | None:
+        """What the idle message carries instead of the encoders: the vendor joint hold, else the legacy hold.
+
+        USBC.dll's idle message keeps its setpoints, so the arm holds the last commanded target; after a stop
+        or an enable they are the measured counts, taken once (LEDGER.md PL98). Unverified on the arm.
+        """
+        hold = self._vendor_joint_hold
+        return hold if hold is not None else self._idle_hold
+
+    def _idle_reply(self, reply: bytes) -> None:
+        """The DLL's impact check on an idle reply (LEDGER.md PL98). Runs on the sync worker; never raises.
+
+        Motors on and an arm motor's signed error word strictly above its ImpactDetect: latch error 201 and
+        queue motors off, as a stream fault does. The gripper is left out: Stack 2 switches gripper control off
+        after every gripper move, and a grasp leaves a large error word. Never run on the arm.
+        """
+        try:
+            if self._enabled is not True or self._fault:
+                return
+            hit = [name for name in impact_motors(reply) if name != "gripper"]
+            if not hit:
+                return
+            words = {name: signed_error_word(int.from_bytes(reply[offset:offset + 2], "little"))
+                     for name, offset in zip(JOINTS, ERROR_OFFSETS) if name in hit}
+            self._latch_fault(f"Impact while holding (vendor error 201) on {', '.join(hit)}: error word {words} "
+                              "above ImpactDetect", keep_first=True)
+            if self._link_alive():
+                self._commands.put([16, 1, 1])  # Runs after the idle message; never an emergency stop.
+            fault = self._fault
+            threading.Thread(target=self._record_quietly, args=("idle_impact",), kwargs={"error": fault},
+                             daemon=True, name="scorbot-impact-log").start()
+        except Exception:
+            pass  # the sync worker must keep sending idle messages
 
     def _run_command_worker(self, *args):
         *legacy_args, legacy_comm = args
         try:
-            legacy_comm.execute(*legacy_args, self._cancel_event, self._stop_event, self._command_waiting)
+            legacy_comm.execute(*legacy_args, self._cancel_event, self._stop_event, self._command_waiting,
+                                self._set_idle_hold)
         except Exception as exc:
             self._worker_died("command", exc)
         finally:
@@ -558,9 +601,9 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         if self._link_alive():
             self._commands.put([16, 1, 1])
 
-    def _record_quietly(self, event: str) -> None:
+    def _record_quietly(self, event: str, **fields) -> None:
         try:
-            self._record(event)
+            self._record(event, **fields)
         except Exception:
             pass  # a log failure must not hide the stop, which already happened
 

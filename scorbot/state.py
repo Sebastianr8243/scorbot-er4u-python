@@ -9,6 +9,11 @@ ENCODER_OFFSETS = (19, 24, 29, 34, 39, 44)
 ERROR_OFFSETS = (22, 27, 32, 37, 42, 47)
 # The last field decoded is the gripper error pair at bytes 47-48.
 PACKET_MIN_LENGTH = ERROR_OFFSETS[-1] + 2
+# USBC.dll's impact check (docs/protocol/LEDGER.md PL98): on every reply while control is on, an axis
+# whose error word, read as signed 16-bit, has an absolute value strictly above its ImpactDetect
+# (ER4AxN.ini) is error 201. openScorbot/libdef.py IMPACT_DETECT is the same table (a test keeps it so).
+IMPACT_DETECT_COUNTS = {"base": 70, "shoulder": 70, "elbow": 70, "wrist_motor_1": 70, "wrist_motor_2": 70,
+                        "gripper": 300}
 # Legacy home-switch bits in packet byte 5 (libdef.get_switch). A pressed switch sets its
 # bit and this order matches the arm (ULPGC thesis pp. 55-56, docs/protocol/ULPGC_THESIS_FINDINGS.md).
 HOME_SWITCH_BITS = {"base": 1, "shoulder": 2, "elbow": 4, "wrist_pitch": 8, "wrist_roll": 16}
@@ -39,6 +44,20 @@ def collision_motors(packet: bytes) -> list[str]:
         return []
     flag = packet[COLLISION_OFFSET]
     return [name for bit, name in enumerate(COLLISION_MOTORS) if flag & (1 << bit)]
+
+
+def signed_error_word(raw: int) -> int:
+    """A 16-bit controller error word as the DLL reads it: signed (``MOVSX`` at ``0x1003db4d``)."""
+    return raw - 0x10000 if raw >= 0x8000 else raw
+
+
+def impact_motors(packet: bytes) -> list[str]:
+    """The motors whose error word is past ``IMPACT_DETECT_COUNTS``; empty for a packet too short to hold them."""
+    if len(packet) < PACKET_MIN_LENGTH:
+        return []
+    return [name for name, offset in zip(JOINTS, ERROR_OFFSETS)
+            if abs(signed_error_word(int.from_bytes(packet[offset:offset + 2], "little")))
+            > IMPACT_DETECT_COUNTS[name]]
 
 
 def teach_mode_after(teach: bool, packet: bytes) -> bool:

@@ -41,12 +41,12 @@ class FollowingController:
     legacy settle loop converges). The reply reports where the arm is.
     ``stop_after`` sets the stop event while the message with that 1-based
     index is being written. ``error_at`` = (message index, joint index): from
-    that message on, the reply reports a position error of ``ERROR_WORD`` (at
-    or above ``MAX_ERROR``) for that joint. ``reported`` keeps the positions
-    each reply carried.
+    that message on, the reply reports a position error of ``ERROR_WORD`` (above
+    the vendor's ImpactDetect, 70, docs/protocol/LEDGER.md PL98) for that joint.
+    ``reported`` keeps the positions each reply carried.
     """
 
-    ERROR_WORD = 40
+    ERROR_WORD = 71
 
     def __init__(self, stop_event=None, stop_after=None, rate=None, error_at=None, impact_at=None,
                  impact_bits=0x01, steady_bits=0):
