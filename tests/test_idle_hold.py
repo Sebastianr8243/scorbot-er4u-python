@@ -12,8 +12,10 @@ import threading
 import unittest
 from unittest import mock
 
-from scorbot import Scorbot
-from scorbot.state import JOINTS
+from scorbot import Scorbot, ScorbotError
+from scorbot.calibration import Calibration, JointCalibration
+from scorbot.lab.dry_link import DryLink, DryScorbot
+from scorbot.state import JOINTS, decode_state
 
 try:
     from tests.test_software_stop import START, FollowingController
@@ -68,6 +70,7 @@ class LegacyIdleHoldTests(unittest.TestCase):
     def run_order(self, controller, order, *, media=None, stop_event=None):
         """Run one order through execute; returns (hold the order left, media it put back)."""
         cola_sync, cola_orden, cola_read, results = queue.Queue(), queue.Queue(), queue.Queue(), queue.Queue()
+        self.results = results
         cola_sync.put(1)
         cola_read.put(list(media or [START] * len(JOINTS)))
         cola_orden.put(order)
@@ -131,6 +134,21 @@ class LegacyIdleHoldTests(unittest.TestCase):
         for packet in self.idle(controller, media, hold):
             self.assertEqual(packet[12:36], hold)
 
+    def test_settle_exhaustion_stops_at_measured_counts_and_keeps_result_2(self):
+        for order in (5, 6, 9, 12):
+            with self.subTest(order=order):
+                controller = DriftingController(rate=0)  # reports no impact but never reaches the target
+                hold, media = self.run_order(controller, [order, 10, 1.0])
+                self.assertEqual(list(self.results.queue), [2], "settle failure must not become STOPPED")
+                measured = b"".join(START.to_bytes(2, "little") + b"\x00\x00" for _ in JOINTS)
+                self.assertEqual(hold, measured, "never publish the unreachable jog target")
+                self.assertEqual(media, [START] * len(JOINTS))
+                self.assertEqual(controller.commands()[-4:], [0x47, 0x4F, 0x73, 0x42])
+                for packet in controller.packets[-4:]:
+                    self.assertEqual(packet[12:36], measured)
+                for packet in self.idle(controller, media, hold):
+                    self.assertEqual(packet[12:36], measured)
+
     def test_enable_snapshots_the_measured_counts_not_the_smoothed_ones(self):
         controller = DriftingController()
         stale = [START - 100] * len(JOINTS)      # the smoothed vector lags; the snapshot must not
@@ -145,6 +163,19 @@ class LegacyIdleHoldTests(unittest.TestCase):
                 hold, _ = self.run_order(DriftingController(), order)
                 self.assertIsNone(hold)
 
+    def test_exit_clears_the_worker_hold_callback(self):
+        controller = DriftingController()
+        cola_sync, cola_orden, cola_read, results = queue.Queue(), queue.Queue(), queue.Queue(), queue.Queue()
+        cola_sync.put(1)
+        cola_read.put([START] * len(JOINTS))
+        cola_orden.put([self.exit, 1, 1])
+        self.comm.libdef.ultimo_hold = b"\x01" * 24
+        holds = []
+        self.comm.execute(cola_sync, cola_orden, cola_read, controller, controller, bytearray(controller.reply),
+                          results, None, None, None, holds.append)
+        self.assertEqual(holds, [None])
+        self.assertIsNone(self.comm.libdef.ultimo_hold)
+
     def test_a_jog_hold_does_not_survive_into_the_next_order(self):
         controller = DriftingController()
         self.run_order(controller, SHOULDER_JOG)
@@ -153,6 +184,98 @@ class LegacyIdleHoldTests(unittest.TestCase):
 
 
 class RobotIdleHoldTests(unittest.TestCase):
+    @unittest.skipUnless(find_spec("usb"), "PyUSB is needed to import the legacy modules")
+    def test_disconnect_clears_all_hold_caches_even_without_a_device(self):
+        robot = Scorbot()
+        robot._legacy("conf").setup()
+        libdef = robot._legacy("libdef")
+        robot._idle_hold, robot._vendor_joint_hold = b"\x01" * 24, b"\x02" * 32
+        libdef.ultimo_hold = b"\x03" * 24
+        robot.disconnect()
+        self.assertIsNone(robot._idle_hold)
+        self.assertIsNone(robot._vendor_joint_hold)
+        self.assertIsNone(libdef.ultimo_hold)
+
+    @unittest.skipUnless(find_spec("usb"), "PyUSB is needed to import the legacy modules")
+    def test_reconnect_clears_holds_before_the_handshake_and_workers(self):
+        robot = DryScorbot()
+        robot._legacy("conf").setup()
+        sync, libdef = robot._legacy("libsync"), robot._legacy("libdef")
+        handshake, idle_setpoint = sync.msg_start, robot._idle_setpoint
+        at_handshake, idle_holds = [], []
+
+        def start(*args):
+            at_handshake.append((robot._idle_hold, robot._vendor_joint_hold, libdef.ultimo_hold))
+            return handshake(*args)
+
+        def hold():
+            value = idle_setpoint()
+            idle_holds.append(value)
+            return value
+
+        with mock.patch("time.sleep"), mock.patch.object(sync, "msg_start", side_effect=start), \
+                mock.patch.object(robot, "_idle_setpoint", side_effect=hold):
+            for _ in range(2):
+                # Seed each cache independently of EXIT's cleanup to exercise startup too.
+                robot._idle_hold, robot._vendor_joint_hold = b"\x01" * 24, b"\x02" * 32
+                libdef.ultimo_hold = b"\x03" * 24
+                robot.dry_link = DryLink()
+                try:
+                    robot.connect()
+                    robot._set_idle_hold(b"\x04" * 24)
+                    robot._vendor_joint_hold = b"\x05" * 32
+                    libdef.ultimo_hold = b"\x06" * 24
+                finally:
+                    robot.disconnect()
+                self.assertIsNone(robot._idle_hold)
+                self.assertIsNone(robot._vendor_joint_hold)
+                self.assertIsNone(libdef.ultimo_hold)
+        self.assertEqual(at_handshake, [(None, None, None)] * 2)
+        self.assertTrue(idle_holds)
+        self.assertNotIn(b"\x01" * 24, idle_holds)
+        self.assertNotIn(b"\x02" * 32, idle_holds)
+
+    def calibration_fault(self, *, jog):
+        robot = Scorbot()
+        robot._enabled = robot._homed = True
+        robot._home_counts = dict.fromkeys(JOINTS, START)
+        robot._vendor_joint_target = (0.0,) * 5
+        robot._idle_hold, robot._vendor_joint_hold = b"\x01" * 24, b"\x02" * 32
+        robot._prehome_travel["base"] = 1.0
+        robot._calibration = Calibration("fake", "0" * 64, {"shoulder": JointCalibration(
+            "shoulder", START, 0.0, 100.0, -10.0, 10.0, 5, 1.0, 1.0)})
+        controller = FollowingController()
+        controller.position[1] = START + 32767  # ambiguous encoder distance from the session home
+        controller._report()
+        state = decode_state(bytes(controller.reply), connected=True, enabled=True, homed=True, fault=None)
+        with mock.patch.object(robot, "_motion_state", return_value=state):
+            with self.assertRaisesRegex(ScorbotError, "Calibrated state invalid"):
+                if jog:
+                    robot.jog_joint("shoulder", 1.0)
+                else:
+                    robot.get_joint_angles()
+        self.assertTrue(robot._commands.empty(), "calibration failed before any motion was queued")
+        self.assertIsNone(robot._idle_setpoint())
+        self.assertIsNone(robot._idle_hold)
+        self.assertIsNone(robot._vendor_joint_hold)
+        self.assertIsNone(robot._vendor_joint_target)
+        self.assertIsNone(robot._enabled)
+        self.assertFalse(robot._homed)
+        self.assertIsNone(robot._home_counts)
+        self.assertEqual(robot._prehome_travel, dict.fromkeys(robot._prehome_travel, 0.0))
+
+    def test_jog_calibration_error_latches_the_fault_and_drops_holds(self):
+        self.calibration_fault(jog=True)
+
+    def test_angle_calibration_error_latches_the_fault_and_drops_holds(self):
+        self.calibration_fault(jog=False)
+
+    def test_faulted_idle_setpoint_ignores_a_late_hold(self):
+        robot = Scorbot()
+        robot._latch_fault("test")
+        robot._idle_hold, robot._vendor_joint_hold = b"\x01" * 24, b"\x02" * 32
+        self.assertIsNone(robot._idle_setpoint())
+
     def test_the_worker_hold_reaches_the_idle_hook_and_the_vendor_hold_wins(self):
         robot = Scorbot()
         seen = {}

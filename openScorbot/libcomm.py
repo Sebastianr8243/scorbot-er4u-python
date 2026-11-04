@@ -122,6 +122,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 			print("Motion feedback loop failed")
 			cola_orden.put(2)
 			logging.warning(libdef.error_msg(2))
+			stopped = fault = True
 			break
 		cont += 1
 
@@ -192,6 +193,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(2))
+			stopped = fault = True
 			break
 		cont += 1
 
@@ -263,6 +265,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(2))
+			stopped = fault = True
 			break
 		cont += 1
 
@@ -366,6 +369,7 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(2))
+			stopped = fault = True
 			break
 		cont += 1
 
@@ -704,7 +708,7 @@ def vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 HOLD_ORDERS = (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 17, STREAM)
 KEEP_ORDERS = (VENDOR_IO, VENDOR_TORQUE)
 
-# on_hold -> Optional callable; after each order (except EXIT) it is given the setpoint bytes the
+# on_hold -> Optional callable; after each order it is given the setpoint bytes the
 #            idle messages must hold, or None to follow the encoders. Not called after 24 and 25.
 def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 		cola_result=None, cancel_event=None, stop_event=None, command_waiting=None, on_hold=None):
@@ -736,7 +740,10 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 					home = False
 					posRef = conf.readData("general", "posRef")
 				libdef.ultimo_hold = None
-				if orden == 4 or orden == 5:
+				# A fault may arrive after the caller queued motion, while sync still owns the byte.
+				if cancel_event is not None and cancel_event.is_set() and orden not in (16, EXIT):
+					cola_result.put(1)
+				elif orden == 4 or orden == 5:
 					b_1 = move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite, stop_event)
 				elif orden == 6 or orden == 7:
 					b_1 = move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite, stop_event)
@@ -778,6 +785,8 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 				elif orden == EXIT:
 					b_1= motors_off(b_1,epout,epin,buffer,cola_read)
 					scorbotoff(b_1,epout,epin,buffer,cola_read)
+					if on_hold is not None:
+						on_hold(None)
 					cola_sync.put(EXIT)
 					cola_result.put(DONE)
 					break

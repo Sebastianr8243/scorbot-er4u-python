@@ -219,6 +219,10 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             raise ScorbotError("Already connected")
         if self._fault is not None:
             raise ScorbotError("Create a new Scorbot instance after a fault")
+        self._clear_idle_holds()
+        # Disconnect can leave an EXIT marker and the previous encoder mean on these queues.
+        self._sync = queue.Queue()
+        self._reads = queue.Queue()
         self._cancel_event.clear()
         self._stop_event.clear()
         slow = slow_sleep_warning()
@@ -362,6 +366,13 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         except Exception as exc:
             self._worker_died("sync", exc)
 
+    def _clear_idle_holds(self) -> None:
+        self._idle_hold = None
+        self._vendor_joint_hold = None
+        legacy = sys.modules.get("libdef")
+        if legacy is not None:
+            legacy.ultimo_hold = None
+
     def _set_idle_hold(self, hold: bytes | None) -> None:
         """The command worker's hand-off after each order: the setpoint bytes idle messages hold, or None."""
         self._idle_hold = None if self._fault else hold   # a latched session follows the encoders
@@ -372,6 +383,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         USBC.dll's idle message keeps its setpoints, so the arm holds the last commanded target; after a stop
         or an enable they are the measured counts, taken once (LEDGER.md PL98). Unverified on the arm.
         """
+        if self._fault:
+            return None
         hold = self._vendor_joint_hold
         return hold if hold is not None else self._idle_hold
 
@@ -392,6 +405,9 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                      for name, offset in zip(JOINTS, ERROR_OFFSETS) if name in hit}
             self._latch_fault(f"Impact while holding (vendor error 201) on {', '.join(hit)}: error word {words} "
                               "above ImpactDetect", keep_first=True)
+            self._cancel_event.set()
+            with self._stop_lock:
+                self._stop_event.set()
             if self._link_alive():
                 self._commands.put([16, 1, 1])  # Runs after the idle message; never an emergency stop.
             fault = self._fault
@@ -472,10 +488,11 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                 self._record("command_timeout", payload=_loggable(payload))
                 raise ScorbotError(self._fault) from exc
             except ScorbotError as exc:
-                self._latch_fault(str(exc))
+                already_faulted = self._fault is not None
+                self._latch_fault(str(exc), keep_first=True)
                 # A crashed worker may still look alive while it exits, but it will
                 # never answer a disable; waiting for one only delays the fault.
-                if (payload[0] != 16 and not isinstance(exc, _WorkerCrashed)
+                if (not already_faulted and payload[0] != 16 and not isinstance(exc, _WorkerCrashed)
                         and self._link_alive()):
                     self._commands.put([16, 1, 1])
                     try:
@@ -730,9 +747,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                         before.encoder_counts[calibration.encoder],
                         self._home_counts[calibration.encoder])
                 except ValueError as exc:
-                    self._fault = f"Calibrated state invalid: {exc}"
-                    self._homed = False
-                    self._home_counts = None
+                    self._latch_fault(f"Calibrated state invalid: {exc}")
                     raise ScorbotError(self._fault) from exc
                 if (not calibration.soft_min_deg <= current_angle <= calibration.soft_max_deg
                         or not calibration.soft_min_deg <= current_angle + delta_degrees <= calibration.soft_max_deg):
@@ -833,9 +848,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                         state.encoder_counts[calibration.encoder],
                         self._home_counts[calibration.encoder])
             except ValueError as exc:
-                self._fault = f"Calibrated state invalid: {exc}"
-                self._homed = False
-                self._home_counts = None
+                self._latch_fault(f"Calibrated state invalid: {exc}")
                 self._record("calibration_fault", error=self._fault)
                 raise ScorbotError(self._fault) from exc
             return result
@@ -948,6 +961,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             return achieved
 
     def disconnect(self):
+        self._clear_idle_holds()
         if self._device is None:
             return
         self._abandon_stream()
@@ -971,6 +985,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                 raise ScorbotError(
                     "Sync worker is still active; USB resources remain open. "
                     "Use the physical stop if motor state is uncertain")
+        self._clear_idle_holds()
         if self._link is not None:
             self._link.close()
             self._link = None
