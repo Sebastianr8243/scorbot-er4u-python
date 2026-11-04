@@ -32,4 +32,4 @@ Checks run on simulator logs only; every printed number is a lead, and physical-
 
 ## Change log
 - 2026-11-04 Baseline from issue #134.
-- 2026-11-04 After the Codex review: largest value over every file (rows 2, 8), runs that failed before their plan are reviewed, each controller log classified real/simulated on its own.
+- 2026-11-04 After review: largest value over every file (rows 2, 8), runs that failed before their plan are reviewed, each controller log classified real/simulated on its own.
