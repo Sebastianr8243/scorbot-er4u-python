@@ -30,11 +30,13 @@ COLLISION_BYTE = 59
 
 
 class Arm:
-    """Both endpoints of the fake controller. ``follow``: track the setpoints; ``fault_at``: from that
-    write on, report ``collision`` in byte 59 and ``error`` on axis ``error_axis``."""
+    """Both endpoints of the fake controller. ``follow``: track the setpoints, ``short`` counts below them
+    on axis ``short_axis``; ``fault_at``: from that write on, report ``collision`` in byte 59 and ``error``
+    on axis ``error_axis``."""
 
-    def __init__(self, counts=START, follow=True, fault_at=None, collision=0, error_axis=None, error=0):
-        self.counts, self.follow = list(counts), follow
+    def __init__(self, counts=START, follow=True, short_axis=None, short=0, fault_at=None, collision=0,
+                 error_axis=None, error=0):
+        self.counts, self.follow, self.short_axis, self.short = list(counts), follow, short_axis, short
         self.fault_at, self.collision, self.error_axis, self.error = fault_at, collision, error_axis, error
         self.sent = []
         self.reply = self._reply(bytes(64))
@@ -57,6 +59,8 @@ class Arm:
         region = data[12:36]
         if self.follow and data[4] == 0x0D and any(region):
             self.counts = [int.from_bytes(region[i:i + 4], "little", signed=True) for i in range(0, 24, 4)]
+            if self.short_axis is not None:
+                self.counts[self.short_axis] -= self.short
         self.reply = self._reply(data)
         return len(data)
 
@@ -182,6 +186,11 @@ FLOWS = {
     # An arm that does not follow: the settle loop gives up after 100 messages (result 2).
     "jog_5_no_settle": (jog(5, 1.5, 10), lambda: Arm(follow=False), 10),
     "jog_10_no_settle": (jog(10, 6, 10), lambda: Arm(follow=False), 10),
+    # An arm that stops short: 20 counts from the target still closes, 21 does not.
+    "jog_5_short_20": (jog(5, 1.5, 10), lambda: Arm(short_axis=0, short=20), 10),
+    "jog_5_short_21": (jog(5, 1.5, 10), lambda: Arm(short_axis=0, short=21), 10),
+    "jog_12_short_20": (jog(12, 6, 10), lambda: Arm(short_axis=4, short=20), 10),
+    "jog_12_short_21": (jog(12, 6, 10), lambda: Arm(short_axis=4, short=21), 10),
     # A start outside the sign-byte range: the jog is refused after its open message (CT17).
     "jog_6_refused": (jog(6, 2, 10), lambda: Arm(counts=[50, 70000, -800, 300, -300, 0]), 10),
     "gripper_open": (clamp(14), None, 10),
@@ -241,7 +250,10 @@ class LegacyGoldenTests(unittest.TestCase):
                      "jog_6_refused", "vendor_home_failed"):
             self.assertEqual(golden(name)["results"], [1], name)
         self.assertEqual(golden("jog_6_other_bit")["results"], [])
-        self.assertEqual(golden("jog_5_no_settle")["results"], [2])
+        for name in ("jog_5_no_settle", "jog_5_short_21", "jog_12_short_21"):
+            self.assertEqual(golden(name)["results"], [2], name)
+        for name in ("jog_5_short_20", "jog_12_short_20"):
+            self.assertEqual(golden(name)["results"], [], name)
 
 
 if __name__ == "__main__":
