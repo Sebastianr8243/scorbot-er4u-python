@@ -138,6 +138,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         self._prehome_travel = dict.fromkeys(joint_move.JOINTS, 0.0)
         self._prehome_run = None
         self._motion_lock = threading.RLock()
+        self._move_thread = None    # the thread whose joint move is on the wire (see _refuse_if_moving)
         self._state_lock = threading.Lock()
         self._device = None
         self._buffer = None
@@ -500,6 +501,13 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             raise ScorbotError(f"Controller is faulted: {self._fault}")
         return state
 
+    def _refuse_if_moving(self) -> None:
+        # The DLL refuses a move while one is running (error 911, LEDGER PL97) instead of queueing it.
+        # Checked before the lock, so a second thread is refused at once, not after the first move.
+        thread = self._move_thread
+        if thread is not None and thread != threading.get_ident():
+            raise ScorbotError("A joint move is in progress; wait for it or stop it (USBC.dll error 911)")
+
     def _refuse_if_streaming(self) -> None:
         # Before any log row or trace change, so a refused call leaves no mark.
         if self._stream is not None:
@@ -662,6 +670,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         vendor limits) applies. ``wrist_ok`` is for the coupled joint moves only (pre-home,
         homing, park): it lets the wrist pitch jog through, never the roll. Every other check,
         and the stop, are unchanged."""
+        self._refuse_if_moving()
         with self._motion_lock:
             self._refuse_if_streaming()
             if joint not in self._JOG_CODES:
@@ -716,12 +725,14 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             if trace is not None:
                 trace.start()
             stopped = False
+            outer, self._move_thread = self._move_thread, threading.get_ident()
             try:
                 self._command([positive if delta_degrees > 0 else negative,
                                speed, abs(delta_degrees)])
             except MotionStopped:
                 stopped = True
             finally:
+                self._move_thread = outer
                 with self._stop_lock:      # a stop landing between the check and the clear is kept
                     too_late = self._stop_event.is_set() and not stopped
                     if not ((homing or wrist_ok) and too_late):
@@ -797,18 +808,20 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                 raise ScorbotError(self._fault) from exc
             return result
 
-    def move_joint_vendor(self, target_joints, *, total_ms):
+    def move_joint_vendor(self, target_joints, *, total_ms=None, speed_percent=None):
         """Move five joints (base, shoulder, elbow, pitch, roll) in vendor radians; desk only, not run on the arm.
 
         Requires a fresh vendor Home and enabled motors. Starts from the last completed target, never the
         encoders. Other motion and interruptions invalidate that target until another vendor Home.
-        ``total_ms`` is an explicit whole-millisecond duration at least the vendor acceleration bound;
-        speed-percent timing is not decoded. Uses the post-Home gripper's worker and reply/stop checks.
+        Timing is the DLL's: ``total_ms`` is its ``Time`` (whole ms, refused below ``vendor_move.minimum_ms``, the
+        DLL's 909), otherwise ``speed_percent`` is its ``Speed`` (1 to 100; None is the DLL's default factor) and
+        ``vendor_move.duration_ms`` gives the duration. Uses the post-Home gripper's worker and reply/stop checks.
         """
         from . import vendor_move
         from .vendor_gripper import GRIPPER_ORDER
         from .vendor_home_source import VendorHomeSource
 
+        self._refuse_if_moving()
         with self._motion_lock:
             self._refuse_if_streaming()
             if self._device is None:
@@ -827,9 +840,13 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                 raise ValueError("Target exceeds vendor limit (USBC.dll EncLimit / ROB_4u.INI), "
                                  f"not measured: {problem}")
             start = self._vendor_joint_target or vendor_move.home_joints()
+            if total_ms is not None and speed_percent is not None:
+                raise ValueError("Give total_ms or speed_percent, not both (the DLL's Time or Speed)")
+            if total_ms is None:
+                total_ms = max(1, vendor_move.duration_ms(start, target, speed_percent=speed_percent))
             ramp = vendor_move.setpoints(start, target, total_ms)
-            if total_ms < vendor_move.accel_bound_ms(start, target):
-                raise ValueError("total_ms is below the vendor acceleration bound")
+            if total_ms < vendor_move.minimum_ms(start, target):
+                raise ValueError("total_ms is below the vendor's shortest time for this move (USBC.dll error 909)")
             before = self._motion_state()
             if self._consume_stop():
                 raise MotionStopped("A stop was requested; the joint move was not started", state=before,
@@ -849,6 +866,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             trace = self._trace
             if trace is not None:
                 trace.start()
+            outer, self._move_thread = self._move_thread, threading.get_ident()
             try:
                 self._command([GRIPPER_ORDER, source, 0], timeout=seconds + 30.0)
             except ScorbotError as exc:
@@ -857,6 +875,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
                 raise ScorbotError(f"Vendor joint move failed: {source.error or exc}. Motors-off was sent but "
                                    "is not confirmed: check the MOTORS LED") from exc
             finally:
+                self._move_thread = outer
                 if trace is not None:
                     packets, dropped = trace.stop()
                     self._record("motion_trace", joint="vendor_joint", packets=packets, dropped_packets=dropped)

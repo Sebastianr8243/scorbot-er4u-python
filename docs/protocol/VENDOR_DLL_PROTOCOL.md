@@ -75,7 +75,7 @@ Names are the DLL's own log strings (`0x100401f7`), identical in both builds. V.
 | `4D` M | Move | mask; bytes 8-11 = value | not sent |
 | `48` H | Set position | mask; bytes 8-11 and the axis's own slot = value | not sent |
 | `57` W | Get PWM | mask; the answer is reply bytes 11-14. Sent by `ShowTorque` (`LEDGER.md` PL74) | not sent |
-| `44` D, `41` A | Set digital output, Set analog output | `44`: bytes 8-11 = the whole output word, bit N = output N (PL68). `41`: bytes 6-7 = value 0-255, bytes 8-11 = output 0 or 1 (PL70) | not sent |
+| `44` D, `41` A | Set digital output, Set analog output | `44`: bytes 8-11 = the whole output word, bit N = output N (PL97). `41`: bytes 6-7 = value 0-255, bytes 8-11 = output 0 or 1 (PL70) | not sent |
 | `75` u | Stop USB test | | not sent |
 | `4B`, `46` | Built by the DLL, not named in its log table, no caller found | | not sent |
 
@@ -309,7 +309,7 @@ One behaviour worth knowing: the evaluator has no guard for negative time. It ru
 
 - `Time(group, ms)` (`0x10016eb8`) stores ms / 1000 seconds and marks the group as "time mode". A negative value is error 909 (V).
 - `Speed(group, percent)` (`0x10016f93`) accepts 1 to 100 and stores 0.3 + 0.007 x percent, so a factor from 0.307 to 1.0, in "speed mode". Below 1 is error 586; above 100 is error 913 (V). That is the stored factor only. What speed it produces is not known until the next point is resolved.
-- **Resolved 2026-11-01** (`LEDGER.md` PL55 to PL57): the joint-move set-up `0x1000b910` gets T in milliseconds from `0x10010c40`. That function takes the tool-distance terms of section 11.6, then lengthens T for any axis over `MaxSpeed` (on the average speed D / T) or over `MaxAccel` (on 1.5 times the peak acceleration). The three builds are the same.
+- **Resolved 2026-11-01** (`LEDGER.md` PL55 to PL57): the joint-move set-up `0x1000b910` gets T in milliseconds from `0x10010c40`. That function takes the tool-distance terms of section 11.6, then lengthens T for any axis over `MaxSpeed` (on the average speed D / T) or over `MaxAccel` (on 1.5 times the peak acceleration). The three builds are the same. **Corrected 2026-11-03 (PL97):** that routine is `MoveLinear`'s. `MoveJoint` uses `FUN_10010896` (a per-axis MaxSpeed term at the speed factor 0.3 + 0.007 x percent, then the same `MaxAccel` check), which `scorbot/vendor_move.py` `duration_ms` reproduces for all 26 recorded moves.
 
 ### 11.4 Velocity jog
 
@@ -357,7 +357,7 @@ A second pass, by following only the code that touches the values in question. R
 
 **One curve for all joints** (V in part). A move has one profile object (a pointer in the planner's state) evaluated once per tick at the move's clock; its single 0..1 value is then applied to the whole move. The lines that scale each axis by it were not read one by one, so "all joints start and finish together" is still I, though the structure leaves little room for anything else.
 
-**A new target while moving is refused, not blended** (V). The joint-move set-up proceeds only when the group's motion state is idle. Otherwise it returns error 911 ("motion in progress" in Kutzer's list), or 903 if control is off. `SetJoint` and `MoveManual` make the same check. There is no blending of point moves in this DLL: one move finishes, then the next may start. The velocity jog is the exception: once in manual mode, `MoveManual` can be called again while the axis is moving and takes a different path in its set-up routine (`0x1000ec9e`), which was not traced.
+**A new target while moving is refused, not blended** (V). The joint-move set-up proceeds only when the group's motion state is idle. Otherwise it returns error 911 ("motion in progress" in Kutzer's list), or 903 if control is off. `MoveManual` makes the same check. `SetJoint` returns 0 at once when online; offline or in simulation it refuses with 911 or 907, never 903 (LEDGER PL97). There is no blending of point moves in this DLL: one move finishes, then the next may start. The velocity jog is the exception: once in manual mode, `MoveManual` can be called again while the axis is moving and takes a different path in its set-up routine (`0x1000ec9e`), which was not traced.
 
 ### 11.7 Still not done
 
