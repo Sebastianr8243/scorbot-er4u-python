@@ -157,7 +157,7 @@ class PolicyArmTeachTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t")
-        arm = PolicyArm(robot, travel_cap_deg=2.0)
+        arm = PolicyArm(robot)
         with teach_after_setpoints(robot):
             arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
             self.addCleanup(arm.close)
@@ -178,7 +178,7 @@ class PolicyArmTeachTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t")
         real = robot.get_state
-        arm = PolicyArm(robot, travel_cap_deg=2.0)
+        arm = PolicyArm(robot)
         with mock.patch.object(robot, "get_state",
                                side_effect=lambda **kw: dataclasses.replace(real(**kw), teach_mode=True)), \
                 mock.patch.object(robot, "enable") as enable, \
@@ -201,7 +201,7 @@ class PolicyArmTeachTests(unittest.TestCase):
         def state(**kw):
             return dataclasses.replace(real(**kw), teach_mode=robot._enabled)   # the enable reply turns it on
 
-        arm = PolicyArm(robot, travel_cap_deg=2.0)
+        arm = PolicyArm(robot)
         with mock.patch.object(robot, "get_state", side_effect=state), \
                 mock.patch.object(robot, "vendor_home") as home, \
                 self.assertRaisesRegex(ScorbotError, "teach mode"):

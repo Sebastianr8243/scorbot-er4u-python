@@ -20,7 +20,7 @@ class PolicyArmTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t")
-        self.arm = PolicyArm(robot, travel_cap_deg=2.0)
+        self.arm = PolicyArm(robot)
         self.arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)     # the simulator; the confirmations are this test's
         self.addCleanup(self.arm.close)
 
@@ -31,10 +31,13 @@ class PolicyArmTests(unittest.TestCase):
     def test_a_far_goal_moves_one_clamped_step(self):
         self.assertEqual(self.arm.act({"base": 90.0})["base"], STEP_MAX_DEG)
 
-    def test_goal_is_held_inside_the_travel_cap(self):
-        for _ in range(10):
-            target = self.arm.act({"base": 90.0})
-        self.assertLessEqual(target["base"], 2.0)
+    def test_goal_can_pass_the_old_travel_cap(self):
+        # The lead margin holds the target near the measured joint, so how many calls it takes
+        # depends on how fast the simulator moves on this machine: retry for a bounded time.
+        deadline = time.monotonic() + 5.0
+        while (target := self.arm.act({"base": 3.0}))["base"] != 3.0 and time.monotonic() < deadline:
+            time.sleep(0.03)
+        self.assertEqual(target["base"], 3.0)
 
     def test_speed_is_the_operators_percent_and_can_change_live(self):
         from scorbot.streaming import VENDOR_MAX_SPEED_COUNTS_S
@@ -178,7 +181,7 @@ class PolicyArmWristTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t")
-        arm = PolicyArm(robot, **{"travel_cap_deg": 2.0, "wrist": True, **kw})
+        arm = PolicyArm(robot, **{"wrist": True, **kw})
         arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)     # the simulator
         self.addCleanup(arm.close)
         return arm
@@ -237,16 +240,15 @@ class PolicyArmWristTests(unittest.TestCase):
         seen = arm.observe()
         self.assertEqual((seen["pitch"], seen["roll"]), (0.0, 0.0))
 
-    def test_pitch_and_roll_at_the_cap_together_stay_inside_every_limit(self):
+    def test_pitch_and_roll_together_stay_inside_every_limit(self):
         arm = self.arm()
         # More than one stream period: reproduce a worker falling behind policy calls.
         arm.robot.sim.step_delay_s = 0.05
-        for goal in ({"pitch": 9.0, "roll": 9.0}, {"pitch": -9.0, "roll": 9.0}, {"pitch": -9.0, "roll": -9.0}):
-            corner = {j: 2.0 if g > 0 else -2.0 for j, g in goal.items()}
+        for corner in ({"pitch": 3.0, "roll": 3.0}, {"pitch": -3.0, "roll": 3.0}, {"pitch": -3.0, "roll": -3.0}):
             expected = wrist_degrees(wrist_counts(corner["pitch"], corner["roll"]))
             deadline = time.monotonic() + 3.0
             while True:
-                target = arm.act(goal)
+                target = arm.act(corner)
                 seen = arm.observe()
                 # Reversing a still-moving motor can overshoot a coupled joint and correctly fault.
                 # Twelve sleeps never guaranteed arrival, especially on a busy CI worker.
@@ -254,8 +256,8 @@ class PolicyArmWristTests(unittest.TestCase):
                     break
                 self.assertLess(time.monotonic(), deadline, f"did not reach {corner}: {target=}, {seen=}")
                 time.sleep(0.03)
-            self.assertEqual((abs(target["pitch"]), abs(target["roll"])), (2.0, 2.0))
-            self.assertLessEqual(max(abs(seen["pitch"]), abs(seen["roll"])), 2.0 + 0.08)
+            self.assertEqual((abs(target["pitch"]), abs(target["roll"])), (3.0, 3.0))
+            self.assertLessEqual(max(abs(seen["pitch"]), abs(seen["roll"])), 3.0 + 0.08)
         self.assertIsNone(arm.robot._fault)
 
     def test_the_wrist_never_leads_the_measured_pitch_and_roll_past_the_margin(self):
@@ -273,7 +275,7 @@ class PolicyArmWristTests(unittest.TestCase):
         from scorbot.streaming import VENDOR_MAX_SPEED_COUNTS_S
         now = [100.0]
         with mock.patch.object(policy_arm, "monotonic", lambda: now[0]):
-            arm = self.arm(travel_cap_deg=30.0, step_limit="speed")
+            arm = self.arm(step_limit="speed")
             now[0] += 0.05
             arm.act({"pitch": 90.0, "roll": 90.0})
         budget = VENDOR_MAX_SPEED_COUNTS_S * 0.25 * 0.05

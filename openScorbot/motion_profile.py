@@ -10,7 +10,7 @@ COUNTS_PER_DEGREE = {
     "base": 2837 / 20,
     "shoulder": 2300 / 20,
     "elbow": 2252 / 20,
-    "wrist_pitch": 676 / 20,
+    "wrist_pitch": 2511 / 90,
     "wrist_roll": 558 / 20,
 }
 ORDER_TO_JOINT = {

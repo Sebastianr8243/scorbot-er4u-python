@@ -132,7 +132,7 @@ HYPOTHESIS_COUNTS_PER_MOTOR_REV = LEGACY_BASE_COUNTS_PER_DEGREE * 360.0 / GEAR_R
 # motor revolution hypothesis above: 20-slot disk x 4 = 80 counts per motor rev,
 # 127.7:1 gearbox, then a final stage (base 5:1, shoulder/elbow 4:1, wrist 23:12)
 # reproduces every axis (inference: neither manual gives the x4 decode or 80). Wrist values are per motor; the legacy pitch
-# scale (33.8) disagrees and is unresolved. See docs/manual/MANUAL_AND_PRIOR_ART_FINDINGS.md.
+# scale now matches this default. See docs/manual/MANUAL_AND_PRIOR_ART_FINDINGS.md.
 
 VENDOR_STATUS = "vendor default, not measured"
 VENDOR_INI = ("Intelitek ER-4u controller parameter files (ER4Ax*.ini, ROB_4u.INI), "
@@ -337,10 +337,10 @@ CONTRADICTIONS = (
         "path speed", "600 mm/s (manual)", "700 mm/s (datasheet)", "both kept",
         "Not used by any check; Cartesian motion is out of scope."),
     Contradiction(
-        "wrist pitch counts per degree", "33.8 (legacy motion_profile)",
-        "27.9 per motor (vendor INI NoEnc90=2511)", "measure",
-        "Pitch is a two-motor differential; wrist jogs stay disabled until a "
-        "measurement settles the scale."),
+        "wrist pitch counts per degree", "33.8 (legacy before correction)",
+        "27.9 per motor (vendor INI NoEnc90=2511)", "adopted",
+        "The legacy planner and angle/count converter now use the vendor default; "
+        "physical-arm calibration remains unverified."),
 )
 
 

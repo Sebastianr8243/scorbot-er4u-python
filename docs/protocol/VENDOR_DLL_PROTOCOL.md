@@ -262,10 +262,10 @@ Counts per degree in `openScorbot/motion_profile.py:COUNTS_PER_DEGREE` beside th
 | base | 141.85 | 141.89 | none to speak of |
 | shoulder | 115.0 | 113.51 | legacy 1.3% high |
 | elbow | 112.6 | 113.51 | legacy 0.8% low |
-| wrist pitch | 33.8 | 27.90 per motor | legacy 21% high |
+| wrist pitch | 27.9 | 27.90 per motor | same (corrected from 33.8, 2026-11-03) |
 | wrist roll | 27.9 | 27.90 per motor | same |
 
-The legacy code and the vendor agree on which way the wrist motors move for pitch (opposite) and roll (together). The pitch scale is the one real disagreement: if the vendor is right, a legacy pitch jog of 1 degree is 1.21 degrees. Wrist jogs stay disabled; this tells the bench test what to measure.
+The legacy code and the vendor agree on which way the wrist motors move for pitch (opposite) and roll (together). The pitch planner and `libdef.conversorAngEnc` now use NoEnc90 2511 / 90 = 27.9 counts per degree; `tests/test_motion_profile.py` and `tests/test_software_stop.py::LegacyStopTests::test_pitch_conversion_matches_the_vendor_scale` pin both paths. Direct wrist jogs stay disabled; the physical-arm scale remains unverified.
 
 ### 10.6 Still to confirm on the arm
 
@@ -328,7 +328,11 @@ From `ER4AxN.ini`, loaded by `0x100043b2` into a 0xA8-byte record per axis (V fo
 | 5 wrist motor 2 | -1000000 / 1000000 | effectively none | 6500 | 11000 | -475 / 475 | 70 | 20 |
 | 6 gripper | -200 / 6000 | | 15000 | 50000 | -7500 / 7500 | 300 | 200 |
 
-The encoder limits are per motor, in the vendor's counts. They are **diagnostic priors, not limits our SDK can apply**: whether our counts share the vendor's zero and signs is unverified (section 10.3; the legacy homing does not zero the counters), and the limits are asymmetric, so an offset or a flipped sign would let a bad target through or refuse a good one. They become usable only after the home count and motor signs are measured. The same record holds the servo gains (`PropGain`, `DifferGain`, `IntegralGain`, `FeedForward`), the thermal model, and the homing settings used in question D (`Type`, `Velocity`, `SwitchState`, `SwitchMask`, `ImpactCondEnc`, `ImpactCondTicks`, `MaxTime`, `MaxDistance`).
+The encoder limits are per motor, in counts from the vendor's post-Home zero. MoveJoint refuses a count target outside this box with error 906. The separate `$Default ROB_4u.INI [Limits]` window is base -132..174, shoulder -124..31, elbow -115..160, pitch -113..115 and roll -570..570 degrees in the vendor joint convention. The lab DLL refuses MoveJoint, SetJoint and manual jog targets outside it with error 907 (validators `0x10034a4a`, `0x10025206`, `0x1000ec6e`). Convert counts with section 10's formulas (`scorbot.vendor_model`); elbow and pitch depend on other motors too.
+
+PolicyArm now uses **both vendor windows as its travel guard**, after running vendor Home in the current connection; the LeRobot plugin delegates to it. Each target is session-home counts plus the policy count delta, tested against the encoder box and then converted with `counts_to_joints` for the joint check. A rejected frame holds the previous target and reports changed joints as clamped. There is no PolicyArm or teleoperator degree cap and no USNA `source_model.LIMITS_DEG` check on this path. Its stream also checks both windows on targets and setpoints (`travel_cap_deg=None`); other SDK callers retain their existing bounds. These are vendor defaults, **unverified on our arm** until lab G/X confirm the zero and signs. Legacy homing does not establish vendor zero and cannot select this mode.
+
+The same axis record holds the servo gains (`PropGain`, `DifferGain`, `IntegralGain`, `FeedForward`), the thermal model, and the homing settings used in question D (`Type`, `Velocity`, `SwitchState`, `SwitchMask`, `ImpactCondEnc`, `ImpactCondTicks`, `MaxTime`, `MaxDistance`).
 
 `[Motion]` also gives `MaxJointSpeed = 2.0` and `MaxLinearSpeed = 0.20`. They are copied into the planner's state (`0x10020ef4`); where they are applied was not traced.
 

@@ -1,7 +1,8 @@
 """Teleoperator logic that needs no lerobot, so the normal test run covers it.
 
 Both teleoperators hold their own absolute target (degrees from home) and move it with
-``scorbot.policy_arm.clamp``: at most ``step_deg`` per call and never past ``cap_deg`` from home.
+``scorbot.policy_arm.clamp``: at most ``step_deg`` per call. Vendor travel guards live on the robot,
+which knows this session's vendor Home counts; the teleoperator has no separate travel cap.
 The measured position is not known to a teleoperator, so the lead band is left to ``PolicyArm``
 on the robot side (``clamp`` is called with measured = target, which never binds).
 """
@@ -10,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from scorbot.policy_arm import DEFAULT_TRAVEL_CAP_DEG, JOINTS, MOTORS, STEP_MAX_DEG, clamp
+from scorbot.policy_arm import JOINTS, MOTORS, STEP_MAX_DEG, clamp
 
 from .robot import ACTION_KEYS
 
@@ -26,28 +27,24 @@ def home() -> dict[str, float]:
     return dict.fromkeys((*JOINTS, GRIPPER), 0.0)      # the vendor Home closes the jaw
 
 
-def check_limits(step_deg: float, cap_deg: float | None) -> None:
-    if (isinstance(step_deg, bool) or not isinstance(step_deg, (int, float))
-            or not 0 < step_deg <= STEP_MAX_DEG):
+def check_limits(step_deg: float) -> None:
+    if isinstance(step_deg, bool) or not isinstance(step_deg, (int, float)) or not 0 < step_deg <= STEP_MAX_DEG:
         raise ValueError(f"step_deg must be above 0 and at most {STEP_MAX_DEG:g}, got {step_deg}")
-    if cap_deg is not None and (isinstance(cap_deg, bool) or not isinstance(cap_deg, (int, float))
-                               or not math.isfinite(cap_deg) or cap_deg <= 0):
-        raise ValueError(f"travel_cap_deg must be a positive finite number or None, got {cap_deg}")
 
 
 def to_action(target: dict) -> dict[str, float]:
     return {m + ".pos": float(target[m]) for m in (*JOINTS, GRIPPER)}
 
 
-def step_toward(target: dict, goal: dict, step_deg: float, cap_deg: float | None) -> dict[str, float]:
+def step_toward(target: dict, goal: dict, step_deg: float) -> dict[str, float]:
     """The next target: ``goal`` (absolute degrees) approached by at most ``step_deg`` per motor; the gripper
     goes to its goal at once (it is binary). Pure."""
     delta = {m: goal[m] - target[m] for m in JOINTS if m in goal}
-    new, _ = clamp(delta, target, target, cap_deg=cap_deg, step_max_deg=step_deg, lead_margin_deg=math.inf)
+    new, _ = clamp(delta, target, target, step_max_deg=step_deg, lead_margin_deg=math.inf)
     return {**new, GRIPPER: goal.get(GRIPPER, target[GRIPPER])}
 
 
-def keyboard_to_target(raw: dict, target: dict, step_deg: float, cap_deg: float | None) -> dict[str, float]:
+def keyboard_to_target(raw: dict, target: dict, step_deg: float) -> dict[str, float]:
     """LeRobot's keyboard_ee action (delta_x/y/z in -1..1, gripper 0/1/2) to the next absolute target. Gripper 0
     closes, 2 opens, anything else holds. Other keys are ignored."""
     delta = {}
@@ -55,14 +52,14 @@ def keyboard_to_target(raw: dict, target: dict, step_deg: float, cap_deg: float 
         value = raw.get(key, 0)
         delta[motor] = float(value) * step_deg if isinstance(value, (int, float)) and not isinstance(value, bool) \
             else math.nan       # clamp holds a motor with a bad value
-    new, _ = clamp(delta, target, target, cap_deg=cap_deg, step_max_deg=step_deg, lead_margin_deg=math.inf)
+    new, _ = clamp(delta, target, target, step_max_deg=step_deg, lead_margin_deg=math.inf)
     key = raw.get(GRIPPER)
     if isinstance(key, int) and not isinstance(key, bool) and key in GRIPPER_KEYS:
         new[GRIPPER] = GRIPPER_KEYS[key]
     return new
 
 
-def parse_script(text: str, cap_deg: float | None = DEFAULT_TRAVEL_CAP_DEG) -> list[dict]:
+def parse_script(text: str) -> list[dict]:
     """'base,shoulder,elbow[,pitch,roll[,gripper]];...' absolute degrees (gripper 0..100) to a list of waypoints
     (pitch, roll and gripper 0 when left out). ValueError on anything malformed."""
     waypoints = []
@@ -76,19 +73,19 @@ def parse_script(text: str, cap_deg: float | None = DEFAULT_TRAVEL_CAP_DEG) -> l
         except ValueError:
             raise ValueError(f"not a number in waypoint {piece.strip()!r}") from None
         joints, gripper = values[:len(JOINTS)], values[len(JOINTS):]
-        if not all(math.isfinite(v) and (cap_deg is None or abs(v) <= cap_deg) for v in joints):
-            raise ValueError(f"every joint must be finite and within the optional travel cap, got {piece.strip()!r}")
+        if not all(math.isfinite(v) for v in joints):
+            raise ValueError(f"every joint must be finite, got {piece.strip()!r}")
         if not all(0 <= v <= 100 for v in gripper):
             raise ValueError(f"the gripper must be from 0 to 100, got {piece.strip()!r}")
         waypoints.append({**home(), **dict(zip(JOINTS, joints)), **dict(zip((GRIPPER,), gripper))})
     return waypoints
 
 
-def script_walk(waypoints: list[dict], step_deg: float, cap_deg: float | None):
+def script_walk(waypoints: list[dict], step_deg: float):
     """Endless targets: walk to each waypoint at step_deg per call, then on to the next, and around again."""
     target, index = home(), 0
     while True:
-        target = step_toward(target, waypoints[index], step_deg, cap_deg)
+        target = step_toward(target, waypoints[index], step_deg)
         if all(abs(target[m] - waypoints[index][m]) < 1e-9 for m in JOINTS):
             index = (index + 1) % len(waypoints)
         yield dict(target)

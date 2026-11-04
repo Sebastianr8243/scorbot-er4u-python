@@ -26,14 +26,13 @@ from scorbot.streaming import DEFAULT_PERIOD_S, VENDOR_MAX_SPEED_COUNTS_S
 SPEEDS = (25, 50, 100)
 MODES = ("fixed", "speed")
 GOALS = {"base": 25.0, "shoulder": -25.0}   # ours: far enough to reach full speed; shoulder down (its joint limit is about 3.7 deg up)
-CAP_DEG = 30.0                              # ours: room to reach full speed (the default box is 2 degrees)
 SECONDS = 3.0
 WINDOW_S = 0.25
 
 
 def drive(pct, mode, motor, hz, folder):
     arm = PolicyArm(SimulatedScorbot(log_path=Path(folder) / f"{motor}-{mode}-{pct}.jsonl", robot_id="speed-sim"),
-                    travel_cap_deg=CAP_DEG, speed_pct=pct, step_limit=mode)
+                    speed_pct=pct, step_limit=mode)
     arm.connect(operator_at_stop=True, jaws_empty=True, wrist_clear=True)     # simulator only
     fault = None
     try:
@@ -83,7 +82,7 @@ def main(argv=None) -> int:
     parser.add_argument("--hz", type=float, default=10.0, help="PolicyArm.act calls per second (LeRobot fps)")
     parser.add_argument("--twin", action="store_true", help="also feed the commands to the MuJoCo twin (needs mujoco)")
     args = parser.parse_args(argv)
-    print(f"{args.hz:g} Hz, {SECONDS:g} s per run, cap {CAP_DEG:g} deg, simulator only")
+    print(f"{args.hz:g} Hz, {SECONDS:g} s per run, vendor travel windows, simulator only")
     header = "motor     speed% step   cmd counts/s (% of limit)  measured deg/s (limit)  reached  fault"
     print(header + ("  twin deg/s  twin lag deg" if args.twin else ""))
     with tempfile.TemporaryDirectory() as folder:

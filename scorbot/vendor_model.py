@@ -6,7 +6,7 @@ from disassembly, not measured on our arm**: it says what the vendor software
 would compute, with the vendor's default parameter files. Per-arm calibration
 still comes from physical measurement (docs/lab/PHYSICAL_CALIBRATION.md).
 
-Offline and pure: standard library only, wired into no motion command.
+Pure and standard library only; PolicyArm's vendor travel guard uses this conversion.
 
 Angles are the DLL's internal joint values, in radians:
 
@@ -31,9 +31,9 @@ matter for anything built on them:
   their difference, roll from half their sum.
 
 All counts zero gives the pose the USNA toolboxes publish as "home". That is
-the vendor's nominal zero-count pose. Whether our arm's homing leaves the
-counters at zero is a separate, unverified question: the legacy homing does
-not zero them, and the SDK records the counts it observes after homing.
+the vendor's nominal zero-count pose. Vendor Home ends by zeroing counters;
+the legacy homing does not. The SDK records the counts it observes after
+homing. Physical correspondence of zero and signs remains unverified until lab G/X.
 """
 
 from __future__ import annotations

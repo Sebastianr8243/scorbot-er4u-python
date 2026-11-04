@@ -9,7 +9,9 @@ With ``wrist=True`` it also drives ``pitch`` and ``roll``: the gripper's pitch t
 roll, in degrees from home, which the two coupled wrist motors set alone (``source_model``: pitch is
 half their difference, roll half their sum; the vendor's formula, not measured). Holding pitch while
 the shoulder or elbow moves therefore leaves the wrist motors still, as the elbow motor alone sets the
-forearm's angle. Each wrist motor carries both, so its speed step, cap and lead are shared.
+forearm's angle. Each wrist motor carries both, so its speed step and lead are shared.
+Travel is guarded by Intelitek's encoder and coupled joint windows after this connection's
+vendor Home; zero and signs on our arm are unverified until lab G/X.
 """
 
 from __future__ import annotations
@@ -27,7 +29,6 @@ from .streaming import DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, VENDOR_MAX_SPEE
 MOTORS = limits.ARM_MOTORS
 WRIST_JOINTS = ("pitch", "roll")    # source_model's names; PolicyArm(wrist=True) only
 JOINTS = MOTORS + WRIST_JOINTS
-DEFAULT_TRAVEL_CAP_DEG = None
 LEAD_LIMIT_DEG = 2.0            # the SDK's own lead limit; our targets stay inside LEAD_MARGIN_DEG of it
 LEAD_MARGIN_DEG = 1.5           # a target never leads the measured position by more than this
 STEP_MAX_DEG = 0.5              # largest delta applied in one call
@@ -61,17 +62,20 @@ def _check_speed(speed_pct):
 
 
 def clamp(delta_deg, target_deg, measured_deg, *, cap_deg=None, step_max_deg=STEP_MAX_DEG,
-          lead_margin_deg=LEAD_MARGIN_DEG):
+          lead_margin_deg=LEAD_MARGIN_DEG, count_guard=None):
     """The new commanded target (degrees from home) per motor. Pure.
 
     Motors are base, shoulder, elbow, pitch and roll. ``step_max_deg`` is one number for every motor
     or a mapping with a finite value of at least 0 for each arm motor and each motor of ``target_deg``
     (else ``ValueError``). Each delta is cut to +-step_max_deg, added to the last commanded target, cut to +-cap_deg from
-    home when cap_deg is supplied, and kept within lead_margin_deg of the measured position. The step limit always wins:
+    home, and kept within lead_margin_deg of the measured position. The step limit always wins:
     when feedback jumps or the last target sits past the cap, the target walks back one step at a
     time (the lead and the overshoot only shrink). Unknown motors, non-finite numbers (delta,
     measured or cap) and missing motors are ignored (the motor holds). A non-finite last target
-    raises ``ValueError``: holding it would hand it on. Returns (target, clamped_motors).
+    raises ``ValueError``: holding it would hand it on. ``cap_deg`` is only for legacy
+    callers; PolicyArm has no degree cap. Its ``count_guard`` refuses the whole frame
+    if either vendor window rejects it, reporting every changed joint as clamped.
+    Returns (target, clamped_motors).
     """
     def finite(v):
         return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
@@ -103,6 +107,9 @@ def clamp(delta_deg, target_deg, measured_deg, *, cap_deg=None, step_max_deg=STE
         if abs(wanted - (target_deg[motor] + asked)) > 1e-9:
             clamped.append(motor)
         out[motor] = wanted
+    if count_guard is not None and count_guard(out):
+        clamped.extend(m for m in out if out[m] != target_deg[m] and m not in clamped)
+        return dict(target_deg), clamped
     return out, clamped
 
 
@@ -134,13 +141,13 @@ class PolicyArm:
     Needs the ``planning`` extra (Ruckig). ``simulate=False`` runs are the caller's to supervise.
     """
 
-    def __init__(self, robot, *, travel_cap_deg: float | None = DEFAULT_TRAVEL_CAP_DEG,
-                 speed_pct: float = DEFAULT_SPEED_PCT, step_limit: str = "fixed", wrist: bool = False):
+    def __init__(self, robot, *, speed_pct: float = DEFAULT_SPEED_PCT,
+                 step_limit: str = "fixed", wrist: bool = False):
         if not isinstance(step_limit, str) or step_limit not in STEP_LIMITS:
             raise ValueError(f"step_limit must be one of {STEP_LIMITS}, not {step_limit!r}")
         if not isinstance(wrist, bool):
             raise ValueError("wrist must be True or False")
-        self.robot, self.cap, self.step_limit = robot, travel_cap_deg, step_limit
+        self.robot, self.step_limit = robot, step_limit
         self.wrist = wrist
         self.joints = JOINTS if wrist else MOTORS
         self.speed_pct = _check_speed(speed_pct)
@@ -206,7 +213,7 @@ class PolicyArm:
 
     def _start_stream(self) -> None:
         self._stream = self.robot.start_stream(
-            travel_cap_deg=self.cap, lead_limit_deg=LEAD_LIMIT_DEG,
+            travel_cap_deg=None, lead_limit_deg=LEAD_LIMIT_DEG,
             speed_fraction=self.speed_pct / 100, wrist=self.wrist)
         self._last_act = monotonic()
 
@@ -303,16 +310,15 @@ class PolicyArm:
         elif self.robot._fault:      # latched since that reading: refuse as a fresh read would
             raise ScorbotError(f"Controller is faulted: {self.robot._fault}")
         if not (self.robot._homed and self.robot._gripper_homed):
-            raise ScorbotError("Run vendor Home before acting")
+            raise ScorbotError("Home the arm before acting (vendor_home)")
         if self.step_limit == "speed":
             now = monotonic()
             step = speed_step_deg(self.speed_pct, now - self._last_act, self._step_per_degree)
             self._last_act = now
-            target, _ = clamp(delta, self.target, measured, cap_deg=self.cap, step_max_deg=step)
+            target, _ = clamp(delta, self.target, measured, count_guard=self._vendor_target_problem,
+                              step_max_deg=step)
         else:
-            target, _ = clamp(delta, self.target, measured, cap_deg=self.cap)
-        if self._vendor_target_problem(target):
-            target = dict(self.target)
+            target, _ = clamp(delta, self.target, measured, count_guard=self._vendor_target_problem)
         counts = self._target_counts(target)
         self._stream.set_target(counts)
         self.target = target

@@ -101,3 +101,5 @@ Facade and pure helpers over the legacy USB code. Read the root [CONTRIBUTING.md
 - Do not report facts through `print`; log via `_record`. The stderr banner in `_worker_died` is deliberate.
 
 - Every tracked reply checks the emergency input (IN byte 2 bit 0): the first active reply sets the existing stop event, latches the fault and queues motors-off. `_motion_state` also checks the decoded bit before motion. A transient pulse cannot be lost between state reads. Physical-arm behavior is unverified.
+
+PolicyArm selects `start_stream(travel_cap_deg=None)` after its vendor Home: both Intelitek travel windows in `nominal.py` guard absolute counts, using `vendor_model.counts_to_joints` for coupled joint angles. This path has no degree cap and does not use `source_model.LIMITS_DEG`; other SDK jog and explicit-cap stream callers retain the bounds described above. A vendor-window rejection holds the whole policy frame. Physical zero and signs remain unverified until lab G/X.

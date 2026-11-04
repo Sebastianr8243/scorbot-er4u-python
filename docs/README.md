@@ -10,6 +10,7 @@
 | [`STATUS.md`](STATUS.md) | What works and how sure we are |
 | [`STACK2_SDK.md`](STACK2_SDK.md) | The experimental own-USB-protocol SDK (`scorbot.Scorbot`); never moved the arm |
 | [`requirements/policy-gripper.md`](requirements/policy-gripper.md) | PolicyArm binary gripper requirements and desk-only checks; physical-arm behaviour unverified |
+| [`requirements/vendor-limits.md`](requirements/vendor-limits.md) | PolicyArm / LeRobot vendor travel guards and simulator checks; physical zero and signs unverified until lab G/X |
 
 ## lab/
 
@@ -18,6 +19,7 @@
 | [`RUN_THE_ARM.md`](lab/RUN_THE_ARM.md) | Setting up the lab PC and moving the arm through the vendor DLL: probe, connect, jog, Home, point move, errors |
 | [`BRING_UP_RUNBOOK.md`](lab/BRING_UP_RUNBOOK.md) | Stack 2 desk rehearsal and supervised probe, enable, Home, 1 degree jog/back and optional stream ladder |
 | [`LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) | Stack 2 first-visit page: driver path, Windows prep, probe order, restoring Intelitek's driver after a WinUSB swap |
+| [`LAB_RECORD_SHEET.md`](lab/LAB_RECORD_SHEET.md) | Numbers the desk cannot settle (parameter folder, zero pose, wrist and base scale, idle creep, gripper stroke): where each is read and a column to write it in |
 | [`USB_CAPTURE.md`](lab/USB_CAPTURE.md) | Wireshark/USBPcap capture and comparison with this code's packets |
 | [`SOFTWARE_CAPTURE.md`](lab/SOFTWARE_CAPTURE.md) | Lab steps to record the vendor Home from inside its process with the Frida hook, then compare it with the port offline |
 | [`PHYSICAL_CALIBRATION.md`](lab/PHYSICAL_CALIBRATION.md) | Measuring joint angles for calibration: file formats, priors, count wrap |

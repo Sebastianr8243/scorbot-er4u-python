@@ -18,6 +18,7 @@ from scorbot.robot import GripperMove, MotionStopped
 from scorbot.simulated import SimulatedScorbot
 from scorbot.vendor_home_source import VendorHomeSource
 from scripts import make_gripper_fixture as reduce
+from tests.vendor_home_plant import Plant, run
 
 try:
     from tests.desk_wire import record_gripper
@@ -56,6 +57,15 @@ def summary(outs):
 
 
 class Planner(unittest.TestCase):
+    def test_home_and_gripper_unused_slots_match_the_recording(self):
+        expected = bytes.fromhex(FIXTURE["unused_slots_hex"])
+        self.assertEqual(expected, bytes(8))
+        home, _ = run(Plant())
+        for outs in [home] + [drive(vg.vendor_gripper(reply([0] * 5 + [g["gripper"][0]]),
+                                                     g["gripper"][-1]),
+                                    reply([0] * 5 + [g["gripper"][0]]))[0] for g in GOLDEN]:
+            self.assertEqual({vh.encode_out(out, 1)[36:44] for out in outs}, {expected})
+
     def test_open_and_close_match_the_dlls_calls(self):
         for golden in GOLDEN:
             start, target = golden["gripper"][0], golden["gripper"][-1]
