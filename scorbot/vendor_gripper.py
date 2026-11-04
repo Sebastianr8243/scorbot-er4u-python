@@ -76,7 +76,8 @@ def duration_ms(distance: int) -> int:
         return 0
     scale = float(SCALE_NUMERATOR // term)
     seconds = trunc(scale * term) // MAX_SPEED_COUNTS_S / scale + 0.001
-    if trunc(CHECK_FACTOR / ((1.0 - jerk) * (1.0 - accel) * seconds * seconds * accel) * distance)             > MAX_ACCEL_COUNTS_S2:
+    peak = CHECK_FACTOR / ((1.0 - jerk) * (1.0 - accel) * seconds * seconds * accel)
+    if trunc(peak * distance) > MAX_ACCEL_COUNTS_S2:
         ratio = float(MAX_ACCEL_COUNTS_S2) / float(distance)
         seconds = sqrt(CHECK_FACTOR / ((1.0 - jerk) * (1.0 - accel) * ratio * accel))
     return trunc(1000.0 * seconds + 1.0)
