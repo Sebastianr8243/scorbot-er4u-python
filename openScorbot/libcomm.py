@@ -3,7 +3,6 @@
 # Title: Script with the command execution thread.
 # University of La Laguna
 
-import queue
 import libsync
 import libhex
 import libdef
