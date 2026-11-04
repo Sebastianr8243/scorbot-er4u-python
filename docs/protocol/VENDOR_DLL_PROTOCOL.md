@@ -60,7 +60,7 @@ Names are the DLL's own log strings (`0x100401f7`), identical in both builds. V.
 
 | Byte | DLL's name | Arguments | In the legacy tables |
 |---|---|---|---|
-| `0D` | No operation | Carries the setpoints | The idle / setpoint message |
+| `0D` | No operation | Carries the setpoints; idle, the last commanded ones (`LEDGER.md` PL98) | The idle / setpoint message |
 | `47` G | Clear communication buffer | none | `openMov`, homing axis start |
 | `4F` O | Mode | mask; byte 6 = `50` P, `54` T, `53` S or `48` H. The DLL logs "SLAVE MODE" when it sends `53` | `4F 3F 53`, `4F FF 53`, `4F FF 54` |
 | `73` s | Control Off | mask | `73 20`, `73 FF` |
@@ -143,7 +143,7 @@ Read straight into the link object; the accessors are small functions near `0x10
 | 11-14 | 32-bit result of the echoed command: `57` PWM, `61` analog output, `64` digital output, `72` version | Unknown |
 | 15-18 | 32-bit word the DLL logs as `Status 0x%08x` on every reply and never uses (PL65) | Unknown |
 | 19 + 5N, 3 bytes | Axis N position, 24-bit little-endian, count = raw - `0x7FFFFF` (`0x1000b160`) | Count (2 bytes) + "sign byte" |
-| 22 + 5N, 2 bytes | Axis N position error, 16-bit (signedness I). Feeds the DLL's "Position error change" log and impact check | The "error word" |
+| 22 + 5N, 2 bytes | Axis N position error, signed 16-bit (`MOVSX` at `0x1003db4d`). Feeds the DLL's "Position error change" log and impact check: abs above the axis's `ImpactDetect` (section 11.5) is error 201, on every reply while control is on (`LEDGER.md` PL98). Stack 2 uses the same rule; legacy homing keeps `>= 40` | The "error word" |
 | 59 | Non-zero = impact reported (`0x1000b270`; the DLL logs "Impact Axes") | Unknown |
 | 60-63 | Never read by the DLL (PL66) | Unknown |
 

@@ -8,8 +8,8 @@ Physical-arm behaviour remains unverified; all checks are desk-only.
 ## Requirements
 | ID | Type | Statement | Check |
 |---|---|---|---|
-| LF01 | SHALL | A ramp position error at or above 40 ends all four jog functions with 47 followed by holds at the last reply's counts, reporting only result 1. | test: `tests/test_software_stop.py::LegacyStopTests::test_joint_error_without_a_stop_clears_and_holds` |
-| LF02 | SHALL | Every settle reply refreshes the position error; an error at or above 40 immediately sends the same fault stop. | test: `tests/test_software_stop.py::LegacyStopTests::test_joint_error_during_settle_clears_and_holds` |
+| LF01 | SHALL | A ramp position error whose signed absolute value is above `ImpactDetect` (70; LEDGER.md PL98) ends all four jog functions with 47 followed by holds at the last reply's counts, reporting only result 1. | test: `tests/test_software_stop.py::LegacyStopTests::test_joint_error_without_a_stop_clears_and_holds` |
+| LF02 | SHALL | Every settle reply refreshes the position error; an error above `ImpactDetect` immediately sends the same fault stop. | test: `tests/test_software_stop.py::LegacyStopTests::test_joint_error_during_settle_clears_and_holds` |
 | LF03 | SHALL | Any nonzero IN byte 59 during ramp or settle sends the same fault stop and only result 1. | test: `tests/test_software_stop.py::LegacyStopTests::test_impact_during_ramp_or_settle_clears_and_holds` |
 | LF04 | SHALL | Pitch uses 2511/90 counts per degree in planning and both legacy conversion directions; one degree rounds to 28 counts. | test: `tests/test_motion_profile.py`; `tests/test_software_stop.py::LegacyStopTests::test_pitch_conversion_matches_the_vendor_scale` |
 | LF05 | SHALL | Home and post-Home gripper OUT bytes 36-43 equal the PL51 recording's zero bytes. | test: `tests/test_vendor_gripper.py::Planner::test_home_and_gripper_unused_slots_match_the_recording` |

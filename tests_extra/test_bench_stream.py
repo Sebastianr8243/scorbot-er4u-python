@@ -195,7 +195,7 @@ class BenchStreamTests(unittest.TestCase):
     @unittest.skipUnless(HAS_RUCKIG, "ruckig not installed (pip install .[planning])")
     def test_a_stream_fault_fails_the_run_and_keeps_the_steps(self):
         with mock.patch.object(SimulatedController, "__init__",
-                               _with(SimulatedController.__init__, stream_error_word=40)):
+                               _with(SimulatedController.__init__, stream_error_word=71)):   # > ImpactDetect 70 (PL98)
             with self.assertRaises(ScorbotError):
                 self.run_script(TO_STREAM + "STREAM\n")
         rows = self.rows()

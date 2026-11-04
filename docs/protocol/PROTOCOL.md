@@ -97,7 +97,7 @@ Each joint occupies 4 bytes: a 2-byte little-endian value (`detrans`) and a 2-by
 | 14, 15 | 32-35 (gripper) | 8 chars |
 | 20 | 12-23 (base, shoulder, elbow) | 24 chars (XYZ move, `moveXYZ.py`) |
 
-Semantics (I): in idle messages the region echoes the smoothed measured position (section 5), which holds the axis in place. In motion the moving joint's region carries a stepped target; other joints keep echoing their smoothed position. The controller's interpretation (setpoint, offset, or something else) is U.
+Semantics (I): in idle messages the region holds the last motion's setpoint or echoes the smoothed measured position (section 5), which holds the axis in place. In motion the moving joint's region carries a stepped target; other joints keep echoing their smoothed position. The controller's interpretation (setpoint, offset, or something else) is U.
 
 ## 3. IN response layout
 
@@ -133,7 +133,7 @@ Home-switch bits in byte 5 (`libdef.py:get_switch`, `scorbot/state.py:HOME_SWITC
 
 The code treats a set bit as "at the switch". Polarity has not been verified on hardware (`state.py` comment). `get_switch` decomposes the byte greedily starting at 16; a value with bit 5 or above set is mis-decomposed for axes other than the base.
 
-Error words: `getError` reads the LE u16; if it is at least 65500 it returns `abs(65535 - x)`, otherwise `x`. A joint is treated as at its limit when the result is at least `MAX_ERROR` (40). The threshold is therefore +40 in one direction and about -36 (65499) in the other. What the word measures (following error, PWM, current) is U.
+Error words: `getError` reads the LE u16; if it is at least 65500 it returns `abs(65535 - x)`, otherwise `x`. Legacy homing treats a joint as at its limit when the result is at least `MAX_ERROR` (40), so +40 in one direction and about -36 (65499) in the other. The jogs and the SDK instead read the word as signed 16-bit (`libdef.getErrorWord`) and fault when its absolute value is above the vendor's `ImpactDetect`, 70 (300 for the gripper; `LEDGER.md` PL98). What the word measures (following error, PWM, current) is U.
 
 ## 4. Handshake (`libsync.py:msg_start`)
 
@@ -189,7 +189,7 @@ Details (all K unless noted):
 
 ## 5. Idle synchronization (`libsync.py:syncro`, `libdef.py:get_media`)
 
-`syncro` runs in its own thread for the life of the connection. Each cycle sends one idle message carrying the smoothed measured position, so the controller receives a setpoint equal to the current position (I).
+`syncro` runs in its own thread for the life of the connection. Each cycle sends one idle message. Through the SDK, after a jog or stream it carries that motion's last setpoint, after a stop the counts at the stop, after enable a measured snapshot, as USBC.dll's idle `0D` keeps its setpoints (`LEDGER.md` PL98; unverified on the arm). Otherwise (motors off, after the gripper, homing or vendor Home, or the legacy GUI) it carries the smoothed measured position, so the controller receives a setpoint equal to the current position (I).
 
 ```mermaid
 flowchart TD
@@ -227,7 +227,7 @@ sequenceDiagram
     loop each profile increment i
         E->>C: mov_comm(1) 0D + region, joint region replaced by stepped target
         C-->>E: response
-        Note over E: getError of the joint, at or above 40 puts 1 and breaks
+        Note over E: abs(signed error) of the joint above 70 puts 1 and breaks
     end
     loop settle, at most 101 sends
         E->>C: mov_comm(1) 0D + region with last target
@@ -243,7 +243,7 @@ Steps (K, `libcomm.py:move_hips/move_shoulder/move_elbow/move_wrist`, `libdef.py
 1. `openMov`: one `mov_comm(2)` message with the smoothed-position echo.
 2. Profile: `motion_profile.plan_jog(orden, ang, vel)["increments"]`: integer increments whose sum is the requested count, each at most `vel`, ramped up and down over about 12 steps. Scales are inherited assumptions (`COUNTS_PER_DEGREE`), not calibration.
 3. Per step (`libdef.builder`): message = `mov_comm(1)` + echo region with the moving joint's region replaced by `detrans(target) + sign word`. Target = previous target plus (`suma`, orders 5, 6, 9, 14) or minus (`resta`, others) the step. After each response the joint's error word is checked against `MAX_ERROR`; at or above, the loop breaks after putting result 1.
-4. Settle loop: `while abs(target - media[joint]) > 20 and error < MAX_ERROR`; each iteration re-sends the last target. After a send, if the counter is 100 the loop breaks and puts result 2, so at most 101 messages. The comparison is not wrap-aware: a target near 0 with measured position near 65535 (or the reverse) cannot converge and ends with result 2 after 101 messages (K from code; the consequence is I).
+4. Settle loop: `while abs(target - media[joint]) > 20 and not libdef.impacto(error, joint)`; each iteration re-sends the last target. After a send, if the counter is 100 the loop breaks and puts result 2, so at most 101 messages. The comparison is not wrap-aware: a target near 0 with measured position near 65535 (or the reverse) cannot converge and ends with result 2 after 101 messages (K from code; the consequence is I).
 5. `closeMov`: three messages `mov_comm(3)`, `(4)`, `(5)`, each with the echo region (`media` refreshed between them) and the moving joint region replaced with the last target.
 
 Wrist (orders 10-13, `move_wrist`): two motors are stepped together, 16 bytes at region offset 24-31. Order 10: motor 1 `resta`, motor 2 `suma`. Order 11: motor 1 `suma`, motor 2 `resta`. Order 12: both `suma`. Order 13: both `resta`. The settle loop requires both motors within 20 counts. Per `libdef.info_text` and `gui.py`, 10/11 are pitch and 12/13 are roll (differential drive; joint-to-motor mapping I).
@@ -275,7 +275,7 @@ Result codes put on the result queue (`cola_result`, or `cola_orden` when none w
 | Code | Meaning | Put by |
 |---|---|---|
 | 0 | DONE | end of `execute` (always), EXIT path |
-| 1 | Joint error word at or above `MAX_ERROR`; also homing failure summary, and gripper no-motion timeout | `move_*`, `setHome.homing`, `clamp`, `execute` after a failed home |
+| 1 | Joint error word past `ImpactDetect` (jogs) or at or above `MAX_ERROR` (homing); also homing failure summary, and gripper no-motion timeout | `move_*`, `setHome.homing`, `clamp`, `execute` after a failed home |
 | 2 | Settle loop reached 100 iterations; homing cancelled or search timed out; motors-off failed after a failed home | `move_*`, `setHome.search_must_stop`, `execute` |
 | 3 | XYZ target unreachable | `moveXYZ.controlXYZ` |
 | 4 | Inverse kinematics returned -1 (angle not computable) | `moveXYZ.controlXYZ` |

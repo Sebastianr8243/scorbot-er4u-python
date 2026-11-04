@@ -46,6 +46,10 @@ TIME_OUT_W = conf.readData("general", "TIME_OUT_W")
 # Reference angle, the starting point after home.
 angRef = conf.readData("general", "angRef")
 posRef = []
+# Setpoint region (bytes, the get_encoder layout) the last movement ended on: closeMov's last
+# message, stopMov's hold, or the measured snapshot motors_on takes. libcomm.execute clears it
+# before every order and hands it on after the order (docs/protocol/LEDGER.md PL98).
+ultimo_hold = None
 
 
 # Fills the message with zeros so it reaches the specified length.
@@ -303,8 +307,12 @@ def closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
 	b_1 = countByte1(b_1)
 	cadena = cadena.format(f_byte(b_1))
 	msg = get_encoder(buffer,media)
-	cadena += getStruct(orden, signal_out, msg)
+	hold = getStruct(orden, signal_out, msg)
+	cadena += hold
 	set_msg(cadena, epout, epin, buffer, write, read)
+	# The idle messages keep this last setpoint (the jog target), as USBC.dll's idle 0D keeps its own.
+	global ultimo_hold
+	ultimo_hold = bytes.fromhex(hold)
 
 	media = get_media(buffer,media)
 
@@ -338,6 +346,9 @@ def stopMov(b_1, media, epout, epin, buffer, write, read):
 		cadena = fill_msg(cadena, 24)
 		cadena += hold
 		set_msg(cadena, epout, epin, buffer, write, read)
+	# The idle messages keep the counts at the stop, as the vendor's do (LEDGER.md PL98).
+	global ultimo_hold
+	ultimo_hold = bytes.fromhex(hold)
 
 	return [b_1, buffer, media]
 
@@ -661,6 +672,22 @@ def matrizT(d, tita, a, alfa):
 # 0x04 elbow, 0x18 the two wrist motors, 0x20 gripper; ULPGC thesis p. 57). A jog stops only on
 # the bits of the motors it moves: the gripper's move ends against a stop, so its bit may stay set.
 COLLISION_BYTE = 59
+
+# USBC.dll's impact check (docs/protocol/LEDGER.md PL98): each reply's error word, read as a
+# signed 16-bit value, faults with error 201 when its absolute value is strictly above the
+# axis's ImpactDetect (ER4AxN.ini; scorbot.state.IMPACT_DETECT_COUNTS, which a test keeps equal).
+# [base, shoulder, elbow, wrist motor 1, wrist motor 2, gripper]
+IMPACT_DETECT = [70, 70, 70, 70, 70, 300]
+
+# The error word at `pos` as a signed 16-bit value (the DLL sign-extends it, MOVSX at 0x1003db4d).
+# getError, which legacy homing still uses, reads 0xFFBA as 65466.
+def getErrorWord(buffer, pos):
+	x = transform([buffer[pos],buffer[pos+1]])
+	return x - 0x10000 if x >= 0x8000 else x
+
+# Whether a signed error word is an impact for motor `motor` (index as IMPACT_DETECT).
+def impacto(valor, motor):
+	return abs(valor) > IMPACT_DETECT[motor]
 
 
 def conversorAngEnc(arti, conv, value):

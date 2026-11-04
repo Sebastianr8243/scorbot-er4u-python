@@ -370,7 +370,7 @@ class SdkStreamTests(SimulatedRobotCase):
 
     def test_a_wrist_controller_error_word_latches_a_fault_only_on_a_wrist_stream(self):
         robot = self.robot()
-        robot.sim.stream_wrist_error_word = 40
+        robot.sim.stream_wrist_error_word = 71              # above ImpactDetect, 70 (LEDGER.md PL98)
         with robot.start_stream() as stream:              # the wrist is not streamed: not its business
             self.assertTrue(self.follow(stream, robot, {"base": 50}))
         self.assertIsNone(robot._fault)
@@ -509,7 +509,7 @@ class SdkStreamTests(SimulatedRobotCase):
         robot = self.robot()
         stream = robot.start_stream()
         stream.set_target({"base": 50})
-        robot.sim.stream_error_word = 40
+        robot.sim.stream_error_word = 0xFFB9                # -71: past ImpactDetect, 70, read signed (PL98)
         time.sleep(0.1)
         with self.assertRaises(ScorbotError) as caught:
             stream.close()

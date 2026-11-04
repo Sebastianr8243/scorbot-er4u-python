@@ -82,6 +82,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `state.JOINTS` | six motor names | legacy | the legacy order of the six count fields | `VENDOR_DLL_PROTOCOL.md` section 6 (axis N order) |
 | `state.ENCODER_OFFSETS` | 19 + 5N | vendor | axis position at 19 + 5N (`0x1000b160`); legacy reads the same bytes | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `state.ERROR_OFFSETS` | 22 + 5N | vendor | axis position error at 22 + 5N | `VENDOR_DLL_PROTOCOL.md` section 6 |
+| `state.IMPACT_DETECT_COUNTS` | 70 (axes 1-5), 300 (gripper) | vendor | `ER4AxN.ini ImpactDetect`; compared strictly with abs(signed error word), error 201 (`0x10030142`) | `LEDGER.md` PL98; `VENDOR_DLL_PROTOCOL.md` section 11.5 |
 | `state.PACKET_MIN_LENGTH` | 49 | ours | derived: the last field decoded ends at byte 48 | n/a |
 | `state.HOME_SWITCH_BITS` | 1, 2, 4, 8, 16 | legacy | `libdef.get_switch`; byte 5 bit N in the DLL, order confirmed by the ULPGC thesis | `VENDOR_DLL_PROTOCOL.md` section 6; `ULPGC_THESIS_FINDINGS.md` |
 | `state.COLLISION_OFFSET` | 59 | vendor | impact byte (`0x1000b270`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
@@ -153,7 +154,6 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 |---|---|---|---|---|
 | `streaming.DEFAULT_PERIOD_S` | 0.024 | vendor | `PCPeriod` x `USBCPeriod` = 16 x 1.5 ms (`0x10014eff`, tick `0x10025c6c`) | `VENDOR_DLL_PROTOCOL.md` section 11.6 |
 | `streaming.VENDOR_MAX_SPEED_COUNTS_S` | 6500 | vendor | `ER4AxN.ini MaxSpeed`; counts/s is inferred | `VENDOR_DLL_PROTOCOL.md` sections 11.5, 11.6 |
-| `streaming.DEFAULT_ERROR_LIMIT` | 40 | legacy | `conf.py MAX_ERROR` (in `43b03b1`) | `VENDOR_HOMING_TRACE.md` section 7 ("error word 40") |
 | `streaming.STREAM_ORDER` | 21 | ours | internal worker order code, added to `openScorbot/libcomm.py` in `f4b0613` (2026-10-04); never on the wire | n/a |
 | `streaming.DEFAULT_HOLD_TIMEOUT_S`, `streaming.PERIOD_RANGE_S`, `streaming.HOLD_TIMEOUT_RANGE_S` | 0.5, 0.01-0.05, 0.05-2.0 | ours | stream safety: hold when targets stop; the accepted range | n/a |
 | `streaming.DEFAULT_SPEED_FRACTION` | 0.25 | ours | start at a quarter of the vendor limit | n/a |
@@ -261,7 +261,7 @@ Ranked by whether the gap reaches the controller, then by how soon it runs on th
 5. Done (PL60): **our Home fault codes (570-578) do not clash** with the vendor's error list, which leaves 570 to 579 unused. Open choice, post-lab: report a Home stopped from outside as the vendor's 569 instead of the legacy 14.
 6. **Compare the legacy gripper sequence with the vendor's on the fake.** Stack 2 still sends `libhex.clamp` (`4F 20 53`, `4C 20 00`, a position ramp). The vendor sends `4F 20 54` and one `4D` drive (`VENDOR_DLL_PROTOCOL.md` section 12.2). Not on the lab plan for this visit.
 7. **Not on the wire, lowest:**
-   - The stream's error limit 40 is a threshold on the reply, not a value sent.
+   - The stream's error limit (`state.IMPACT_DETECT_COUNTS`, 70) is a threshold on the reply, not a value sent.
    - Orders 21 and 22 are internal.
    - Done for the `ROB_4u.INI` link lengths and angle limits (they cite `docs/manual/` notes that quote them). Still unverified: the manual and datasheet citation rows, whose values no note quotes one by one.
    - Done: PL26, PL27 and the `vendor_home.py` docstring (section 3).

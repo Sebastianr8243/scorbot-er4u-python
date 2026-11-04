@@ -201,11 +201,14 @@ class StreamCoreTests(unittest.TestCase):
         self.assertEqual(core.step(arm.counts, 11 * PERIOD).action, "stop")
 
     def test_r6_controller_error_word_and_emergency_bit_fault(self):
-        for kwargs, text in (({"error_counts": {"base": 40}}, "error word"),
+        # Vendor ImpactDetect: abs(signed word) strictly above 70 (LEDGER.md PL98).
+        for kwargs, text in (({"error_counts": {"base": 71}}, "error word"),
+                             ({"error_counts": {"base": -71}}, "error word"),
                              ({"emergency": True}, "emergency")):
             with self.subTest(kwargs=kwargs):
                 core = make()
-                self.assertEqual(core.step(ZERO, 0.0, error_counts={"base": 39}).action, "send")
+                self.assertEqual(core.step(ZERO, 0.0, error_counts={"base": 70}).action, "send")
+                self.assertEqual(core.step(ZERO, 0.0, error_counts={"base": -70}).action, "send")
                 step = core.step(ZERO, PERIOD, **kwargs)
                 self.assertEqual(step.action, "stop")
                 self.assertIn(text, core.fault)

@@ -36,8 +36,8 @@ DONE 	  = conf.readData("general","DONE")
 WRITE	  = conf.readData("general","WRITE")
 # Delay before starting the next message after a read request
 READ	  = conf.readData("general","READ")
-# Maximum acceptable error in the error bytes
-MAX_ERROR = conf.readData("general", "MAX_ERROR")
+# The jogs fault on libdef.impacto (the vendor's ImpactDetect, LEDGER.md PL98), not on the
+# configured MAX_ERROR, which only legacy homing (setHome.py) still uses.
 # Result code for a jog ended early by a stop request (libdef.error_msg)
 STOPPED   = 14
 # Order for following a stream of base/shoulder/elbow setpoints (SDK only)
@@ -84,8 +84,8 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 	for i in range(ite):
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
-		value_err = libdef.getError(buffer, VEC_ERROR[0])
-		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x01
+		value_err = libdef.getErrorWord(buffer, VEC_ERROR[0])
+		fault = libdef.impacto(value_err, 0) or buffer[libdef.COLLISION_BYTE] & 0x01
 		if fault:
 			print("Joint limit reached")
 			cola_orden.put(1)
@@ -101,7 +101,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 
 	#Control de error
 	cont = 0
-	while not stopped and motion_profile.count_distance(dato_in[0], media[0]) > 20 and value_err < MAX_ERROR:
+	while not stopped and motion_profile.count_distance(dato_in[0], media[0]) > 20 and not libdef.impacto(value_err, 0):
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena.format(libdef.f_byte(b_1))
@@ -110,8 +110,8 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
-		value_err = libdef.getError(buffer, VEC_ERROR[0])
-		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x01
+		value_err = libdef.getErrorWord(buffer, VEC_ERROR[0])
+		fault = libdef.impacto(value_err, 0) or buffer[libdef.COLLISION_BYTE] & 0x01
 		if fault:
 			cola_orden.put(1)
 			logging.warning(libdef.error_msg(1))
@@ -122,6 +122,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 			print("Motion feedback loop failed")
 			cola_orden.put(2)
 			logging.warning(libdef.error_msg(2))
+			stopped = fault = True
 			break
 		cont += 1
 
@@ -155,8 +156,8 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 	for i in range(ite):
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
-		value_err = libdef.getError(buffer, VEC_ERROR[1])
-		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x02
+		value_err = libdef.getErrorWord(buffer, VEC_ERROR[1])
+		fault = libdef.impacto(value_err, 1) or buffer[libdef.COLLISION_BYTE] & 0x02
 		if fault:
 			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
@@ -171,7 +172,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 			break
 
 	cont = 0
-	while not stopped and motion_profile.count_distance(dato_in[0], media[1]) > 20 and value_err < MAX_ERROR:
+	while not stopped and motion_profile.count_distance(dato_in[0], media[1]) > 20 and not libdef.impacto(value_err, 1):
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena. format(libdef.f_byte(b_1))
@@ -180,8 +181,8 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
-		value_err = libdef.getError(buffer, VEC_ERROR[1])
-		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x02
+		value_err = libdef.getErrorWord(buffer, VEC_ERROR[1])
+		fault = libdef.impacto(value_err, 1) or buffer[libdef.COLLISION_BYTE] & 0x02
 		if fault:
 			cola_orden.put(1)
 			logging.warning(libdef.error_msg(1))
@@ -192,6 +193,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(2))
+			stopped = fault = True
 			break
 		cont += 1
 
@@ -226,8 +228,8 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 	for i in range(ite):
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
-		value_err = libdef.getError(buffer, VEC_ERROR[2])
-		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x04
+		value_err = libdef.getErrorWord(buffer, VEC_ERROR[2])
+		fault = libdef.impacto(value_err, 2) or buffer[libdef.COLLISION_BYTE] & 0x04
 		if fault:
 			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
@@ -242,7 +244,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			break
 
 	cont = 0
-	while not stopped and motion_profile.count_distance(dato_in[0], media[2]) > 20 and value_err < MAX_ERROR:
+	while not stopped and motion_profile.count_distance(dato_in[0], media[2]) > 20 and not libdef.impacto(value_err, 2):
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena. format(libdef.f_byte(b_1))
@@ -251,8 +253,8 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
-		value_err = libdef.getError(buffer, VEC_ERROR[2])
-		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x04
+		value_err = libdef.getErrorWord(buffer, VEC_ERROR[2])
+		fault = libdef.impacto(value_err, 2) or buffer[libdef.COLLISION_BYTE] & 0x04
 		if fault:
 			cola_orden.put(1)
 			logging.warning(libdef.error_msg(1))
@@ -263,6 +265,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(2))
+			stopped = fault = True
 			break
 		cont += 1
 
@@ -326,10 +329,10 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 
-		value_err1 = libdef.getError(buffer, VEC_ERROR[3])
-		value_err2 = libdef.getError(buffer, VEC_ERROR[4])
+		value_err1 = libdef.getErrorWord(buffer, VEC_ERROR[3])
+		value_err2 = libdef.getErrorWord(buffer, VEC_ERROR[4])
 
-		fault = value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x18
+		fault = libdef.impacto(value_err1, 3) or libdef.impacto(value_err2, 4) or buffer[libdef.COLLISION_BYTE] & 0x18
 		if fault:
 			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
@@ -344,7 +347,7 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			break
 
 	cont = 0
-	while not stopped and (motion_profile.count_distance(dato_in_1[0], media[3]) > 20 or motion_profile.count_distance(dato_in_2[0], media[4]) > 20) and value_err1 < MAX_ERROR and value_err2 < MAX_ERROR: #cambia media segun articulacion
+	while not stopped and (motion_profile.count_distance(dato_in_1[0], media[3]) > 20 or motion_profile.count_distance(dato_in_2[0], media[4]) > 20) and not libdef.impacto(value_err1, 3) and not libdef.impacto(value_err2, 4): #cambia media segun articulacion
 		cadena = libhex.mov_comm(1)
 		b_1 = libdef.countByte1(b_1)
 		cadena = cadena. format(libdef.f_byte(b_1))
@@ -353,9 +356,9 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
-		value_err1 = libdef.getError(buffer, VEC_ERROR[3])
-		value_err2 = libdef.getError(buffer, VEC_ERROR[4])
-		fault = value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x18
+		value_err1 = libdef.getErrorWord(buffer, VEC_ERROR[3])
+		value_err2 = libdef.getErrorWord(buffer, VEC_ERROR[4])
+		fault = libdef.impacto(value_err1, 3) or libdef.impacto(value_err2, 4) or buffer[libdef.COLLISION_BYTE] & 0x18
 		if fault:
 			cola_orden.put(1)
 			logging.warning(libdef.error_msg(1))
@@ -366,6 +369,7 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 			print("ERROR: Joint did not respond")
 			cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(2))
+			stopped = fault = True
 			break
 		cont += 1
 
@@ -515,7 +519,11 @@ def motors_off(b_1, epout, epin, buffer,cola_read):
 	return b_1
 
 # Activa el control sobre los motores
+# Like USBC.dll's Control('&', 1), the measured counts of the last reply are taken once before the
+# motors go on and the idle messages hold them (LEDGER.md PL98). The motor-on messages are unchanged.
 def motors_on(b_1, epout, epin, buffer,cola_read):
+	snapshot = [libdef.transform([buffer[pos], buffer[pos+1]]) for pos in VEC_POS]
+	libdef.ultimo_hold = bytes.fromhex(libdef.get_encoder(buffer, snapshot))
 	media = libdef.get_media(buffer,cola_read.get())
 	for i in range(1,8):
 		cadena = libhex.mov_comm(6)
@@ -692,8 +700,18 @@ def vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 # Gestiona las ordenes enviadas por el usuario desde la interfaz gráfica y
 # las redirige a las acciones que debe realizar el robot.
 #################################################################################
+# Orders after which the idle messages hold libdef.ultimo_hold: the jogs and the stream end in
+# closeMov or stopMov, motors_on takes a snapshot. After 24 and 25 (outputs, torque readout; they
+# move nothing) the hold is left as it was. Every other order hands on None, so the idle messages
+# follow the encoders as before: motors off, the gripper, homing (the vendor home re-zeroes the
+# counters with 48), XYZ.
+HOLD_ORDERS = (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 17, STREAM)
+KEEP_ORDERS = (VENDOR_IO, VENDOR_TORQUE)
+
+# on_hold -> Optional callable; after each order it is given the setpoint bytes the
+#            idle messages must hold, or None to follow the encoders. Not called after 24 and 25.
 def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
-		cola_result=None, cancel_event=None, stop_event=None, command_waiting=None):
+		cola_result=None, cancel_event=None, stop_event=None, command_waiting=None, on_hold=None):
 	# The GUI historically used one queue in both directions. SDK clients pass a
 	# separate result queue so they cannot consume their own command.
 	if cola_result is None:
@@ -721,7 +739,11 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 				if orden != 19 and orden != 16 and orden != 17:
 					home = False
 					posRef = conf.readData("general", "posRef")
-				if orden == 4 or orden == 5:
+				libdef.ultimo_hold = None
+				# A fault may arrive after the caller queued motion, while sync still owns the byte.
+				if cancel_event is not None and cancel_event.is_set() and orden not in (16, EXIT):
+					cola_result.put(1)
+				elif orden == 4 or orden == 5:
 					b_1 = move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite, stop_event)
 				elif orden == 6 or orden == 7:
 					b_1 = move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_result, vel,ite, stop_event)
@@ -763,9 +785,13 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 				elif orden == EXIT:
 					b_1= motors_off(b_1,epout,epin,buffer,cola_read)
 					scorbotoff(b_1,epout,epin,buffer,cola_read)
+					if on_hold is not None:
+						on_hold(None)
 					cola_sync.put(EXIT)
 					cola_result.put(DONE)
 					break
+				if on_hold is not None and orden not in KEEP_ORDERS:
+					on_hold(libdef.ultimo_hold if orden in HOLD_ORDERS else None)
 				orden = None
 				cola_sync.put(b_1)
 				cola_result.put(DONE)

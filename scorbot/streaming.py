@@ -24,7 +24,7 @@ import time
 
 from . import limits
 from .calibration import signed_count_delta
-from .state import collision_motors, decode_state, teach_mode_after
+from .state import IMPACT_DETECT_COUNTS, collision_motors, decode_state, signed_error_word, teach_mode_after
 from .vendor_profile import MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION, VendorProfile
 
 MOTORS = limits.ARM_MOTORS
@@ -35,7 +35,6 @@ DEFAULT_HOLD_TIMEOUT_S = 0.5      # ours
 # a jump the size of the lead limit; a long hold timeout switches the hold off.
 PERIOD_RANGE_S = (0.01, 0.05)
 HOLD_TIMEOUT_RANGE_S = (0.05, 2.0)
-DEFAULT_ERROR_LIMIT = 40          # openScorbot conf MAX_ERROR, the legacy joint-limit threshold
 VENDOR_MAX_SPEED_COUNTS_S = 6500.0   # ER4AxN.ini MaxSpeed; counts/s is inferred from the DLL
 VENDOR_MAX_ACCEL_COUNTS_S2 = 11000.0  # ER4AxN.ini MaxAccel, counts/s^2 (ledger PL56)
 # The DLL compares 1.5 x the profile's peak with MaxAccel, so its real peak stays at MaxAccel / 1.5 (PL56).
@@ -108,7 +107,7 @@ class StreamCore:
                  lead_limit: dict[str, float], limits: StreamLimits | None = None,
                  period_s: float = DEFAULT_PERIOD_S,
                  hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
-                 error_limit: int = DEFAULT_ERROR_LIMIT, now: float = 0.0,
+                 error_limit: dict[str, int] | None = None, now: float = 0.0,
                  motors: tuple[str, ...] = MOTORS):
         from ruckig import ControlInterface, InputParameter, OutputParameter, Ruckig
         # The motors this stream drives, in setpoint order: base, shoulder, elbow, or those and
@@ -145,7 +144,8 @@ class StreamCore:
         self.travel_cap = dict(travel_cap)
         self.lead_limit = dict(lead_limit)
         self.hold_timeout_s = hold_timeout_s
-        self.error_limit = error_limit
+        # Per motor: a signed error word whose absolute value is above this faults (vendor ImpactDetect, PL98).
+        self.error_limit = dict(IMPACT_DETECT_COUNTS if error_limit is None else error_limit)
         self.state = TRACKING
         self.fault: str | None = None
         self._lock = threading.Lock()
@@ -266,8 +266,9 @@ class StreamCore:
                 return result(END)
             if emergency:
                 self._fault("the controller reports an emergency stop")
-            elif error_counts and any(error_counts.get(m, 0) >= self.error_limit for m in self.motors):
-                self._fault(f"controller error word at or above {self.error_limit}: {error_counts}")
+            elif error_counts and any(abs(error_counts.get(m, 0)) > self.error_limit[m] for m in self.motors):
+                self._fault(f"controller error word above ImpactDetect (vendor error 201), "
+                            f"{ {m: self.error_limit[m] for m in self.motors} }: {error_counts}")
             elif self._leads_too_far(lead):
                 self._fault(f"the arm is not following: command leads by {lead} counts")
             if self.state == FAULTED:
@@ -306,11 +307,6 @@ class StreamCore:
                     return result(END)
                 self._rest_sent = True     # send the resting position once, then end
             return result(SEND)
-
-
-def _legacy_error(raw: int) -> int:
-    """The controller error word as openScorbot/libdef.py:getError reads it."""
-    return 65535 - raw if raw >= 65500 else raw
 
 
 class Stream:
@@ -420,7 +416,7 @@ class Stream:
                 self.core.fail(f"the controller's collision flag is set for {', '.join(hit)}")
             measured = {m: signed_count_delta(state.encoder_counts[m], self._home[m])
                         for m in self.core.motors}
-            errors = {m: _legacy_error(state.controller_error_counts[m]) for m in self.core.motors}
+            errors = {m: signed_error_word(state.controller_error_counts[m]) for m in self.core.motors}
             emergency = self._use_emergency_bit and bool(reply[2] & 1)
             step = self.core.step(measured, time.monotonic(), error_counts=errors,
                                   emergency=emergency)

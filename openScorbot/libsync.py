@@ -42,8 +42,11 @@ HANDSHAKE_WAIT_TIMEOUT_S = 30.0
 # command_waiting -> Optional threading.Event that execute sets while a command waits for the sequence
 #                    byte. Without it this loop eats the pause marker, puts the byte back and takes it
 #                    again at once, so a late-scheduled command worker can wait forever.
+# setpoint_hold   -> Optional callable; bytes it returns replace the measured setpoint region of the
+#                    idle message (the hold a motion left, LEDGER.md PL98), None keeps the encoders.
+# on_reply        -> Optional callable, given a copy of each idle reply (the SDK's idle impact check).
 #
-def syncro(cola_sync, cola_read, epout, epin, buffer, command_waiting=None, setpoint_hold=None):
+def syncro(cola_sync, cola_read, epout, epin, buffer, command_waiting=None, setpoint_hold=None, on_reply=None):
 	while 1:
 		while command_waiting is not None and command_waiting.is_set():
 			time.sleep(READ)
@@ -61,6 +64,8 @@ def syncro(cola_sync, cola_read, epout, epin, buffer, command_waiting=None, setp
 			hold = setpoint_hold() if setpoint_hold is not None else None
 			cadena += hold.hex() if hold is not None else libdef.get_encoder(buffer,media)
 			libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
+			if on_reply is not None:
+				on_reply(bytes(buffer))
 			media = libdef.get_media(buffer,media)
 			cola_read.put(media)
 			cola_sync.put(b_1)
