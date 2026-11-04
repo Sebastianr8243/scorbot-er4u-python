@@ -50,7 +50,7 @@ low, on both sides of zero: sign byte 128 is count `L + 1` and was sent as `L`; 
 - `wrist_motor_2`'s vendor soft limit is +/-1,000,000 counts. A difference of more than 32766
   counts between two samples, or from home, cannot be read from low words. Every caller above
   takes it from low words, and calibration files store a low word. Reading signed counts instead
-  means changing stored calibration data, so it is left for Sebastian.
+  means changing stored calibration data, so it is left open for a decision.
 
 ## Assumptions
 - The controller reads each slot as a signed 32-bit count. Source: the DLL disassembly
