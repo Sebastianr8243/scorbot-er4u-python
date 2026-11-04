@@ -80,8 +80,12 @@ class Planner(unittest.TestCase):
                 self.assertTrue(result.sent and not result.stopped)
 
     def test_the_ramp_is_the_dlls_s_curve(self):
-        # Calls 3 and 4 repeat 1 and 2, one shifted by a 0D of DLL timing; the 2026-11-04 calls are short moves.
-        for golden in GOLDEN[:2] + JAW:
+        # Full strokes 1, 2 and 4 match exactly; 3 is stroke 1 with one more leading hold (a 0D of DLL timing),
+        # pinned below. The 2026-11-04 calls are short moves.
+        self.assertEqual(GOLDEN[2]["gripper"][1:], GOLDEN[0]["gripper"])
+        self.assertEqual(GOLDEN[2]["nop_count"], GOLDEN[0]["nop_count"] + 1)
+        self.assertEqual(GOLDEN[2]["commands"], GOLDEN[0]["commands"])
+        for golden in GOLDEN[:2] + GOLDEN[3:4] + JAW:
             start, target = golden["gripper"][0], golden["gripper"][-1]
             sent, _ = drive(vg.vendor_gripper(reply([0] * 5 + [start]), target), reply([0] * 5 + [start]))
             ours = summary(sent)

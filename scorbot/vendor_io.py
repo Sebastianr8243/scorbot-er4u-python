@@ -14,6 +14,7 @@ counts, so the same ``VendorHomeSource`` and legacy runner carry it (order ``IO_
 """
 
 from . import vendor_home as vh
+from .pacing import ID_RING
 
 IO_ORDER = 24
 """Command code queued to the legacy worker; it runs ``libcomm.vendor_home_run`` like orders 22 and 23."""
@@ -56,16 +57,45 @@ def analog_messages(number: int, value: int) -> list[tuple[int, int, int]]:
     return [(SET_ANALOG, value, number)]
 
 
-def send_queued(first, messages):
+def advanced(last: int, echo: int) -> bool:
+    """Whether ``echo`` is a newer message ID than ``last`` on the 1..255 ring, at most ``MAX_LAG`` ahead.
+    A repeated, backward or missing echo is not progress (ours: the DLL counts any reply)."""
+    return 1 <= last <= ID_RING and 1 <= echo <= ID_RING and 1 <= (echo - last) % ID_RING <= vh.MAX_LAG
+
+
+def _check(reply, faulted):
+    """Raise instead of sending once the operator or the session has said stop (ours, not the DLL's)."""
+    if reply.emergency:
+        raise vh.HomeError(vh.ERR_EMERGENCY, "emergency input active during the output queue wait")
+    if reply.pendant_abort:
+        raise vh.HomeError(vh.ERR_STOPPED, "pendant Abort pressed during the output queue wait")
+    fault = faulted() if faulted is not None else None
+    if fault:
+        raise vh.HomeError(vh.ERR_STOPPED, f"session fault during the output queue wait: {fault}")
+
+
+def send_queued(first, messages, *, faulted=None):
     """``SetDigitalOutput(n, on, 0)``: hold the first reply's counts for ``QUEUE_ROUNDS`` rounds of
-    ``ROUND_REPLIES`` replies and then ``ROUND_SECONDS`` by the replies' clock, then send ``messages``."""
+    ``ROUND_REPLIES`` replies and then ``ROUND_SECONDS`` by the replies' clock, then send ``messages``.
+
+    Ours, beyond the DLL: a round counts only replies whose echoed ID moves forward (``advanced``), so a
+    controller that stops answering never drains the queue; ``VendorHomeSource`` ends that wait at its lag
+    limit or ``TOTAL_SECONDS``. Emergency, pendant Abort or ``faulted()`` on any reply raises ``HomeError``
+    and nothing is sent."""
     setpoints, reply = tuple(first.counts), first
+    last = first.echo
+    _check(reply, faulted)
     for _ in range(QUEUE_ROUNDS):
-        for _ in range(ROUND_REPLIES):
+        counted = 0
+        while counted < ROUND_REPLIES:
             reply = yield vh.Out(vh.NOP, 0, 0, 0, setpoints)
+            _check(reply, faulted)
+            if advanced(last, reply.echo):
+                last, counted = reply.echo, counted + 1
         until = reply.now + ROUND_SECONDS
         while reply.now < until:
             reply = yield vh.Out(vh.NOP, 0, 0, 0, setpoints)
+            _check(reply, faulted)
     return (yield from send(first, messages))
 
 

@@ -33,7 +33,8 @@ class IoMixin:
             if immediate:
                 self._io(messages)
             else:
-                self._io(messages, send=vendor_io.send_queued)
+                self._io(messages, send=lambda first, m: vendor_io.send_queued(first, m, faulted=lambda: self._fault),
+                         stoppable=True)
             self._digital_outputs = word
         self._record("digital_output", number=number, on=bool(on), word=word, immediate=immediate)
 
@@ -43,19 +44,29 @@ class IoMixin:
         self._io(messages)
         self._record("analog_output", number=number, value=value)
 
-    def _io(self, messages, send=vendor_io.send) -> None:
+    def _io(self, messages, send=vendor_io.send, *, stoppable=False) -> None:
         with self._motion_lock:
             self._refuse_if_streaming()
             if self._device is None:
                 raise ScorbotError("Not connected")
+            # A queued write waits about 0.8 s before its 44: a stop asked for before it starts refuses it,
+            # like the gripper, and one during the wait ends it with nothing sent (``send_queued``).
+            if stoppable and self._consume_stop():
+                raise ScorbotError("A stop was requested; the queued output was not written")
             # The messages hold every axis at the first reply's counts, so the arm must be at rest
             # (the DLL sends 47 only then, 0x10024d1d). Latches a fault if it is not, like the gripper.
             self._settled_after_stop(self._motion_state(),
                                      fault="The arm was not at rest before an output write")
-            # No stop event: an output write is not motion, so a pending stop request must not cancel it.
+            # An immediate write is two messages with no wait, so a pending stop request must not cancel it.
             source = VendorHomeSource(start=lambda first: send(first, messages),
+                                      stop_event=self._stop_event if stoppable else None,
                                       cancel_event=self._cancel_event,
                                       total_seconds=vendor_io.TOTAL_SECONDS)
-            self._command([vendor_io.IO_ORDER, source, 0], timeout=vendor_io.TOTAL_SECONDS + 30.0)
+            try:
+                self._command([vendor_io.IO_ORDER, source, 0], timeout=vendor_io.TOTAL_SECONDS + 30.0)
+            except ScorbotError as exc:
+                if stoppable:
+                    self._consume_stop()        # the stop ended this write; it must not refuse the next move
+                raise ScorbotError(f"Output write failed: {source.error or exc}") from exc
             if not source.ok:
                 raise ScorbotError(f"Output write failed: {source.error}")
