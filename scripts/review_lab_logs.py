@@ -32,8 +32,10 @@ def _packet_checks(states):
         if not isinstance(signs, dict) or not isinstance(signed, dict):
             problems.append("missing signed encoder fields")
             continue
-        if any(signs.get(joint) not in (127, 128) or type(signed.get(joint)) is not int
-               for joint in JOINTS):
+        # The sign byte is the top byte of the 24-bit raw value, so any byte is a count
+        # (docs/requirements/count-frame.md); 127/128 only near zero.
+        if any(type(signs.get(joint)) is not int or not 0 <= signs[joint] <= 255
+               or type(signed.get(joint)) is not int for joint in JOINTS):
             problems.append("invalid or missing encoder sign/count field")
     return sorted(set(problems))
 

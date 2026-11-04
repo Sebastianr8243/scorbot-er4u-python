@@ -27,6 +27,23 @@ def write_rows(path, rows):
 
 
 class LabLogReviewTests(unittest.TestCase):
+    def test_a_count_past_65535_is_not_an_invalid_sign_byte(self):
+        # docs/requirements/count-frame.md: the sign byte is the top byte of the raw value.
+        def far(index):
+            decoded = decode_state(encode_packet({"base": 70000}), connected=True, enabled=False,
+                                   homed=False, fault=None, packet_index=index)
+            return asdict(decoded)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "idle.jsonl"
+            write_rows(path, [
+                {"type": "session", "robot_id": "arm-1", "motion_source_sha256": "a" * 64},
+                {"type": "sample", "state": far(1)},
+                {"type": "sample", "state": far(2)},
+            ])
+            self.assertEqual(far(1)["encoder_sign_bytes"]["base"], 129)
+            self.assertNotIn("invalid or missing encoder sign/count field", review_idle(path)["problems"])
+
     def test_idle_reports_rest_variation_and_fresh_packets(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "idle.jsonl"
