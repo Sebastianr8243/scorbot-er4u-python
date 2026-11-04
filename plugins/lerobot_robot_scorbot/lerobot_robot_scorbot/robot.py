@@ -1,4 +1,4 @@
-"""ScorBot ER-4U as a LeRobot ``Robot``. Simulator only; all motion logic is ``scorbot.policy_arm``.
+"""ScorBot ER-4U as a LeRobot ``Robot``. Real-arm opt-in is unverified; all motion logic is ``scorbot.policy_arm``.
 
 Observation and action: ``base.pos``, ``shoulder.pos``, ``elbow.pos``, ``pitch.pos``, ``roll.pos`` in
 degrees from home (uncalibrated vendor prior; pitch is the gripper's angle to the floor and, with roll,
@@ -8,18 +8,21 @@ comes from the two coupled wrist motors through ``scorbot.source_model``), plus 
 clamps it to 0.5 degree per call and the lead limit, holding frames outside Intelitek's
 joint and encoder windows after vendor Home. The gripper is binary
 (``PolicyArm.set_gripper``): below 50 closes, 50 or more opens, and a change pauses the stream for the
-blocking vendor move, so that frame is slow. Its observation is the measured jaw in percent. The real arm is
-refused: LeRobot's tools connect outside their cleanup and have no stop key. Works without the
+blocking vendor move, so that frame is slow. Its observation is the measured jaw in percent. The real arm
+needs a second explicit opt-in: LeRobot's tools connect outside their cleanup and have no stop key. A real session
+registers an exit hook and stops the arm on any error or Ctrl+C inside its calls; the physical stop remains authoritative. Works without the
 ``lerobot`` package (stand-in base classes), so the normal test run covers it.
 """
 
+import atexit
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 import time
 import uuid
 from typing import Any
 
-from scorbot import SimulatedScorbot
+from scorbot import Scorbot, SimulatedScorbot
 from scorbot.policy_arm import JOINTS, PolicyArm
 
 try:        # lerobot is optional: tests run without it. Checked against lerobot 0.6 by examples/lerobot_sim_check.py.
@@ -53,14 +56,16 @@ SUFFIX = ".pos"
 GRIPPER_KEY = "gripper" + SUFFIX
 ACTION_KEYS = (*(m + SUFFIX for m in JOINTS), GRIPPER_KEY)
 SIM_NAME = "scorbot_sim"        # lerobot-record writes the robot's name as the dataset's robot_type
-REAL_ARM_REFUSED = ("The LeRobot plugin is simulator-only (simulate=true). Use python -m scorbot.lab "
-                    "on the real arm.")
+REAL_ARM_REFUSED = ("The LeRobot plugin refuses the real arm unless simulate=false and "
+                    "real_arm_confirmed=true. Use simulate=true for rehearsal; the real-arm path is unverified.")
 
 
 @RobotConfig.register_subclass("scorbot")
 @dataclass
 class ScorbotRobotConfig(RobotConfig):
-    simulate: bool = False          # must be true: the real arm is refused
+    simulate: bool = False
+    real_arm_confirmed: bool = False  # explicit second opt-in; unverified on the arm
+    transport: str = "auto"        # real arm only: Intelitek's driver first, as scripts/lab_day.py
     speed_pct: float = 25.0         # stream speed, percent of the vendor's MaxSpeed (1 to 100)
     step_limit: str = "fixed"       # "speed": the step per action follows speed_pct (PolicyArm)
     log_dir: Path = Path("rehearsal/lerobot")
@@ -77,14 +82,15 @@ class ScorbotRobot(Robot):
     name = "scorbot"
 
     def __init__(self, config: ScorbotRobotConfig):
-        if not config.simulate:
+        if not config.simulate and not config.real_arm_confirmed:
             raise ValueError(REAL_ARM_REFUSED)
-        self.name = SIM_NAME        # a v3 dataset has no data_source field: "simulated" lives in robot_type
+        self.name = SIM_NAME if config.simulate else "scorbot"  # dataset robot_type separates real from simulated
         super().__init__(config)
         self.config = config
         self.cameras = make_cameras_from_configs(config.cameras)
         self._arm: PolicyArm | None = None
         self._scene = None          # the MuJoCo twin, when a camera is a twin camera
+        self._exit_hook = False
 
     @property
     def _motors_ft(self) -> dict[str, type]:
@@ -119,14 +125,28 @@ class ScorbotRobot(Robot):
     def connect(self, calibrate: bool = True) -> None:
         if self._arm is not None:
             raise RuntimeError(f"{self} is already connected.")
+        if not self.config.simulate and not self.config.real_arm_confirmed:
+            raise ValueError(REAL_ARM_REFUSED)
+        if not (self.config.operator_at_stop and self.config.jaws_empty and self.config.wrist_clear):
+            raise ValueError("Confirm an operator is at the physical stop, the gripper jaws are "
+                             "empty and the wrist's path is clear first")
         log = Path(self.config.log_dir) / f"lerobot-{time.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}.jsonl"
-        arm = PolicyArm(SimulatedScorbot(log_path=log, robot_id=self.config.robot_id),
-                        speed_pct=self.config.speed_pct,
-                        step_limit=self.config.step_limit, wrist=True)
-        arm.connect(operator_at_stop=self.config.operator_at_stop, jaws_empty=self.config.jaws_empty,
-                    wrist_clear=self.config.wrist_clear)    # unwinds itself on failure: LeRobot calls us outside its cleanup
-        self._arm = arm
         try:
+            if self.config.simulate:
+                controller = SimulatedScorbot(log_path=log, robot_id=self.config.robot_id)
+            else:
+                # Before connecting: LeRobot connects outside its own cleanup. A Ctrl+C or error outside
+                # our calls ends the program, and this hook stops the arm then (worker threads are daemons).
+                # No SIGINT handler: stopping from inside one could cut into a command the main thread is sending.
+                atexit.register(self.disconnect)
+                self._exit_hook = True
+                controller = Scorbot(log_path=log, robot_id=self.config.robot_id, transport=self.config.transport)
+            arm = PolicyArm(controller,
+                            speed_pct=self.config.speed_pct,
+                            step_limit=self.config.step_limit, wrist=True)
+            self._arm = arm
+            arm.connect(operator_at_stop=self.config.operator_at_stop, jaws_empty=self.config.jaws_empty,
+                        wrist_clear=self.config.wrist_clear)    # PolicyArm unwinds a partial connection
             twins = [cam for cam in self.cameras.values() if hasattr(cam, "attach")]
             if twins:
                 from .sim_cameras import TwinScene
@@ -144,12 +164,16 @@ class ScorbotRobot(Robot):
     def get_observation(self) -> dict[str, Any]:
         if not self.is_connected:
             raise ConnectionError(f"{self} is not connected.")
-        obs = {m + SUFFIX: value for m, value in self._arm.observe(gripper=True).items()}
-        if self._scene is not None:      # the reading observe() just used: images show the pose in the numbers
-            self._scene.set_counts(self._arm.counts_seen)
-        for name, cam in self.cameras.items():
-            obs[name] = cam.async_read()
-        return obs
+        try:
+            obs = {m + SUFFIX: value for m, value in self._arm.observe(gripper=True).items()}
+            if self._scene is not None:      # images show the pose in the same reading
+                self._scene.set_counts(self._arm.counts_seen)
+            for name, cam in self.cameras.items():
+                obs[name] = cam.async_read()
+            return obs
+        except BaseException:
+            self.disconnect()
+            raise
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         if not self.is_connected:
@@ -165,10 +189,14 @@ class ScorbotRobot(Robot):
 
     def disconnect(self) -> None:
         arm, self._arm, self._scene = self._arm, None, None
-        try:
-            for cam in self.cameras.values():
+        hook, self._exit_hook = self._exit_hook, False
+        if arm is not None:
+            with suppress(BaseException):     # cleanup must not mask the original fault or interrupt
+                arm.close()
+        if hook:
+            with suppress(BaseException):
+                atexit.unregister(self.disconnect)
+        for cam in self.cameras.values():
+            with suppress(BaseException):
                 if cam.is_connected:
                     cam.disconnect()
-        finally:
-            if arm is not None:
-                arm.close()
