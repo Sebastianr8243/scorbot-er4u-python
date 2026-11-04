@@ -139,8 +139,10 @@ class LegacyStreamTests(unittest.TestCase):
         self.assertEqual(results, [STOPPED])
         # the stop asks for where the arm is reported to be, not for the target
         for packet in controller.packets[2:]:
-            self.assertLessEqual(field(packet, 0), 1300)
-            self.assertEqual([field(packet, i) for i in (1, 2)], [1000, 1000])
+            self.assertLessEqual(field(packet, 0), 1301)    # 1300 reported = controller count 1301
+            # reported 1000 in the legacy reading is controller count 1001 (raw24 - 0x7FFFFF); the hold
+            # writes the controller count, which field() reads in the legacy frame as 1001
+            self.assertEqual([field(packet, i) for i in (1, 2)], [1001, 1001])
 
     @unittest.skipUnless(HAS_RUCKIG, "needs the planning extra")
     def test_teach_mode_mid_stream_sends_exactly_the_normal_stop_bytes(self):
