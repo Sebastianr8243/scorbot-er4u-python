@@ -4,6 +4,8 @@ Numbers the desk cannot settle. None of these needs its own test: each comes fro
 [checklist](LAB_CHECKLIST.md) you are running anyway. Write the value, the log file and the time.
 Until a dated line is filled in here, the matching claim stays unverified.
 
+To fill it: `python scripts/lab_summary.py logs\*.jsonl --sheet --phone base=<deg>` prints each row the logs can answer (value, record, file) and what to read by hand for the rest; check every value against what you saw.
+
 | # | Unknown | Desk value (source) | How to read it at the lab | Value seen | Log |
 |---|---|---|---|---|---|
 | 1 | Parameter folder the lab PC loads | `ER4u\$Default`, and `$CURRENT` is the same bytes (ER4CONF.INI `CurrentParFolder`) | Open `ER4CONF.INI` beside USBC.dll on the lab PC; copy `CurrentParFolder`. Different folder: compare its `EncLimit_1`/`EncLimit_2` with `scorbot/nominal.py` `VENDOR_ENCODER_SOFT_LIMITS` before any Stack 2 move | | |

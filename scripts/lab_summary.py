@@ -1,6 +1,7 @@
 """One page from the lab-day logs: did each step run, and what did the arm do.
 
     python scripts/lab_summary.py logs/idle-01.jsonl logs/base-01.jsonl ... [--phone base=1.2]
+    python scripts/lab_summary.py logs/*.jsonl --sheet [--phone base=1.2]   # the record sheet, row by row
 
 Reads bench_joint, bench_stream, policy_loop and record_raw_state records (it tells them apart itself)
 and reuses the reviewers in review_lab_logs.py. Per jog it says which way the counts went for a
@@ -142,12 +143,21 @@ def main(argv=None):
     parser.add_argument("logs", nargs="+", type=Path)
     parser.add_argument("--phone", action="append", default=[], metavar="JOINT=DEG",
                         help="angle change you measured for that joint's jog")
+    parser.add_argument("--sheet", action="store_true",
+                        help="print docs/lab/LAB_RECORD_SHEET.md row by row: a value and its source, or what to "
+                             "read by hand")
     args = parser.parse_args(argv)
     phone = parse_phone(args.phone)
     bad = 0
     logs = expand(args.logs)
     if not logs:
         raise SystemExit("no log files matched")
+    if args.sheet:
+        try:
+            from scripts import lab_sheet
+        except ImportError:  # Run as a script.
+            import lab_sheet
+        return lab_sheet.print_sheet(logs, phone)
     for path in logs:
         lines, problems = summarize(path, phone)
         print("\n".join(lines))
