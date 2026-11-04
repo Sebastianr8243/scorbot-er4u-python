@@ -52,6 +52,13 @@ class LoadTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.load(data)
 
+    def test_a_home_tolerance_of_zero_is_refused_with_the_reason(self):
+        # count-frame.md CT19: a file recorded before 2026-11-04 holds the raw low word, one count below
+        # today's reading, so a tolerance of 0 would refuse a perfect home. Re-fit instead.
+        with self.assertRaisesRegex(ValueError, "base.*at least 1.*one count.*re-fit"):
+            self.load(copy(home_tolerance_counts=0))
+        self.assertEqual(self.load(copy(home_tolerance_counts=1)).joints["base"].home_tolerance_counts, 1)
+
     def test_the_header_is_checked(self):
         for label, change in (("version", {"schema_version": 2}), ("status", {"status": "draft"}),
                               ("robot", {"robot_id": "other"}), ("hash", {"source_sha256": "xyz"}),

@@ -270,11 +270,9 @@ class CalibrationTests(unittest.TestCase):
         from types import SimpleNamespace
         counts = dict.fromkeys(("base", "shoulder", "elbow", "wrist_motor_1",
                                 "wrist_motor_2"), 0)
+        # The check does not read the session home (#138 item 7; tests/test_one_limit.py), so a missing
+        # or partial home is no longer a case here.
         cases = (
-            ("no home counts", None, SimpleNamespace(encoder_counts=dict(counts)), True),
-            ("a wrist motor missing from home",
-             {k: v for k, v in counts.items() if k != "wrist_motor_1"},
-             SimpleNamespace(encoder_counts=dict(counts)), True),
             # The absolute count is the signed count (count-frame.md CT14): a state without it cannot place.
             ("no signed counts", dict(counts),
              SimpleNamespace(encoder_counts=dict(counts, base=32767), signed_encoder_counts=None), True),

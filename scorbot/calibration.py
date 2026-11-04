@@ -85,6 +85,11 @@ def load_calibration(path: str | Path, *, robot_id: str) -> Calibration:
             raise ValueError(f"Invalid home count for {name}")
         if type(tolerance) is not int or not 0 <= tolerance < 32768:
             raise ValueError(f"Invalid home tolerance for {name}")
+        if tolerance == 0:
+            # A file recorded before 2026-11-04 holds the raw low word, one count below the reading
+            # validate_home now compares it with (docs/requirements/count-frame.md CT13, CT19).
+            raise ValueError(f"Home tolerance for {name} must be at least 1 count: a file recorded before "
+                             "2026-11-04 is one count off today's reading; re-fit it with scripts/fit_calibration.py")
         home_angle = _finite(row.get("home_angle_deg"), "home angle")
         scale = _finite(row.get("counts_per_degree"), "counts per degree")
         lower = _finite(row.get("soft_min_deg"), "soft minimum")

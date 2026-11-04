@@ -18,6 +18,8 @@ import json
 from pathlib import Path
 import statistics
 
+from scorbot.state import COUNT_ZERO
+
 MESSAGE_LENGTH = 64
 # OUT byte 4, with the DLL's own names (docs/protocol/VENDOR_DLL_PROTOCOL.md section 4).
 COMMANDS = {
@@ -31,7 +33,7 @@ COMMANDS = {
 POSITION_OFFSET = 19   # IN: 24-bit little-endian position per axis, 5 bytes apart
 AXIS_STRIDE = 5
 AXES = 8
-ZERO = 0x7FFFFF
+ZERO = COUNT_ZERO      # raw 24-bit reading of count zero (scorbot.state, the one definition)
 ECHO_WINDOW = 256      # how many earlier OUT messages an IN may refer to
 MATCHES, CONTRADICTED, NOT_SEEN = "matches", "CONTRADICTED", "not seen"
 

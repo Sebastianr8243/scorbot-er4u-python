@@ -1,6 +1,7 @@
 """Vendor travel bounds, desk only: simulator and pure argument parsing."""
 
 import argparse
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest import mock
 
@@ -68,11 +69,19 @@ def test_stream_optional_cap_has_no_ceiling_and_keeps_vendor_windows(robot):
             stream.set_target({"shoulder": 600})
 
 
-@pytest.mark.parametrize("home", [None, {m: 32767 if m == "base" else 0 for m in limits.RECORDED_MOTORS}])
-def test_unplaceable_jog_latches(robot, home):
-    robot._home_counts = home
+@pytest.mark.parametrize("low", [32767, 32768, 32769])
+def test_jog_vendor_check_does_not_read_the_session_home(robot, low):
+    # It reads the reply's signed count (count-frame.md CT14). A session home whose low word is
+    # ambiguous from 0 used to latch a fault through a leftover read whose result was discarded.
+    robot._home_counts = {**robot._home_counts, "base": low}
+    robot._refuse_past_joint_limit(robot.get_state(), {"base": 10})
+    assert robot._fault is None
+
+
+def test_jog_vendor_check_latches_on_a_reply_without_signed_counts(robot):
+    state = robot.get_state()
     with pytest.raises(ScorbotError):
-        robot._refuse_past_joint_limit(robot.get_state(), {"base": 10})
+        robot._refuse_past_joint_limit(replace(state, signed_encoder_counts=None), {"base": 10})
     assert robot._fault
     assert not robot._homed
 

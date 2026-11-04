@@ -114,8 +114,8 @@ class StreamMixin:
                 raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
             # The stream reads each motor from home by its low word, which aliases past 32766 counts
             # (wrist_motor_2's vendor EncLimit is +/-1,000,000): refuse rather than misread it (CT14).
-            far = {m: before.signed_encoder_counts[m] - home[m] for m in (*motors, *limits.WRIST_MOTORS)
-                   if abs(before.signed_encoder_counts[m] - home[m]) > MAX_COUNTS_FROM_HOME}
+            reach = {m: before.signed_encoder_counts[m] - home[m] for m in (*motors, *limits.WRIST_MOTORS)}
+            far = {m: v for m, v in reach.items() if abs(v) > MAX_COUNTS_FROM_HOME}
             if far:
                 raise ScorbotError("Cannot place the arm relative to home: "
                                    + ", ".join(f"{m} is {v} counts from home" for m, v in far.items())
@@ -153,7 +153,7 @@ class StreamMixin:
             except ImportError as exc:
                 raise ScorbotError("Streaming needs the planning extra "
                                    "(pip install .[planning])") from exc
-            stream = Stream(self, core, self._home_counts, before,
+            stream = Stream(self, core, self._home_counts, before, home_signed=home,
                             use_emergency_bit=use_emergency_bit)
             self._record("stream_start", travel_cap_deg=travel_cap_deg,
                          speed_fraction=speed_fraction, lead_limit_deg=lead_limit_deg,

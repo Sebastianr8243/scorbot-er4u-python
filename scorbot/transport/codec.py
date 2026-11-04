@@ -25,8 +25,13 @@ Signs use the IN sign byte that ``scorbot.state.decode_state`` reports
 count is raw24 - 0x7FFFFF (128: ``low + 1``, 127: ``low - 65535``, any other
 byte a count past +/-65535), and the slot carries that count
 (``libdef.slotHex``). The legacy code keeps the 128/127 sign as the text
-``'0000'``/``'ffff'``; this module keeps the byte, so a state read from the
-controller can be echoed without translation.
+``'0000'``/``'ffff'``; this module keeps the byte. ``count`` is the reply's raw
+low word (bytes 0-1 of the axis), not ``RobotState.encoder_counts``: since
+2026-11-04 that is the count's low word, one more than the raw one (65536 off at
+the wrap), so ``encode_count(state.encoder_counts[j], state.encoder_sign_bytes[j])``
+is wrong. To send a decoded state back, write ``state.signed_encoder_counts[j]``
+as the signed 32-bit slot (``libdef.setpointField``); see
+``docs/requirements/count-frame.md`` CT13.
 
 Inputs outside the domain where the legacy code is correct raise
 ``ValueError``; legacy bugs are not reproduced (for example a count step above
@@ -178,8 +183,8 @@ def next_sequence(sequence: int) -> int:
 def encode_count(count: int, sign: int) -> bytes:
     """One joint's 4-byte field: the controller count as a signed 32-bit slot.
 
-    ``count`` is the low word and ``sign`` the IN sign byte, as the reply carries
-    them: the top byte of the 24-bit raw value, so the controller count is
+    ``count`` is the raw low word (not ``RobotState.encoder_counts``, which is one
+    more) and ``sign`` the IN sign byte, as the reply carries them: the top byte of the 24-bit raw value, so the controller count is
     ``sign * 65536 + count - 0x7FFFFF`` (``count + 1`` for 128, ``count - 65535``
     for 127, counts past +/-65535 for the other bytes). A jog target's ``count``
     may run past 0..65535 (``step_count``). Legacy ``libdef.slotHex``, which
@@ -230,16 +235,20 @@ def step_count(count: int, sign: int, step: int) -> tuple[int, int]:
     the controller count always moves by exactly ``step``.
     Zero returns the input. Returns ``(count, sign)``.
 
+    It takes back any target it returns, past 0..65535 too, as ``libdef.suma``/``resta``
+    keep counting there (``docs/requirements/count-frame.md`` CT18); the controller count,
+    before and after, must be in the 24-bit range (``encode_count``).
     ``|step|`` must be at most 65535 (real steps are at most about 100).
     """
-    _require_int("count", count, 0, MAX_COUNT)
     _require_sign(sign)
+    encode_count(count, sign)
     _require_int("step", step, -COUNT_MODULUS, COUNT_MODULUS)
     count += step
     if count > MAX_COUNT and sign == SIGN_NEGATIVE:
-        return count - (MAX_COUNT + 1), SIGN_POSITIVE
-    if count < 0 and sign == SIGN_POSITIVE:
-        return count + MAX_COUNT + 1, SIGN_NEGATIVE
+        count, sign = count - (MAX_COUNT + 1), SIGN_POSITIVE
+    elif count < 0 and sign == SIGN_POSITIVE:
+        count, sign = count + MAX_COUNT + 1, SIGN_NEGATIVE
+    encode_count(count, sign)
     return count, sign
 
 
