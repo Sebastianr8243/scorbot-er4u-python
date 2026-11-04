@@ -60,6 +60,7 @@ class IoMixin:
             # An immediate write is two messages with no wait, so a pending stop request must not cancel it.
             source = VendorHomeSource(start=lambda first: send(first, messages),
                                       stop_event=self._stop_event if stoppable else None,
+                                      commit=vendor_io.commits if stoppable else None,
                                       cancel_event=self._cancel_event,
                                       total_seconds=vendor_io.TOTAL_SECONDS)
             try:
@@ -70,3 +71,10 @@ class IoMixin:
                 raise ScorbotError(f"Output write failed: {source.error or exc}") from exc
             if not source.ok:
                 raise ScorbotError(f"Output write failed: {source.error}")
+            if stoppable:
+                # A stop after the 44 was committed could not take it back: the write stands, the stop is used up.
+                with self._stop_lock:
+                    too_late = self._stop_event.is_set()
+                    self._stop_event.clear()
+                if too_late:
+                    self._record("stop_too_late", operation="digital_output")

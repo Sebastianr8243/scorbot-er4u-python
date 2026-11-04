@@ -96,7 +96,15 @@ def send_queued(first, messages, *, faulted=None):
         while reply.now < until:
             reply = yield vh.Out(vh.NOP, 0, 0, 0, setpoints)
             _check(reply, faulted)
+            if advanced(last, reply.echo):      # keep up with the controller, or its next echo looks too far ahead
+                last = reply.echo
     return (yield from send(first, messages))
+
+
+def commits(out) -> bool:
+    """The message that cannot be taken back: ``VendorHomeSource(commit=commits)`` checks for a stop one last
+    time before handing it to the worker; a stop after that is too late, like the gripper's."""
+    return out.cmd == SET_DIGITAL
 
 
 def send(first, messages):

@@ -24,6 +24,14 @@ except ImportError:      # discovered with -s tests
 OUTPUTS = json.loads((Path(__file__).parent / "fixtures" / "dll_lab_jaw.json").read_text(encoding="utf-8"))["outputs"]
 
 
+def raw_reply(echo):
+    """An IN packet echoing message ``echo`` with every count 0 (raw 0x7FFFFF)."""
+    packet = bytearray(64)
+    packet[0] = echo
+    packet[19:49] = bytes.fromhex("ffff7f0000") * 6
+    return bytes(packet)
+
+
 def fields(packet):
     return (packet[4], packet[5], int.from_bytes(packet[6:8], "little"),
             int.from_bytes(packet[8:12], "little"))
@@ -193,6 +201,38 @@ class QueuedOutputTests(unittest.TestCase):
         sent, _ = self.drive(messages, 0.0108, echo=lambda n: (n + 252) % 255 + 1)
         self.assertEqual(sent[-1].cmd, vendor_io.SET_DIGITAL)
 
+    def test_timer_phase_echoes_keep_the_drain_current(self):
+        # The controller catches up during the 100 ms phases: last must follow it, or a fresh echo far past the
+        # last counted one (10 -> 76 here) reads as more than MAX_LAG ahead and the drain never ends.
+        # Each reply 10 ms apart moves 7 IDs: 11 replies after the last counted one is 77 > MAX_LAG.
+        sent, seconds = self.drive(vendor_io.digital_messages(0x08, immediate=False), 0.01,
+                                   echo=lambda n: (7 * n) % 255 + 1, limit=500)
+        self.assertEqual(sent[-1].cmd, vendor_io.SET_DIGITAL)
+        self.assertLess(seconds, 1.0)
+
+    def test_a_stop_while_the_word_is_built_is_never_sent(self):
+        # The stop lands after the source's reply check but before it hands the 44 to the worker.
+        stop = threading.Event()
+
+        def start(first):
+            inner = vendor_io.send_queued(first, vendor_io.digital_messages(0x08, immediate=False))
+            out = next(inner)
+            while True:
+                if out.cmd == vendor_io.SET_DIGITAL:
+                    stop.set()
+                out = inner.send((yield out))
+
+        source = VendorHomeSource(start=start, stop_event=stop, commit=vendor_io.commits,
+                                  total_seconds=vendor_io.TOTAL_SECONDS)
+        commands, step, sequence = [], ("send", b""), 2
+        while step[0] == "send":
+            step = source(raw_reply(sequence - 1), sequence)
+            if step[0] == "send":
+                commands.append(step[1][4])
+            sequence = sequence % 255 + 1
+        self.assertEqual(step, ("stop",))
+        self.assertNotIn(vendor_io.SET_DIGITAL, commands)
+
     def test_advanced_is_a_small_forward_step_on_the_ring(self):
         self.assertTrue(vendor_io.advanced(255, 1))
         self.assertTrue(vendor_io.advanced(7, 7 + vh.MAX_LAG))
@@ -205,12 +245,9 @@ class QueuedOutputTests(unittest.TestCase):
         source = VendorHomeSource(start=lambda first: vendor_io.send_queued(
             first, vendor_io.digital_messages(0x08, immediate=False)),
             clock=lambda: now[0], total_seconds=vendor_io.TOTAL_SECONDS)
-        stale = bytearray(64)
-        stale[0] = 1                                            # every reply echoes message 1
-        stale[19:49] = b"\xff\xff\x7f\x00\x00" * 6              # every count 0
         commands, step, sequence = [], ("send", None), 2
         while step[0] == "send" and len(commands) < 1000:
-            step = source(bytes(stale), sequence)
+            step = source(raw_reply(1), sequence)               # every reply echoes message 1
             if step[0] == "send":
                 commands.append(step[1][4])
             sequence, now[0] = sequence % 255 + 1, now[0] + 0.05
@@ -252,6 +289,23 @@ class QueuedOutputRobotTests(SimulatedRobotCase):
                 self.assertNotIn(0x44, [p[4] for p in robot.sim.vendor_packets])
                 self.assertEqual(robot.digital_outputs, 0)
                 self.assertIsNotNone(robot._fault)
+
+    def test_a_stop_after_the_word_is_handed_to_the_worker_is_too_late(self):
+        # The hook runs after the source gave the worker the 44 and before it is written: the write is committed,
+        # so it must succeed and be recorded, not be reported as failed with the output already on.
+        robot = self.robot()
+
+        def stop_at_the_word(count, plant):
+            if robot.sim.vendor_packets[-1][4] == vendor_io.SET_DIGITAL:
+                robot.request_stop()
+
+        robot.sim.vendor_hook = stop_at_the_word
+        robot.set_digital_output(3, True, immediate=False)
+        self.assertEqual(fields(robot.sim.vendor_packets[-1]), (0x44, 0, 0, 0x08))
+        self.assertEqual(robot.digital_outputs, 0x08)
+        self.assertIsNone(robot._fault)
+        self.assertFalse(robot._stop_event.is_set(), "the late stop is used up, not left to refuse the next move")
+        self.assertIn("stop_too_late", [r["event"] for r in self.rows()])
 
     def test_a_pending_stop_refuses_the_queued_write_once(self):
         robot = self.robot()
