@@ -27,6 +27,16 @@ def signed_count_delta(value: int, origin: int) -> int:
     return delta if delta < 32767 else delta - 65536
 
 
+def count_near_zero(value: int) -> int:
+    """The controller count nearest zero that has this low word (within 32766 of zero).
+
+    Count 0 is raw 0x7FFFFF, low word 65535, so the count is the low word's difference from
+    65535; low word 0 is count 1 (``docs/requirements/count-frame.md``). Until 2026-11-04 the
+    code read low word 0 as count 0, one count off.
+    """
+    return signed_count_delta(value, 0xFFFF)
+
+
 def _finite(value, name):
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise ValueError(f"{name} must be a finite number")

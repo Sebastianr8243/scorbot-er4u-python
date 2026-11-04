@@ -20,7 +20,7 @@ def idle_packet(gripper=0):
     data = bytearray(64)
     for offset in (19, 24, 29, 34, 39):
         data[offset + 2] = 128
-    data[44:47] = (gripper % 65535).to_bytes(2, "little") + bytes([128 if gripper >= 0 else 127])
+    data[44:47] = (gripper + 0x7FFFFF).to_bytes(3, "little")     # raw24 = controller count + 0x7FFFFF
     return bytes(data)
 
 
@@ -51,7 +51,8 @@ class PassLineTests(unittest.TestCase):
     def test_x_needs_a_joint_away_from_zero(self):
         self.assertEqual(lab_day.judge_x(lab_day.probe_counts(timing())), [])
         zeroed = "REAL counts {'base': 65533, 'shoulder': 3}; switches 0x00\n"
-        self.assertEqual(lab_day.probe_counts(zeroed), {"base": -2, "shoulder": 3})
+        # low word 65535 is count 0, so 65533 is -2 and 3 is 4 (docs/requirements/count-frame.md)
+        self.assertEqual(lab_day.probe_counts(zeroed), {"base": -2, "shoulder": 4})
         self.assertIn("re-zeroed", lab_day.judge_x(lab_day.probe_counts(zeroed))[0])
         self.assertEqual(lab_day.judge_x(None), ["the probe printed no counts line"])
 

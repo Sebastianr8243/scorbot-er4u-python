@@ -33,7 +33,7 @@ Where it differs from the vendor, on purpose (a safety margin, not a port):
   generator (``close()``) gets no stop messages and must send its own.
 
 Counts here are the controller's: ``raw24 - 0x7FFFFF`` (``docs/protocol/VENDOR_DLL_PROTOCOL.md``
-section 6), not ``scorbot.state`` counts, which read one low on the positive side.
+section 6), the same counts as ``scorbot.state``'s ``signed_encoder_counts`` since 2026-11-04.
 """
 
 from collections.abc import Generator

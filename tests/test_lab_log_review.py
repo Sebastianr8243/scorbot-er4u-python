@@ -53,8 +53,8 @@ class LabLogReviewTests(unittest.TestCase):
             path = Path(directory) / "idle.jsonl"
             write_rows(path, [
                 {"type": "session", "robot_id": "arm-1", "motion_source_sha256": "a" * 64},
-                {"type": "sample", "state": seam_state(1, 65535)},
-                {"type": "sample", "state": seam_state(2, -1)},
+                {"type": "sample", "state": seam_state(1, 1)},    # low word 0
+                {"type": "sample", "state": seam_state(2, 0)},    # low word 65535
             ])
             self.assertEqual(review_idle(path)["count_range_at_rest"]["base"], 1)
 

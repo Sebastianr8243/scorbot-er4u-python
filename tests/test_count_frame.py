@@ -95,7 +95,7 @@ class CountFrameTests(unittest.TestCase):
         self.assertEqual(list(results.queue), [])
         return arm.packets, self.profile.plan_jog(order, 1.0, 10)["increments"]
 
-    # CF01
+    # CT01
     def test_after_a_stop_the_jog_keeps_every_joint_where_it_was(self):
         for mover, order, moving in MOVERS:
             for start in STARTS:
@@ -111,7 +111,7 @@ class CountFrameTests(unittest.TestCase):
                         self.assertEqual(abs(slots(packets[1])[joint] - start), abs(increments[0]),
                                          "the first step moves by the first increment, not one more")
 
-    # CF03
+    # CT03
     def test_the_jog_ends_holding_the_start_plus_the_jog(self):
         for mover, order, moving in MOVERS:
             for start in STARTS:
@@ -125,7 +125,7 @@ class CountFrameTests(unittest.TestCase):
                         else:
                             self.assertEqual(hold[joint], start, JOINTS[joint])
 
-    # CF02
+    # CT02
     def test_every_motor_on_message_carries_the_reported_counts(self):
         for counts in ([-1, 0, 1, -2, 2, 0], [-65535, 65535, 65536, -30000, 30000, 7],
                        [s for s in STARTS[:6]]):
@@ -139,7 +139,7 @@ class CountFrameTests(unittest.TestCase):
                 for packet in arm.packets:
                     self.assertEqual(slots(packet), counts)
 
-    # CF10
+    # CT10
     def test_a_jog_past_the_old_range_keeps_counting(self):
         # From inside -65535..65536 out past it: the target goes on by the jog, no 65536 cliff.
         for mover, order, start in (("move_hips", 5, 65500), ("move_hips", 4, -65500),
@@ -164,7 +164,7 @@ def low_word(count):
 
 
 class CountRangeTests(unittest.TestCase):
-    # CF06
+    # CT06
     def test_decode_state_reads_every_24_bit_count(self):
         from scorbot.state import decode_state
         for count in EDGES:
@@ -175,7 +175,7 @@ class CountRangeTests(unittest.TestCase):
                 self.assertEqual(set(state.encoder_counts.values()), {low_word(count)})
                 self.assertEqual(set(state.encoder_sign_bytes.values()), {(count + ZERO24) >> 16})
 
-    # CF09
+    # CT09
     def test_count_deltas_are_exact_across_every_top_byte(self):
         from scorbot.calibration import signed_count_delta
         for origin in EDGES:
@@ -184,7 +184,7 @@ class CountRangeTests(unittest.TestCase):
                     with self.subTest(origin=origin, delta=delta):
                         self.assertEqual(signed_count_delta(low_word(origin + delta), low_word(origin)), delta)
 
-    # CF12
+    # CT12
     def test_the_simulator_reports_every_24_bit_count(self):
         from scorbot.simulated import encode_packet
         from scorbot.state import decode_state
@@ -198,7 +198,7 @@ class CountRangeTests(unittest.TestCase):
             with self.subTest(count=count), self.assertRaises(ValueError):
                 encode_packet({"base": count})
 
-    # CF11
+    # CT11
     def test_a_legacy_jog_must_start_inside_the_sign_byte_range(self):
         # The legacy jog keeps the moving joint as a low word and the sign word of 128 or 127
         # (libdef.get_signo), so it can only start at -65535..65536; the SDK refuses it before sending.
@@ -229,7 +229,7 @@ class LegacyCountRangeTests(unittest.TestCase):
             rotated = EDGES[shift:] + EDGES[:shift]
             yield list(rotated[:6])
 
-    # CF07
+    # CT07
     def test_holds_and_echoes_round_trip_every_24_bit_count(self):
         for counts in self.batches():
             with self.subTest(counts=counts):
@@ -248,7 +248,7 @@ class LegacyCountRangeTests(unittest.TestCase):
                 self.assertEqual({tuple(slots(p)) for p in arm.packets}, {tuple(counts)})
                 self.assertEqual(held(self.libdef.ultimo_hold), counts)
 
-    # CF07, the codec side
+    # CT07, the codec side
     def test_the_codec_writes_every_24_bit_count(self):
         from scorbot.transport import codec
         for count in EDGES:
@@ -257,7 +257,7 @@ class LegacyCountRangeTests(unittest.TestCase):
                 self.assertEqual(int.from_bytes(codec.encode_count(low_word(count), top), "little", signed=True),
                                  count)
 
-    # CF08
+    # CT08
     def test_stream_setpoints_send_the_count_they_read(self):
         from scorbot.state import decode_state
         for count in EDGES:

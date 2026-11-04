@@ -44,10 +44,10 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state.encoder_counts["base"], 65534)
         self.assertEqual(state.encoder_sign_bytes["base"], 127)
         self.assertEqual(state.signed_encoder_counts["base"], -1)
-        packet[21] = 0
-        with self.assertRaisesRegex(ValueError, "sign byte"):
-            decode_state(bytes(packet), connected=True, enabled=False,
-                         homed=False, fault=None)
+        self.assertEqual(state.signed_encoder_counts["shoulder"], 1)    # low 0, sign 128
+        packet[21] = 0          # the top byte of the 24-bit raw value: a count past -65535
+        state = decode_state(bytes(packet), connected=True, enabled=False, homed=False, fault=None)
+        self.assertEqual(state.signed_encoder_counts["base"], 65534 - 0x7FFFFF)
 
     def test_rejects_short_packet(self):
         with self.assertRaises(ValueError):

@@ -111,7 +111,7 @@ class BringUpTests(unittest.TestCase):
     def test_a_return_55_counts_below_zero_is_rejected_across_the_seam(self):
         counts = dict.fromkeys(bring_up.JOINTS, 0)
         before = mock.Mock(encoder_counts=counts)
-        after = mock.Mock(encoder_counts={**counts, "base": 65480})
+        after = mock.Mock(encoder_counts={**counts, "base": 65481})   # 55 below, mod 65536
         with self.assertRaisesRegex(bring_up.ScorbotError, "Unexpected base count change: -55; abort"):
             bring_up._check_move(before, after, {})
 

@@ -415,13 +415,14 @@ class ParkTests(SimulatedRobotCase):
     def test_park_brings_every_motor_back_to_the_home_counts(self):
         robot = self.moved_robot()
         counts = robot.get_state().signed_encoder_counts
-        self.assertGreater(abs(counts["base"] - robot._home_counts["base"]), 1000)
+        self.assertGreater(abs(counts["base"] - robot._home_counts["base"] % 65535), 1000)
         before = len(robot.sim.commands)
         result = robot.park_at_home(operator_at_stop=True)
         self.assertTrue(result["parked"], result)
         after = robot.get_state().signed_encoder_counts
-        for motor in MOTORS:
-            self.assertLessEqual(abs(after[motor] - robot._home_counts[motor]), 45, motor)
+        from scorbot.calibration import count_near_zero
+        for motor in MOTORS:      # _home_counts holds low words (docs/requirements/count-frame.md)
+            self.assertLessEqual(abs(after[motor] - count_near_zero(robot._home_counts[motor])), 45, motor)
         self.assertIn("parked", self.events())
         orders = {c[0] for c in robot.sim.commands[before:] if c}
         self.assertTrue(orders <= ALLOWED_ORDERS, orders)

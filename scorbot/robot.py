@@ -15,7 +15,7 @@ import traceback
 import warnings
 
 from . import joint_move, limits, nominal, vendor_model
-from .calibration import load_calibration, signed_count_delta
+from .calibration import count_near_zero, load_calibration, signed_count_delta
 from .errors import MotionStopped, ScorbotError, _WorkerCrashed
 from .gripper import GripperMixin, GripperMove  # noqa: F401  (GripperMove stays importable from here)
 from .io import IoMixin
@@ -830,7 +830,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
         if not (self._homed and self._gripper_homed):
             raise ScorbotError("Run vendor Home before jogging with vendor limits")
         try:
-            now = {m: signed_count_delta(self._home_counts[m], 0)
+            now = {m: count_near_zero(self._home_counts[m])
                       + signed_count_delta(before.encoder_counts[m], self._home_counts[m])
                    for m in limits.RECORDED_MOTORS}
         except (KeyError, TypeError, ValueError) as exc:

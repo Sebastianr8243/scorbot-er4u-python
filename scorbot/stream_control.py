@@ -12,7 +12,7 @@ import time
 from dataclasses import asdict
 
 from . import limits, nominal, pacing, source_model
-from .calibration import signed_count_delta
+from .calibration import count_near_zero, signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .state import RobotState
 from .streaming import MOTORS as STREAM_MOTORS
@@ -117,7 +117,7 @@ class StreamMixin:
                         for m in limits.WRIST_MOTORS if m not in motors}
             except ValueError as exc:
                 raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
-            home = {m: signed_count_delta(self._home_counts[m], 0) for m in limits.RECORDED_MOTORS}
+            home = {m: count_near_zero(self._home_counts[m]) for m in limits.RECORDED_MOTORS}
             window = {m: (nominal.VENDOR_ENCODER_SOFT_LIMITS[m].minimum - home[m],
                           nominal.VENDOR_ENCODER_SOFT_LIMITS[m].maximum - home[m]) for m in motors}
             travel_cap = {m: max(abs(low), abs(high)) for m, (low, high) in window.items()}

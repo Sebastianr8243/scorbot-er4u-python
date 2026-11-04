@@ -236,7 +236,7 @@ class LedgerTests(unittest.TestCase):
         target = joint_move.CoupledTarget(arm.counts)
         target.add("base", 1.0)
         moved = round(joint_move.vector("base")["base"])   # about 142 counts, base counts fall
-        arm.counts["base"] = (5 + moved) % 65535           # wraps below 0 to near 65535
+        arm.counts["base"] = (5 + moved) % 65536           # low word wraps below 0 to near 65535
         self.assertGreater(arm.counts["base"], 60000)
         self.assertLess(abs(target.errors(arm.counts)["base"]), 5)
         self.assertEqual(signed_count_delta(arm.counts["base"], 5), moved)

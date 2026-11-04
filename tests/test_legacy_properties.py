@@ -25,22 +25,12 @@ from scorbot.calibration import signed_count_delta
 from scorbot.packet import TrackedInputEndpoint
 from scorbot.session.analysis import csv_safe
 from scorbot.simulated import encode_packet
-from scorbot.state import ENCODER_OFFSETS, JOINTS, decode_state
+from scorbot.state import COUNT_MAX, COUNT_MIN, COUNT_ZERO, ENCODER_OFFSETS, JOINTS, decode_state
 
 HAVE_HYPOTHESIS = importlib.util.find_spec("hypothesis") is not None
 HAVE_USB = importlib.util.find_spec("usb") is not None
 
 MAX_COUNT = 65535
-
-
-def _signed(raw, sign):
-    """Signed convention shared by scorbot.state (sign is a byte or legacy text)."""
-    return raw if sign in (128, "0000") else raw - MAX_COUNT
-
-
-def _pair(signed):
-    """Inverse of _signed as (raw, legacy sign text)."""
-    return (signed, "0000") if signed >= 0 else (signed + MAX_COUNT, "ffff")
 
 
 def _count(raw, sign):
@@ -51,6 +41,11 @@ def _count(raw, sign):
 def _count_pair(count):
     """Inverse of _count for -65535..65536, as (low word, legacy sign text)."""
     return (count - 1, "0000") if count >= 1 else (count + 65535, "ffff")
+
+
+def _low(count):
+    """The low word a reply carries for a controller count (raw24 = count + 0x7FFFFF)."""
+    return (count + COUNT_ZERO) & 0xFFFF
 
 
 def _legacy(name):
@@ -67,7 +62,8 @@ if HAVE_HYPOTHESIS:
     SLOW = settings(deadline=None, max_examples=20)
 
     raw16 = st.integers(0, 65535)
-    signed_counts = st.integers(-MAX_COUNT, MAX_COUNT)
+    signed_counts = st.integers(-MAX_COUNT, MAX_COUNT)   # the legacy jog pair's range
+    counts24 = st.integers(COUNT_MIN, COUNT_MAX)          # what the controller reports
     steps = st.integers(0, 20)  # legacy speed is 1..20 counts per iteration
     signs = st.sampled_from(["0000", "ffff"])
 
@@ -134,23 +130,18 @@ class LegacyLibdefProperties(unittest.TestCase):
 
     @PROFILE
     @given(raw16, signs, steps)
-    def test_suma_stays_in_range_and_moves_by_step(self, raw, sign, step):
-        assume(sign == "ffff" or raw + step <= 65535)   # past 65536 is the old range's cliff (#128 item 4)
+    def test_suma_moves_the_count_by_step(self, raw, sign, step):
+        # On the '0000' side the low word runs past 65535 instead of wrapping (count-frame.md).
         out = self.lib.suma([raw, sign], 1, 20, 100, step=step)
-        self.assertIn(out[0], range(65536))
         self.assertIn(out[1], ("0000", "ffff"))
-        self.assertEqual(len(self.lib.detrans(out[0])), 4)
         # The controller count moves by exactly the step, across zero too.
         self.assertEqual(_count(*out) - _count(raw, sign), step)
 
     @PROFILE
     @given(raw16, signs, steps)
-    def test_resta_stays_in_range_and_moves_by_step(self, raw, sign, step):
-        assume(sign == "0000" or raw - step >= 0)       # below -65535 is the old range's cliff (#128 item 4)
+    def test_resta_moves_the_count_by_step(self, raw, sign, step):
         out = self.lib.resta([raw, sign], 1, 20, 100, step=step)
-        self.assertIn(out[0], range(65536))
         self.assertIn(out[1], ("0000", "ffff"))
-        self.assertEqual(len(self.lib.detrans(out[0])), 4)
         self.assertEqual(_count(*out) - _count(raw, sign), -step)
 
     @PROFILE
@@ -172,7 +163,6 @@ class LegacyLibdefProperties(unittest.TestCase):
     @PROFILE
     @given(raw16, signs, steps)
     def test_suma_then_resta_returns_to_start_modulo_wrap(self, raw, sign, step):
-        assume(sign == "ffff" or raw + step <= 65535)   # as in test_suma_stays_in_range_and_moves_by_step
         mid = self.lib.suma([raw, sign], 1, 20, 100, step=step)
         back = self.lib.resta(list(mid), 1, 20, 100, step=step)
         self.assertEqual(_count(*back), _count(raw, sign))
@@ -183,9 +173,9 @@ class LegacyLibdefProperties(unittest.TestCase):
         inc = self.lib.incremento(cont, vel, ite)
         self.assertIs(type(inc), int)
         self.assertIn(inc, range(vel + 1))
-        for fn in (self.lib.suma, self.lib.resta):
+        for fn, direction in ((self.lib.suma, 1), (self.lib.resta, -1)):
             out = fn([raw, sign], cont, vel, ite)
-            self.assertIn(out[0], range(65536))
+            self.assertEqual(_count(*out) - _count(raw, sign), direction * inc)
 
     @PROFILE
     @given(st.lists(raw16, min_size=6, max_size=6), st.lists(raw16, min_size=6, max_size=6))
@@ -240,53 +230,42 @@ class LegacyKnownBugs(unittest.TestCase):
         cls.lib = _legacy("libdef")
 
     @staticmethod
-    def old_suma(value, step):
-        """libdef.suma before 2026-10-06: one wrap only (by 65536 since 2026-11-04, count-frame.md)."""
+    def model(value, sign, step):
+        """suma (step > 0) / resta (step < 0) since 2026-11-04: the low word moves by the step and only
+        a crossing of zero changes the sign word, by 65536 (docs/requirements/count-frame.md)."""
         value += step
-        if value > 65535:
+        if value > 65535 and sign == "ffff":
             return value - 65536, "0000"
-        return value, None
+        if value < 0 and sign == "0000":
+            return value + 65536, "ffff"
+        return value, sign
 
-    @staticmethod
-    def old_resta(value, step):
-        """libdef.resta before 2026-10-06: one wrap only (by 65536 since 2026-11-04, count-frame.md)."""
-        value -= step
-        if value < 0:
-            return 65536 + value, "ffff"
-        return value, None
-
-    def test_suma_and_resta_are_unchanged_for_every_step_the_arm_can_send(self):
-        # The fix wraps repeatedly; for a step under one full turn that is the old single
-        # wrap, so no byte sent for a real move changes. Checked around both seams for
-        # every step size up to one full turn.
+    def test_suma_and_resta_follow_the_model_for_every_step_the_arm_can_send(self):
+        # Around both seams for every step size up to one full turn, on both sign words.
         for start in (0, 1, 20, 100, 32767, 65434, 65515, 65534, 65535):
-            for step in list(range(130)) + [1000, 32767, 32768, 65534, 65535]:
-                with self.subTest(start=start, step=step):
-                    value, sign = self.old_suma(start, step)
-                    got = self.lib.suma([start, "AAAA"], 1, 20, 100, step=step)
-                    self.assertEqual(got[0], value)
-                    self.assertEqual(got[1], sign or "AAAA")
-                    value, sign = self.old_resta(start, step)
-                    got = self.lib.resta([start, "AAAA"], 1, 20, 100, step=step)
-                    self.assertEqual(got[0], value)
-                    self.assertEqual(got[1], sign or "AAAA")
+            for sign in ("0000", "ffff"):
+                for step in list(range(130)) + [1000, 32767, 32768, 65534, 65535]:
+                    with self.subTest(start=start, sign=sign, step=step):
+                        got = self.lib.suma([start, sign], 1, 20, 100, step=step)
+                        self.assertEqual(tuple(got), self.model(start, sign, step))
+                        self.assertEqual(_count(*got) - _count(start, sign), step)
+                        got = self.lib.resta([start, sign], 1, 20, 100, step=step)
+                        self.assertEqual(tuple(got), self.model(start, sign, -step))
+                        self.assertEqual(_count(*got) - _count(start, sign), -step)
 
     def test_suma_double_overflow_is_fixed(self):
-        # Counterexample: suma([65535, '0000'], step=65536). The wrap subtracts
-        # 65535 once, leaving 65536: still > 65535, so detrans() emits 5 hex
-        # digits and the 4-byte position field of the USB message is
-        # misaligned. Legacy speeds are <= 20 so it needs an unvalidated step.
+        # Counterexample (fixed 2026-10-06): suma([65535, '0000'], step=65536) left 65536 and
+        # detrans() misaligned the field. Since 2026-11-04 the low word runs on (131071) and
+        # countField writes the count, 131072, as a 4-byte slot.
         out = self.lib.suma([65535, "0000"], 1, 20, 100, step=65536)
-        self.assertLessEqual(out[0], 65535)
-        self.assertEqual(len(self.lib.detrans(out[0])), 4)
+        self.assertEqual(_count(*out), 131072)
+        self.assertEqual(len(self.lib.countField(*out)), 8)
 
     def test_resta_double_underflow_is_fixed(self):
-        # Counterexample: resta([0, '0000'], step=65536). 65535 + (-65536) = -1,
-        # still negative, so detrans() formats "-001" and the message carries
-        # garbage instead of a position.
+        # Counterexample (fixed 2026-10-06): resta([0, '0000'], step=65536) formatted "-001".
         out = self.lib.resta([0, "0000"], 1, 20, 100, step=65536)
-        self.assertGreaterEqual(out[0], 0)
-        self.assertEqual(len(self.lib.detrans(out[0])), 4)
+        self.assertEqual(_count(*out), 1 - 65536)
+        self.assertEqual(len(self.lib.countField(*out)), 8)
 
     def test_settle_check_is_wrap_aware(self):
         # openScorbot/libcomm.py and setHome.py settle on
@@ -298,17 +277,17 @@ class LegacyKnownBugs(unittest.TestCase):
         self.assertTrue(abs(target - measured) > 20)
         self.assertFalse(motion_profile.count_distance(target, measured) > 20)
 
-    def test_signed_counts_are_not_linear_across_the_seam(self):
-        # By design, not a bug: the sign byte gives +/-65535 over a counter that
-        # wraps at 65535, so raw 65535/sign 128 (+65535) and raw 65534/sign 127
-        # (-1) are one count apart but differ by 65536 as signed values. Take
-        # differences from encoder_counts with signed_count_delta instead.
-        a = decode_state(encode_packet({"base": 65535}), connected=True, enabled=None,
-                         homed=False, fault=None).signed_encoder_counts["base"]
-        b = decode_state(encode_packet({"base": -1}), connected=True, enabled=None,
-                         homed=False, fault=None).signed_encoder_counts["base"]
-        self.assertEqual(a - b, 65536)
-        self.assertEqual(signed_count_delta(65535, 65534), 1)
+    def test_signed_counts_are_linear_across_every_seam(self):
+        # The signed count is raw24 - 0x7FFFFF, so it is continuous through zero and past
+        # +/-65535 (until 2026-11-04 the old decode jumped there; count-frame.md). The low
+        # words still wrap every 65536: signed_count_delta takes short differences from them.
+        for a, b in ((1, 0), (0, -1), (65537, 65536), (-65535, -65536)):
+            got = [decode_state(encode_packet({"base": v}), connected=True, enabled=None,
+                                homed=False, fault=None).signed_encoder_counts["base"] for v in (a, b)]
+            self.assertEqual(got, [a, b])
+            self.assertEqual(signed_count_delta(_low(a), _low(b)), a - b)
+        self.assertEqual(signed_count_delta(_low(1), _low(0)), 1)
+        self.assertEqual(signed_count_delta(_low(65537), _low(65536)), 1)
 
 
 @unittest.skipUnless(HAVE_HYPOTHESIS, "hypothesis is not installed")
@@ -368,7 +347,7 @@ class MotionProfileProperties(unittest.TestCase):
 @unittest.skipUnless(HAVE_HYPOTHESIS, "hypothesis is not installed")
 class StateCodecProperties(unittest.TestCase):
     @PROFILE
-    @given(st.lists(signed_counts, min_size=6, max_size=6), st.integers(0, 255))
+    @given(st.lists(counts24, min_size=6, max_size=6), st.integers(0, 255))
     def test_encode_decode_round_trip(self, counts, switches):
         signed = dict(zip(JOINTS, counts))
         state = decode_state(encode_packet(signed, switches), connected=True,
@@ -377,12 +356,11 @@ class StateCodecProperties(unittest.TestCase):
         self.assertEqual(state.home_switch_bits, switches)
         for name, value in signed.items():
             raw = state.encoder_counts[name]
-            self.assertIn(raw, range(65536))
-            self.assertEqual(state.encoder_sign_bytes[name], 128 if value >= 0 else 127)
-            self.assertEqual(raw, value if value >= 0 else value + MAX_COUNT)
+            self.assertEqual(raw, _low(value))
+            self.assertEqual(state.encoder_sign_bytes[name], (value + COUNT_ZERO) >> 16)
 
     @PROFILE
-    @given(raw16, st.sampled_from([127, 128]))
+    @given(raw16, st.integers(0, 255))
     def test_decode_then_encode_preserves_raw_modulo_wrap(self, raw, sign):
         packet = bytearray(64)
         for offset in ENCODER_OFFSETS:
@@ -391,21 +369,22 @@ class StateCodecProperties(unittest.TestCase):
         state = decode_state(bytes(packet), connected=True, enabled=None,
                              homed=False, fault=None)
         signed = state.signed_encoder_counts
-        self.assertEqual(_signed(raw, sign), signed["base"])
-        # raw 0/sign 127 is -65535 (representable); re-encoding must agree.
+        self.assertEqual((sign << 16 | raw) - COUNT_ZERO, signed["base"])
+        # every raw value is a count; re-encoding must agree.
         again = decode_state(encode_packet(signed), connected=True, enabled=None,
                              homed=False, fault=None)
         self.assertEqual(again.signed_encoder_counts, signed)
 
     @PROFILE
-    @given(st.integers(0, 255).filter(lambda b: b not in (127, 128)),
-           st.sampled_from(JOINTS))
-    def test_decode_rejects_any_other_sign_byte(self, bad, joint):
+    @given(st.integers(0, 255), st.sampled_from(JOINTS))
+    def test_decode_reads_any_sign_byte_as_the_top_byte(self, top, joint):
+        # Until 2026-11-04 anything but 127/128 raised: counts past +/-65535 (count-frame.md).
         packet = bytearray(encode_packet({}, 0))
-        packet[ENCODER_OFFSETS[JOINTS.index(joint)] + 2] = bad
-        with self.assertRaisesRegex(ValueError, "sign byte"):
-            decode_state(bytes(packet), connected=True, enabled=None,
-                         homed=False, fault=None)
+        offset = ENCODER_OFFSETS[JOINTS.index(joint)]
+        packet[offset + 2] = top
+        state = decode_state(bytes(packet), connected=True, enabled=None, homed=False, fault=None)
+        low = int.from_bytes(packet[offset:offset + 2], "little")
+        self.assertEqual(state.signed_encoder_counts[joint], (top << 16 | low) - COUNT_ZERO)
 
     @PROFILE
     @given(st.binary(max_size=48))
@@ -414,7 +393,7 @@ class StateCodecProperties(unittest.TestCase):
             decode_state(data, connected=True, enabled=None, homed=False, fault=None)
 
     @PROFILE
-    @given(st.integers(MAX_COUNT + 1, 10 ** 6) | st.integers(-10 ** 6, -MAX_COUNT - 1))
+    @given(st.integers(COUNT_MAX + 1, 10 ** 8) | st.integers(-10 ** 8, COUNT_MIN - 1))
     def test_encode_rejects_unrepresentable_counts(self, value):
         with self.assertRaises(ValueError):
             encode_packet({"base": value})
@@ -442,33 +421,35 @@ class SignedCountDeltaProperties(unittest.TestCase):
     def test_applying_delta_recovers_value_modulo_wrap(self, a, b):
         d = self._delta(a, b)
         assume(d is not None)
-        self.assertEqual((b + d) % MAX_COUNT, a % MAX_COUNT)
+        self.assertEqual((b + d) % 65536, a)
 
     @PROFILE
     @given(raw16, st.integers(-32766, 32766))
     def test_inverse_of_wrapping_addition(self, origin, delta):
-        value = (origin + delta) % MAX_COUNT
+        value = (origin + delta) % 65536
         self.assertEqual(signed_count_delta(value, origin), delta)
 
     @PROFILE
     @given(raw16)
-    def test_zero_and_negative_zero_are_identical(self, origin):
+    def test_there_is_one_zero(self, origin):
+        # Low word 65535 (count 0 under 127) and 0 (count 1 under 128) are one count apart;
+        # the old 65535 modulus made them equal ("two zeros"), count-frame.md.
         self.assertEqual(signed_count_delta(origin, origin), 0)
-        self.assertEqual(signed_count_delta(65535, 0), 0)
-        self.assertEqual(signed_count_delta(0, 65535), 0)
+        self.assertEqual(signed_count_delta(65535, 0), -1)
+        self.assertEqual(signed_count_delta(0, 65535), 1)
 
     @PROFILE
     @given(st.integers(0, 4000), st.integers(0, 40))
     def test_small_moves_across_the_seam_are_small_deltas(self, offset, step):
-        origin = MAX_COUNT - offset
-        self.assertEqual(signed_count_delta((origin + step) % MAX_COUNT, origin), step)
-        self.assertEqual(signed_count_delta((origin - step) % MAX_COUNT, origin), -step)
+        origin = 65535 - offset
+        self.assertEqual(signed_count_delta((origin + step) % 65536, origin), step)
+        self.assertEqual(signed_count_delta((origin - step) % 65536, origin), -step)
 
     @PROFILE
-    @given(raw16, st.sampled_from([32767, 32768]))
+    @given(raw16, st.sampled_from([32767, 32768, 32769]))
     def test_half_range_is_ambiguous(self, origin, half):
         with self.assertRaisesRegex(ValueError, "ambiguous"):
-            signed_count_delta((origin + half) % MAX_COUNT, origin)
+            signed_count_delta((origin + half) % 65536, origin)
 
     @PROFILE
     @given(st.integers(-10 ** 6, -1) | st.integers(65536, 10 ** 6), raw16)
@@ -481,14 +462,12 @@ class SignedCountDeltaProperties(unittest.TestCase):
                 signed_count_delta(weird, ok)
 
     @PROFILE
-    @given(signed_counts, signed_counts)
+    @given(counts24, counts24)
     def test_consistent_with_state_signed_convention(self, s1, s2):
-        r1, _ = _pair(s1)
-        r2, _ = _pair(s2)
-        d = self._delta(r1, r2)
+        d = self._delta(_low(s1), _low(s2))
         assume(d is not None)
-        # Raw counts are the signed counts modulo 65535 always...
-        self.assertEqual((d - (s1 - s2)) % MAX_COUNT, 0)
+        # Low words are the controller counts modulo 65536 always...
+        self.assertEqual((d - (s1 - s2)) % 65536, 0)
         # ...and equal them exactly when the true distance is short.
         if abs(s1 - s2) <= 32766:
             self.assertEqual(d, s1 - s2)

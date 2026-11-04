@@ -86,7 +86,7 @@ class CalibrationTests(unittest.TestCase):
             fit(self.csv_path, self.limits_path, "arm-1")
 
     def test_count_wrap_and_ambiguity(self):
-        self.assertEqual(signed_count_delta(2, 65534), 3)
+        self.assertEqual(signed_count_delta(2, 65534), 4)     # low words wrap every 65536
         with self.assertRaises(ValueError):
             signed_count_delta(32768, 0)
 
@@ -167,9 +167,9 @@ class CalibrationTests(unittest.TestCase):
 
     def test_vendor_limit_targets_are_wrap_aware_from_home(self):
         from scorbot.robot import _home_relative_targets
-        # Home just past the seam, current just before it: 3 counts apart, not 65532.
+        # Home just past the seam, current just before it: 4 counts apart, not 65532.
         self.assertEqual(_home_relative_targets({"base": 65533}, {"base": 1}, {"base": 142}),
-                         {"base": 139})
+                         {"base": 138})
         self.assertEqual(_home_relative_targets({"base": 100}, {"base": 100}, {"base": -142}),
                          {"base": -142})
         # Half the counter away is ambiguous: reported as unknown, never raised.

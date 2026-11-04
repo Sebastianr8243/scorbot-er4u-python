@@ -56,9 +56,8 @@ class Controller:
 
 
 def field(packet, index):
-    """One joint's setpoint in an OUT packet, as a signed count."""
-    value = int.from_bytes(packet[12 + 4 * index:14 + 4 * index], "little")
-    return value - 65535 if packet[14 + 4 * index:16 + 4 * index] == b"\xff\xff" else value
+    """One joint's setpoint in an OUT packet: the controller count, signed 32-bit."""
+    return int.from_bytes(packet[12 + 4 * index:16 + 4 * index], "little", signed=True)
 
 
 @unittest.skipUnless(find_spec("usb"), "PyUSB is needed to import the legacy modules")
@@ -124,14 +123,16 @@ class LegacyStreamTests(unittest.TestCase):
             self.assertEqual([field(packet, i) for i in range(5)], [1010, 990, 1005, 1100, 900])
             self.assertEqual(field(packet, 5), START)
 
-    def test_negative_setpoints_use_the_legacy_sign_form(self):
+    def test_setpoints_are_the_controller_counts_as_signed_32_bit(self):
+        # Until 2026-11-04 the old decode's form, -1 as FE FF FF FF (docs/requirements/count-frame.md).
         controller, _, _ = self.stream([("send", (-1, 0, -142)), ("end",)])
         step = controller.packets[1]
-        self.assertEqual(step[12:16], bytes([0xFE, 0xFF, 0xFF, 0xFF]))
+        self.assertEqual(step[12:16], bytes([0xFF, 0xFF, 0xFF, 0xFF]))
         self.assertEqual(step[16:20], bytes([0x00, 0x00, 0x00, 0x00]))
         self.assertEqual([field(step, i) for i in range(3)], [-1, 0, -142])
+        self.assertEqual(self.lib.setpointField(65536), "00000100")
         with self.assertRaises(ValueError):
-            self.lib.setpointField(65536)
+            self.lib.setpointField(0x800001)
 
     def test_r5_stop_ends_with_the_stop_sequence_on_the_measured_position(self):
         script = [("send", (1300, 1000, 1000)), ("stop",)]
@@ -884,17 +885,16 @@ class SetpointConversionTests(unittest.TestCase):
         self.assertEqual(self.robot.faults, ["made up"])
 
     def test_the_end_of_the_counter_range_is_a_fault_not_a_wrap(self):
-        # The two-byte count with its sign byte runs out at 65535. The legacy
-        # arithmetic would wrap there; the vendor's counter is wider and does
-        # not (docs/protocol/VENDOR_DLL_PROTOCOL.md), so a wrapped setpoint would be
-        # about 65535 counts from the arm.
-        for home_signed, target in ((65500, 60), (-65500, -60)):
+        # The controller's 24-bit counter runs out at -0x7FFFFF and 0x800000
+        # (docs/requirements/count-frame.md; until 2026-11-04 this stopped at
+        # +/-65535): a setpoint past it would wrap, so it is a fault.
+        for home_signed, target in ((0x800000 - 35, 60), (-0x7FFFFF + 35, -60)):
             with self.subTest(home=home_signed):
                 stream, encode = self.stream(home_signed)
                 sent = self.drive(stream, encode, home_signed, target)
                 self.assertIn("counter range", stream.core.fault or "")
                 self.assertEqual(self.robot.faults, [stream.core.fault])
-                self.assertTrue(all(abs(value) <= 65535 for value in sent))
+                self.assertTrue(all(-0x7FFFFF <= value <= 0x800000 for value in sent))
                 self.assertTrue(all(abs(value - home_signed) <= 60 for value in sent))
 
 

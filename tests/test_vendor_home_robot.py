@@ -126,7 +126,7 @@ class RunTests(Case):
         self.assertTrue(robot._homed)
         self.assertTrue(robot._enabled)
         self.assertTrue(robot.sim.motors_on)
-        self.assertEqual(set(robot._home_counts.values()), {0})
+        self.assertEqual(set(robot._home_counts.values()), {65535})   # the low word of count 0
         self.assertIn(VENDOR_HOME_ORDER, self.ordered(robot))
         start, complete = self.events("home_start"), self.events("home_complete")
         self.assertEqual((start[0]["method"], start[0]["wrist_homed"], start[0]["gripper_homed"]), ("vendor", True, True))

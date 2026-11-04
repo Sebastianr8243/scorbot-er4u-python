@@ -217,7 +217,9 @@ class SimulatedController:
     def snapshot(self, *, after_index=None, timeout=2.0, max_age=2.0) -> PacketSnapshot:
         if self._take("stale_feedback"):
             raise TimeoutError("Simulated stale feedback: no fresh controller response")
-        override = {"base": 0} if self._take("corrupt_packet") else None
+        # A corrupt reply is cut short: every sign (top) byte is a valid 24-bit count since 2026-11-04
+        # (docs/requirements/count-frame.md), so a bad one is no longer a decode error.
+        corrupt = self._take("corrupt_packet")
         with self._lock:
             self._index += 1
             counts = self.counts
@@ -227,7 +229,9 @@ class SimulatedController:
                 for motor in ARM_MOTORS:
                     value = counts[motor] + self._rng.randint(-jitter, jitter)
                     counts[motor] = max(MIN_COUNT, min(MAX_COUNT, value))
-            data = encode_packet(counts, self.switch_bits, override)
+            data = encode_packet(counts, self.switch_bits)
+            if corrupt:
+                data = data[:40]
             return PacketSnapshot(data, self._index, time.monotonic_ns())
 
     def leds(self) -> dict[str, str]:

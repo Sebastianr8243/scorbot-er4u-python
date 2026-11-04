@@ -24,7 +24,7 @@ class DryLinkTests(unittest.TestCase):
             self.assertEqual(bytes(buffer), plant.reply(packet))
             state = decode_state(bytes(buffer), connected=True, enabled=None, homed=False, fault=None)
             self.assertEqual(state.home_switch_bits, 1)
-            self.assertEqual(state.signed_encoder_counts["base"], 122)
+            self.assertEqual(state.signed_encoder_counts["base"], 123)   # the plant's controller count
         self.assertEqual(link.sent, [packet, packet])
 
     def test_size_close_and_use_after_close_match_device_link(self):

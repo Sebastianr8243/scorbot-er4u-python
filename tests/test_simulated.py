@@ -31,7 +31,7 @@ class EncoderTests(unittest.TestCase):
 
     def test_out_of_range_counts_are_rejected(self):
         from scorbot.simulated import encode_packet
-        for value in (65536, -65536):
+        for value in (0x800001, -0x800000):     # past the 24-bit raw range
             with self.assertRaises(ValueError):
                 encode_packet({"base": value})
 
@@ -156,17 +156,22 @@ class SimulatedRobotTests(unittest.TestCase):
         finally:
             robot.disconnect()
 
-    def test_count_overflow_is_a_controller_error_not_a_wrap(self):
-        from scorbot import ScorbotError
+    def test_a_jog_past_65536_keeps_counting_and_one_starting_past_it_is_refused(self):
+        # The controller's counter is 24-bit (docs/requirements/count-frame.md): until 2026-11-04 the
+        # fake treated +/-65535 as an overflow. A legacy jog can only start inside -65535..65536.
         from scorbot.simulated import SimulatedController
         controller = SimulatedController(home_counts={"base": 65500})
         robot = ready_robot(controller=controller)
-        controller.counts["base"] = 65500  # inject overflow after vendor Home zeroes counters
+        controller.counts["base"] = 65500
         try:
-            with self.assertRaises(ScorbotError):
-                robot.jog_joint("base", 1.0)
-            self.assertEqual(controller.counts["base"], 65500)
-            self.assert_latched(robot)
+            up = next(d for d in (1.0, -1.0) if robot.preview_jog("base", d)["motor_count_deltas"]["base"] > 0)
+            plan = robot.preview_jog("base", up)
+            robot.jog_joint("base", up)
+            self.assertEqual(controller.counts["base"], 65500 + plan["motor_count_deltas"]["base"])
+            self.assertGreater(controller.counts["base"], 65536)
+            with self.assertRaises(ValueError):
+                robot.jog_joint("base", up)
+            self.assertIsNone(robot._fault)
         finally:
             robot.disconnect()
 
