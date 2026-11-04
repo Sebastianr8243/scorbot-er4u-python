@@ -24,7 +24,7 @@ import time
 
 from . import limits
 from .calibration import signed_count_delta
-from .state import decode_state, teach_mode_after
+from .state import collision_motors, decode_state, teach_mode_after
 from .vendor_profile import MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION, VendorProfile
 
 MOTORS = limits.ARM_MOTORS
@@ -37,7 +37,9 @@ PERIOD_RANGE_S = (0.01, 0.05)
 HOLD_TIMEOUT_RANGE_S = (0.05, 2.0)
 DEFAULT_ERROR_LIMIT = 40          # openScorbot conf MAX_ERROR, the legacy joint-limit threshold
 VENDOR_MAX_SPEED_COUNTS_S = 6500.0   # ER4AxN.ini MaxSpeed; counts/s is inferred from the DLL
-VENDOR_MAX_ACCEL_COUNTS_S2 = 11000.0  # ER4AxN.ini MaxAccel; the DLL's check was not read, counts/s^2 assumed
+VENDOR_MAX_ACCEL_COUNTS_S2 = 11000.0  # ER4AxN.ini MaxAccel, counts/s^2 (ledger PL56)
+# The DLL compares 1.5 x the profile's peak with MaxAccel, so its real peak stays at MaxAccel / 1.5 (PL56).
+VENDOR_PEAK_ACCEL_COUNTS_S2 = VENDOR_MAX_ACCEL_COUNTS_S2 / 1.5
 DEFAULT_SPEED_FRACTION = 0.25     # ours: start at a quarter of the vendor limit
 STREAM_ORDER = 21                 # openScorbot/libcomm.py:STREAM
 MAX_STREAM_STEPS = 20000          # step records kept for the log (8 minutes at 24 ms)
@@ -71,8 +73,8 @@ def prior_limits(speed_fraction: float = DEFAULT_SPEED_FRACTION) -> StreamLimits
     Acceleration and jerk use the times of the vendor's velocity-jog profile
     (``vendor_profile.py``: acceleration fraction 0.3, jerk fraction 0.05) for
     a one-second move: acceleration = speed / 0.285 s, jerk = acceleration /
-    0.015 s, with acceleration never above the vendor's MaxAccel (from about
-    48 percent speed up). All priors.
+    0.015 s, with acceleration never above the vendor's real peak, MaxAccel / 1.5
+    (from about 32 percent speed up; ledger PL56). All priors.
     """
     if isinstance(speed_fraction, bool) or not isinstance(speed_fraction, (int, float)) \
             or not 0 < speed_fraction <= 1:
@@ -80,7 +82,7 @@ def prior_limits(speed_fraction: float = DEFAULT_SPEED_FRACTION) -> StreamLimits
     velocity = VENDOR_MAX_SPEED_COUNTS_S * speed_fraction
     jerk_up, _, speeding_up, *_ = VendorProfile(1.0, MANUAL_ACCEL_FRACTION,
                                                 MANUAL_JERK_FRACTION).times
-    acceleration = min(velocity / (speeding_up - jerk_up), VENDOR_MAX_ACCEL_COUNTS_S2)
+    acceleration = min(velocity / (speeding_up - jerk_up), VENDOR_PEAK_ACCEL_COUNTS_S2)
     return StreamLimits(velocity, acceleration, acceleration / jerk_up)
 
 
@@ -411,6 +413,11 @@ class Stream:
             if teach_mode_after(False, reply):
                 self.stop_reason = "teach mode"
                 self.core.request_stop()
+            # The controller's collision flag (IN byte 59) on a motor this stream drives: a fault, like
+            # the error limit. Another motor's bit (the gripper's move ends against a stop) is not.
+            hit = [m for m in collision_motors(reply) if m in self.core.motors]
+            if hit:
+                self.core.fail(f"the controller's collision flag is set for {', '.join(hit)}")
             measured = {m: signed_count_delta(state.encoder_counts[m], self._home[m])
                         for m in self.core.motors}
             errors = {m: _legacy_error(state.controller_error_counts[m]) for m in self.core.motors}

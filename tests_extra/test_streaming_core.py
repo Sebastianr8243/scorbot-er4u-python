@@ -237,8 +237,8 @@ class StreamCoreTests(unittest.TestCase):
         from scorbot.vendor_profile import (MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION,
                                             VendorProfile)
         jog = VendorProfile(1.0, MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION)
-        limits = prior_limits(0.4)      # below the speed where the vendor's MaxAccel caps it
-        self.assertEqual(limits.max_velocity, VENDOR_MAX_SPEED_COUNTS_S * 0.4)
+        limits = prior_limits(0.3)      # below the speed where the vendor peak (MaxAccel / 1.5) caps it, about 0.32
+        self.assertEqual(limits.max_velocity, VENDOR_MAX_SPEED_COUNTS_S * 0.3)
         self.assertAlmostEqual(limits.max_velocity / limits.max_acceleration,
                                jog.times[2] - jog.times[0])
         self.assertAlmostEqual(limits.max_acceleration / limits.max_jerk, jog.times[0])
@@ -246,13 +246,13 @@ class StreamCoreTests(unittest.TestCase):
         self.assertAlmostEqual(limits.max_acceleration / limits.max_jerk, 0.015)
 
     def test_acceleration_never_passes_the_vendors_max_accel(self):
-        from scorbot.streaming import VENDOR_MAX_ACCEL_COUNTS_S2, VENDOR_MAX_SPEED_COUNTS_S, prior_limits
+        from scorbot.streaming import VENDOR_PEAK_ACCEL_COUNTS_S2, VENDOR_MAX_SPEED_COUNTS_S, prior_limits
         for pct in range(1, 101):
             limits = prior_limits(pct / 100)
             self.assertAlmostEqual(limits.max_velocity, VENDOR_MAX_SPEED_COUNTS_S * pct / 100)
-            self.assertLessEqual(limits.max_acceleration, VENDOR_MAX_ACCEL_COUNTS_S2)
+            self.assertLessEqual(limits.max_acceleration, VENDOR_PEAK_ACCEL_COUNTS_S2)
             self.assertAlmostEqual(limits.max_acceleration / limits.max_jerk, 0.015)
-        self.assertEqual(prior_limits(1.0).max_acceleration, VENDOR_MAX_ACCEL_COUNTS_S2)
+        self.assertAlmostEqual(prior_limits(1.0).max_acceleration, 11000 / 1.5)   # the DLL's real peak, PL56
 
     def test_speed_can_change_while_streaming(self):
         from scorbot.streaming import StreamRefused, prior_limits
