@@ -129,7 +129,9 @@ class VendorHomeRunTests(unittest.TestCase):
         media = self.libdef.get_media(buffer, reads.get_nowait())
         region = bytes.fromhex(self.libdef.get_encoder(buffer, media))
         for index, offset in enumerate((19, 24, 29, 34, 39, 44)):
-            self.assertEqual(region[4 * index:4 * index + 2], bytes(buffer[offset:offset + 2]))
+            # the slot is the reported controller count, raw24 - 0x7FFFFF (docs/requirements/count-frame.md)
+            self.assertEqual(int.from_bytes(region[4 * index:4 * index + 4], "little", signed=True),
+                             int.from_bytes(bytes(buffer[offset:offset + 3]), "little") - 0x7FFFFF)
 
     def test_a_failed_home_switches_the_motors_off_and_reports_failure(self):
         wire, buffer, reads, results, _ = self.run_order(Scripted(25, ("stop",)))

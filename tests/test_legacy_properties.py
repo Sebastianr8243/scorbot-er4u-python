@@ -43,6 +43,16 @@ def _pair(signed):
     return (signed, "0000") if signed >= 0 else (signed + MAX_COUNT, "ffff")
 
 
+def _count(raw, sign):
+    """The controller count of a low word and sign word, raw24 - 0x7FFFFF (docs/requirements/count-frame.md)."""
+    return raw + 1 if sign in (128, "0000") else raw - 65535
+
+
+def _count_pair(count):
+    """Inverse of _count for -65535..65536, as (low word, legacy sign text)."""
+    return (count - 1, "0000") if count >= 1 else (count + 65535, "ffff")
+
+
 def _legacy(name):
     return Scorbot()._legacy(name)
 
@@ -125,44 +135,47 @@ class LegacyLibdefProperties(unittest.TestCase):
     @PROFILE
     @given(raw16, signs, steps)
     def test_suma_stays_in_range_and_moves_by_step(self, raw, sign, step):
+        assume(sign == "ffff" or raw + step <= 65535)   # past 65536 is the old range's cliff (#128 item 4)
         out = self.lib.suma([raw, sign], 1, 20, 100, step=step)
         self.assertIn(out[0], range(65536))
         self.assertIn(out[1], ("0000", "ffff"))
         self.assertEqual(len(self.lib.detrans(out[0])), 4)
-        # Same distance as the calibration helper (mod-65535 arithmetic).
-        self.assertEqual(signed_count_delta(out[0], raw), step)
+        # The controller count moves by exactly the step, across zero too.
+        self.assertEqual(_count(*out) - _count(raw, sign), step)
 
     @PROFILE
     @given(raw16, signs, steps)
     def test_resta_stays_in_range_and_moves_by_step(self, raw, sign, step):
+        assume(sign == "0000" or raw - step >= 0)       # below -65535 is the old range's cliff (#128 item 4)
         out = self.lib.resta([raw, sign], 1, 20, 100, step=step)
         self.assertIn(out[0], range(65536))
         self.assertIn(out[1], ("0000", "ffff"))
         self.assertEqual(len(self.lib.detrans(out[0])), 4)
-        self.assertEqual(signed_count_delta(out[0], raw), -step)
+        self.assertEqual(_count(*out) - _count(raw, sign), -step)
 
     @PROFILE
     @given(signed_counts, steps)
     def test_suma_signed_convention_within_representable_range(self, s, step):
         assume(s + step <= MAX_COUNT)
-        raw, sign = _pair(s)
+        raw, sign = _count_pair(s)
         out = self.lib.suma([raw, sign], 1, 20, 100, step=step)
-        self.assertEqual(_signed(out[0], out[1]), s + step)
+        self.assertEqual(_count(out[0], out[1]), s + step)
 
     @PROFILE
     @given(signed_counts, steps)
     def test_resta_signed_convention_within_representable_range(self, s, step):
         assume(s - step >= -MAX_COUNT)
-        raw, sign = _pair(s)
+        raw, sign = _count_pair(s)
         out = self.lib.resta([raw, sign], 1, 20, 100, step=step)
-        self.assertEqual(_signed(out[0], out[1]), s - step)
+        self.assertEqual(_count(out[0], out[1]), s - step)
 
     @PROFILE
     @given(raw16, signs, steps)
     def test_suma_then_resta_returns_to_start_modulo_wrap(self, raw, sign, step):
+        assume(sign == "ffff" or raw + step <= 65535)   # as in test_suma_stays_in_range_and_moves_by_step
         mid = self.lib.suma([raw, sign], 1, 20, 100, step=step)
         back = self.lib.resta(list(mid), 1, 20, 100, step=step)
-        self.assertEqual(signed_count_delta(back[0], raw), 0)
+        self.assertEqual(_count(*back), _count(raw, sign))
 
     @PROFILE
     @given(raw16, signs, st.integers(1, 20), st.integers(13, 200), st.integers(1, 300))
@@ -213,8 +226,8 @@ class LegacyLibdefProperties(unittest.TestCase):
         self.assertEqual(len(msg), 48)
         raw = bytes.fromhex(msg)
         for i, (c, s) in enumerate(zip(counts, sign_bytes)):
-            self.assertEqual(raw[4 * i:4 * i + 2], c.to_bytes(2, "little"))
-            self.assertEqual(raw[4 * i + 2:4 * i + 4], b"\x00\x00" if s == 128 else b"\xff\xff")
+            # Each slot is the controller count as signed 32-bit (docs/requirements/count-frame.md).
+            self.assertEqual(int.from_bytes(raw[4 * i:4 * i + 4], "little", signed=True), _count(c, s))
 
 
 @unittest.skipUnless(HAVE_HYPOTHESIS, "hypothesis is not installed")
@@ -228,18 +241,18 @@ class LegacyKnownBugs(unittest.TestCase):
 
     @staticmethod
     def old_suma(value, step):
-        """libdef.suma before 2026-10-06: one wrap only."""
+        """libdef.suma before 2026-10-06: one wrap only (by 65536 since 2026-11-04, count-frame.md)."""
         value += step
         if value > 65535:
-            return value - 65535, "0000"
+            return value - 65536, "0000"
         return value, None
 
     @staticmethod
     def old_resta(value, step):
-        """libdef.resta before 2026-10-06: one wrap only."""
+        """libdef.resta before 2026-10-06: one wrap only (by 65536 since 2026-11-04, count-frame.md)."""
         value -= step
         if value < 0:
-            return 65535 + value, "ffff"
+            return 65536 + value, "ffff"
         return value, None
 
     def test_suma_and_resta_are_unchanged_for_every_step_the_arm_can_send(self):
