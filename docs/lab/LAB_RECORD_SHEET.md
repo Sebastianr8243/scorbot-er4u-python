@@ -15,3 +15,4 @@ Until a dated line is filled in here, the matching claim stays unverified.
 | 7 | Idle creep with motors on | None expected; since PL98 the idle message holds a fixed setpoint (here the measured snapshot taken at enable), as the DLL holds its commanded setpoint | Motors on after Home, no command, 60 s probe log; drift of any axis in counts | | |
 | 8 | Gripper stroke | `RangeEnc = 5000` counts for `RangeMM = 70` mm (ROB_4u.INI) | `bench_gripper` log: counts from closed to open | | |
 | 9 | Driver read timeout | 5 s, not interruptible (ledger PL31) | Step T, `scripts/read_timeout_check.py` | | |
+| 10 | Largest following error in a normal move | Under 70 counts per arm axis expected: the impact stop trips above `ImpactDetect` = 70 (vendor `ER4AxN.ini`, PL98), up from our old 40 | Every jog, vendor move and stream log: the largest abs error word per axis in moves with no contact. Within about 15 counts of 70 in a clean move: raise it before going faster | | |
