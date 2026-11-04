@@ -415,7 +415,7 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
     def test_step_beyond_domain_is_still_rejected_by_the_codec(self):
         # Until 2026-10-06 legacy suma left 65536 here (a double overflow) and
         # detrans, a pure function that is unchanged, turned that into a silently
-        # wrong count. suma now wraps repeatedly: 65535 + 65536 is 65535 (two 65536 wraps). A step of a
+        # wrong count. suma now wraps repeatedly: 65535 + 65536 is 65535 (one 65536 wrap). A step of a
         # full turn is still outside the codec's domain (real steps are at most
         # about 100), so the codec refuses it instead of choosing a meaning.
         state = self.lib.suma([65535, "0000"], 1, 0, 0, step=65536)
