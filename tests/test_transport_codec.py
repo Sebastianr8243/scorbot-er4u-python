@@ -119,10 +119,14 @@ class CodecContractTests(unittest.TestCase):
                 codec.next_sequence(bad)
 
     def test_encode_count_layout(self):
-        self.assertEqual(codec.encode_count(1, 128), b"\x01\x00\x00\x00")
-        self.assertEqual(codec.encode_count(0x1234, 127), b"\x34\x12\xff\xff")
-        self.assertEqual(codec.encode_count(65535, 128), b"\xff\xff\x00\x00")
-        self.assertEqual(codec.encode_count(0, 127), b"\x00\x00\xff\xff")
+        # The controller count raw24 - 0x7FFFFF as signed 32-bit (docs/requirements/count-frame.md).
+        self.assertEqual(codec.encode_count(0, 128), b"\x01\x00\x00\x00")
+        self.assertEqual(codec.encode_count(1, 128), b"\x02\x00\x00\x00")
+        self.assertEqual(codec.encode_count(65535, 127), b"\x00\x00\x00\x00")
+        self.assertEqual(codec.encode_count(65534, 127), b"\xff\xff\xff\xff")
+        self.assertEqual(codec.encode_count(0x1234, 127), b"\x35\x12\xff\xff")
+        self.assertEqual(codec.encode_count(65535, 128), b"\x00\x00\x01\x00")
+        self.assertEqual(codec.encode_count(0, 127), b"\x01\x00\xff\xff")
 
     def test_encode_count_rejects_bad_input(self):
         for count, sign in ((-1, 128), (65536, 128), (True, 128), (1.0, 128),
@@ -131,14 +135,15 @@ class CodecContractTests(unittest.TestCase):
                 codec.encode_count(count, sign)
 
     def test_step_count_seams(self):
-        # Fixed seam cases: also checked against legacy suma/resta below.
-        self.assertEqual(codec.step_count(65535, 127, 1), (1, 128))
+        # Fixed seam cases: also checked against legacy suma/resta below. Across zero the controller
+        # count moves by exactly the step (count 0 is 65535/127, count 1 is 0/128).
+        self.assertEqual(codec.step_count(65535, 127, 1), (0, 128))
         self.assertEqual(codec.step_count(65534, 127, 1), (65535, 127))
-        self.assertEqual(codec.step_count(0, 128, -1), (65534, 127))
+        self.assertEqual(codec.step_count(0, 128, -1), (65535, 127))
         self.assertEqual(codec.step_count(1, 128, -1), (0, 128))
         self.assertEqual(codec.step_count(0, 128, 65535), (65535, 128))
-        self.assertEqual(codec.step_count(65535, 127, 65535), (65535, 128))
-        self.assertEqual(codec.step_count(0, 128, -65535), (0, 127))
+        self.assertEqual(codec.step_count(65535, 127, 65535), (65534, 128))
+        self.assertEqual(codec.step_count(0, 128, -65535), (1, 127))
         self.assertEqual(codec.step_count(65535, 128, -65535), (0, 128))
         self.assertEqual(codec.step_count(100, 127, 0), (100, 127))
 
@@ -281,7 +286,7 @@ class _LegacyMixin:
         moving = ORDER_JOINTS[order]
         media = [states[name][0] for name in JOINTS]
         buffer = _response(states)
-        signal_out = "".join(self.lib.detrans(targets[name][0]) + SIGN_TEXT[targets[name][1]]
+        signal_out = "".join(self.lib.countField(targets[name][0], SIGN_TEXT[targets[name][1]])
                              for name in moving)
         text = self.lib.fill_msg(self.hex.mov_comm(1).format(self.lib.f_byte(9)), 24)
         text += self.lib.getStruct(order, signal_out, self.lib.get_encoder(buffer, media))
@@ -377,7 +382,7 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
 
     def assert_count_matches_legacy(self, count, sign):
         buffer = _response(dict.fromkeys(JOINTS, (count, sign)))
-        field = self.lib.detrans(count) + self.lib.get_signo(ENCODER_OFFSETS[0] + 2, buffer)
+        field = self.lib.countField(count, self.lib.get_signo(ENCODER_OFFSETS[0] + 2, buffer))
         self.assertEqual(codec.encode_count(count, sign), bytes.fromhex(field), (count, sign))
 
     def test_encode_count_seams_match_legacy(self):
@@ -389,7 +394,7 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
         for count in range(65536):
             sign = 128 if count % 2 else 127
             self.assertEqual(codec.encode_count(count, sign),
-                             bytes.fromhex(self.lib.detrans(count) + SIGN_TEXT[sign]), count)
+                             bytes.fromhex(self.lib.countField(count, SIGN_TEXT[sign])), count)
 
     def assert_step_matches_legacy(self, count, sign, step):
         state = [count, SIGN_TEXT[sign]]
@@ -410,12 +415,12 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
     def test_step_beyond_domain_is_still_rejected_by_the_codec(self):
         # Until 2026-10-06 legacy suma left 65536 here (a double overflow) and
         # detrans, a pure function that is unchanged, turned that into a silently
-        # wrong count. suma now wraps repeatedly: 65535 + 65536 is 1. A step of a
+        # wrong count. suma now wraps repeatedly: 65535 + 65536 is 65535 (one 65536 wrap). A step of a
         # full turn is still outside the codec's domain (real steps are at most
         # about 100), so the codec refuses it instead of choosing a meaning.
         state = self.lib.suma([65535, "0000"], 1, 0, 0, step=65536)
-        self.assertEqual(state, [1, "0000"])
-        self.assertEqual(self.lib.detrans(state[0]), "0100")
+        self.assertEqual(state, [65535, "0000"])
+        self.assertEqual(self.lib.detrans(1), "0100")
         self.assertEqual(self.lib.detrans(131070), "ff1f")      # detrans itself is unchanged
         with self.assertRaises(ValueError):
             codec.step_count(65535, 128, 65536)
@@ -489,7 +494,7 @@ class LegacyGoldenTests(_LegacyMixin, unittest.TestCase):
                 if order == 20:
                     continue
                 target = {name: codec.step_count(*states[name], 37 + seed) for name in moving}
-                signal_out = "".join(self.lib.detrans(target[name][0]) + SIGN_TEXT[target[name][1]]
+                signal_out = "".join(self.lib.countField(target[name][0], SIGN_TEXT[target[name][1]])
                                      for name in moving)
                 media = [states[name][0] for name in JOINTS]
                 for start in (1, 254, 255):

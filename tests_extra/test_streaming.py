@@ -24,6 +24,8 @@ HAS_RUCKIG = find_spec("ruckig") is not None
 OPEN, STEP, MODE, CONTROL_OFF, MOTOR = 0x47, 0x0D, 0x4F, 0x73, 0x42
 STOPPED = 14
 START = 1000
+ZERO24 = 0x7FFFFF          # the controller count is raw24 - 0x7FFFFF
+START_LOW = START - 1      # its low word under sign byte 128, the form the smoothed media keeps
 
 
 class Controller:
@@ -34,16 +36,15 @@ class Controller:
         self.reply = bytearray(64)
         self.reply[1] = 13
         for offset in ENCODER_OFFSETS:
-            self.reply[offset:offset + 2] = START.to_bytes(2, "little")
-            self.reply[offset + 2] = 128
+            self.reply[offset:offset + 3] = (START + ZERO24).to_bytes(3, "little")
 
     def write(self, data, timeout):
+        # Each slot is a controller count (signed 32-bit); the reply reports it as raw24 - 0x7FFFFF.
         data = bytes(data)
         self.packets.append(data)
         for index, offset in enumerate(ENCODER_OFFSETS):
-            self.reply[offset:offset + 2] = data[12 + 4 * index:14 + 4 * index]
-            self.reply[offset + 2] = 127 if data[14 + 4 * index:16 + 4 * index] == b"\xff\xff" \
-                else 128
+            count = int.from_bytes(data[12 + 4 * index:16 + 4 * index], "little", signed=True)
+            self.reply[offset:offset + 3] = (count + ZERO24).to_bytes(3, "little")
         return len(data)
 
     def read(self, buffer, timeout):
@@ -82,7 +83,7 @@ class LegacyStreamTests(unittest.TestCase):
         controller = Controller()
         buffer = bytearray(controller.reply)
         reads, results = queue.Queue(), queue.Queue()
-        reads.put([START] * len(JOINTS))
+        reads.put([START_LOW] * len(JOINTS))
         seen = []
         steps = iter(script)
 
@@ -139,10 +140,8 @@ class LegacyStreamTests(unittest.TestCase):
         self.assertEqual(results, [STOPPED])
         # the stop asks for where the arm is reported to be, not for the target
         for packet in controller.packets[2:]:
-            self.assertLessEqual(field(packet, 0), 1301)    # 1300 reported = controller count 1301
-            # reported 1000 in the legacy reading is controller count 1001 (raw24 - 0x7FFFFF); the hold
-            # writes the controller count, which field() reads in the legacy frame as 1001
-            self.assertEqual([field(packet, i) for i in (1, 2)], [1001, 1001])
+            self.assertLessEqual(field(packet, 0), 1300)
+            self.assertEqual([field(packet, i) for i in (1, 2)], [1000, 1000])
 
     @unittest.skipUnless(HAS_RUCKIG, "needs the planning extra")
     def test_teach_mode_mid_stream_sends_exactly_the_normal_stop_bytes(self):
@@ -152,7 +151,7 @@ class LegacyStreamTests(unittest.TestCase):
             controller = Controller()
             buffer = bytearray(controller.reply)
             reads, results = queue.Queue(), queue.Queue()
-            reads.put([START] * len(JOINTS))
+            reads.put([START_LOW] * len(JOINTS))
             robot = Scorbot()
             zero = dict.fromkeys(("base", "shoulder", "elbow"), 0)
             core = StreamCore(zero, travel_cap=dict.fromkeys(zero, 1400),
@@ -199,7 +198,7 @@ class LegacyStreamTests(unittest.TestCase):
         buffer = bytearray(controller.reply)
         sync, orders, reads, results = (queue.Queue() for _ in range(4))
         sync.put(1)
-        reads.put([START] * len(JOINTS))
+        reads.put([START_LOW] * len(JOINTS))
         worker = threading.Thread(
             target=self.comm.execute,
             args=(sync, orders, reads, controller, controller, buffer, results), daemon=True)
