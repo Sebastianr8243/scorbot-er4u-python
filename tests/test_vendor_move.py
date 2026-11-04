@@ -14,6 +14,7 @@ import math
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from scorbot import Scorbot, ScorbotError, MotionStopped, vendor_home as vh, vendor_move as vm
@@ -142,7 +143,15 @@ class Wiring(unittest.TestCase):
         patch = mock.patch("time.sleep", lambda seconds: real_sleep(0))
         patch.start()
         self.addCleanup(patch.stop)
-        self.robot = DryScorbot(command_timeout=30).connect()
+        self.robot = DryScorbot(command_timeout=30)
+        # Packet bytes are the subject here; keep scheduler yields only in the worker loops.
+        for target in (mock.patch.object(self.robot._legacy("libdef"), "time",
+                                         SimpleNamespace(sleep=lambda seconds: None)),
+                       mock.patch("scorbot.lab.dry_link.time", SimpleNamespace(
+                           monotonic=time.monotonic, sleep=lambda seconds: None))):
+            target.start()
+            self.addCleanup(target.stop)
+        self.robot.connect()
         self.addCleanup(self.robot.disconnect)
         self.robot.STOP_SETTLE_INTERVAL_S = 0.001
         self.robot.enable()
@@ -160,7 +169,7 @@ class Wiring(unittest.TestCase):
             return step
 
         begin = len(self.robot.dry_link.sent)
-        with mock.patch.object(VendorHomeSource, "_send", side_effect=record):
+        with mock.patch.object(VendorHomeSource, "_send", new=staticmethod(record)):
             result = self.robot.move_joint_vendor(target, total_ms=total_ms)
         wire = self.robot.dry_link.sent[begin:]
         index = wire.index(packets[0])
@@ -270,7 +279,7 @@ class Wiring(unittest.TestCase):
             return step
 
         target = vm.joints_from_millidegrees([10000, -120278, 95021, 88805, 0])
-        with mock.patch.object(VendorHomeSource, "_send", side_effect=second):
+        with mock.patch.object(VendorHomeSource, "_send", new=staticmethod(second)):
             self.robot.move_joint_vendor(target, speed_percent=50)
         self.assertEqual(len(seen), 1)
         alive, error = seen[0]
@@ -291,7 +300,7 @@ class Wiring(unittest.TestCase):
                 self.robot.request_stop()
             return step
 
-        with mock.patch.object(VendorHomeSource, "_send", side_effect=stop):
+        with mock.patch.object(VendorHomeSource, "_send", new=staticmethod(stop)):
             with self.assertRaises(MotionStopped) as caught:
                 self.robot.move_joint_vendor(vm.joints_from_millidegrees(
                     [20000, -120278, 95021, 88805, 0]), total_ms=3000)

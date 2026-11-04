@@ -5,6 +5,7 @@ from hashlib import sha256
 import io
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest import mock
@@ -34,6 +35,13 @@ def connection_commands():
 
 
 class ProbeTests(unittest.TestCase):
+    def setUp(self):
+        # Skip legacy wire delays; DryLink's requested reply latency remains real.
+        libdef = DryScorbot()._legacy("libdef")
+        patch = mock.patch.object(libdef, "time", SimpleNamespace(sleep=lambda seconds: None))
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_probe_has_exact_connect_command_set_and_pinned_full_handshake(self):
         sets = []
         for use_probe in (False, True):

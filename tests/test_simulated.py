@@ -293,11 +293,22 @@ class SimulatedG1RehearsalTests(unittest.TestCase):
                           stdin=stdin, real_process=self.real_process)
 
     def test_idle_sample_counts_match_at_the_rate_limits(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from examples import record_raw_state
         from scorbot.session import load_session
         for seconds, hz, expected in (("1", "0.2", 1), ("1.05", "10", 11)):
             with self.subTest(seconds=seconds, hz=hz):
                 name = f"idle-{hz}.jsonl"
-                result = self.idle(seconds, hz, name)
+                clock = [0.0]
+                fake_time = SimpleNamespace(
+                    monotonic=lambda clock=clock: clock[0],
+                    monotonic_ns=lambda clock=clock: round(clock[0] * 1_000_000_000),
+                    sleep=lambda delay, clock=clock: clock.__setitem__(0, clock[0] + delay))
+                # Keep the requested cadence and all samples without waiting for wall time.
+                with patch.object(record_raw_state, "time", fake_time):
+                    result = self.idle(seconds, hz, name)
+                self.assertAlmostEqual(clock[0], (expected - 1) / float(hz))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 rows = [json.loads(line) for line in (self.logs / name).read_text().splitlines()]
                 self.assertEqual(sum(r["type"] == "sample" for r in rows), expected)
