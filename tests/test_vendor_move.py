@@ -90,6 +90,32 @@ class Duration(unittest.TestCase):
 
     def test_no_motor_moving_has_no_duration(self):
         self.assertEqual(vm.accel_bound_ms(vm.home_joints(), vm.home_joints()), 0)
+        self.assertEqual(vm.duration_ms(vm.home_joints(), vm.home_joints()), 0)
+
+    def test_the_duration_routine_gives_every_recorded_duration(self):
+        # FUN_10010896 (PL97): the speed-mode moves from their speed (None: the DLL's default factor 0.5).
+        for move, start, target in starts():
+            if move["time_ms"] is not None:
+                continue
+            with self.subTest(move["label"], speed=move["speed_percent"]):
+                self.assertEqual(vm.duration_ms(start, target, speed_percent=move["speed_percent"]),
+                                 move["total_ms"])
+
+    def test_a_time_below_the_full_speed_duration_is_what_the_dll_refuses(self):
+        # base +100 degrees from home: the MaxSpeed term at factor 1.0 is longer than the acceleration bound.
+        target = vm.joints_from_millidegrees([100000, -120278, 95021, 88805, 0])
+        self.assertEqual(vm.minimum_ms(vm.home_joints(), target), 4679)
+        self.assertLess(vm.accel_bound_ms(vm.home_joints(), target), 4000)
+        timed = [(m, s, t) for m, s, t in starts() if m["time_ms"] is not None]
+        for move, start, target in timed:
+            self.assertGreaterEqual(move["time_ms"], vm.minimum_ms(start, target))
+
+    def test_speed_percent_is_checked_like_the_dll(self):
+        self.assertEqual(vm.speed_factor(None), 0.5)
+        self.assertAlmostEqual(vm.speed_factor(100), 1.0)
+        for bad in (0, 101, True, "50", float("nan")):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                vm.speed_factor(bad)
 
 
 class OptIn(unittest.TestCase):
@@ -196,6 +222,10 @@ class Wiring(unittest.TestCase):
             self.refused(total_ms=total_ms, error=ValueError)
         target = vm.joints_from_millidegrees([20000, -120278, 95021, 88805, 0])
         self.refused(target, vm.accel_bound_ms(vm.home_joints(), target) - 1, ValueError)
+        far = vm.joints_from_millidegrees([100000, -120278, 95021, 88805, 0])
+        self.refused(far, 4000, ValueError)  # over the acceleration bound, under the DLL's 909 minimum
+        with self.assertRaises(ValueError):
+            self.robot.move_joint_vendor(target, total_ms=3000, speed_percent=50)
         for index in range(5):
             target = list(vm.home_joints())
             target[index] = math.radians(1000)
@@ -215,6 +245,39 @@ class Wiring(unittest.TestCase):
                 self.refused()
                 self.home()
                 self.move(vm.home_joints(), 24)
+
+    def test_a_second_thread_is_refused_while_a_move_runs(self):
+        # USBC.dll error 911: a move while one is running is refused at once, not queued after it.
+        import threading
+        self.home()
+        send = VendorHomeSource._send
+        seen = []
+
+        def second(out, sequence):
+            step = send(out, sequence)
+            if len(seen) == 0 and self.robot._move_thread is not None:
+                result = {}
+
+                def call():
+                    try:
+                        self.robot.move_joint_vendor(vm.home_joints(), total_ms=3000)
+                    except ScorbotError as exc:
+                        result["error"] = exc
+                other = threading.Thread(target=call)
+                other.start()
+                other.join(5)
+                seen.append((other.is_alive(), result.get("error")))
+            return step
+
+        target = vm.joints_from_millidegrees([10000, -120278, 95021, 88805, 0])
+        with mock.patch.object(VendorHomeSource, "_send", side_effect=second):
+            self.robot.move_joint_vendor(target, speed_percent=50)
+        self.assertEqual(len(seen), 1)
+        alive, error = seen[0]
+        self.assertFalse(alive)
+        self.assertIn("911", str(error))
+        self.assertIsNone(self.robot._move_thread)
+        self.move(vm.home_joints(), vm.duration_ms(target, vm.home_joints()))
 
     def test_stop_holds_and_switches_off(self):
         self.home()

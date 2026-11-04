@@ -131,6 +131,9 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `vendor_move.MILLIDEGREE_RADIANS` | 1.7453292519943296e-05 | vendor | the constant `SetJoints` multiplies its millidegree values by (lab DLL `0x10066098`) | `VENDOR_DLL_PROTOCOL.md` section 11 |
 | `vendor_move.MAX_ACCEL_COUNTS_S2` | 11000 | vendor | `ER4AxN.ini` `MaxAccel`, the five arm motors | PL56 |
 | `vendor_move.ACCEL_CHECK_FACTOR` | 1.5 | vendor | the DLL's constant at `0x10065d30` in its duration routine | PL55, PL56 |
+| `vendor_move.MAX_SPEED_COUNTS_S` | 6500 | vendor | `ER4AxN.ini MaxSpeed` for the five arm motors, counts/s; the per-axis term of the joint-move duration `FUN_10010896` | `LEDGER.md` PL55, PL97 |
+| `vendor_move.DEFAULT_SPEED_FACTOR` | 0.5 | vendor | The speed factor before any `Speed` call, set by the DLL's settings constructor `FUN_1001fc70`; reproduces the fixture's default-speed moves | `LEDGER.md` PL97 |
+| `vendor_move.SCALE_NUMERATOR` | 0x7FFFFFF5 | vendor | The DLL's integer scale for its speed terms in `FUN_10010896`, before dividing by MaxSpeed | `LEDGER.md` PL97 |
 | `vendor_io.CLEAR`, `vendor_io.SET_DIGITAL`, `vendor_io.SET_ANALOG` | 0x47, 0x44, 0x41 | vendor | the commands `SetDigitalOutput` and `SetAnalogOutput` send, recorded from the lab DLL on the desk | `LEDGER.md` PL68, PL70 |
 | `vendor_io.DIGITAL_OUTPUTS`, `vendor_io.ANALOG_OUTPUTS`, `vendor_io.ANALOG_MAX` | 32, 2, 255 | vendor | the range checks in `SetDigitalOutput` (`0x10019697`) and `SetAnalogOutput` (`0x10019a4c`); the value is a byte | `LEDGER.md` PL68, PL70 |
 | `vendor_io.IO_ORDER` | 24 | ours | worker command code for an output write | n/a |
