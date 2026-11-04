@@ -155,6 +155,23 @@ def get_encoder(buffer, media):
 	return msg
 
 
+# The setpoint region that holds the counts of the last reply, for the stop and the enable snapshot.
+# The controller's count is raw24 - 0x7FFFFF and it reads each setpoint as a signed 32-bit count
+# (docs/protocol/VENDOR_DLL_PROTOCOL.md sections 3 and 6), so -1 is held as ffffffff and +1 as
+# 01000000. get_encoder's echo of the low word and sign word would hold every count one low.
+# Unverified on the arm.
+#
+# buffer -> Vector storing the most recent read data
+#
+def get_hold(buffer):
+	msg = ''
+	for pos in VEC_POS:
+		get_signo(pos+2, buffer)
+		count = int.from_bytes(bytes(buffer[pos:pos+3]), 'little') - 0x7FFFFF
+		msg += count.to_bytes(4, 'little', signed=True).hex()
+	return msg
+
+
 # Message library shown in the graphical interface after successful actions.
 #
 # cont   -> Message identifier to look up
@@ -331,14 +348,15 @@ def closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
 # Stop('A') -> 0x100217c9 -> 0x100212d1 copies the measured array, which
 # 0x10006c17 fills from every reply as raw24 - 0x7FFFFF, 0x1000b130; no
 # averaging), and every message then carries those setpoints. So all four
-# messages here carry the counts and sign words of the last reply, not the
+# messages here carry the counts of the last reply (get_hold), not the
 # smoothed `media` (get_media lags a moving joint by a few counts), and the
-# returned media is that same hold, so the idle messages keep it.
+# idle messages keep that hold. The returned media is the last reply's low
+# words, the legacy form the jogs and the smoothing read.
 #
 # Arguments as for openMov; `media` is replaced, not read.
 def stopMov(b_1, media, epout, epin, buffer, write, read):
 	media = [transform([buffer[pos], buffer[pos+1]]) for pos in VEC_POS]
-	hold = get_encoder(buffer, media)
+	hold = get_hold(buffer)
 	for i in range(2, 6):
 		cadena = libhex.mov_comm(i)
 		b_1 = countByte1(b_1)

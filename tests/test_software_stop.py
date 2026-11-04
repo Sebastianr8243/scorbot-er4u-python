@@ -216,7 +216,8 @@ class LegacyStopTests(unittest.TestCase):
                 for packet in controller.packets[6:]:
                     for joint, value in enumerate(held):
                         field = packet[12 + 4 * joint:16 + 4 * joint]
-                        self.assertEqual(int.from_bytes(field[:2], "little"), value)
+                        # sign byte 128: the controller count is L + 1 (libdef.get_hold)
+                        self.assertEqual(int.from_bytes(field[:2], "little"), value + 1)
                         self.assertEqual(field[2:], b"\x00\x00")
                 self.assertEqual(self.media, held, "the idle messages must keep holding it")
 
@@ -230,7 +231,7 @@ class LegacyStopTests(unittest.TestCase):
                 self.assertEqual(results, [1], "the fault is reported, and only the fault")
                 last_step_target = controller.targets(region)[5]
                 for target in controller.targets(region)[6:]:
-                    self.assertEqual(target, controller.reported[5][index])
+                    self.assertEqual(target, controller.reported[5][index] + 1)   # sign 128: L + 1
                     self.assertLess(target, last_step_target)
 
     def test_joint_error_with_a_stop_in_the_settle_loop_is_still_a_fault(self):
@@ -253,7 +254,7 @@ class LegacyStopTests(unittest.TestCase):
         for packet in controller.packets[at:]:
             for joint, value in enumerate(held):
                 field = packet[12 + 4 * joint:16 + 4 * joint]
-                self.assertEqual(field, value.to_bytes(4, "little"))
+                self.assertEqual(field, (value + 1).to_bytes(4, "little"))   # sign 128: L + 1
         self.assertEqual(self.media, held)
 
     def test_joint_error_without_a_stop_clears_and_holds(self):

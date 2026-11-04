@@ -129,7 +129,8 @@ class LegacyIdleHoldTests(unittest.TestCase):
         hold, media = self.run_order(controller, SHOULDER_JOG, stop_event=stop_event)
         held = controller.reported[5]       # the reply to the step that saw the stop
         self.assertNotEqual(held[1], START)
-        self.assertEqual(hold, b"".join(value.to_bytes(2, "little") + b"\x00\x00" for value in held))
+        # The fake reports L with sign byte 128: controller count L + 1, held as a signed 32-bit slot.
+        self.assertEqual(hold, b"".join((value + 1).to_bytes(4, "little") for value in held))
         self.assertEqual(hold, controller.packets[-1][12:36])
         for packet in self.idle(controller, media, hold):
             self.assertEqual(packet[12:36], hold)
@@ -140,7 +141,7 @@ class LegacyIdleHoldTests(unittest.TestCase):
                 controller = DriftingController(rate=0)  # reports no impact but never reaches the target
                 hold, media = self.run_order(controller, [order, 10, 1.0])
                 self.assertEqual(list(self.results.queue), [2], "settle failure must not become STOPPED")
-                measured = b"".join(START.to_bytes(2, "little") + b"\x00\x00" for _ in JOINTS)
+                measured = b"".join((START + 1).to_bytes(4, "little") for _ in JOINTS)   # sign 128: L + 1
                 self.assertEqual(hold, measured, "never publish the unreachable jog target")
                 self.assertEqual(media, [START] * len(JOINTS))
                 self.assertEqual(controller.commands()[-4:], [0x47, 0x4F, 0x73, 0x42])
@@ -153,7 +154,7 @@ class LegacyIdleHoldTests(unittest.TestCase):
         controller = DriftingController()
         stale = [START - 100] * len(JOINTS)      # the smoothed vector lags; the snapshot must not
         hold, _ = self.run_order(controller, [17, 1, 1], media=stale)
-        self.assertEqual(hold, b"".join(START.to_bytes(2, "little") + b"\x00\x00" for _ in JOINTS))
+        self.assertEqual(hold, b"".join((START + 1).to_bytes(4, "little") for _ in JOINTS))   # sign 128: L + 1
 
     def test_motors_off_and_vendor_home_leave_no_hold(self):
         # Motors off: the idle setpoint follows the encoders as before. Vendor home: its 48 re-zeroes the

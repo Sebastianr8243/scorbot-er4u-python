@@ -522,8 +522,7 @@ def motors_off(b_1, epout, epin, buffer,cola_read):
 # Like USBC.dll's Control('&', 1), the measured counts of the last reply are taken once before the
 # motors go on and the idle messages hold them (LEDGER.md PL98). The motor-on messages are unchanged.
 def motors_on(b_1, epout, epin, buffer,cola_read):
-	snapshot = [libdef.transform([buffer[pos], buffer[pos+1]]) for pos in VEC_POS]
-	libdef.ultimo_hold = bytes.fromhex(libdef.get_encoder(buffer, snapshot))
+	libdef.ultimo_hold = bytes.fromhex(libdef.get_hold(buffer))
 	media = libdef.get_media(buffer,cola_read.get())
 	for i in range(1,8):
 		cadena = libhex.mov_comm(6)
