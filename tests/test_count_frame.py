@@ -9,6 +9,7 @@ moves. Unverified on the arm.
 
 from importlib.util import find_spec
 import queue
+import threading
 import unittest
 from unittest import mock
 
@@ -377,7 +378,7 @@ class CorruptTopByteTests(unittest.TestCase):
         # The moving joint's own top byte and a held joint's (the echo).
         for mover, order, joint in (("move_hips", 5, "base"), ("move_hips", 5, "elbow"),
                                     ("move_wrist", 10, "wrist_motor_2"), ("move_shoulder", 6, "gripper")):
-            for bad in (1, 4):          # the open message's reply, and one in the jog
+            for bad in (4,):          # a later jog reply; the open reply is covered by CT20
                 with self.subTest(mover=mover, joint=joint, bad=bad):
                     self.libdef.reset_count_guard()
                     arm = FlakyArm([self.START] * 6, bad=bad + 1, joint=joint, top=0x81)
@@ -391,6 +392,100 @@ class CorruptTopByteTests(unittest.TestCase):
                     self.assertEqual(len(arm.packets), bad, "nothing is sent after the corrupt reply")
                     for packet in arm.packets:
                         self.assertLess(abs(slots(packet)[JOINTS.index(joint)] - self.START), 1000, joint)
+
+    # CT20
+    def test_a_jog_with_a_corrupt_open_reply_stops_at_trusted_counts(self):
+        for mover, order, _ in MOVERS:
+            for joint in JOINTS:             # moving and held joints, including the gripper
+                for top in (0x7F, 0x81):     # a legal legacy sign, and a sign outside the pair
+                    with self.subTest(mover=mover, order=order, joint=joint, top=top):
+                        self.libdef.reset_count_guard()
+                        counts = [self.START + 100 * i for i in range(6)]
+                        arm = FlakyArm(counts, bad=2, joint=joint, top=top)
+                        buffer = bytearray(reply_for(counts))
+                        answer(arm, buffer, self.libdef)       # seed the last trusted counts
+                        arm.packets.clear()
+                        reads, results = queue.Queue(), queue.Queue()
+                        reads.put([raw_low(c) for c in counts])
+                        sequence = getattr(self.comm, mover)(1, arm, arm, buffer, order,
+                                                             reads, results, 10, 1.0)
+                        self.assertEqual([p[4] for p in arm.packets], [OPEN, OPEN, 0x4F, 0x73, 0x42])
+                        self.assertEqual([p[0] for p in arm.packets], [2, 3, 4, 5, 6])
+                        self.assertEqual(sequence, 6, "the sequence is handed back")
+                        self.assertEqual([slots(p) for p in arm.packets], [counts] * 5)
+                        self.assertEqual(held(self.libdef.ultimo_hold), counts)
+                        self.assertEqual(list(results.queue), [1])
+                        self.assertEqual(list(reads.queue), [[raw_low(c) for c in counts]])
+
+    def test_the_worker_survives_a_corrupt_open_reply(self):
+        arm = FlakyArm([self.START] * 6, bad=2, joint="elbow", top=0x81)
+        buffer = bytearray(reply_for(arm.counts))
+        answer(arm, buffer, self.libdef)
+        arm.packets.clear()
+        syncs, orders, reads, results = (queue.Queue() for _ in range(4))
+        syncs.put(1)
+        reads.put([raw_low(self.START)] * 6)
+        errors = []
+
+        def run():
+            try:
+                self.comm.execute(syncs, orders, reads, arm, arm, buffer, results)
+            except Exception as exc:
+                errors.append(exc)
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        try:
+            orders.put([5, 10, 1.0])
+            self.assertEqual(results.get(timeout=0.5), 1)
+            self.assertEqual(results.get(timeout=0.5), self.comm.DONE)
+            self.assertTrue(worker.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(syncs.get_nowait(), self.comm.MAX_COUNT)
+            self.assertEqual(syncs.get_nowait(), 6)
+            self.assertEqual(reads.qsize(), 1)
+            self.assertEqual([p[4] for p in arm.packets], [OPEN, OPEN, 0x4F, 0x73, 0x42])
+            self.assert_only_true_counts_sent(arm)
+        finally:
+            syncs.put(6)
+            orders.put([self.comm.EXIT, 1, 1])
+            worker.join(timeout=0.5)
+        self.assertFalse(worker.is_alive(), "the worker exits and is joined")
+        self.assertEqual(errors, [])
+        self.assertEqual(results.get_nowait(), self.comm.DONE)
+
+    def test_the_trusted_stop_freezes_counts_while_replies_keep_changing(self):
+        class DriftingArm(FlakyArm):
+            def read(self, buffer, timeout):
+                if self.reads >= 2:          # the replies during the stop drift five counts
+                    self.counts = [c + 5 for c in self.counts]
+                return super().read(buffer, timeout)
+
+        counts = [0, -1, 1, -65535, 65536, -0x7FFFFF]
+        arm = DriftingArm(counts, bad=2, joint="gripper", top=1)
+        buffer = bytearray(reply_for(counts))
+        answer(arm, buffer, self.libdef)
+        answer(arm, buffer, self.libdef)      # corrupt: the guard must keep the trusted counts
+        arm.packets.clear()
+        sequence, _, media = self.libdef.stop_at_trusted(1, [0] * 6, arm, arm, buffer, 0, 0)
+        self.assertEqual(sequence, 5)
+        self.assertEqual([p[4] for p in arm.packets], [OPEN, 0x4F, 0x73, 0x42])
+        self.assertEqual([slots(p) for p in arm.packets], [counts] * 4)
+        self.assertEqual(held(self.libdef.ultimo_hold), counts)
+        self.assertEqual(media, [raw_low(c) for c in counts])
+        self.assertEqual(held(bytes.fromhex(self.libdef.get_hold(buffer))), [c + 5 for c in counts])
+
+    def test_a_trusted_stop_without_trusted_counts_sends_nothing(self):
+        arm = Arm([self.START] * 6)
+        buffer = bytearray(reply_for(arm.counts))
+        for seed_other_buffer in (False, True):
+            with self.subTest(seed_other_buffer=seed_other_buffer):
+                if seed_other_buffer:
+                    answer(arm, bytearray(buffer), self.libdef)
+                    arm.packets.clear()
+                with self.assertRaisesRegex(self.libdef.CountJumpError, "No trusted counts"):
+                    self.libdef.stop_at_trusted(1, [0] * 6, arm, arm, buffer, 0, 0)
+                self.assertEqual(arm.packets, [])
 
     # CT17
     def test_a_jog_whose_joint_is_past_the_legacy_pair_stops_cleanly(self):

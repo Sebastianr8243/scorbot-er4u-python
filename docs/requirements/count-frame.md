@@ -1,5 +1,5 @@
 # Count frame requirements
-Status: baseline v1 2026-11-04 (issue #128, approved through mission control)
+Status: baseline v2 2026-11-04 (issue #140; v1 issue #128 approved through mission control)
 
 ## Goal
 Every position the legacy path sends or reads uses one count frame: the controller count
@@ -32,6 +32,7 @@ low, on both sides of zero: sign byte 128 is count `L + 1` and was sent as `L`; 
 | CT17 | SHALL | A legacy jog (`libcomm.move_hips`, `move_shoulder`, `move_elbow`, `move_wrist`) whose moving joint cannot be kept as a 128/127 pair (`get_signo`) after its open message was sent sends the stop at the counts it read, reports failure 1 and hands the media back, instead of raising with the movement open. | test: `tests/test_count_frame.py::CorruptTopByteTests::test_a_jog_whose_joint_is_past_the_legacy_pair_stops_cleanly` |
 | CT18 | SHALL | `codec.step_count` takes back every target it returns, past 0..65535 too, as `suma`/`resta` keep counting there; the controller count before and after must be in the 24-bit range. | test: `tests/test_transport_codec.py::CodecContractTests::test_step_count_takes_back_every_target_it_returns`, `test_step_count_rejects_bad_state` |
 | CT19 | SHALL | `load_calibration` refuses a `home_tolerance_counts` of 0 and says why: a file recorded before 2026-11-04 is one count off today's reading (CT13); re-fit it. | test: `tests/test_calibration_load.py::LoadTests::test_a_home_tolerance_of_zero_is_refused_with_the_reason` |
+| CT20 | SHALL | A legacy jog that detects a count jump after `openMov`, when checking its signs, sends the four stop messages at the guard's last trusted counts for all six joints, never the corrupt counts, leaves that trusted hold for idle, reports failure 1, returns the media and sequence byte, and keeps the command worker alive. The decode and the guard's refusal of ordinary echoes and holds stay unchanged. | test: `tests/test_count_frame.py::CorruptTopByteTests::test_a_jog_with_a_corrupt_open_reply_stops_at_trusted_counts`, `test_the_worker_survives_a_corrupt_open_reply` |
 | CT05 | SHALL NOT | This work opens USB, moves hardware, touches the `lab-2026-11-04` tag, adds dependencies, or changes `moveXYZ.py`/`setHome.py`. | review: fake endpoint tests, commands and final diff |
 
 ## Out of scope
@@ -77,8 +78,9 @@ a new reading (`validate_home`) is one count off, inside any `home_tolerance_cou
   already does.
 - A corrupt top byte is no longer a decode error: any top byte is a legal count. `decode_state` stays
   stateless; the stream (CT15) and the legacy echoes (CT16) check the count against the low word
-  instead. A refusal on the legacy path ends the worker that hit it (the SDK latches the fault and
-  says so); what the controller does when messages stop is unverified (the manual says its
+  instead. Except for the jog sign check after open (CT20), a refusal on the legacy path ends the
+  worker that hit it (the SDK latches the fault and says so); what the controller does when messages
+  stop is unverified (the manual says its
   communication time-out switches the motors off). A corrupt low word is not caught by either check.
 - CT15 cannot tell a corrupt reply from a motor that has gone past 32766 counts from home while
   streaming (the low word aliases); both are faults, and the message says so.
@@ -99,3 +101,5 @@ a new reading (`validate_home`) is one count off, inside any `home_tolerance_cou
   CT14 (the home reach), fix round from mission control.
 - 2026-11-04 CT15-CT19 from the post-merge review of #132 (issue #138): the corrupt-top-byte checks on
   both paths, the legacy jog's clean stop, `step_count`'s input range and the tolerance-0 refusal.
+- 2026-11-04 Baseline v2, CT20 authorized through issue #140: stop a refused jog at trusted counts
+  after open, report failure and keep the worker alive; no decode changes.

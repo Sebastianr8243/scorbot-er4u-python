@@ -68,15 +68,16 @@ VENDOR_TORQUE = 25
 # cannot jog a joint past -65535..65536. It learns that from the reply to the open message, which has
 # already been sent: so it then sends the stop at the counts it read (libdef.stopMov), reports failure 1
 # and hands the media back for the idle loop, instead of raising with the movement open and the worker
-# dead (docs/requirements/count-frame.md CT17). Returns the sign words, or None after such a stop.
+# dead (docs/requirements/count-frame.md CT17). A count jump instead stops at the guard's trusted
+# counts (CT20). Returns the sign words, or None after such a stop.
 def jog_signs(positions, b_1, media, epout, epin, buffer, write, read, cola_read, cola_orden):
 	try:
+		libdef.refuse_jumped_counts(buffer)
 		return [libdef.get_signo(pos, buffer) for pos in positions], b_1
-	except libdef.CountJumpError:
-		raise
 	except ValueError as exc:
 		logging.warning("Jog refused, stopping: %s", exc)
-		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
+		stop = libdef.stop_at_trusted if isinstance(exc, libdef.CountJumpError) else libdef.stopMov
+		[b_1, buffer, media] = stop(b_1, media, epout, epin, buffer, write, read)
 		cola_orden.put(1)
 		logging.warning(libdef.error_msg(1))
 		cola_read.put(media)
