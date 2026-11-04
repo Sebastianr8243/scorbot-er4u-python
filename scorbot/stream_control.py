@@ -108,7 +108,10 @@ class StreamMixin:
             # One wrist motor carries pitch and roll (m1 = p + r, m2 = r - p, source model).
             per_degree.update({m: 2 * source_model.COUNTS_PER_DEGREE[m] for m in motors[3:]})
             rounding = {m: 2 if m in limits.WRIST_MOTORS else 0 for m in motors}
-            home = {m: signed_count_delta(self._home_counts[m], 0) for m in limits.RECORDED_MOTORS}
+            try:
+                home = {m: signed_count_delta(self._home_counts[m], 0) for m in limits.RECORDED_MOTORS}
+            except ValueError as exc:
+                raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
             # The stream reads each motor from home by its low word, which aliases past 32766 counts
             # (wrist_motor_2's vendor EncLimit is +/-1,000,000): refuse rather than misread it (CT14).
             far = {m: before.signed_encoder_counts[m] - home[m] for m in (*motors, *limits.WRIST_MOTORS)

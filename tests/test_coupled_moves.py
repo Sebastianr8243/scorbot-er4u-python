@@ -536,8 +536,8 @@ class ParkTests(SimulatedRobotCase):
     def test_wrist_roll_that_builds_up_during_a_park_faults_it(self):
         robot = self.robot()
         with robot.sim._lock:                       # a pitch displacement of 600 counts to undo
-            robot.sim.counts["wrist_motor_1"] = (robot.sim.counts["wrist_motor_1"] + 600) % 65535
-            robot.sim.counts["wrist_motor_2"] = (robot.sim.counts["wrist_motor_2"] - 600) % 65535
+            robot.sim.counts["wrist_motor_1"] += 600      # the simulator holds signed counts
+            robot.sim.counts["wrist_motor_2"] -= 600
         original = robot._command
 
         def command(payload, **kwargs):
@@ -546,11 +546,10 @@ class ParkTests(SimulatedRobotCase):
                     before = robot.sim.counts["wrist_motor_2"]
                 original(payload, **kwargs)
                 with robot.sim._lock:                # motor 2 lands 20 counts short each time
-                    moved = signed_count_delta(robot.sim.counts["wrist_motor_2"], before)
+                    moved = robot.sim.counts["wrist_motor_2"] - before
                     if abs(moved) > 20:
                         shortfall = 20 if moved > 0 else -20
-                        robot.sim.counts["wrist_motor_2"] = (
-                            robot.sim.counts["wrist_motor_2"] - shortfall) % 65535
+                        robot.sim.counts["wrist_motor_2"] -= shortfall
             else:
                 original(payload, **kwargs)
 

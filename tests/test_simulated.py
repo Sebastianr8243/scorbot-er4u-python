@@ -163,6 +163,12 @@ class SimulatedRobotTests(unittest.TestCase):
         controller = SimulatedController(home_counts={"base": 65500})
         robot = ready_robot(controller=controller)
         controller.counts["base"] = 65500
+        # Base 65500 is past the vendor EncLimit, which the jog check reads exactly (count-frame.md CT14);
+        # this test is about the legacy pair's range, so that check is set aside.
+        from unittest import mock
+        limit_check = mock.patch("scorbot.nominal.vendor_limit_problem", return_value=None)
+        limit_check.start()
+        self.addCleanup(limit_check.stop)
         try:
             up = next(d for d in (1.0, -1.0) if robot.preview_jog("base", d)["motor_count_deltas"]["base"] > 0)
             plan = robot.preview_jog("base", up)
