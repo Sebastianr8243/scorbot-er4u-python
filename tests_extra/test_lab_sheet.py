@@ -121,7 +121,7 @@ class SheetTests(unittest.TestCase):
         next(r for r in rows if r["type"] == "after_gripper")["result"].update(moved_counts=1200, full_travel=False)
         partial.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         row = self.sheet([partial, full])[0]["8"]
-        self.assertIn("4999 counts", row["value"])
+        self.assertIn("5000 counts", row["value"])
         self.assertEqual(row["file"], "gripper.jsonl")
 
     def test_a_run_that_failed_before_its_plan_is_still_reviewed(self):
@@ -141,7 +141,7 @@ class SheetTests(unittest.TestCase):
 
     def test_row_8_gripper_stroke_closed_to_open(self):
         row = self.sheet(self.copy("gripper.jsonl"))[0]["8"]
-        self.assertIn("4999 counts closed to open", row["value"])
+        self.assertIn("5000 counts closed to open", row["value"])
         self.assertEqual(row["file"], "gripper.jsonl")
 
     @unittest.skipUnless(HAS_RUCKIG, "bench_stream needs ruckig")
@@ -183,7 +183,7 @@ class SheetTests(unittest.TestCase):
         paths = self.copy("gripper.jsonl") + [bad]
         rows, problems = self.sheet(paths)
         self.assertTrue(any("bad.jsonl" in p and "invalid JSON" in p for p in problems))
-        self.assertIn("4999", rows["8"]["value"])
+        self.assertIn("5000", rows["8"]["value"])
 
     def test_a_flagged_run_says_so_on_the_rows_it_fills(self):
         path, = self.copy("gripper.jsonl")
