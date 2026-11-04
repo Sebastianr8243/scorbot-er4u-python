@@ -40,7 +40,7 @@ from types import MappingProxyType
 from . import vendor_home as vendor_home_port
 from .packet import PacketSnapshot
 from .robot import Scorbot, ScorbotError
-from .state import ENCODER_OFFSETS, ERROR_OFFSETS, JOINTS
+from .state import COUNT_MAX, COUNT_MIN, COUNT_ZERO, ENCODER_OFFSETS, ERROR_OFFSETS, JOINTS
 from .streaming import MOTORS as STREAM_MOTORS
 from .streaming import STREAM_ORDER
 from .vendor_home_model import Plant
@@ -51,7 +51,8 @@ from .vendor_home_source import VENDOR_HOME_ORDER
 
 FAULT_KINDS = ("timeout", "late_answer", "controller_error", "worker_crash",
                "stale_feedback", "corrupt_packet", "motors_dropped")
-MAX_COUNT = 65535
+# The controller's 24-bit count range (scorbot.state), so the fake reports what the arm can.
+MIN_COUNT, MAX_COUNT = COUNT_MIN, COUNT_MAX
 _EXIT, _MOTORS_OFF, _MOTORS_ON, _HOME = 528, 16, 17, 18
 _JOG_ORDERS = set(range(4, 14))
 _ERROR_UNKNOWN_ORDER, _ERROR_INJECTED, _ERROR_COUNT_RANGE, _ERROR_MOTORS_OFF = 1, 3, 4, 5
@@ -124,11 +125,10 @@ def encode_packet(signed_counts: dict[str, int], switch_bits: int = 0,
     packet[5] = switch_bits & 0xFF
     for name, offset in zip(JOINTS, ENCODER_OFFSETS):
         value = int(signed_counts.get(name, 0))
-        if not -MAX_COUNT <= value <= MAX_COUNT:
+        if not MIN_COUNT <= value <= MAX_COUNT:
             raise ValueError(f"Simulated count for {name} out of range: {value}")
-        raw, sign = (value, 128) if value >= 0 else (value + MAX_COUNT, 127)
-        packet[offset:offset + 2] = raw.to_bytes(2, "little")
-        packet[offset + 2] = sign
+        # raw24 = count + 0x7FFFFF: the low word, then the top byte decode_state calls the sign byte
+        packet[offset:offset + 3] = (value + COUNT_ZERO).to_bytes(3, "little")
     for name, sign in (sign_override or {}).items():
         packet[ENCODER_OFFSETS[JOINTS.index(name)] + 2] = sign
     return bytes(packet)
@@ -226,7 +226,7 @@ class SimulatedController:
                 counts = dict(counts)
                 for motor in ARM_MOTORS:
                     value = counts[motor] + self._rng.randint(-jitter, jitter)
-                    counts[motor] = max(-MAX_COUNT, min(MAX_COUNT, value))
+                    counts[motor] = max(MIN_COUNT, min(MAX_COUNT, value))
             data = encode_packet(counts, self.switch_bits, override)
             return PacketSnapshot(data, self._index, time.monotonic_ns())
 
@@ -331,7 +331,7 @@ class SimulatedController:
             deltas = plan["motor_count_deltas"]
             with self._lock:
                 targets = {name: self.counts[name] + delta for name, delta in deltas.items()}
-                if any(abs(value) > MAX_COUNT for value in targets.values()):
+                if any(not MIN_COUNT <= value <= MAX_COUNT for value in targets.values()):
                     return _ERROR_COUNT_RANGE
             increments = list(plan["increments"])
             total, done, stopped = sum(increments), 0, False
@@ -426,8 +426,7 @@ class SimulatedController:
             if self.vendor_hook is not None:
                 self.vendor_hook(count, None)
             setpoint = int.from_bytes(step[1][32:36], "little", signed=True)
-            # Setpoints are controller counts; ``counts`` are state counts, one lower on the positive side.
-            value = setpoint - 1 if setpoint > 0 else setpoint
+            value = setpoint     # setpoints and ``counts`` are both controller counts
             if self.gripper_reversed:
                 value = 2 * start - value
             with self._lock:
@@ -476,7 +475,7 @@ class SimulatedController:
                 time.sleep(self.step_delay_s)
             with self._lock:
                 target = self.counts["gripper"] + sign * step
-                if abs(target) > MAX_COUNT:
+                if not MIN_COUNT <= target <= MAX_COUNT:
                     return _ERROR_COUNT_RANGE
                 if sign < 0 and self.gripper_blocked_at is not None:
                     target = max(target, self.gripper_blocked_at)   # closed on the object

@@ -709,7 +709,10 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
             targets = {}
             for motor, delta in plan["motor_count_deltas"].items():
                 value = starting_signed_counts.get(motor)
-                if type(value) is not int or not -65535 <= value <= 65535:
+                # The legacy jog keeps a moving joint as its low word and the sign word of 128 or 127
+                # (libdef.get_signo raises on any other byte), so it starts only from -65535..65536; the
+                # target may run past it (docs/requirements/count-frame.md).
+                if type(value) is not int or not -65535 <= value <= 65536:
                     raise ValueError(f"Missing or invalid signed count for {motor}")
                 targets[motor] = value + delta
             plan["starting_signed_counts"] = {
