@@ -6,6 +6,7 @@ the lab. It says nothing about the real controller.
 """
 
 import json
+import itertools
 import tempfile
 import unittest
 from pathlib import Path
@@ -194,6 +195,17 @@ class RunTests(Case):
 
 
 class FailureTests(Case):
+    def setUp(self):
+        super().setUp()
+
+        def source(**kwargs):
+            # Advance deadlines per reply without retaining minutes of real-time packets.
+            return VendorHomeSource(clock=itertools.count(step=0.01).__next__, **kwargs)
+
+        patch = mock.patch("scorbot.homing.VendorHomeSource", side_effect=source)
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def fail(self, *, hook=None, plant=None, **kwargs):
         robot = self.robot(**kwargs)
         robot.sim.vendor_hook = hook
