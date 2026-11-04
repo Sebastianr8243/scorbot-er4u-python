@@ -15,7 +15,7 @@ import traceback
 import warnings
 
 from . import joint_move, limits, nominal, vendor_model
-from .calibration import count_near_zero, load_calibration, signed_count_delta
+from .calibration import load_calibration, signed_count_delta
 from .errors import MotionStopped, ScorbotError, _WorkerCrashed
 from .gripper import GripperMixin, GripperMove  # noqa: F401  (GripperMove stays importable from here)
 from .io import IoMixin
@@ -824,15 +824,17 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
     def _refuse_past_joint_limit(self, before: RobotState, deltas: dict) -> None:
         """Vendor bounds in absolute counts; existing violations may shrink, never grow.
 
-        Only vendor Home establishes the zero. An unplaceable arm faults the session.
-        Vendor defaults are not measured on our arm; a refusal queues no motion.
+        Only vendor Home establishes the zero, which is the controller's count zero, so the
+        absolute count is the reply's signed count, exact over 24 bits (count-frame.md CT14).
+        An unplaceable arm faults the session. Vendor defaults are not measured on our arm;
+        a refusal queues no motion.
         """
         if not (self._homed and self._gripper_homed):
             raise ScorbotError("Run vendor Home before jogging with vendor limits")
         try:
-            now = {m: count_near_zero(self._home_counts[m])
-                      + signed_count_delta(before.encoder_counts[m], self._home_counts[m])
-                   for m in limits.RECORDED_MOTORS}
+            for m in limits.RECORDED_MOTORS:          # an unplaceable session home faults, as before
+                signed_count_delta(self._home_counts[m], 0)
+            now = {m: before.signed_encoder_counts[m] for m in limits.RECORDED_MOTORS}
         except (KeyError, TypeError, ValueError) as exc:
             self._latch_fault(f"Cannot place the arm relative to vendor Home to check its "
                               f"vendor limit (USBC.dll EncLimit / ROB_4u.INI): {exc!r}")

@@ -224,6 +224,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `arm_chain.MANUAL` | from `nominal` | vendor | user manual | **unverified** (manual) |
 | `arm_chain.VENDOR_INI` | from `nominal` | vendor | `ROB_4u.INI` | **unverified** |
 | `calibration.CALIBRATED_JOINTS` | base, shoulder, elbow | ours | the joints calibration fits | n/a |
+| `calibration.MAX_COUNTS_FROM_HOME` | 32766 | ours | derived: the largest offset `signed_count_delta` reads from two 16-bit low words (32767-32769 are refused as ambiguous) | `docs/requirements/count-frame.md` CT14 |
 | `mujoco_twin.CAMERAS`, `mujoco_twin._AXES` | names, axis vectors | ours | simulation twin set-up | n/a |
 | `bridge.XYZ_UNITS_PER_MM` | 1000 | vendor | the DLL's xyz unit, read back on the fake (2026-10-20); physical scale unmeasured | **unverified** |
 | `bridge.HOST`, `bridge.PORT`, `bridge.POSITIONS`, `bridge.BOX`, `bridge.REPLY_TIMEOUT_S`, `bridge.POLL_S`, `bridge.LINE_END`, `bridge.FAILURE_CODES` | local server settings | ours | our link to `tools/usbc_server` and its exit codes | n/a |

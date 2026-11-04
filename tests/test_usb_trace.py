@@ -133,7 +133,7 @@ class UsbTraceTests(unittest.TestCase):
         self.assertEqual(rows[0]["t_s"], 0)
         self.assertEqual((rows[0]["byte0"], rows[0]["byte4"]), (7, 0x0D))
         self.assertEqual(rows[1]["home_switch_bits"], 4)
-        self.assertEqual(rows[1]["encoder_counts"]["base"], 100)
+        self.assertEqual(rows[1]["encoder_counts"]["base"], 101)   # raw 100 under 128 is count 101 (CT13)
         # sign byte 77 is the top byte of a count past -65535, not an error (count-frame.md)
         self.assertEqual(rows[3]["signed_encoder_counts"]["base"], (77 << 16 | 3) - 0x7FFFFF)
         self.assertEqual(select_transfers(parse_capture(pcapng(frames)), device=9), [])
@@ -229,7 +229,7 @@ class SetpointTests(unittest.TestCase):
         stats = setpoint_stats(rows, timeline=timeline)
         self.assertEqual(stats["joints"]["base"]["lead"], 1)
         self.assertEqual(timeline[0]["base_label"], "lead")
-        self.assertEqual(timeline[0]["base_gap"], 150)
+        self.assertEqual(timeline[0]["base_gap"], 149)   # setpoint 250 against count 101
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "timeline.csv"
             write_timeline(timeline, path)

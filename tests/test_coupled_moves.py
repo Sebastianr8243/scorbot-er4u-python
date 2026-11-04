@@ -420,9 +420,9 @@ class ParkTests(SimulatedRobotCase):
         result = robot.park_at_home(operator_at_stop=True)
         self.assertTrue(result["parked"], result)
         after = robot.get_state().signed_encoder_counts
-        from scorbot.calibration import count_near_zero
+        from scorbot.calibration import signed_count_delta
         for motor in MOTORS:      # _home_counts holds low words (docs/requirements/count-frame.md)
-            self.assertLessEqual(abs(after[motor] - count_near_zero(robot._home_counts[motor])), 45, motor)
+            self.assertLessEqual(abs(after[motor] - signed_count_delta(robot._home_counts[motor], 0)), 45, motor)
         self.assertIn("parked", self.events())
         orders = {c[0] for c in robot.sim.commands[before:] if c}
         self.assertTrue(orders <= ALLOWED_ORDERS, orders)

@@ -9,6 +9,9 @@ from .nominal import check_soft_limit_span
 
 
 CALIBRATED_JOINTS = ("base", "shoulder", "elbow")
+# The farthest from home a 16-bit low word still tells apart (signed_count_delta); past it a delta
+# from home aliases by 65536 (docs/requirements/count-frame.md CT14).
+MAX_COUNTS_FROM_HOME = 32766
 
 
 def signed_count_delta(value: int, origin: int) -> int:
@@ -25,16 +28,6 @@ def signed_count_delta(value: int, origin: int) -> int:
     if delta in (32767, 32768, 32769):
         raise ValueError("Encoder difference is ambiguous near half the counter range")
     return delta if delta < 32767 else delta - 65536
-
-
-def count_near_zero(value: int) -> int:
-    """The controller count nearest zero that has this low word (within 32766 of zero).
-
-    Count 0 is raw 0x7FFFFF, low word 65535, so the count is the low word's difference from
-    65535; low word 0 is count 1 (``docs/requirements/count-frame.md``). Until 2026-11-04 the
-    code read low word 0 as count 0, one count off.
-    """
-    return signed_count_delta(value, 0xFFFF)
 
 
 def _finite(value, name):

@@ -75,9 +75,9 @@ def probe_counts(output):
     line = next((ln for ln in output.splitlines() if " counts {" in ln), None)
     if line is None:
         return None
-    from scorbot.calibration import count_near_zero
+    from scorbot.calibration import signed_count_delta
     counts = ast.literal_eval(line.split(" counts ", 1)[1].split("; switches", 1)[0])
-    return {joint: count_near_zero(value) for joint, value in counts.items()}
+    return {joint: signed_count_delta(value, 0) for joint, value in counts.items()}
 
 
 def judge_x(counts):

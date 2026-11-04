@@ -83,7 +83,8 @@ _REC = {"type": "object", "description": "Recorder bookkeeping: seq, logged/obse
 PROPERTIES = {
     "scorbot.RobotState": {
         "timestamp_utc": _t("string"),
-        "encoder_counts": _joint_map("Raw unsigned 16-bit counts; wraps (sawtooth)"),
+        "encoder_counts": _joint_map("Low 16 bits of the controller count; wraps (sawtooth). "
+                                     "Logs before 2026-11-04 hold the raw low word, one less"),
         "controller_error_counts": _joint_map("Controller position error counts"),
         "home_switch_bits": _t("integer"),
         "connected": _t("boolean"),

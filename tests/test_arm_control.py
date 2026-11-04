@@ -105,9 +105,9 @@ class CalibrationTests(unittest.TestCase):
             def snapshot(self, **kwargs):
                 self.index += 1
                 packet = bytearray(64)
-                for offset in (19, 24, 29, 34, 39, 44):
-                    packet[offset + 2] = 128
-                packet[19:21] = self.count.to_bytes(2, "little")
+                for offset in (19, 24, 29, 34, 39, 44):     # raw24 = count + 0x7FFFFF
+                    packet[offset:offset + 3] = (0x7FFFFF).to_bytes(3, "little")
+                packet[19:22] = (self.count + 0x7FFFFF).to_bytes(3, "little")
                 return type("Sample", (), {"data": bytes(packet), "index": self.index,
                                            "host_monotonic_ns": 1})()
         reader = Input()
@@ -246,7 +246,8 @@ class CalibrationTests(unittest.TestCase):
         robot = Scorbot()
         robot._home_counts = dict.fromkeys(("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2"), 0)
         robot._homed = robot._gripper_homed = True
-        outside = SimpleNamespace(encoder_counts=dict(robot._home_counts, elbow=7600))
+        counts = dict(robot._home_counts, elbow=7600)      # the check reads the signed count (CT14)
+        outside = SimpleNamespace(encoder_counts=counts, signed_encoder_counts=counts)
         robot._refuse_past_joint_limit(outside, {"elbow": -568})        # toward home
         with self.assertRaises(ValueError):
             robot._refuse_past_joint_limit(outside, {"elbow": 568})     # further out
@@ -258,7 +259,8 @@ class CalibrationTests(unittest.TestCase):
         robot._home_counts = dict.fromkeys(("base", "shoulder", "elbow", "wrist_motor_1",
                                             "wrist_motor_2"), 0)
         robot._homed = robot._gripper_homed = True
-        outside = SimpleNamespace(encoder_counts=dict(robot._home_counts, shoulder=1700))
+        counts = dict(robot._home_counts, shoulder=1700)   # the check reads the signed count (CT14)
+        outside = SimpleNamespace(encoder_counts=counts, signed_encoder_counts=counts)
         robot._refuse_past_joint_limit(outside, {"shoulder": -58})      # still out, but nearer
         robot._refuse_past_joint_limit(outside, {"shoulder": -100})     # back inside
         with self.assertRaises(ValueError):
@@ -273,8 +275,9 @@ class CalibrationTests(unittest.TestCase):
             ("a wrist motor missing from home",
              {k: v for k, v in counts.items() if k != "wrist_motor_1"},
              SimpleNamespace(encoder_counts=dict(counts)), True),
-            ("half the counter from home", dict(counts),
-             SimpleNamespace(encoder_counts=dict(counts, base=32767)), True),
+            # The absolute count is the signed count (count-frame.md CT14): a state without it cannot place.
+            ("no signed counts", dict(counts),
+             SimpleNamespace(encoder_counts=dict(counts, base=32767), signed_encoder_counts=None), True),
         )
         for name, home, state, latches in cases:
             with self.subTest(case=name):

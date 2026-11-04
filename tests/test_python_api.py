@@ -29,8 +29,9 @@ class StateTests(unittest.TestCase):
             packet[offset + 2] = 128
         state = decode_state(bytes(packet), connected=True, enabled=False,
                              homed=False, fault=None)
-        self.assertEqual(state.encoder_counts["base"], 1000)
-        self.assertEqual(state.encoder_counts["gripper"], 6000)
+        # raw low word 1000 under 128 is count 1001; encoder_counts is the count's low word (CT13)
+        self.assertEqual(state.encoder_counts["base"], 1001)
+        self.assertEqual(state.encoder_counts["gripper"], 6001)
         self.assertEqual(state.home_switch_bits, 0b10101)
 
     def test_decodes_negative_ones_complement_count_and_rejects_bad_sign(self):
@@ -41,7 +42,7 @@ class StateTests(unittest.TestCase):
         packet[21] = 127
         state = decode_state(bytes(packet), connected=True, enabled=False,
                              homed=False, fault=None)
-        self.assertEqual(state.encoder_counts["base"], 65534)
+        self.assertEqual(state.encoder_counts["base"], 65535)     # count -1's low word (CT13)
         self.assertEqual(state.encoder_sign_bytes["base"], 127)
         self.assertEqual(state.signed_encoder_counts["base"], -1)
         self.assertEqual(state.signed_encoder_counts["shoulder"], 1)    # low 0, sign 128

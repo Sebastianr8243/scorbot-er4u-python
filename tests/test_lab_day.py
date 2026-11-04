@@ -51,8 +51,8 @@ class PassLineTests(unittest.TestCase):
     def test_x_needs_a_joint_away_from_zero(self):
         self.assertEqual(lab_day.judge_x(lab_day.probe_counts(timing())), [])
         zeroed = "REAL counts {'base': 65533, 'shoulder': 3}; switches 0x00\n"
-        # low word 65535 is count 0, so 65533 is -2 and 3 is 4 (docs/requirements/count-frame.md)
-        self.assertEqual(lab_day.probe_counts(zeroed), {"base": -2, "shoulder": 4})
+        # the probe prints the counts' low words: 65533 is -3 (docs/requirements/count-frame.md)
+        self.assertEqual(lab_day.probe_counts(zeroed), {"base": -3, "shoulder": 3})
         self.assertIn("re-zeroed", lab_day.judge_x(lab_day.probe_counts(zeroed))[0])
         self.assertEqual(lab_day.judge_x(None), ["the probe printed no counts line"])
 

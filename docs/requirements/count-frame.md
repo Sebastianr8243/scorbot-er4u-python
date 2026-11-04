@@ -25,6 +25,8 @@ low, on both sides of zero: sign byte 128 is count `L + 1` and was sent as `L`; 
 | CT10 | SHALL | A legacy jog that leaves -65535..65536 keeps counting: `suma`/`resta` change the sign word only across zero, so the target never jumps 65536. | test: `tests/test_count_frame.py::CountFrameTests::test_a_jog_past_the_old_range_keeps_counting`; `tests/test_legacy_properties.py::LegacyKnownBugs` |
 | CT11 | SHALL | The SDK refuses, before sending, a legacy jog whose moving joint starts outside -65535..65536 (the legacy jog keeps it as a 128/127 pair, `get_signo`). | test: `tests/test_count_frame.py::CountRangeTests::test_a_legacy_jog_must_start_inside_the_sign_byte_range` |
 | CT12 | SHALL | The simulator reports counts as raw24 = count + 0x7FFFFF over the whole 24-bit range, and its gripper follows setpoints as counts. | test: `tests/test_count_frame.py::CountRangeTests::test_the_simulator_reports_every_24_bit_count` |
+| CT13 | SHALL | `RobotState.encoder_counts` is the low 16 bits of the controller count (`signed_encoder_counts & 0xFFFF`), so `signed_count_delta(encoder_counts, 0)` is the DLL's count for counts within 32766 of zero, on both sides. Until 2026-11-04 it was the raw low word, one less. | test: `tests/test_reply_decode_matches_dll.py::ReplyDecodeMatchesDll::test_legacy_path_reads_the_dlls_count` (failed on CI before the fix: -1 != 0 on every DLL fixture row); `tests/test_count_frame.py::CountRangeTests::test_decode_state_reads_every_24_bit_count` |
+| CT14 | SHALL | Past 32766 counts from home a low word aliases by 65536, so: the jog's vendor-limit check reads the absolute count from `signed_encoder_counts` (exact over 24 bits); a stream refuses to start, naming the motor, when any motor it reads is more than `calibration.MAX_COUNTS_FROM_HOME` (32766) from home; and the vendor limits never let the SDK command a motor past that reach. | test: `tests/test_count_frame.py::HomeReachTests` |
 | CT05 | SHALL NOT | This work opens USB, moves hardware, touches the `lab-2026-11-04` tag, adds dependencies, or changes `moveXYZ.py`/`setHome.py`. | review: fake endpoint tests, commands and final diff |
 
 ## Out of scope
@@ -41,22 +43,33 @@ low, on both sides of zero: sign byte 128 is count `L + 1` and was sent as `L`; 
 | `streaming.py` absolute setpoint range | Fixed: the 24-bit range (CT08). |
 | `robot.preview_jog` starting counts | Fixed to -65535..65536 (CT11): the legacy jog pair's range, not the controller's. |
 | `simulated.py` count range | Fixed: 24-bit (CT12). |
-| `motion_profile.count_distance` (modulus 65535) | Unchanged: off by at most one at a seam against a settle threshold of 20; `openScorbot/motion_profile.py` is outside #128's files. |
+| `motion_profile.count_distance` (modulus 65535) | Fixed: modulus 65536, so it agrees with `signed_count_delta` (`tests/test_settle_seam.py`). `openScorbot/motion_profile.py` is outside #128's files (flagged for w3). |
 | `calibration` `home_count` 0..65535, `session/analysis.py` and `fit_calibration.py` 0..65535 | Unchanged: they hold low words, which are 0..65535 by definition. |
 | `scripts/home_trace_report.py` error-word fold at 65500 | Unchanged: an error word, not a count. |
-| `signed_count_delta(home, 0)` as an absolute count (`robot.py` vendor limits, `policy_arm.py`, `stream_control.py`, `scripts/lab_day.py`) | Fixed: `calibration.count_near_zero` (count 0 is low word 65535, not 0). |
+| `signed_count_delta(home, 0)` as an absolute count (`policy_arm.py`, `stream_control.py`, `scripts/lab_day.py`) | Unchanged and now exact: `encoder_counts` is the count's low word (CT13). `robot.py`'s jog vendor check reads `signed_encoder_counts` instead (CT14). |
 | `scripts/review_lab_logs.py` sign bytes other than 127/128 flagged invalid | Fixed: any top byte is a count (test: `tests/test_lab_log_review.py::LabLogReviewTests::test_a_count_past_65535_is_not_an_invalid_sign_byte`). |
-| `scripts/usb_trace.py` `setpoint_stats` | Unchanged: compares a slot's low 16 bits with the reply's low word, a one-count bias against its 20-count echo tolerance; a slot past +/-65535 is counted under "unexpected sign words". A capture heuristic. |
+| `scripts/usb_trace.py` `setpoint_stats` | Unchanged and now exact: it compares a slot's low 16 bits with `encoder_counts`, both the count's low word (CT13); a slot past +/-65535 is counted under "unexpected sign words". |
 | `scripts/build_calibration_csv.py` 0..65535 | Unchanged: it checks low words. |
 | `libdef.getError` fold at 65500 | Unchanged: an error word, not a count. |
 | `libdef.conversorAngEnc`, `libdef.joint` (65535 wraps with `LIM_SUP`) | Unchanged: GUI-only angle display and reference, not sent; outside the count functions this issue names. |
 | `setHome.py`, `moveXYZ.py` `get_signo` on their moving joints | Unchanged: a legacy home or XYZ move with such a joint outside -65535..65536 still raises in the worker; neither file is in #128's list. |
 
-## Open question
-- `wrist_motor_2`'s vendor soft limit is +/-1,000,000 counts. A difference of more than 32766
-  counts between two samples, or from home, cannot be read from low words. Every caller above
-  takes it from low words, and calibration files store a low word. Reading signed counts instead
-  means changing stored calibration data, so it is left open for a decision.
+## Low words recorded before 2026-11-04
+Logs and calibration files written before CT13 hold the raw low word, one less than the count's.
+Deltas between two samples of one log are unaffected. A stored calibration `home_count` compared with
+a new reading (`validate_home`) is one count off, inside any `home_tolerance_counts` of 1 or more;
+`scripts/build_calibration_csv.py` and `scripts/review_lab_logs.py` read deltas only.
+
+## Known limits
+- `wrist_motor_2` (vendor EncLimit +/-1,000,000): within the vendor limits it stays under about 21500
+  counts from vendor zero (CT14's test checks every pose past 32766 is refused), so the SDK never
+  commands it out of reach. If it gets there another way (the pendant), a stream refuses to start and
+  names it; a jog's vendor check reads it exactly; a jog's own delta is read between two samples.
+  This relies on vendor Home's zero being the controller's count zero, as the vendor-limit code
+  already does.
+- A corrupt top byte is no longer a decode error: since any top byte is a legal count, it reads as a
+  count far away. `decode_state` is stateless and no single place sees every reply in order, so no
+  jump check was added; the controller's own error limit and collision flag remain.
 
 ## Assumptions
 - The controller reads each slot as a signed 32-bit count. Source: the DLL disassembly
@@ -68,3 +81,5 @@ low, on both sides of zero: sign byte 128 is count `L + 1` and was sent as `L`; 
 ## Change log
 - 2026-11-04 Baseline from issue #128 (PR A: items 1-3).
 - 2026-11-04 CT06-CT12 for item 4, the 24-bit range (PR B).
+- 2026-11-04 CT13 (`encoder_counts` is the count's low word; CI found the DLL fixture one off) and
+  CT14 (the home reach), fix round from mission control.

@@ -355,8 +355,7 @@ class StateCodecProperties(unittest.TestCase):
         self.assertEqual(state.signed_encoder_counts, signed)
         self.assertEqual(state.home_switch_bits, switches)
         for name, value in signed.items():
-            raw = state.encoder_counts[name]
-            self.assertEqual(raw, _low(value))
+            self.assertEqual(state.encoder_counts[name], value & 0xFFFF)   # the count's low word (CT13)
             self.assertEqual(state.encoder_sign_bytes[name], (value + COUNT_ZERO) >> 16)
 
     @PROFILE

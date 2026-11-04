@@ -160,6 +160,12 @@ EDGES = (-ZERO24, -65537, -65536, -65535, -1, 0, 1, 65535, 65536, 65537, 0x80000
 
 
 def low_word(count):
+    """``RobotState.encoder_counts``: the count's low 16 bits (CT13)."""
+    return count & 0xFFFF
+
+
+def raw_low(count):
+    """The reply's raw low word for a count, which the legacy pair and the codec carry."""
     return (count + ZERO24) & 0xFFFF
 
 
@@ -234,7 +240,7 @@ class LegacyCountRangeTests(unittest.TestCase):
         for counts in self.batches():
             with self.subTest(counts=counts):
                 buffer = bytearray(reply_for(counts))
-                lows = [low_word(c) for c in counts]
+                lows = [raw_low(c) for c in counts]
                 self.assertEqual(held(bytes.fromhex(self.libdef.get_encoder(buffer, lows))), counts)
                 self.assertEqual(held(bytes.fromhex(self.libdef.get_hold(buffer))), counts)
                 arm = Arm(counts)
@@ -254,7 +260,7 @@ class LegacyCountRangeTests(unittest.TestCase):
         for count in EDGES:
             with self.subTest(count=count):
                 top = (count + ZERO24) >> 16
-                self.assertEqual(int.from_bytes(codec.encode_count(low_word(count), top), "little", signed=True),
+                self.assertEqual(int.from_bytes(codec.encode_count(raw_low(count), top), "little", signed=True),
                                  count)
 
     # CT08
@@ -269,6 +275,57 @@ class LegacyCountRangeTests(unittest.TestCase):
         for count in (-ZERO24 - 1, 0x800001):
             with self.subTest(count=count), self.assertRaises(ValueError):
                 self.libdef.setpointField(count)
+
+
+class HomeReachTests(unittest.TestCase):
+    """CT14: past 32766 counts from home a low word aliases; read the signed count or refuse."""
+
+    def robot(self):
+        from scorbot import SimulatedScorbot
+        robot = SimulatedScorbot().__enter__()
+        self.addCleanup(robot.__exit__, None, None, None)
+        robot.enable()
+        robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
+        return robot
+
+    def test_a_stream_refuses_a_motor_past_the_home_reach_and_names_it(self):
+        from scorbot import ScorbotError
+        robot = self.robot()
+        robot.sim.counts["wrist_motor_2"] = 40000      # e.g. turned there on the pendant
+        queued = list(robot.sim.commands)
+        for wrist in (False, True):                     # the pitch reads wrist_motor_2 either way
+            with self.subTest(wrist=wrist),                     self.assertRaisesRegex(ScorbotError, "wrist_motor_2 is 40000 counts from home"):
+                robot.start_stream(wrist=wrist)
+        self.assertEqual(robot.sim.commands, queued)
+        self.assertIsNone(robot._stream)
+        robot.sim.counts["wrist_motor_2"] = 32766       # within reach: on to the vendor window check
+        with self.assertRaisesRegex(ValueError, "already past a vendor limit"):   # StreamRefused
+            robot.start_stream()
+        robot.sim.counts["wrist_motor_2"] = 0
+        robot.start_stream().close()
+
+    def test_the_jog_vendor_check_reads_the_exact_count(self):
+        from scorbot import nominal
+        robot = self.robot()
+        robot.sim.counts["wrist_motor_2"] = 40000      # as a low-word delta from home: -25536
+        with mock.patch.object(nominal, "vendor_limit_excess", wraps=nominal.vendor_limit_excess) as excess:
+            with self.assertRaisesRegex(ValueError, "vendor limit"):
+                robot._refuse_past_joint_limit(robot.get_state(), {"wrist_motor_2": 10})
+        self.assertEqual(excess.call_args_list[0].args[0]["wrist_motor_2"], 40000)
+
+    def test_the_vendor_limits_keep_every_motor_within_the_home_reach(self):
+        # So the SDK never commands a motor where it cannot read it back from home (vendor Home's zero).
+        from scorbot import nominal
+        from scorbot.calibration import MAX_COUNTS_FROM_HOME
+        for motor, limit in nominal.VENDOR_ENCODER_SOFT_LIMITS.items():
+            if motor != "wrist_motor_2":
+                self.assertLessEqual(max(-limit.minimum, limit.maximum), MAX_COUNTS_FROM_HOME, motor)
+        counts = {m: 0 for m in nominal.VENDOR_ENCODER_SOFT_LIMITS}
+        for m1 in range(-15000, 15001, 1000):           # wrist_motor_1's EncLimit
+            for m2 in range(MAX_COUNTS_FROM_HOME + 1, 1000001, 997):
+                for sign in (1, -1):
+                    pose = {**counts, "wrist_motor_1": m1, "wrist_motor_2": sign * m2}
+                    self.assertIsNotNone(nominal.vendor_limit_problem(pose), pose)
 
 
 if __name__ == "__main__":

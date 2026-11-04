@@ -53,7 +53,9 @@ class ProbeTests(unittest.TestCase):
                         state, packet = probe.read_status(robot)
                         self.assertTrue(state.simulated)
                         self.assertEqual(state.home_switch_bits, packet[5])
-                        self.assertEqual(state.encoder_counts["base"], int.from_bytes(packet[19:21], "little"))
+                        # the count's low word: raw24 - 0x7FFFFF, low 16 bits (count-frame.md CT13)
+                        self.assertEqual(state.encoder_counts["base"],
+                                         (int.from_bytes(packet[19:22], "little") - 0x7FFFFF) & 0xFFFF)
                     else:
                         robot.connect()
                 finally:

@@ -21,7 +21,7 @@ import math
 from time import monotonic
 
 from . import limits, nominal, source_model, vendor_gripper
-from .calibration import count_near_zero, signed_count_delta
+from .calibration import signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .gripper import GripperMove
 from .streaming import DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, VENDOR_MAX_SPEED_COUNTS_S
@@ -333,7 +333,7 @@ class PolicyArm:
     def _vendor_target_problem(self, target):
         delta = self._target_counts(target)
         return nominal.vendor_limit_problem({
-            m: count_near_zero(self._home[m]) + delta.get(m, 0)
+            m: signed_count_delta(self._home[m], 0) + delta.get(m, 0)
             for m in limits.RECORDED_MOTORS})
 
     def close(self) -> None:
