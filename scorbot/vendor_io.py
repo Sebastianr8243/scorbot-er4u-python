@@ -5,6 +5,8 @@ From the lab DLL on the desk (``docs/protocol/LEDGER.md`` PL68, PL70; unverified
 - ``SetDigitalOutput(n, on, 1)`` with the arm at rest sends ``47`` (clear buffer), then ``44`` with the DLL's
   whole 32-bit output word in bytes 8-11, bit n = output n (0 to 31). Stack 2 only sends outputs between
   moves, so it always takes this at-rest path.
+- ``SetDigitalOutput(n, on, 0)`` sends no ``47``: it waits for the queue first, ``Buffers`` // 10 rounds of
+  10 replies then ``Monitoring`` ms, and then sends ``44`` (``0x10019697``, PL102). ``send_queued``.
 - ``SetAnalogOutput(n, value)`` sends ``41`` with the value (0 to 255) in bytes 6-7 and n (0 or 1) in bytes 8-11.
 
 ``send(first, messages)`` yields one ``vendor_home.Out`` per message, the setpoints holding the first reply's
@@ -22,8 +24,14 @@ ANALOG_OUTPUTS = 2
 """``SetAnalogOutput`` accepts outputs 0 and 1 (``0x10019a4c``)."""
 ANALOG_MAX = 255
 """The value is an unsigned byte."""
+QUEUE_ROUNDS = 45 // 10
+"""``ER4CONF.INI`` ``Buffers`` (45) // 10: the rounds ``SetDigitalOutput(n, on, 0)`` waits (PL102)."""
+ROUND_REPLIES = 10
+"""Replies the DLL waits for in each round (``0x1003fedb`` with 10)."""
+ROUND_SECONDS = 0.1
+"""``USBC.INI`` ``Monitoring`` (100 ms): how long the DLL pumps messages after each round's replies."""
 TOTAL_SECONDS = 5.0
-"""Ours: bound on one output write, two messages."""
+"""Ours: bound on one output write: two messages, or a queued write of about 0.8 s."""
 
 
 def digital_word(word: int, number: int, on: bool) -> int:
@@ -33,9 +41,11 @@ def digital_word(word: int, number: int, on: bool) -> int:
     return word | (1 << number) if on else word & ~(1 << number)
 
 
-def digital_messages(word: int) -> list[tuple[int, int, int]]:
-    """``(command, arg16, arg32)`` for the at-rest ``SetDigitalOutput``. arg32 is the word as a signed int32."""
-    return [(CLEAR, 0, 0), (SET_DIGITAL, 0, word - (1 << 32) if word >= 1 << 31 else word)]
+def digital_messages(word: int, *, immediate: bool = True) -> list[tuple[int, int, int]]:
+    """``(command, arg16, arg32)`` for ``SetDigitalOutput``: ``47`` then ``44`` at rest, only ``44`` when not
+    ``immediate`` (sent by ``send_queued``). arg32 is the word as a signed int32."""
+    write = (SET_DIGITAL, 0, word - (1 << 32) if word >= 1 << 31 else word)
+    return [(CLEAR, 0, 0), write] if immediate else [write]
 
 
 def analog_messages(number: int, value: int) -> list[tuple[int, int, int]]:
@@ -44,6 +54,19 @@ def analog_messages(number: int, value: int) -> list[tuple[int, int, int]]:
     if not 0 <= value <= ANALOG_MAX:
         raise ValueError(f"Analog value must be 0 to {ANALOG_MAX}, not {value}")
     return [(SET_ANALOG, value, number)]
+
+
+def send_queued(first, messages):
+    """``SetDigitalOutput(n, on, 0)``: hold the first reply's counts for ``QUEUE_ROUNDS`` rounds of
+    ``ROUND_REPLIES`` replies and then ``ROUND_SECONDS`` by the replies' clock, then send ``messages``."""
+    setpoints, reply = tuple(first.counts), first
+    for _ in range(QUEUE_ROUNDS):
+        for _ in range(ROUND_REPLIES):
+            reply = yield vh.Out(vh.NOP, 0, 0, 0, setpoints)
+        until = reply.now + ROUND_SECONDS
+        while reply.now < until:
+            reply = yield vh.Out(vh.NOP, 0, 0, 0, setpoints)
+    return (yield from send(first, messages))
 
 
 def send(first, messages):

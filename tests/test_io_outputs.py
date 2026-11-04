@@ -5,17 +5,22 @@
 the lab DLL on the desk (2026-11-02); what the lines do on the arm is unverified.
 """
 
+import json
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from scorbot import ScorbotError
+from scorbot import ScorbotError, vendor_home as vh, vendor_io
 
 try:
     from tests.sim_support import SimulatedRobotCase
 except ImportError:      # discovered with -s tests
     from sim_support import SimulatedRobotCase
+
+
+OUTPUTS = json.loads((Path(__file__).parent / "fixtures" / "dll_lab_jaw.json").read_text(encoding="utf-8"))["outputs"]
 
 
 def fields(packet):
@@ -120,6 +125,63 @@ class OutputTests(SimulatedRobotCase):
             second.join(10)
         self.assertEqual(robot.digital_outputs, 0x03)
         self.assertEqual(fields(robot.sim.vendor_packets[-1])[3], 0x03)
+
+
+
+class QueuedOutputTests(unittest.TestCase):
+    """``SetDigitalOutput(n, on, 0)``: wait for the queue, then ``44`` with no ``47`` (LEDGER PL102)."""
+
+    def drive(self, messages, pace_s):
+        first = vh.Reply(counts=(5, -7, 9, 0, 3, 11), switches=0, now=100.0, echo=1)
+        generator, sent, reply = vendor_io.send_queued(first, messages), [], first
+        try:
+            out = next(generator)
+            while True:
+                sent.append(out)
+                reply = vh.Reply(counts=first.counts, switches=0, now=reply.now + pace_s, echo=1)
+                out = generator.send(reply)
+        except StopIteration:
+            pass
+        return sent, reply.now - first.now
+
+    def test_matches_the_dlls_recorded_wait(self):
+        for golden in OUTPUTS[1:]:
+            number, on, immediate = golden["call"]
+            self.assertEqual(immediate, 0)
+            word = int.from_bytes(bytes.fromhex(golden["commands"][-1][14:22]), "little")   # bytes 8-11
+            messages = vendor_io.digital_messages(word, immediate=False)
+            pace = golden["seconds"] / (golden["nop_count"] + 1)        # the desk fake's pace, 10.9 ms
+            sent, seconds = self.drive(messages, pace)
+            with self.subTest(call=golden["call"]):
+                packets = [vh.encode_out(o, 1) for o in sent]
+                self.assertEqual([p[1:12].hex() for p in packets if p[4] != vh.NOP], golden["commands"])
+                nops = sum(1 for p in packets if p[4] == vh.NOP)
+                self.assertGreaterEqual(nops, 40, "four rounds of 10 replies")
+                self.assertLessEqual(abs(nops - golden["nop_count"]), 8)
+                self.assertGreaterEqual(seconds, 0.4, "four rounds of Monitoring (100 ms)")
+                self.assertEqual(len({p[12:44] for p in packets}), golden["setpoint_sets"])
+                self.assertEqual(packets[-1][4], vendor_io.SET_DIGITAL)
+
+    def test_immediate_still_sends_clear_then_the_word(self):
+        golden = OUTPUTS[0]
+        self.assertEqual(golden["call"][2], 1)
+        sent = list(vendor_io.send(vh.Reply(counts=(0,) * 6, switches=0, now=0.0, echo=1),
+                                   vendor_io.digital_messages(0x02)))
+        self.assertEqual([vh.encode_out(o, 1)[1:12].hex() for o in sent], golden["commands"])
+
+
+class QueuedOutputRobotTests(SimulatedRobotCase):
+
+    def test_queued_write_sends_no_clear_and_holds_before_the_word(self):
+        robot = self.robot()
+        robot.set_digital_output(3, True, immediate=False)
+        packets = robot.sim.vendor_packets
+        self.assertNotIn(0x47, [p[4] for p in packets])
+        self.assertEqual(fields(packets[-1]), (0x44, 0, 0, 0x08))
+        self.assertGreaterEqual(sum(1 for p in packets if p[4] == 0x0D), 40)
+        self.assertEqual(robot.digital_outputs, 0x08)
+        rows = [r for r in self.rows() if r["event"] == "digital_output"]
+        self.assertFalse(rows[-1]["immediate"])
 
 
 if __name__ == "__main__":

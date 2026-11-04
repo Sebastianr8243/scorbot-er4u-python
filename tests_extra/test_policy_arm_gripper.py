@@ -100,6 +100,12 @@ class PolicyArmGripperTests(unittest.TestCase):
             arm.robot.sim.counts["gripper"] = counts
             self.assertAlmostEqual(arm.observe(gripper=True)["gripper"], pct, delta=0.01)
 
+    def test_jaw_is_get_jaws_whole_percent_and_mm(self):
+        arm = self.arm()
+        for counts, reading in ((2857, (57, 40)), (714, (14, 10)), (0, (0, 0)), (vg.RANGE_ENC, (100, 70))):
+            arm.robot.sim.counts["gripper"] = counts
+            self.assertEqual(arm.jaw(), reading)
+
     def test_set_gripper_needs_a_connection(self):
         arm = self.arm(connect=False)
         with self.assertRaises(ConnectionError):

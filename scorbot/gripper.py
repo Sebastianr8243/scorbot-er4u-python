@@ -50,7 +50,7 @@ class GripperMixin:
         """Move the jaw to a width of ``mm`` (0 to 70), the DLL's ``JawMetric`` (``docs/protocol/LEDGER.md`` PL71).
 
         Same messages, refusals and checks as ``move_gripper``; the direction is "open" when the target is above
-        the gripper's count now. The ramp is Stack 2's full-stroke one, not the DLL's shorter one for short moves.
+        the gripper's count now. The ramp is the DLL's for that distance (PL100): shorter moves take less time.
         """
         target = vendor_gripper.metric_target_counts(mm)
         with self._motion_lock:     # read the jaw after any move ahead of this one, not before it
