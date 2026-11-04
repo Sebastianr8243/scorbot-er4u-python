@@ -19,16 +19,24 @@ class IoMixin:
         back from the controller, so it starts at 0 on each new ``Scorbot``."""
         return self._digital_outputs
 
-    def set_digital_output(self, number: int, on: bool) -> None:
+    def set_digital_output(self, number: int, on: bool, *, immediate: bool = True) -> None:
         """Switch digital output ``number`` (0 to 31) on or off. Sends ``47`` then ``44`` with the whole word.
 
+        ``immediate=False`` is the DLL's ``SetDigitalOutput(n, on, 0)``: no ``47``; about 0.8 s of held
+        setpoints (the DLL's queue wait, PL102), then ``44``. Unverified on the arm.
         Needs a connection, not enabled motors. Refused while a stream is active; it waits for a jog to end.
         """
+        immediate = bool(immediate)
         with self._motion_lock:     # 44 replaces the whole word: no other write in between
             word = vendor_io.digital_word(self._digital_outputs, number, bool(on))
-            self._io(vendor_io.digital_messages(word))
+            messages = vendor_io.digital_messages(word, immediate=immediate)
+            if immediate:
+                self._io(messages)
+            else:
+                self._io(messages, send=lambda first, m: vendor_io.send_queued(first, m, faulted=lambda: self._fault),
+                         stoppable=True)
             self._digital_outputs = word
-        self._record("digital_output", number=number, on=bool(on), word=word)
+        self._record("digital_output", number=number, on=bool(on), word=word, immediate=immediate)
 
     def set_analog_output(self, number: int, value: int) -> None:
         """Set analog output ``number`` (0 or 1) to ``value`` (0 to 255). Sends ``41``."""
@@ -36,19 +44,37 @@ class IoMixin:
         self._io(messages)
         self._record("analog_output", number=number, value=value)
 
-    def _io(self, messages) -> None:
+    def _io(self, messages, send=vendor_io.send, *, stoppable=False) -> None:
         with self._motion_lock:
             self._refuse_if_streaming()
             if self._device is None:
                 raise ScorbotError("Not connected")
+            # A queued write waits about 0.8 s before its 44: a stop asked for before it starts refuses it,
+            # like the gripper, and one during the wait ends it with nothing sent (``send_queued``).
+            if stoppable and self._consume_stop():
+                raise ScorbotError("A stop was requested; the queued output was not written")
             # The messages hold every axis at the first reply's counts, so the arm must be at rest
             # (the DLL sends 47 only then, 0x10024d1d). Latches a fault if it is not, like the gripper.
             self._settled_after_stop(self._motion_state(),
                                      fault="The arm was not at rest before an output write")
-            # No stop event: an output write is not motion, so a pending stop request must not cancel it.
-            source = VendorHomeSource(start=lambda first: vendor_io.send(first, messages),
+            # An immediate write is two messages with no wait, so a pending stop request must not cancel it.
+            source = VendorHomeSource(start=lambda first: send(first, messages),
+                                      stop_event=self._stop_event if stoppable else None,
+                                      commit=vendor_io.commits if stoppable else None,
                                       cancel_event=self._cancel_event,
                                       total_seconds=vendor_io.TOTAL_SECONDS)
-            self._command([vendor_io.IO_ORDER, source, 0], timeout=vendor_io.TOTAL_SECONDS + 30.0)
+            try:
+                self._command([vendor_io.IO_ORDER, source, 0], timeout=vendor_io.TOTAL_SECONDS + 30.0)
+            except ScorbotError as exc:
+                if stoppable:
+                    self._consume_stop()        # the stop ended this write; it must not refuse the next move
+                raise ScorbotError(f"Output write failed: {source.error or exc}") from exc
             if not source.ok:
                 raise ScorbotError(f"Output write failed: {source.error}")
+            if stoppable:
+                # A stop after the 44 was committed could not take it back: the write stands, the stop is used up.
+                with self._stop_lock:
+                    too_late = self._stop_event.is_set()
+                    self._stop_event.clear()
+                if too_late:
+                    self._record("stop_too_late", operation="digital_output")

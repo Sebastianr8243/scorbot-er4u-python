@@ -11,6 +11,7 @@ from unittest import mock
 from scorbot import ScorbotError, SimulatedScorbot, vendor_gripper as vg
 from scorbot.policy_arm import PolicyArm
 from scorbot.robot import GripperMove, MotionStopped
+from scorbot.state import decode_state
 from scorbot.streaming import StreamRefused
 from scripts import make_gripper_fixture as reduce
 from tests.desk_wire import record_gripper
@@ -99,6 +100,24 @@ class PolicyArmGripperTests(unittest.TestCase):
         for counts, pct in ((2857, 57.14), (714, 14.28), (vg.RANGE_ENC, 100.0)):
             arm.robot.sim.counts["gripper"] = counts
             self.assertAlmostEqual(arm.observe(gripper=True)["gripper"], pct, delta=0.01)
+
+    def test_jaw_is_get_jaws_whole_percent_and_mm(self):
+        arm = self.arm()
+        for counts, reading in ((2857, (57, 40)), (714, (14, 10)), (0, (0, 0)), (vg.RANGE_ENC, (100, 70))):
+            arm.robot.sim.counts["gripper"] = counts
+            self.assertEqual(arm.jaw(), reading)
+
+    def test_jaw_reads_the_dll_count_from_raw_positive_feedback(self):
+        # Raw 0x800CB1 is 3250 DLL counts (raw - 0x7FFFFF, count-frame CT13); the old low-word decode gave 3249,
+        # (64, 45). Built from wire bytes, not the simulator's own encoding.
+        arm = self.arm()
+        packet = bytearray(64)
+        for n in range(6):
+            packet[19 + 5 * n:22 + 5 * n] = (0x800CB1 if n == 5 else 0x7FFFFF).to_bytes(3, "little")
+        reading = decode_state(bytes(packet), connected=True, enabled=None, homed=True, fault=None)
+        self.assertEqual(reading.signed_encoder_counts["gripper"], 3250)
+        with mock.patch.object(arm.robot, "_motion_state", return_value=reading):
+            self.assertEqual(arm.jaw(), (65, 46))
 
     def test_set_gripper_needs_a_connection(self):
         arm = self.arm(connect=False)

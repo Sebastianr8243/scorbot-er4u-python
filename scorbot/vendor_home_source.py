@@ -35,7 +35,13 @@ class VendorHomeSource:
     """One vendor home, seen from the worker thread. Build a new one for every home."""
 
     def __init__(self, *, version=0, axes=None, stop_event=None, cancel_event=None,
-                 clock=time.monotonic, total_seconds=TOTAL_SECONDS, start=None):
+                 clock=time.monotonic, total_seconds=TOTAL_SECONDS, start=None, commit=None):
+        # ``commit(out)`` marks the message that cannot be taken back (``vendor_io.commits``). Just before handing
+        # it to the worker the source checks for a stop or cancel once more and, if there is one, throws it in
+        # instead of sending. After that check the message is committed: a later stop is too late and is left
+        # for the caller to see on ``stop_event``, so the run still ends as a success.
+        self.commit = commit
+        self.committed = False
         # ``start(first_reply)`` builds the generator to run instead of the home (the post-Home gripper move,
         # ``scorbot.vendor_gripper``). It may finish before sending anything.
         self.start = start
@@ -100,7 +106,7 @@ class VendorHomeSource:
     def _interruption(self, now):
         if self.cancel_event is not None and self.cancel_event.is_set():
             return vh.ERR_STOPPED, "the session was cancelled"
-        if self.stop_event is not None and self.stop_event.is_set():
+        if self.stop_event is not None and self.stop_event.is_set() and not self.committed:
             return vh.ERR_STOPPED, "a stop was requested"
         if now - self.started > self.total_seconds:
             return vh.ERR_TIMEOUT, f"the home took longer than {self.total_seconds:.0f} seconds in all"
@@ -167,6 +173,13 @@ class VendorHomeSource:
                 out = self.generator.throw(vh.HomeError(*thrown))
             else:
                 out = self.generator.send(reply)
+            if self.commit is not None and not self.committed and not out.aborting and self.commit(out):
+                late = self._interruption(self.clock())
+                if late is not None:
+                    self.interrupted, self._thrown = late, True
+                    out = self.generator.throw(vh.HomeError(*late))
+                else:
+                    self.committed = True
         except StopIteration as stop:
             if self.bad_while_aborting:
                 # A run that ends normally after its abort (the gripper's stop) still fails on an unreadable reply.

@@ -292,6 +292,14 @@ class PolicyArm:
             seen["gripper"] = 100 * state.signed_encoder_counts["gripper"] / vendor_gripper.RANGE_ENC
         return seen
 
+    def jaw(self) -> tuple[int, int]:
+        """The jaw the way the DLL's ``GetJaw`` reports it: whole percent open and whole mm, from a fresh
+        reading of the gripper count (``vendor_gripper.jaw_reading``, LEDGER PL101; 2857 counts is 57 % and
+        40 mm). Read only: sends nothing but the usual state request. Unverified on the arm."""
+        self._require_connected()
+        state = self.robot._motion_state()      # latches the session if feedback is unavailable
+        return vendor_gripper.jaw_reading(state.signed_encoder_counts["gripper"])
+
     def act(self, goal_deg: dict) -> dict[str, float]:
         """Move toward ``goal_deg`` (absolute degrees from home); return the target now commanded.
 

@@ -27,7 +27,7 @@ except ImportError:                                     # plain `unittest discov
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "dll_lab_gripper.json").read_text(encoding="utf-8"))
 GOLDEN = FIXTURE["calls"]
-SHAPE_TOLERANCE_COUNTS = 8      # the fitted profile against the DLL's setpoints, at every message
+JAW = json.loads((Path(__file__).parent / "fixtures" / "dll_lab_jaw.json").read_text(encoding="utf-8"))["jaw"]
 CONFIRMED = dict(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
 REFUSAL = "Home the arm before moving the gripper"
 
@@ -80,20 +80,24 @@ class Planner(unittest.TestCase):
                 self.assertTrue(result.sent and not result.stopped)
 
     def test_the_ramp_is_the_dlls_s_curve(self):
-        for golden in GOLDEN[:2]:                # calls 3 and 4 repeat them, one shifted by a 0D of DLL timing
+        # Full strokes 1, 2 and 4 match exactly; 3 is stroke 1 with one more leading hold (a 0D of DLL timing),
+        # pinned below. The 2026-11-04 calls are short moves.
+        self.assertEqual(GOLDEN[2]["gripper"][1:], GOLDEN[0]["gripper"])
+        self.assertEqual(GOLDEN[2]["nop_count"], GOLDEN[0]["nop_count"] + 1)
+        self.assertEqual(GOLDEN[2]["commands"], GOLDEN[0]["commands"])
+        for golden in GOLDEN[:2] + GOLDEN[3:4] + JAW:
             start, target = golden["gripper"][0], golden["gripper"][-1]
             sent, _ = drive(vg.vendor_gripper(reply([0] * 5 + [start]), target), reply([0] * 5 + [start]))
-            ours = summary(sent)["gripper"]
-            with self.subTest(golden=golden["direction"]):
-                self.assertEqual(len(ours), len(golden["gripper"]))
-                worst = max(abs(a - b) for a, b in zip(ours, golden["gripper"]))
-                self.assertLessEqual(worst, SHAPE_TOLERANCE_COUNTS)
-                steps = [b - a for a, b in zip(ours, ours[1:])]
-                sign = 1 if target > start else -1
-                self.assertTrue(all(sign * s >= 0 for s in steps), "monotonic")
-                middle = max(abs(s) for s in steps)
-                self.assertLess(abs(steps[3]), middle / 3, "slow start")
-                self.assertLess(abs(steps[-4]), middle / 3, "slow end")
+            ours = summary(sent)
+            with self.subTest(start=start, target=target):
+                self.assertEqual(ours["commands"], golden["commands"])
+                self.assertEqual(ours["nop_count"], golden["nop_count"])
+                self.assertEqual(ours["gripper"], golden["gripper"], "every message's setpoint, exactly")
+
+    def test_the_duration_is_the_dlls_for_the_gripper(self):
+        # JawMetric plans with speed factor 1.0 and the gripper's ER4Ax6.ini limits (LEDGER PL100).
+        self.assertEqual([vg.duration_ms(d) for d in (5000, 2857, 2143, 714)], [1011, 764, 662, 382])
+        self.assertEqual(vg.duration_ms(0), 0)
 
     def test_the_arm_setpoints_hold_the_measured_counts(self):
         measured = [120, -340, 55, 7, -9, 0]
@@ -172,6 +176,17 @@ class Planner(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 vg.metric_target_counts(bad)
 
+    def test_get_jaw_is_whole_percent_and_rounded_mm(self):
+        # GetJaw (0x10018d19, LEDGER PL101): percent truncated, mm = trunc(percent / 100 x RangeMM + 0.5).
+        for golden in JAW:
+            with self.subTest(count=golden["gripper"][-1]):
+                self.assertEqual(vg.jaw_reading(golden["gripper"][-1]), tuple(golden["get_jaw"]))
+        self.assertEqual(vg.jaw_reading(2857), (57, 40))
+        self.assertEqual(vg.jaw_reading(2875), (57, 40), "57.5 % truncates")
+        self.assertEqual(vg.jaw_reading(2900), (58, 41), "40.6 mm rounds")
+        self.assertEqual(vg.jaw_reading(vg.RANGE_ENC), (100, 70))
+        self.assertEqual(vg.jaw_reading(-30), (0, 0))
+
     def test_the_source_ends_without_sending_when_at_target(self):
         source = VendorHomeSource(start=lambda first: vg.vendor_gripper(first, 0))
         packet = bytearray(64)                         # an idle reply echoing ID 1, every count 0
@@ -200,9 +215,7 @@ class Desk(unittest.TestCase):
                 self.assertEqual((ours["gripper"][0], ours["gripper"][-1]),
                                  (golden["gripper"][0], golden["gripper"][-1]))
                 self.assertEqual(ours["arm"], [(0, 0, 0, 0, 0)])
-                self.assertEqual(len(ours["gripper"]), len(golden["gripper"]))
-                worst = max(abs(a - b) for a, b in zip(ours["gripper"], golden["gripper"]))
-                self.assertLessEqual(worst, SHAPE_TOLERANCE_COUNTS)
+                self.assertEqual(ours["gripper"], golden["gripper"])
                 sign = 1 if name == "open" else -1
                 steps = [b - a for a, b in zip(ours["gripper"], ours["gripper"][1:])]
                 self.assertTrue(all(sign * s >= 0 for s in steps), "monotonic")
