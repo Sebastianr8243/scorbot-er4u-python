@@ -69,7 +69,7 @@ def _review_problems(path, rows):
         return lab_summary.policy_report(path, rows)["problems"]
     if "sample" in kinds:
         return review.review_idle(path)["problems"]
-    if session and kinds & {"motion_preview", "stream_plan", "gripper_plan"}:
+    if session.get("procedure") in ("stream_trial", "gripper_trial") or "joint" in session:
         return review.review_bench(path)["problems"]
     return []
 
@@ -95,12 +95,15 @@ def load(paths):
             seen.add(sibling.resolve())
             try:
                 controller = read_rows(sibling)
+            except OSError as exc:
+                problems.append(f"{sibling.name}: cannot read: {exc.strerror or exc}")
             except ValueError as exc:
                 problems.append(f"{sibling.name}: {str(exc).replace(str(sibling), sibling.name)}")
         flagged = _review_problems(path, rows)
         problems += [f"{path.name}: {p}" for p in flagged]
         files.append((path.name, rows, controller, flagged, sibling.name if controller else None))
-    sources = {_source(rows + controller) for _, rows, controller, _, _ in files} - {None}
+    # Each file on its own: a real log beside a simulated controller log is still a mix.
+    sources = {_source(part) for _, rows, controller, _, _ in files for part in (rows, controller) if part} - {None}
     if len(sources) > 1:
         problems.append("real and simulated logs mixed in one sheet")
     return files, problems, sources
@@ -143,7 +146,7 @@ def row_2(files):
                 counts = row["state"].get("signed_encoder_counts") or {}
                 if counts:
                     joint = max(counts, key=lambda j: abs(counts[j]))
-                    if best is None or abs(counts[joint]) > abs(best[0][joint]):
+                    if best is None or abs(counts[joint]) > abs(best[0][best[1]]):
                         best = (counts, joint, name, flagged)
     if best is None:
         return _row("2", by_hand="no vendor Home in these logs: bring_up log, first state after a vendor Home")
@@ -206,14 +209,14 @@ def row_7(files):
 
 
 def row_8(files):
-    for name, rows, _, flagged, _ in files:
-        opens = [row["result"] for row in rows if row.get("type") == "after_gripper"
-                 and (row.get("result") or {}).get("direction") == "open"]
-        if opens:
-            best = max(opens, key=lambda r: abs(r.get("moved_counts") or 0))
-            travel = "full travel" if best.get("full_travel") else "NOT full travel"
-            return _row("8", f"{abs(best.get('moved_counts') or 0)} counts closed to open ({travel})",
-                        "bench_gripper after_gripper", name, flagged=flagged)
+    opens = [(abs(row["result"].get("moved_counts") or 0), row["result"], name, flagged)
+             for name, rows, _, flagged, _ in files for row in rows
+             if row.get("type") == "after_gripper" and (row.get("result") or {}).get("direction") == "open"]
+    if opens:
+        counts, best, name, flagged = max(opens, key=lambda item: item[0])
+        travel = "full travel" if best.get("full_travel") else "NOT full travel"
+        return _row("8", f"{counts} counts closed to open ({travel})", "bench_gripper after_gripper", name,
+                    flagged=flagged)
     return _row("8", by_hand="no bench_gripper log with an open move: counts from closed to open")
 
 

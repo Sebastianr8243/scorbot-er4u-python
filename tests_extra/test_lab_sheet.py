@@ -11,6 +11,7 @@ import unittest
 from scorbot.simulated import encode_packet
 from scorbot.state import ERROR_OFFSETS
 from scripts import lab_sheet, lab_summary
+from tests_extra.test_bench_stream import HAS_RUCKIG
 from tests.test_simulated import BENCH_ANSWERS, IDLE_ANSWERS, LABELS, run_script
 
 GRIP = ("n\ng\n" "EMPTY\nCLEAR\nHOME\n" "y\ng\n" "HOME_OK\nGRIP\nGRIP\n" "y\ng\n"
@@ -33,6 +34,8 @@ def setUpModule():
                       "--acknowledge-connect-handshake", stdin=IDLE_ANSWERS)
     assert idle.returncode == 0, idle.stderr[-500:]
     for script, name, answers, extra in runs:
+        if name == "stream.jsonl" and not HAS_RUCKIG:
+            continue                     # bench_stream needs the optional planning extra
         result = run_script(script, "--output", LOGS / name, *LABELS, "--start-pose-note", "desk rehearsal",
                             *extra, "--simulate", "--acknowledge-supervised-motion", stdin=answers)
         assert result.returncode == 0, (script, result.stdout[-500:], result.stderr[-500:])
@@ -49,6 +52,7 @@ class SheetTests(unittest.TestCase):
         self.dir = Path(folder.name)
 
     def copy(self, *names):
+        names = [name for name in names if (LOGS / name).exists()]
         for name in names:
             for path in LOGS.glob(name.replace(".jsonl", "*.jsonl")):
                 shutil.copy(path, self.dir / path.name)
@@ -72,6 +76,16 @@ class SheetTests(unittest.TestCase):
         self.assertIn("largest 0 counts", row["value"])
         self.assertEqual(row["source"], "home_complete")
         self.assertEqual(row["file"], "base.jsonl")
+
+    def test_row_2_keeps_the_largest_count_over_every_home(self):
+        first, = self.copy("base.jsonl")
+        second = self.dir / "base-02.jsonl"
+        for path, joint, counts in ((first, "base", 100), (second, "shoulder", 1)):
+            rows = [json.loads(line) for line in first.read_text(encoding="utf-8").splitlines()]
+            home = next(r for r in rows if r["type"] == "home_complete")["state"]["signed_encoder_counts"]
+            home.update(dict.fromkeys(home, 0), **{joint: counts})
+            path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        self.assertIn("largest 100 counts (base)", self.sheet([first, second])[0]["2"]["value"])
 
     def test_row_2_needs_a_vendor_home(self):
         path, = self.copy("base.jsonl")
@@ -100,11 +114,37 @@ class SheetTests(unittest.TestCase):
         path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         self.assertIn("largest 3 counts (shoulder)", self.sheet([path])[0]["7"]["value"])
 
+    def test_row_8_takes_the_largest_opening_over_every_file(self):
+        full, = self.copy("gripper.jsonl")
+        partial = self.dir / "a-partial.jsonl"
+        rows = [json.loads(line) for line in full.read_text(encoding="utf-8").splitlines()]
+        next(r for r in rows if r["type"] == "after_gripper")["result"].update(moved_counts=1200, full_travel=False)
+        partial.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        row = self.sheet([partial, full])[0]["8"]
+        self.assertIn("4999 counts", row["value"])
+        self.assertEqual(row["file"], "gripper.jsonl")
+
+    def test_a_run_that_failed_before_its_plan_is_still_reviewed(self):
+        path, = self.copy("gripper.jsonl")
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        cut = next(i for i, r in enumerate(rows) if r["type"] == "gripper_plan")
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows[:cut] + [{"type": "session_failed"}]),
+                        encoding="utf-8")
+        self.assertTrue(any("gripper.jsonl" in p for p in self.sheet([path])[1]))
+
+    def test_a_simulated_controller_log_beside_a_real_log_is_a_mix(self):
+        path, = self.copy("base.jsonl")
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        rows[0]["data_source"] = "real"
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        self.assertTrue(any("mixed" in p for p in self.sheet([path])[1]))
+
     def test_row_8_gripper_stroke_closed_to_open(self):
         row = self.sheet(self.copy("gripper.jsonl"))[0]["8"]
         self.assertIn("4999 counts closed to open", row["value"])
         self.assertEqual(row["file"], "gripper.jsonl")
 
+    @unittest.skipUnless(HAS_RUCKIG, "bench_stream needs ruckig")
     def test_row_10_largest_following_error_reads_the_stream_trace(self):
         path, = self.copy("stream.jsonl")
         rows = self.sheet([path])[0]
@@ -121,6 +161,7 @@ class SheetTests(unittest.TestCase):
         self.assertIn("largest 60 counts (elbow)", row["value"])
         self.assertIn("within 15 of 70", row["value"])
 
+    @unittest.skipUnless(HAS_RUCKIG, "bench_stream needs ruckig")
     def test_extra_rows_stream_tracking_and_gripper_times(self):
         rows = self.sheet(self.copy("gripper.jsonl", "stream.jsonl"))[0]
         self.assertRegex(rows["stream tracking"]["value"], r"base \d+% lag \d+ counts, overshoot \d+")
