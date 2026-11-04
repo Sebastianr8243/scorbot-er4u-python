@@ -133,8 +133,9 @@ class UsbTraceTests(unittest.TestCase):
         self.assertEqual(rows[0]["t_s"], 0)
         self.assertEqual((rows[0]["byte0"], rows[0]["byte4"]), (7, 0x0D))
         self.assertEqual(rows[1]["home_switch_bits"], 4)
-        self.assertEqual(rows[1]["encoder_counts"]["base"], 100)
-        self.assertIn("decode_error", rows[3])
+        self.assertEqual(rows[1]["encoder_counts"]["base"], 101)   # raw 100 under 128 is count 101 (CT13)
+        # sign byte 77 is the top byte of a count past -65535, not an error (count-frame.md)
+        self.assertEqual(rows[3]["signed_encoder_counts"]["base"], (77 << 16 | 3) - 0x7FFFFF)
         self.assertEqual(select_transfers(parse_capture(pcapng(frames)), device=9), [])
 
     def test_compare_reports_sequence_timing_and_headers(self):
@@ -209,7 +210,7 @@ class SetpointTests(unittest.TestCase):
     def test_counts_wrap_and_bad_rows_are_counted_not_fatal(self):
         rows = [out_row(0.0),                                # no IN yet
                 in_row(0.1, base=65530),
-                out_row(0.2, base=3),                        # 8 counts across the wrap: echo
+                out_row(0.2, base=3),                        # 9 counts across the wrap: echo
                 out_row(0.3, sign_word=b"\x12\x34", base=65530),
                 {"direction": "out", "t_s": 0.4, "hex": out_payload(2).hex()},  # no region
                 {"direction": "in", "t_s": 0.5, "decode_error": "bad sign"}]
@@ -217,7 +218,7 @@ class SetpointTests(unittest.TestCase):
         self.assertEqual(stats["skipped"], {"no_reference": 1, "no_region": 1,
                                             "decode_error": 1})
         self.assertEqual(stats["joints"]["base"]["echo"], 2)
-        self.assertEqual(stats["joints"]["base"]["max_abs_gap"], 8)
+        self.assertEqual(stats["joints"]["base"]["max_abs_gap"], 9)
         self.assertEqual(stats["unexpected_sign_words"], {"1234": 6})
 
     def test_timeline_csv_and_export_pipeline(self):
@@ -228,7 +229,7 @@ class SetpointTests(unittest.TestCase):
         stats = setpoint_stats(rows, timeline=timeline)
         self.assertEqual(stats["joints"]["base"]["lead"], 1)
         self.assertEqual(timeline[0]["base_label"], "lead")
-        self.assertEqual(timeline[0]["base_gap"], 150)
+        self.assertEqual(timeline[0]["base_gap"], 149)   # setpoint 250 against count 101
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "timeline.csv"
             write_timeline(timeline, path)

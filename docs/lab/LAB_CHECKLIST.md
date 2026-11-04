@@ -113,4 +113,4 @@ The same fallback as `RUN_THE_ARM.md` (uninstall the device with "remove the dri
 
 ## 5. Afterwards
 
-Copy `logs\` off the lab PC. One dated line in `LESSONS.md` with what actually happened, including the cancel-test result and the first real gap/lag numbers.
+Copy `logs\` off the lab PC. Fill the [record sheet](LAB_RECORD_SHEET.md) from `python scripts/lab_summary.py logs\*.jsonl --sheet --phone base=<deg>`. One dated line in `LESSONS.md` with what actually happened, including the cancel-test result and the first real gap/lag numbers.

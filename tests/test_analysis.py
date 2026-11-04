@@ -134,7 +134,7 @@ class CommandRecordTests(TempDirCase):
             rec.log_state(state(65530))
             cid = rec.log_command("jog_joint", {"motor_count_deltas": {"base": 10}})
             rec.log_command_result(cid, "completed")
-            rec.log_state(state(5))  # wrapped past 65535
+            rec.log_state(state(4))  # wrapped past 65535: low words 65530 + 10 = 4 (mod 65536)
         [record] = self.records(rec.path)
         self.assertEqual(record.observed_counts["base"], 10)
         self.assertEqual(record.count_error, {"base": 0})

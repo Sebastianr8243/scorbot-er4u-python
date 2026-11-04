@@ -9,16 +9,25 @@ from .nominal import check_soft_limit_span
 
 
 CALIBRATED_JOINTS = ("base", "shoulder", "elbow")
+# The farthest from home a 16-bit low word still tells apart (signed_count_delta); past it a delta
+# from home aliases by 65536 (docs/requirements/count-frame.md CT14).
+MAX_COUNTS_FROM_HOME = 32766
 
 
 def signed_count_delta(value: int, origin: int) -> int:
-    """Shortest difference under the legacy one's-complement 65535 wrap."""
+    """Shortest difference between two encoder low words (``RobotState.encoder_counts``).
+
+    The low word is the bottom 16 bits of the controller's 24-bit raw value, so it wraps every
+    65536 counts and the difference is exact for any two counts less than 32767 apart, across
+    every top-byte change (``docs/requirements/count-frame.md``). Until 2026-11-04 this used the
+    legacy 65535 "two zeros" wrap, one count off across zero.
+    """
     if not all(type(item) is int and 0 <= item <= 65535 for item in (value, origin)):
         raise ValueError("Encoder counts must be unsigned 16-bit integers")
-    delta = (value - origin) % 65535
-    if delta in (32767, 32768):
+    delta = (value - origin) % 65536
+    if delta in (32767, 32768, 32769):
         raise ValueError("Encoder difference is ambiguous near half the counter range")
-    return delta if delta < 32767 else delta - 65535
+    return delta if delta < 32767 else delta - 65536
 
 
 def _finite(value, name):

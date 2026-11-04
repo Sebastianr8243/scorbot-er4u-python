@@ -29,8 +29,9 @@ class StateTests(unittest.TestCase):
             packet[offset + 2] = 128
         state = decode_state(bytes(packet), connected=True, enabled=False,
                              homed=False, fault=None)
-        self.assertEqual(state.encoder_counts["base"], 1000)
-        self.assertEqual(state.encoder_counts["gripper"], 6000)
+        # raw low word 1000 under 128 is count 1001; encoder_counts is the count's low word (CT13)
+        self.assertEqual(state.encoder_counts["base"], 1001)
+        self.assertEqual(state.encoder_counts["gripper"], 6001)
         self.assertEqual(state.home_switch_bits, 0b10101)
 
     def test_decodes_negative_ones_complement_count_and_rejects_bad_sign(self):
@@ -41,13 +42,13 @@ class StateTests(unittest.TestCase):
         packet[21] = 127
         state = decode_state(bytes(packet), connected=True, enabled=False,
                              homed=False, fault=None)
-        self.assertEqual(state.encoder_counts["base"], 65534)
+        self.assertEqual(state.encoder_counts["base"], 65535)     # count -1's low word (CT13)
         self.assertEqual(state.encoder_sign_bytes["base"], 127)
         self.assertEqual(state.signed_encoder_counts["base"], -1)
-        packet[21] = 0
-        with self.assertRaisesRegex(ValueError, "sign byte"):
-            decode_state(bytes(packet), connected=True, enabled=False,
-                         homed=False, fault=None)
+        self.assertEqual(state.signed_encoder_counts["shoulder"], 1)    # low 0, sign 128
+        packet[21] = 0          # the top byte of the 24-bit raw value: a count past -65535
+        state = decode_state(bytes(packet), connected=True, enabled=False, homed=False, fault=None)
+        self.assertEqual(state.signed_encoder_counts["base"], 65534 - 0x7FFFFF)
 
     def test_rejects_short_packet(self):
         with self.assertRaises(ValueError):
@@ -215,7 +216,8 @@ class LegacyPacketTests(unittest.TestCase):
             packet[offset + 2] = 128
         mean = legacy.get_media(packet, [100] * 6)
         self.assertTrue(all(type(value) is int for value in mean))
-        self.assertEqual(legacy.get_encoder(packet, mean), "64000000" * 6)
+        # low word 100 under sign byte 128 is controller count 101 (docs/requirements/count-frame.md)
+        self.assertEqual(legacy.get_encoder(packet, mean), "65000000" * 6)
 
     def test_motion_increments_remain_integer_for_usb_packet(self):
         legacy = Scorbot()._legacy("libdef")

@@ -31,14 +31,15 @@ class ReplyDecodeMatchesDll(unittest.TestCase):
         self.assertEqual(vh.decode_reply(reply([0] * 6), 0).counts, (0,) * 6)
         self.assertEqual(reply([0])[19:22], b"\xff\xff\x7f")
 
-    def test_legacy_path_reads_one_low_on_the_positive_side_only(self):
-        # PolicyArm feeds vendor_limit_problem signed_count_delta(state.encoder_counts, 0).
+    def test_legacy_path_reads_the_dlls_count(self):
+        # PolicyArm feeds vendor_limit_problem signed_count_delta(state.encoder_counts, 0). Until
+        # 2026-11-04 that read one low on the positive side (docs/requirements/count-frame.md CT13).
         for row in ROWS:
             decoded = state.decode_state(reply(row["counts"] + [0]), connected=True, enabled=None,
                                          homed=False, fault=None).encoder_counts
             for name, count in zip(state.JOINTS, row["counts"]):
                 with self.subTest(motor=name, count=count):
-                    self.assertEqual(signed_count_delta(decoded[name], 0), count - (count > 0))
+                    self.assertEqual(signed_count_delta(decoded[name], 0), count)
 
 
 if __name__ == "__main__":

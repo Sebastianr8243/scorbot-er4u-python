@@ -24,7 +24,8 @@ import time
 
 from . import limits
 from .calibration import signed_count_delta
-from .state import IMPACT_DETECT_COUNTS, collision_motors, decode_state, signed_error_word, teach_mode_after
+from .state import (COUNT_MAX, COUNT_MIN, IMPACT_DETECT_COUNTS, collision_motors, decode_state, signed_error_word,
+                    teach_mode_after)
 from .vendor_profile import MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION, VendorProfile
 
 MOTORS = limits.ARM_MOTORS
@@ -432,12 +433,12 @@ class Stream:
             # Absolute setpoints: where the arm is now, plus how far the
             # command is from where the arm is, both in counts from home. The
             # signed count is continuous through zero, so this is home plus the
-            # command there. It runs out at 65535, where the legacy arithmetic
-            # would wrap but the controller's wider counter does not (from
-            # disassembly, unverified): that is a fault, never a wrapped value.
+            # command there. It runs out at the ends of the controller's 24-bit
+            # counter (from disassembly, unverified): that is a fault, never a
+            # wrapped value (docs/requirements/count-frame.md).
             absolute = tuple(state.signed_encoder_counts[m] + step.commanded[m] - measured[m]
                              for m in self.core.motors)
-            if any(abs(value) > 65535 for value in absolute):
+            if any(not COUNT_MIN <= value <= COUNT_MAX for value in absolute):
                 self.core.fail(f"setpoint outside the counter range: {absolute}")
                 return (STOP,)
             return (SEND, absolute)

@@ -17,12 +17,14 @@ Layout of an OUT packet (offsets 0-based)::
     0       sequence byte, 1..255
     1-3     header, zero except in the handshake's get_msg2(84)
     4-11    command bytes (libhex tables), zero padded
-    12-35   encoder region: six joints x (2-byte count LE + 2-byte sign word)
+    12-35   encoder region: six joints x signed 32-bit controller count LE
     36-63   zero padding
 
 Signs use the IN sign byte that ``scorbot.state.decode_state`` reports
-(``encoder_sign_bytes``): 128 is written as the sign word ``00 00`` and 127 as
-``FF FF`` (``libdef.get_signo``). The legacy code keeps the word as the text
+(``encoder_sign_bytes``), the top byte of the 24-bit raw value: the controller
+count is raw24 - 0x7FFFFF (128: ``low + 1``, 127: ``low - 65535``, any other
+byte a count past +/-65535), and the slot carries that count
+(``libdef.slotHex``). The legacy code keeps the 128/127 sign as the text
 ``'0000'``/``'ffff'``; this module keeps the byte, so a state read from the
 controller can be echoed without translation.
 
@@ -34,20 +36,20 @@ Inputs outside the domain where the legacy code is correct raise
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from ..state import JOINTS
+from ..state import COUNT_MAX, COUNT_MIN, COUNT_ZERO, JOINTS
 
 MSG_LEN = 64
 """OUT packet length in bytes (legacy ``MSG_LEN`` = 128 hex characters)."""
 MAX_SEQUENCE = 255
 """Largest sequence byte; ``next_sequence`` wraps 255 -> 1 (legacy ``MAX_COUNT`` - 1)."""
 MAX_COUNT = 65535
-"""Largest encoder count. Counts are unsigned 16-bit with modulus 65535, not 65536."""
+"""Largest low word of an encoder count."""
 COUNT_MODULUS = 65535
 
 SIGN_POSITIVE = 128
-"""IN sign byte written as the OUT sign word ``00 00``."""
+"""IN sign byte of counts 1..65536 (low word + 1)."""
 SIGN_NEGATIVE = 127
-"""IN sign byte written as the OUT sign word ``FF FF``."""
+"""IN sign byte of counts -65535..0 (low word - 65535)."""
 _SIGN_WORDS = {SIGN_POSITIVE: b"\x00\x00", SIGN_NEGATIVE: b"\xff\xff"}
 
 HEADER = b"\x00\x00\x00"
@@ -156,6 +158,12 @@ def _require_sign(sign):
     return sign
 
 
+def _require_top(top):
+    if type(top) is not int or not 0 <= top <= 255:
+        raise ValueError(f"sign must be the IN sign (top) byte 0..255, got {top!r}")
+    return top
+
+
 def next_sequence(sequence: int) -> int:
     """The sequence byte after ``sequence`` (legacy ``libdef.countByte1``).
 
@@ -168,14 +176,22 @@ def next_sequence(sequence: int) -> int:
 
 
 def encode_count(count: int, sign: int) -> bytes:
-    """One joint's 4-byte field: count little-endian, then the sign word.
+    """One joint's 4-byte field: the controller count as a signed 32-bit slot.
 
-    Legacy ``libdef.detrans(count)`` followed by ``get_signo`` (echo) or the
-    ``suma``/``resta`` sign text (jog target). ``sign`` is the IN sign byte
-    (128 -> ``00 00``, 127 -> ``FF FF``), not the legacy text.
+    ``count`` is the low word and ``sign`` the IN sign byte, as the reply carries
+    them: the top byte of the 24-bit raw value, so the controller count is
+    ``sign * 65536 + count - 0x7FFFFF`` (``count + 1`` for 128, ``count - 65535``
+    for 127, counts past +/-65535 for the other bytes). A jog target's ``count``
+    may run past 0..65535 (``step_count``). Legacy ``libdef.slotHex``, which
+    ``get_encoder`` (echo), ``get_hold`` and ``builder`` (jog target) use. The
+    result must be in the 24-bit range. Writing the low word then the sign word
+    sent every count one low (``docs/requirements/count-frame.md``).
     """
-    _require_int("count", count, 0, MAX_COUNT)
-    return count.to_bytes(2, "little") + _SIGN_WORDS[_require_sign(sign)]
+    if type(count) is not int:
+        raise ValueError(f"count must be an int, got {count!r}")
+    controller = _require_top(sign) * 65536 + count - COUNT_ZERO
+    _require_int("controller count", controller, COUNT_MIN, COUNT_MAX)
+    return controller.to_bytes(4, "little", signed=True)
 
 
 def encode_region(joints: Mapping[str, tuple[int, int]]) -> bytes:
@@ -206,25 +222,24 @@ def encode_region(joints: Mapping[str, tuple[int, int]]) -> bytes:
 def step_count(count: int, sign: int, step: int) -> tuple[int, int]:
     """Move one joint target by ``step`` counts with the legacy wrap.
 
-    Positive ``step`` is ``libdef.suma``: add; above 65535 subtract 65535 and
-    the sign becomes 128. Negative ``step`` is ``libdef.resta`` by ``-step``:
-    below 0 add 65535 and the sign becomes 127. Otherwise the sign is kept.
+    Positive ``step`` is ``libdef.suma``: add; on the 127 side above 65535
+    subtract 65536 and the sign becomes 128. Negative ``step`` is
+    ``libdef.resta`` by ``-step``: on the 128 side below 0 add 65536 and the
+    sign becomes 127. Otherwise the sign is kept and the count may run past
+    0..65535, which ``encode_count`` writes as the same controller count. So
+    the controller count always moves by exactly ``step``.
     Zero returns the input. Returns ``(count, sign)``.
 
-    ``|step|`` must be at most 65535. Larger steps raise ``ValueError``; the
-    legacy code would wrap only once and keep a count above 65535. ``detrans``
-    still emits four hex digits (it slices characters 2, 3, 0, 1), so the
-    packet stays intact but carries a silently wrong count: 65536 is written
-    as ``00 10`` (count 4096), 131070 as ``FF 1F``.
+    ``|step|`` must be at most 65535 (real steps are at most about 100).
     """
     _require_int("count", count, 0, MAX_COUNT)
     _require_sign(sign)
     _require_int("step", step, -COUNT_MODULUS, COUNT_MODULUS)
     count += step
-    if count > MAX_COUNT:
-        return count - COUNT_MODULUS, SIGN_POSITIVE
-    if count < 0:
-        return count + COUNT_MODULUS, SIGN_NEGATIVE
+    if count > MAX_COUNT and sign == SIGN_NEGATIVE:
+        return count - (MAX_COUNT + 1), SIGN_POSITIVE
+    if count < 0 and sign == SIGN_POSITIVE:
+        return count + MAX_COUNT + 1, SIGN_NEGATIVE
     return count, sign
 
 

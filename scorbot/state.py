@@ -9,6 +9,11 @@ ENCODER_OFFSETS = (19, 24, 29, 34, 39, 44)
 ERROR_OFFSETS = (22, 27, 32, 37, 42, 47)
 # The last field decoded is the gripper error pair at bytes 47-48.
 PACKET_MIN_LENGTH = ERROR_OFFSETS[-1] + 2
+# Each axis reports a 24-bit raw value (low word, then the byte the legacy code calls the sign byte);
+# the controller count is raw24 - COUNT_ZERO (docs/protocol/VENDOR_DLL_PROTOCOL.md section 6), so the
+# counts run from COUNT_MIN (raw 0x000000) to COUNT_MAX (raw 0xFFFFFF). docs/requirements/count-frame.md.
+COUNT_ZERO = 0x7FFFFF
+COUNT_MIN, COUNT_MAX = -COUNT_ZERO, 0xFFFFFF - COUNT_ZERO
 # USBC.dll's impact check (docs/protocol/LEDGER.md PL98): on every reply while control is on, an axis
 # whose error word, read as signed 16-bit, has an absolute value strictly above its ImpactDetect
 # (ER4AxN.ini) is error 201. openScorbot/libdef.py IMPACT_DETECT is the same table (a test keeps it so).
@@ -92,9 +97,12 @@ def switch_summary(bits: int) -> str:
 class RobotState:
     """One decoded controller response.
 
-    ``signed_encoder_counts`` applies the sign byte for display and planning; it
-    jumps by 65536 at the 0/65535 seam. Take differences between samples from
-    ``encoder_counts`` with ``calibration.signed_count_delta``.
+    ``signed_encoder_counts`` is the controller count, raw24 - ``COUNT_ZERO``, over the
+    whole 24-bit range; it is continuous through zero. ``encoder_counts`` is that count's low
+    16 bits (count 0 is 0, -1 is 65535), which wrap every 65536 counts: take differences from
+    them with ``calibration.signed_count_delta``. Until 2026-11-04 it was the raw low word,
+    one less (``docs/requirements/count-frame.md`` CT13). ``encoder_sign_bytes`` is the top byte
+    of the raw value.
     """
 
     timestamp_utc: str
@@ -122,18 +130,15 @@ def decode_state(packet: bytes, *, connected: bool, enabled: bool | None,
                  host_monotonic_ns: int | None = None, teach_mode: bool = False) -> RobotState:
     if len(packet) < PACKET_MIN_LENGTH:
         raise ValueError(f"Controller packet is too short: {len(packet)} bytes")
-    counts = {
+    raw = {
         name: int.from_bytes(packet[offset:offset + 2], "little")
         for name, offset in zip(JOINTS, ENCODER_OFFSETS)
     }
     signs = {name: packet[offset + 2] for name, offset in zip(JOINTS, ENCODER_OFFSETS)}
-    for name, sign in signs.items():
-        if sign not in (127, 128):
-            raise ValueError(f"Invalid encoder sign byte for {name}: {sign}")
-    signed = {
-        name: counts[name] if signs[name] == 128 else counts[name] - 65535
-        for name in JOINTS
-    }
+    # The sign byte is the top byte of the raw value: 128 is count L + 1, 127 is L - 65535 and the
+    # others are counts past +/-65535, which the controller reports as well.
+    signed = {name: (signs[name] << 16 | raw[name]) - COUNT_ZERO for name in JOINTS}
+    counts = {name: signed[name] & 0xFFFF for name in JOINTS}
     errors = {
         name: int.from_bytes(packet[offset:offset + 2], "little")
         for name, offset in zip(JOINTS, ERROR_OFFSETS)
