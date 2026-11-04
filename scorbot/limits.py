@@ -21,14 +21,10 @@ RECORDED_MOTORS = ARM_MOTORS + WRIST_MOTORS
 # inherited, not measured.
 MAX_JOG_DEG = 5.0
 
-# Travel from this session's home, in degrees, for a stream, the lab session
-# and the follower. Lifted from 10 on 2026-10-06 without the lab
-# evidence the staged widening in
-# specs/2026-10-04-streaming-driver-requirements.md (in git history) asks for: the cap is
-# now past every joint's range, so the joint limits of the source model
-# (source_model.LIMITS_DEG, unmeasured) are the only travel bound. The 5 degree
-# jog ceiling and the stream's lead limit still apply.
-TRAVEL_CAP_DEG = 180.0
+# Optional extra travel from session home, in degrees. None uses only the
+# vendor limit (USBC.dll EncLimit / ROB_4u.INI), not measured on our arm.
+# The 5 degree jog ceiling and the stream's lead limit still apply.
+TRAVEL_CAP_DEG = None
 
 # A legacy jog ends once the joint is within 20 counts of its target
 # (openScorbot/libcomm.py settle loop), so counts may keep settling that far.

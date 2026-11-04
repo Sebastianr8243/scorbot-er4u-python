@@ -84,16 +84,10 @@ class ConsistencyTests(unittest.TestCase):
 class MotionWindowTests(unittest.TestCase):
     """What the source tier may command: only what stays inside the travel cap."""
 
-    def test_the_window_is_the_travel_cap_around_home_where_no_limit_is_nearer(self):
+    def test_the_reference_window_has_no_default_degree_cap(self):
         window = motion_window()
         self.assertEqual(set(window), set(limits.ARM_MOTORS))
-        # The elbow's own count sets no limit (its angle follows the shoulder's
-        # too, see pose_limit_excess), so the cap alone bounds its window.
-        low, high = window["elbow"]
-        self.assertEqual(low, -high)
-        self.assertAlmostEqual(high / source_model.COUNTS_PER_DEGREE["elbow"],
-                               limits.TRAVEL_CAP_DEG, places=6)
-        # Base and shoulder have joint limits nearer than the cap.
+        self.assertEqual(window["elbow"], (-float("inf"), float("inf")))
         self.assertEqual(window["base"], source_model.limit_window()["base"])
         self.assertEqual(window["shoulder"], source_model.limit_window()["shoulder"])
 
@@ -245,13 +239,8 @@ class LimitTests(unittest.TestCase):
         self.assertIn("shoulder", source_model.outside_limits(up_ten))
         self.assertIn("shoulder", source_model.outside_window(up_ten))
 
-    def test_the_travel_cap_is_past_every_joints_range_so_the_limits_bind(self):
-        # Lifted from 10 degrees on 2026-10-06: from home, no arm joint can go
-        # as far as the cap before its own limit stops it.
-        for joint in limits.ARM_MOTORS:
-            low, high = source_model.LIMITS_DEG[joint]
-            farthest = max(abs(low - HOME_ANGLES[joint]), abs(high - HOME_ANGLES[joint]))
-            self.assertGreater(limits.TRAVEL_CAP_DEG, farthest, joint)
+    def test_no_default_travel_cap_is_invented(self):
+        self.assertIsNone(limits.TRAVEL_CAP_DEG)
 
     def test_a_10_degree_move_of_one_joint_is_inside_the_limits_except_the_shoulder_up(self):
         for joint, sign in (("base", -1), ("base", 1), ("shoulder", -1), ("elbow", -1),

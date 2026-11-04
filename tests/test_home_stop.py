@@ -11,7 +11,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from unittest import mock
 
-from scorbot import MotionStopped, Scorbot
+from scorbot import MotionStopped, Scorbot, ScorbotError
 from scorbot.simulated import SimulatorProfile
 
 try:
@@ -76,7 +76,9 @@ class SdkHomeStopTests(SimulatedRobotCase):
         robot.home(start_position_confirmed=True)
         self.assertTrue(robot._homed)
         self.assertIn("stop_too_late", self.events())
-        robot.jog_joint("base", 1.0)     # not refused by a stale stop
+        self.assertFalse(robot._consume_stop())  # not kept for the next motion
+        with self.assertRaisesRegex(ScorbotError, "vendor Home"):
+            robot.jog_joint("base", 1.0)
 
 
 @unittest.skipUnless(find_spec("usb"), "PyUSB is needed to import the legacy modules")

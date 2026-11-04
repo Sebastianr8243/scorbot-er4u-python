@@ -13,6 +13,9 @@ def _write_tree(root: Path, newline: bytes) -> None:
 
 
 class MotionSourceFingerprintTests(unittest.TestCase):
+    def test_vendor_travel_bounds_are_in_the_motion_fingerprint(self):
+        self.assertIn("scorbot/nominal.py", provenance._SOURCE_FILES)
+
     def test_crlf_and_lf_checkouts_give_the_same_fingerprint(self):
         with tempfile.TemporaryDirectory() as lf, tempfile.TemporaryDirectory() as crlf:
             _write_tree(Path(lf), b"\n")

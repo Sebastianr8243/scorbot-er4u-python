@@ -9,7 +9,7 @@ What the manual does NOT give: encoder counts per revolution, encoder zero,
 where each joint's 0 degrees is, and which direction is positive. Vendor
 parameter-file defaults for some of these are kept separately below as
 ``VendorPrior`` values, which are priors too, never calibration. That is why
-calibration ranges are enforced as spans (max - min). PolicyArm separately
+calibration ranges are enforced as spans (max - min). Stack 2 motion separately
 uses the vendor's signed joint and encoder windows after vendor Home;
 physical zero and signs remain unverified until lab G/X.
 
@@ -190,7 +190,7 @@ def _vendor_range(minimum: float, maximum: float, unit: str) -> VendorRange:
     return VendorRange(minimum, maximum, unit, f"{VENDOR_INI}, ER4Ax*.ini")
 
 
-# PolicyArm travel guard: $Default ROB_4u.INI [Limits], vendor joint convention.
+# Stack 2 travel guard: $Default ROB_4u.INI [Limits], vendor joint convention.
 # Zero and signs on our arm remain unverified until lab G/X. Calibration still
 # uses the manual's spans in AXIS_RANGES (the elbow's 275 here is wider than 260).
 VENDOR_JOINT_LIMITS_DEG = MappingProxyType({
@@ -210,7 +210,7 @@ VENDOR_ENCODER_SOFT_LIMITS = MappingProxyType({
     "gripper": _vendor_range(-200, 6000, "encoder counts"),
 })
 
-VENDOR_LIMIT_REPORT_STATUS = ("PolicyArm guard after vendor Home; physical zero and signs "
+VENDOR_LIMIT_REPORT_STATUS = ("Vendor guard after vendor Home; physical zero and signs "
                               "unverified until lab G/X; this jog report is diagnostic only")
 
 
@@ -231,6 +231,23 @@ def vendor_limit_problem(absolute_counts: dict) -> str | None:
     return None
 
 
+def vendor_limit_excess(absolute_counts: dict) -> dict:
+    """Each vendor-window violation, for recovery jogs; not measured on our arm."""
+    from . import vendor_model
+
+    excess = {}
+    for motor, value in absolute_counts.items():
+        limit = VENDOR_ENCODER_SOFT_LIMITS[motor]
+        excess[("EncLimit", motor)] = max(limit.minimum - value, value - limit.maximum, 0)
+    angles = vendor_model.counts_to_joints([round(absolute_counts[m]) for m in vendor_model.MOTORS])
+    for joint, radians in angles.items():
+        name = {"pitch": "wrist_pitch", "roll": "wrist_roll"}.get(joint, joint)
+        limit = VENDOR_JOINT_LIMITS_DEG[name]
+        value = math.degrees(radians)
+        excess[("ROB_4u", joint)] = max(limit.minimum - value, value - limit.maximum, 0)
+    return {name: over for name, over in excess.items() if over > 0}
+
+
 def _side(value: int, limit: VendorRange) -> str:
     if value < limit.minimum:
         return "below_min"
@@ -245,7 +262,7 @@ def vendor_limit_report(target_from_home: dict[str, int | None]) -> dict:
     ``target_from_home`` is wrap-aware counts from the session home (None if
     unknown). Evidence for whether our homing zero and signs match the
     vendor's, judged under both sign hypotheses. Never used to allow or refuse
-    motion by this report. PolicyArm applies these limits to absolute counts
+    motion by this report. Stack 2 applies these limits to absolute counts
     after vendor Home, including the individual wrist motor limits.
     """
     motors = {}

@@ -128,7 +128,7 @@ class JogTraceTests(unittest.TestCase):
         robot = SimulatedScorbot(controller=controller, log_path=self.log).connect()
         robot._trace = controller.trace = PacketTrace()
         robot.enable()
-        robot.home(start_position_confirmed=True)
+        robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
         return robot
 
     def test_jog_logs_the_packets_it_exchanged(self):
@@ -144,7 +144,7 @@ class JogTraceTests(unittest.TestCase):
         self.assertEqual(traces[0]["dropped_packets"], 0)
 
     def jog_traces(self):
-        return [row for row in self.events("motion_trace") if row["joint"] != "home"]
+        return [row for row in self.events("motion_trace") if row["joint"] not in ("home", "vendor_home")]
 
     def test_failed_jog_still_logs_its_trace(self):
         from scorbot import ScorbotError
@@ -242,7 +242,7 @@ class JogTraceTests(unittest.TestCase):
         robot = SimulatedScorbot(log_path=self.log).connect()
         try:
             robot.enable()
-            robot.home(start_position_confirmed=True)
+            robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
             robot.jog_joint("base", 1.0)
         finally:
             robot.disconnect()

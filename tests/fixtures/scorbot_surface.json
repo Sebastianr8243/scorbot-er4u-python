@@ -5,7 +5,7 @@
  "STOP_SETTLE_INTERVAL_S": "value 0.05",
  "STOP_SETTLE_QUIET_PAIRS": "value 3",
  "STOP_SETTLE_TIMEOUT_S": "value 8.0",
- "STREAM_TRAVEL_CAP_MAX_DEG": "value 180.0",
+ "STREAM_TRAVEL_CAP_MAX_DEG": "value None",
  "__all__": "['GripperMove', 'MotionStopped', 'RobotState', 'Scorbot', 'ScorbotError', 'SimulatedScorbot', 'Stream', 'StreamRefused']",
  "__init__": "def(self, *, log_path: str | pathlib.Path | None = None, command_timeout: float = 30.0, max_jog_degrees: float = 5.0, response_timeout: float = 2.0, robot_id: str | None = None, calibration_path: str | pathlib.Path | None = None, transport: str = 'pyusb')",
  "close_gripper": "def(self) -> GripperMove",
@@ -31,6 +31,6 @@
  "request_stop": "def(self) -> None",
  "set_analog_output": "def(self, number: int, value: int) -> None",
  "set_digital_output": "def(self, number: int, on: bool) -> None",
- "start_stream": "def(self, *, travel_cap_deg: float | None = 180.0, speed_fraction: float = 0.25, lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5, period_s: float = 0.024, use_emergency_bit: bool = False, adaptive_pacing: bool = False, wrist: bool = False) -> Stream",
+ "start_stream": "def(self, *, travel_cap_deg: float | None = None, speed_fraction: float = 0.25, lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5, period_s: float = 0.024, use_emergency_bit: bool = False, adaptive_pacing: bool = False, wrist: bool = False) -> Stream",
  "vendor_home": "def(self, *, operator_at_stop: bool = False, jaws_empty: bool = False, wrist_clear: bool = False, controller_version: int = 0)"
 }

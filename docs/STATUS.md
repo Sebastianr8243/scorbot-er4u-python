@@ -6,6 +6,8 @@
 
 **In one paragraph:** there are two stacks (map: root `CONTRIBUTING.md`, "Layers"). **Stack 1** drives Intelitek's own `USBC.dll` from Python (`tools/usbc_*`); its vendor Home ran on the real arm on 2026-10-20 (Home OK in 134 s, order 2, 3, 5, 4, 1, 6; log in the private repo). The arm server and Python API (`tools/usbc_server`, `scorbot/bridge.py`) are built on Stack 1 and ran end to end on the lab DLL against a fake controller, but not yet on the arm. **Stack 2** is our own USB protocol (`scorbot.Scorbot`, `openScorbot`) and the main path: its vendor-Home port now sends the lab DLL's commands in the DLL's order on a fake controller, and its whole bring-up passes there, but its one real home attempt (2026-10-06, the older legacy home) failed after 4.2 s. Next try: the 2026-11-03 lab visit. Stack 1 is the backup.
 
+2026-11-03 desk change: Stack 2 jogs, joint moves, streams and PolicyArm use the vendor limit (USBC.dll EncLimit / ROB_4u.INI), not measured. Vendor Home establishes the required zero; extra travel caps default to None. Requirements: [one-limit](requirements/one-limit.md). No arm run.
+
 ## Evidence scale
 
 | Level | Meaning |

@@ -206,7 +206,8 @@ class VendorLimitReportTests(unittest.TestCase):
         self.assertEqual(motors["base"]["vendor_min"], -25000)
         self.assertEqual(motors["wrist_motor_1"], {"target_from_home": 5,
                                                    "vendor_min": -15000, "vendor_max": 15000,
-                                                   "same_sign": "inside", "flipped_sign": "inside"})
+                                                   "same_sign": "inside",
+                                                   "flipped_sign": "inside"})
         unknown = nominal.vendor_limit_report({"base": None})["motors"]["base"]
         self.assertEqual((unknown["same_sign"], unknown["flipped_sign"]),
                          ("indeterminate", "indeterminate"))

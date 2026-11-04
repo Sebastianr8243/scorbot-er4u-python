@@ -126,18 +126,18 @@ class StreamCore:
         if set(start) != set(self.motors) or any(type(v) is not int for v in start.values()):
             raise StreamRefused(f"start needs an integer count for each of {self.motors}")
         # Allowed counts from home per motor: the travel cap either side, cut
-        # short where ``window`` (a joint limit) is nearer.
+        # short where the vendor encoder window is nearer.
         self.bounds = {m: (max(-travel_cap[m], (window or {}).get(m, (-math.inf, math.inf))[0]),
                            min(travel_cap[m], (window or {}).get(m, (-math.inf, math.inf))[1]))
                        for m in self.motors}
         if any(not self.bounds[m][0] <= start[m] <= self.bounds[m][1] for m in self.motors):
-            raise StreamRefused("the arm is already outside the travel cap or a joint limit")
+            raise StreamRefused("the arm is already outside the travel cap or a vendor limit (USBC.dll EncLimit / ROB_4u.INI)")
         # ``pose_check`` sees every streamed count at once and returns a sentence if
         # they put a joint past its limit: a joint's angle can depend on another
         # motor's count, which ``window`` (one motor at a time) cannot see.
         self._pose_check = pose_check
         if pose_check is not None and (problem := pose_check(dict(start))):
-            raise StreamRefused(f"the arm is already past a joint limit: {problem}")
+            raise StreamRefused(f"the arm is already past a vendor limit (USBC.dll EncLimit / ROB_4u.INI): {problem}")
         limits = limits or prior_limits()
         self.period_s = period_s
         self.travel_cap = dict(travel_cap)
@@ -178,7 +178,7 @@ class StreamCore:
             low, high = self.bounds[motor]
             if not low <= value <= high:
                 raise StreamRefused(f"{motor} target {value:g} is outside the travel cap or "
-                                    f"joint limit: {low:g} to {high:g} counts from home")
+                                    f"vendor limit (USBC.dll EncLimit / ROB_4u.INI): {low:g} to {high:g} counts from home")
         with self._lock:
             if self.state not in (TRACKING, HOLDING) or self._finish_requested:
                 raise StreamRefused(f"the stream is {self.state}; it takes no more targets")
@@ -186,7 +186,7 @@ class StreamCore:
                 problem = self._pose_check({**self._target,
                                             **{m: float(v) for m, v in target.items()}})
                 if problem:
-                    raise StreamRefused(f"that target would put the arm past a joint limit: "
+                    raise StreamRefused(f"that target would put the arm past a vendor limit (USBC.dll EncLimit / ROB_4u.INI): "
                                         f"{problem}")
             self._target.update({m: float(v) for m, v in target.items()})
             self._input.control_interface = self._position_interface
@@ -288,7 +288,7 @@ class StreamCore:
                 self._fault(f"commanded position left the travel cap: {proposed}")
                 return result(STOP)
             if self._pose_check is not None and (problem := self._pose_check(dict(proposed))):
-                self._fault(f"commanded position is past a joint limit: {problem}: {proposed}")
+                self._fault(f"commanded position is past a vendor limit (USBC.dll EncLimit / ROB_4u.INI): {problem}: {proposed}")
                 return result(STOP)
             # Checked before it is sent: the limit bounds every setpoint, so a
             # stalled arm is never asked for one more step past it.

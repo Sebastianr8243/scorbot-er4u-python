@@ -13,7 +13,7 @@ from scorbot.lab.session import EXIT_OK, LabSession
 from scorbot.simulated import SimulatedController
 
 PROFILE = LabProfile("lab-er4u-1", "A-12", "C-3", "WinUSB", "SR")
-TO_LOOP = ["y"] * 4 + ["n", "g", "pose matches photo", "HOME", "y", "g", "all axes homed", "y"]
+TO_LOOP = ["y"] * 4 + ["n", "g", "pose matches photo", "EMPTY", "CLEAR", "HOME", "y", "g", "all axes homed", "y"]
 ARM = ["a", "door", "y", "g", "ARM"]
 FINISH = ["x", "n", "g"]
 JOG_ORDERS = set(range(4, 14))
@@ -30,7 +30,7 @@ class Clock:
 class _Harness(unittest.TestCase):
     def setUp(self):
         # These tests exercise the session's cap mechanism, not its production
-        # value (limits.TRAVEL_CAP_DEG, lifted from 10 to 180 on 2026-10-06).
+        # default (None: vendor windows only).
         patcher = mock.patch("scorbot.lab.session.TRAVEL_CAP_DEG", 10.0)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -50,7 +50,7 @@ class _Harness(unittest.TestCase):
             robot_factory=lambda **kw: SimulatedScorbot(controller=self.ctrl, **kw),
             data_source="simulated", log_path=self.root / "s.jsonl",
             session_root=self.root / "sessions", clock=self.clock, sleep=lambda s: None,
-            camera_factory=camera_factory)
+            camera_factory=camera_factory, vendor_home=True)
         code = self.session.run()
         self.rows = [json.loads(line) for line in
                      (self.root / "s.jsonl").read_text(encoding="utf-8").splitlines()]

@@ -165,7 +165,7 @@ class PolicyRunTests(unittest.TestCase):
 
     def test_a_goal_past_the_travel_cap_is_refused_up_front(self):
         with self.assertRaises(SystemExit):
-            self.run_script("", policy_args=("--policy", "reach:base=5"))
+            self.run_script("", "--travel-cap-deg", "2", policy_args=("--policy", "reach:base=5"))
 
 
 if __name__ == "__main__":

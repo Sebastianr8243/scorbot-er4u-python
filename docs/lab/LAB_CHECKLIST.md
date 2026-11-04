@@ -23,7 +23,7 @@ What the driver package says (`Driver/ERUSB.inf` and `ERUSB.sys` from the privat
 1. Red stop within reach, base secured, arm path clear, jaws empty.
 2. `probe --transport auto --online --reads 200 --log logs\probe-reads.jsonl`. Connecting briefly energises then releases the motors, so stay clear. Read the timing line: replies should be ~16 to 25 ms apart; a non-zero `None` count means replies echoed no usable ID.
 3. If the probe is sane: `scripts/bring_up.py --transport auto --online --logs logs\bring-up`. Stop at the first failure; do not retry blindly.
-4. Stream only after the ladder passes.
+4. Stream only after the ladder passes and vendor Home establishes the encoder zero. Travel uses the vendor limit (USBC.dll EncLimit / ROB_4u.INI), not measured on our arm; lab, stream and policy examples default to no extra cap. `--travel-cap-deg` can add a positive bound without an imposed ceiling. The 5 degree jog ceiling, stream lead/step and speed limits still apply.
 
 Any fault latches the session. After a fault, build a new instance; do not force-close.
 

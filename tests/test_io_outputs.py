@@ -91,11 +91,12 @@ class OutputTests(SimulatedRobotCase):
 
     def test_waits_for_the_arm_at_rest_and_sends_nothing_if_it_is_moving(self):
         robot = self.robot()
+        packets = list(robot.sim.vendor_packets)
         with mock.patch.object(robot, "_settled_after_stop", side_effect=ScorbotError("moving")) as settle:
             with self.assertRaises(ScorbotError):
                 robot.set_digital_output(0, True)
         settle.assert_called_once()
-        self.assertEqual(robot.sim.vendor_packets, [])
+        self.assertEqual(robot.sim.vendor_packets, packets)
         self.assertEqual(robot.digital_outputs, 0)
 
     def test_two_writes_at_once_keep_both_bits(self):

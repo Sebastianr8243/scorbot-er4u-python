@@ -41,3 +41,5 @@
 | [`manual/HARDWARE_REFERENCE.md`](manual/HARDWARE_REFERENCE.md) | LEDs, limits, manual claims |
 | [`manual/`](manual) | The rest of the manual audit (long) |
 
+
+Travel-bound requirements: [one-limit](requirements/one-limit.md) (vendor windows, optional extra caps).

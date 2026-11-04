@@ -66,21 +66,20 @@ class StreamMixin:
         are also each held to the cap on every target and setpoint (``wrist_cap_problem``). The wrist
         jogs stay disabled; only this opt-in path streams the wrist. Unverified on the arm.
         ``travel_cap_deg=None`` selects only Intelitek's encoder and joint windows,
-        after vendor Home, for PolicyArm. Other callers retain their existing bounds.
+        after vendor Home. A positive cap adds an optional bound without an upper ceiling.
         """
         with self._motion_lock:
             if self._device is None:
                 raise ScorbotError("Not connected")
             if self._stream is not None:
                 raise ScorbotError("A stream is already active")
-            for name, value, top in (("travel_cap_deg", travel_cap_deg,
-                                      self.STREAM_TRAVEL_CAP_MAX_DEG),
-                                     ("lead_limit_deg", lead_limit_deg, self.max_jog_degrees)):
-                if name == "travel_cap_deg" and value is None:
-                    continue
-                if isinstance(value, bool) or not isinstance(value, (int, float)) \
-                        or not math.isfinite(value) or not 0 < value <= top:
-                    raise ValueError(f"{name} must be above 0 and at most {top:g} degrees")
+            if travel_cap_deg is not None and (isinstance(travel_cap_deg, bool)
+                    or not isinstance(travel_cap_deg, (int, float))
+                    or not math.isfinite(travel_cap_deg) or travel_cap_deg <= 0):
+                raise ValueError("travel_cap_deg must be a positive finite number or None")
+            if (isinstance(lead_limit_deg, bool) or not isinstance(lead_limit_deg, (int, float))
+                    or not math.isfinite(lead_limit_deg) or not 0 < lead_limit_deg <= self.max_jog_degrees):
+                raise ValueError(f"lead_limit_deg must be above 0 and at most {self.max_jog_degrees:g} degrees")
             for name, value, (low, high) in (("period_s", period_s, PERIOD_RANGE_S),
                                              ("hold_timeout_s", hold_timeout_s,
                                               HOLD_TIMEOUT_RANGE_S)):
@@ -91,7 +90,7 @@ class StreamMixin:
                 raise ValueError("wrist must be True or False")
             if not self._enabled or not self._homed or self._home_counts is None:
                 raise ScorbotError("Enable and home before streaming")
-            if travel_cap_deg is None and not self._gripper_homed:
+            if not self._gripper_homed:
                 raise ScorbotError("Run vendor Home before streaming with vendor limits")
             before = self._motion_state()
             if before.teach_mode:
@@ -118,25 +117,21 @@ class StreamMixin:
                         for m in limits.WRIST_MOTORS if m not in motors}
             except ValueError as exc:
                 raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
-            if travel_cap_deg is None:
-                home = {m: signed_count_delta(self._home_counts[m], 0) for m in limits.RECORDED_MOTORS}
-                window = {m: (nominal.VENDOR_ENCODER_SOFT_LIMITS[m].minimum - home[m],
-                              nominal.VENDOR_ENCODER_SOFT_LIMITS[m].maximum - home[m]) for m in motors}
-                travel_cap = {m: max(abs(low), abs(high)) for m, (low, high) in window.items()}
+            home = {m: signed_count_delta(self._home_counts[m], 0) for m in limits.RECORDED_MOTORS}
+            window = {m: (nominal.VENDOR_ENCODER_SOFT_LIMITS[m].minimum - home[m],
+                          nominal.VENDOR_ENCODER_SOFT_LIMITS[m].maximum - home[m]) for m in motors}
+            travel_cap = {m: max(abs(low), abs(high)) for m, (low, high) in window.items()}
+            if travel_cap_deg is not None:
+                travel_cap = {m: min(travel_cap[m], travel_cap_deg * per_degree[m] + rounding[m])
+                              for m in motors}
+            wrist_cap = (None if travel_cap_deg is None else
+                         travel_cap_deg * source_model.COUNTS_PER_DEGREE["wrist_motor_1"] + 1)
 
-                def pose_check(counts):
-                    delta = {**held, **counts}
-                    return nominal.vendor_limit_problem({m: home[m] + delta[m]
-                                                         for m in limits.RECORDED_MOTORS})
-            else:
-                window = source_model.limit_window()
-                travel_cap = {m: travel_cap_deg * per_degree[m] + rounding[m] for m in motors}
-                # A count of rounding per wrist joint (source_model truncates).
-                wrist_cap = travel_cap_deg * source_model.COUNTS_PER_DEGREE["wrist_motor_1"] + 1
-
-                def pose_check(counts):
-                    return source_model.pose_limit_problem({**held, **counts}) or (
-                        wrist and wrist_cap_problem(counts, wrist_cap)) or None
+            def pose_check(counts):
+                delta = {**held, **counts}
+                return nominal.vendor_limit_problem({m: home[m] + delta[m]
+                                                     for m in limits.RECORDED_MOTORS}) or (
+                    wrist and wrist_cap is not None and wrist_cap_problem(counts, wrist_cap)) or None
             try:
                 core = StreamCore(
                     start,

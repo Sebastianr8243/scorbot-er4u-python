@@ -36,8 +36,8 @@ EXIT_DECLINED = bench.EXIT_DECLINED
 OperatorDeclined = bench.OperatorDeclined
 observe_leds = bench.observe_leds
 
-# Tighter than the SDK allows (10 and 5 degrees), as bench_joint's 1 degree is.
-TRAVEL_CAP_DEG = 2.0
+# Optional extra bound; vendor windows bound travel by default (not measured).
+TRAVEL_CAP_DEG = None
 LEAD_LIMIT_DEG = 2.0
 PHASE_TIMEOUT_S = 4.0       # longest wait for the arm to arrive, each way
 ARRIVED_COUNTS = 5          # ours: close enough to call it arrived
@@ -169,6 +169,8 @@ def _run() -> int:
     parser.add_argument("--delta", type=float, required=True,
                         help="Signed target in degrees from home, at most 1; the sign "
                              "means what it means for a jog of that joint")
+    parser.add_argument("--travel-cap-deg", type=float, default=TRAVEL_CAP_DEG,
+                        help="optional positive travel bound from vendor Home; default: vendor windows only")
     parser.add_argument("--hold-s", type=float, default=1.0,
                         help="Seconds to hold at the target and again at home (0.2 to 5)")
     parser.add_argument("--acknowledge-supervised-motion", action="store_true")
@@ -186,6 +188,9 @@ def _run() -> int:
         parser.error("--delta must be nonzero and at most one degree")
     if not math.isfinite(args.hold_s) or not 0.2 <= args.hold_s <= 5:
         parser.error("--hold-s must be 0.2 through 5")
+    if args.travel_cap_deg is not None and (not math.isfinite(args.travel_cap_deg)
+                                            or args.travel_cap_deg <= 0):
+        parser.error("--travel-cap-deg must be a positive finite number")
     bench.check_session_labels(parser, args)
     # Checked now: found after homing, it would leave the arm enabled for nothing.
     if find_spec("ruckig") is None:
@@ -228,9 +233,9 @@ def _run() -> int:
             with robot_class(log_path=events, robot_id=args.robot_id) as robot:
                 home_state = bench.connect_and_home(
                     robot, write, rec, prompt, command,
-                    "stopped after homing; no stream requested", inch=args.inch_home)
+                    "stopped after homing; no stream requested", inch=args.inch_home, vendor=not args.inch_home)
                 plan = dict(motor=args.motor, requested_delta_deg=args.delta,
-                            target_counts_from_home=target, travel_cap_deg=TRAVEL_CAP_DEG,
+                            target_counts_from_home=target, travel_cap_deg=args.travel_cap_deg,
                             lead_limit_deg=LEAD_LIMIT_DEG, hold_s=args.hold_s,
                             phase_timeout_s=PHASE_TIMEOUT_S, arrived_counts=ARRIVED_COUNTS)
                 write("stream_plan", **plan)
@@ -261,7 +266,7 @@ def _run() -> int:
                 command.start("start_stream", plan)
                 stream = None
                 try:
-                    with robot.start_stream(travel_cap_deg=TRAVEL_CAP_DEG,
+                    with robot.start_stream(travel_cap_deg=args.travel_cap_deg,
                                             lead_limit_deg=LEAD_LIMIT_DEG) as stream:
                         if follow(stream, args.motor, target, args.hold_s):
                             follow(stream, args.motor, 0, args.hold_s)
