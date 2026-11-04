@@ -30,4 +30,4 @@ None.
 ## Change log
 - 2026-11-04 Baseline transcribed from the user's approved review-fix brief.
 - 2026-11-04 QO06 added (a pending stop refuses the queued write, like the gripper); QO02 checks extended; pushing allowed by the mission-control brief.
-- 2026-11-04 QO07, QO08 from the Codex review of the fix commits (stop vs final send; timer-phase echoes).
+- 2026-11-04 QO07, QO08 from the second review of the fix commits (stop vs final send; timer-phase echoes).
