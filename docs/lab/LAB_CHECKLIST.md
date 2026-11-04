@@ -27,6 +27,50 @@ What the driver package says (`Driver/ERUSB.inf` and `ERUSB.sys` from the privat
 
 Any fault latches the session. After a fault, build a new instance; do not force-close.
 
+## 3a. Stack 2 command menu (run any, in any order)
+
+The ladder below is advice, not a gate: every command here runs on its own. From the repo root on the lab PC,
+in PowerShell, with `$vpy` the venv's python (`..\openScorbot\.venv\Scripts\python.exe`). Use `--transport pyusb`
+instead of `auto` after a Zadig swap. Every command that moves the arm asks for typed words first; the red
+physical stop is the only emergency stop (Ctrl+C is not). Add `--simulate` (and drop `--online`) to rehearse any of them.
+
+No motion:
+
+```powershell
+& $vpy scripts\read_timeout_check.py --online                                          # T: one read, no write
+& $vpy -m scorbot.transport.probe --transport auto --online --reads 200 --log logs\probe.jsonl   # P: 200 reads
+& $vpy scripts\follow_report.py logs\<run>.controller.jsonl                            # read a run's controller log
+```
+
+The whole ladder, or part of it:
+
+```powershell
+& $vpy scripts\lab_day.py --online --transport auto            # T, S, P, then G; stops at the first FAIL
+& $vpy scripts\lab_day.py --online --transport auto --from G   # straight to G (skips T, S, P)
+& $vpy scripts\lab_day.py --online --transport auto --x        # P also judges X (after Stack 1 left the arm off home)
+```
+
+Stack 2 vendor Home and first motion (`bring_up.py`, vendor Home by default):
+
+```powershell
+& $vpy scripts\bring_up.py --transport auto --online --logs logs\bring-up                      # vendor Home, 1 degree jog, stop
+& $vpy scripts\bring_up.py --transport auto --online --logs logs\bring-up --joint shoulder     # jog another joint
+& $vpy scripts\bring_up.py --transport auto --online --logs logs\bring-up --stream --speed-pct 25 --stream-seconds 5
+```
+
+Bench trials (each records a session; `bench_joint`/`bench_stream`/`policy_loop` home with the legacy search,
+or `--inch-home` from any pose; the same eight labels every time):
+
+```powershell
+$L = "--robot-id er4u-lab --arm-label <arm sticker> --controller-label <box sticker> --driver intelitek --operator <initials> --start-pose-note <where it is>".Split(" ")
+& $vpy examples\bench_joint.py   --output logs\joint.jsonl   @L --joint base --delta 1 --acknowledge-supervised-motion
+& $vpy examples\bench_stream.py  --output logs\stream.jsonl  @L --motor base --delta 1 --hold-s 1 --acknowledge-supervised-motion
+& $vpy examples\bench_gripper.py --output logs\gripper.jsonl @L --moves open close --acknowledge-supervised-motion
+& $vpy examples\policy_loop.py   --output logs\policy.jsonl  @L --policy reach:base=2 --steps 20 --acknowledge-supervised-motion
+```
+
+Labels with spaces need quotes, so for those type the flags out instead of using `$L`.
+
 ## 3b. Pass and fail, written before the visit
 
 `python scripts/lab_day.py --online --transport <auto|pyusb>` runs T, S, P (add `--x` for X) and G in this order (T first, as its row says) and checks each against the line below; rehearse it first with `--simulate`. H stays by hand. On the WinUSB plan run T on Intelitek's driver before Zadig (`--transport auto`; at P's GO prompt type anything else to stop there), because the runner skips T on `pyusb`.

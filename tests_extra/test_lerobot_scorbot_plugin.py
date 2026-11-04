@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "plugins" / "lerobot_robot_scorbot"))
@@ -34,12 +35,6 @@ def sim_config(tmp, confirmed=True, **kw):
 
 
 class RobotShapeTests(unittest.TestCase):
-    def test_no_default_travel_cap_and_optional_caps_have_no_ceiling(self):
-        self.assertIsNone(ScorbotRobotConfig().travel_cap_deg)
-        check_limits(0.5, None)
-        check_limits(0.5, 1000)
-        self.assertEqual(parse_script("90,0,0")[0]["base"], 90)
-
     def test_the_real_arm_is_refused(self):
         with self.assertRaises(ValueError) as caught:
             ScorbotRobot(ScorbotRobotConfig())
@@ -171,45 +166,46 @@ class SimDriveTests(unittest.TestCase):
 
 
 class TeleopMapTests(unittest.TestCase):
-    def test_keys_step_the_target_and_stop_at_the_cap(self):
+    def test_keys_step_the_target_beyond_the_old_cap(self):
         target = home()
-        target = keyboard_to_target({"delta_x": 1, "delta_y": -1, "delta_z": 0}, target, 0.5, 2.0)
+        target = keyboard_to_target({"delta_x": 1, "delta_y": -1, "delta_z": 0}, target, 0.5)
         self.assertEqual(target, {"base": 0.5, "shoulder": -0.5, "elbow": 0.0, "pitch": 0.0, "roll": 0.0,
                                   "gripper": 0.0})
         for _ in range(10):
-            target = keyboard_to_target({"delta_x": 1, "delta_y": 0, "delta_z": -1}, target, 0.5, 2.0)
-        self.assertEqual(target, {"base": 2.0, "shoulder": -0.5, "elbow": -2.0, "pitch": 0.0, "roll": 0.0,
+            target = keyboard_to_target({"delta_x": 1, "delta_y": 0, "delta_z": -1}, target, 0.5)
+        self.assertEqual(target, {"base": 5.5, "shoulder": -0.5, "elbow": -5.0, "pitch": 0.0, "roll": 0.0,
                                   "gripper": 0.0})
 
     def test_a_bigger_raw_value_is_still_one_step(self):
-        self.assertEqual(keyboard_to_target({"delta_x": 5.0}, home(), 0.5, 2.0)["base"], 0.5)
+        self.assertEqual(keyboard_to_target({"delta_x": 5.0}, home(), 0.5)["base"], 0.5)
 
     def test_the_gripper_keys_open_close_and_hold(self):
-        target = keyboard_to_target({"gripper": 2}, home(), 0.5, 2.0)      # keyboard_ee: right ctrl
+        target = keyboard_to_target({"gripper": 2}, home(), 0.5)      # keyboard_ee: right ctrl
         self.assertEqual(target, {**home(), "gripper": 100.0})
         for raw in ({"gripper": 1}, {"gripper": -1}, {"gripper": 3}, {"gripper": True}, {"gripper": "x"}, {}):
             with self.subTest(raw=raw):
-                self.assertEqual(keyboard_to_target(raw, target, 0.5, 2.0)["gripper"], 100.0)
-        self.assertEqual(keyboard_to_target({"gripper": 0}, target, 0.5, 2.0)["gripper"], 0.0)   # left ctrl
+                self.assertEqual(keyboard_to_target(raw, target, 0.5)["gripper"], 100.0)
+        self.assertEqual(keyboard_to_target({"gripper": 0}, target, 0.5)["gripper"], 0.0)   # left ctrl
 
     def test_no_key_and_bad_values_hold(self):
         start = {"base": 1.0, "shoulder": 0.0, "elbow": -1.0, "pitch": 0.5, "roll": -0.5, "gripper": 100.0}
         for raw in ({}, {"gripper": 1}, {"delta_x": float("nan")}, {"delta_x": "x"}, {"delta_x": True}):
             with self.subTest(raw=raw):
-                self.assertEqual(keyboard_to_target(raw, start, 0.5, 2.0), start)
+                self.assertEqual(keyboard_to_target(raw, start, 0.5), start)
 
     def test_action_keys(self):
         self.assertEqual(tuple(to_action(home())), KEYS)
 
     def test_limits(self):
-        for step, cap in ((0, 2), (0.6, 2), (0.5, 0), (math.nan, 2), (0.5, math.inf), (True, 2)):
-            with self.subTest(step=step, cap=cap), self.assertRaises(ValueError):
-                check_limits(step, cap)
-        check_limits(0.5, 2.0)
-        check_limits(0.1, 0.5)
+        for step in (0, 0.6, math.nan, math.inf, True):
+            with self.subTest(step=step), self.assertRaises(ValueError):
+                check_limits(step)
+        check_limits(0.5)
+        check_limits(0.1)
 
     def test_scripts(self):
         self.assertEqual(parse_script(DEFAULT_SCRIPT)[-1], home())
+        self.assertEqual(parse_script("-170,0,0,0,400")[0]["roll"], 400)
         self.assertEqual(parse_script(" 1, -0.5 ,2 "),
                          [{"base": 1.0, "shoulder": -0.5, "elbow": 2.0, "pitch": 0.0, "roll": 0.0,
                            "gripper": 0.0}])
@@ -217,15 +213,15 @@ class TeleopMapTests(unittest.TestCase):
                          [{"base": 1.0, "shoulder": -0.5, "elbow": 2.0, "pitch": 0.5, "roll": -1.0,
                            "gripper": 0.0}])
         self.assertEqual(parse_script("0,0,0,0,0,100")[0]["gripper"], 100.0)
-        for text in ("", "1,2", "1,2,3,4", "1,2,3,4,5,6,7", "a,0,0", "nan,0,0", "2.1,0,0", "0,0,0,0,2.1",
+        for text in ("", "1,2", "1,2,3,4", "1,2,3,4,5,6,7", "a,0,0", "nan,0,0",
                      "0,0,0,0,0,101", "0,0,0,0,0,-1", "0,0,0,0,0,nan",
                      "1,0,0;;0,0,0"):
             with self.subTest(text=text), self.assertRaises(ValueError):
-                parse_script(text, cap_deg=2.0)
+                parse_script(text)
 
     def test_the_walk_moves_one_step_per_call_and_visits_every_waypoint(self):
         waypoints = parse_script(DEFAULT_SCRIPT)
-        walk = script_walk(waypoints, 0.5, 2.0)
+        walk = script_walk(waypoints, 0.5)
         last, visited = home(), []
         for _ in range(40):
             target = next(walk)
@@ -236,12 +232,12 @@ class TeleopMapTests(unittest.TestCase):
         self.assertEqual(len(visited), len(waypoints))
 
     def test_step_toward_stops_at_the_goal(self):
-        self.assertEqual(step_toward(home(), {"base": 0.2}, 0.5, 2.0)["base"], 0.2)
+        self.assertEqual(step_toward(home(), {"base": 0.2}, 0.5)["base"], 0.2)
 
     def test_step_toward_sets_the_gripper_at_once(self):
-        target = step_toward(home(), {"base": 2.0, "gripper": 100.0}, 0.5, 2.0)
+        target = step_toward(home(), {"base": 2.0, "gripper": 100.0}, 0.5)
         self.assertEqual((target["base"], target["gripper"]), (0.5, 100.0))
-        self.assertEqual(step_toward(target, {"base": 2.0}, 0.5, 2.0)["gripper"], 100.0)
+        self.assertEqual(step_toward(target, {"base": 2.0}, 0.5)["gripper"], 100.0)
 
 
 class CheckCommandTests(unittest.TestCase):
@@ -255,6 +251,36 @@ class CheckCommandTests(unittest.TestCase):
 
     def test_the_script_ends_at_home(self):
         self.assertEqual(parse_script(lerobot_sim_check.SCRIPT)[-1], home())
+
+
+class ReplayCheckTests(unittest.TestCase):
+    def replay(self, recorded_base, replayed_base):
+        states = [[base, 0.0, 0.0, 0.0, 0.0, 0.0] for base in recorded_base]
+        observations = [dict(zip(KEYS, [base, 0.0, 0.0, 0.0, 0.0, 0.0])) for base in replayed_base]
+        action = [0.5, 0.0, 0.0, 0.0, 0.0, 0.0]
+        robot = mock.Mock()
+        robot.get_observation.side_effect = lambda: observations[robot.send_action.call_count]
+        with mock.patch.object(lerobot_sim_check, "rows", return_value=[(0, state, action) for state in states]), \
+                mock.patch.object(lerobot_sim_check, "make", return_value=robot), \
+                mock.patch.object(lerobot_sim_check.time, "sleep"):
+            try:
+                lerobot_sim_check.check_replay(None, "scratch")
+            finally:
+                robot.disconnect.assert_called_once_with()
+        return robot
+
+    def test_replay_reads_one_observation_before_each_action(self):
+        robot = self.replay([0.0, 0.5], [0.0, 0.5])
+        self.assertEqual(robot.get_observation.call_count, 2)
+        self.assertEqual([call[0] for call in robot.method_calls],
+                         ["connect", "get_observation", "send_action", "get_observation", "send_action", "disconnect"])
+
+    def test_replay_allows_different_progress_toward_the_same_previous_action(self):
+        self.replay([0.0, 0.1], [0.0, 0.5])
+
+    def test_replay_still_rejects_observations_too_far_from_the_previous_action(self):
+        with self.assertRaisesRegex(AssertionError, "replayed observations lag actions"):
+            self.replay([0.0, 2.1], [0.0, 2.1])
 
 
 HAVE_TWIN = HAVE_LEROBOT and find_spec("mujoco") is not None and find_spec("ruckig") is not None

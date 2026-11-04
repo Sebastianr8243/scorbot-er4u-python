@@ -1,7 +1,7 @@
 """Two LeRobot teleoperators for ScorbotRobot, found by lerobot-record once this package is installed.
 
     scorbot_joint_keys      LeRobot's keyboard_ee keys (left/right: base, up/down: shoulder, shifts: elbow) step an absolute
-                            joint target by step_deg per loop, within travel_cap_deg of home; right ctrl opens the
+                            joint target by step_deg per loop; PolicyArm applies vendor travel limits. Right ctrl opens the
                             gripper, left ctrl closes it. Needs pynput.
     scorbot_joint_scripted  walks through fixed waypoints (base,shoulder,elbow[,pitch,roll[,gripper]]) at step_deg per loop, for unattended runs and
                             examples/lerobot_sim_check.py.
@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from lerobot.teleoperators import Teleoperator, TeleoperatorConfig
 from lerobot.teleoperators.keyboard import KeyboardEndEffectorTeleop, KeyboardEndEffectorTeleopConfig
 
-from scorbot.policy_arm import DEFAULT_TRAVEL_CAP_DEG, STEP_MAX_DEG
+from scorbot.policy_arm import STEP_MAX_DEG
 
 from .robot import ACTION_KEYS
 from .teleop_map import DEFAULT_SCRIPT, check_limits, home, keyboard_to_target, parse_script, script_walk, to_action
@@ -28,10 +28,9 @@ from .teleop_map import DEFAULT_SCRIPT, check_limits, home, keyboard_to_target, 
 @dataclass
 class ScorbotJointKeysConfig(KeyboardEndEffectorTeleopConfig):
     step_deg: float = STEP_MAX_DEG                  # one loop with a key held moves the target this far
-    travel_cap_deg: float | None = DEFAULT_TRAVEL_CAP_DEG  # optional extra band around vendor Home
 
     def __post_init__(self):
-        check_limits(self.step_deg, self.travel_cap_deg)
+        check_limits(self.step_deg)
         self.use_gripper = True         # ctrl keys: gripper 0 close, 2 open, 1 stay; no wrist keys: they hold
 
 
@@ -48,8 +47,7 @@ class ScorbotJointKeys(KeyboardEndEffectorTeleop):
         return {key: float for key in ACTION_KEYS}
 
     def get_action(self) -> dict:
-        self._target = keyboard_to_target(super().get_action(), self._target, self.config.step_deg,
-                                          self.config.travel_cap_deg)
+        self._target = keyboard_to_target(super().get_action(), self._target, self.config.step_deg)
         return to_action(self._target)
 
 
@@ -58,11 +56,10 @@ class ScorbotJointKeys(KeyboardEndEffectorTeleop):
 class ScorbotJointScriptedConfig(TeleoperatorConfig):
     script: str = DEFAULT_SCRIPT        # "base,shoulder,elbow[,pitch,roll[,gripper]];..." absolute, repeated
     step_deg: float = STEP_MAX_DEG
-    travel_cap_deg: float | None = DEFAULT_TRAVEL_CAP_DEG
 
     def __post_init__(self):
-        check_limits(self.step_deg, self.travel_cap_deg)
-        self.waypoints = parse_script(self.script, self.travel_cap_deg)
+        check_limits(self.step_deg)
+        self.waypoints = parse_script(self.script)
 
 
 class ScorbotJointScripted(Teleoperator):
@@ -91,7 +88,7 @@ class ScorbotJointScripted(Teleoperator):
         return True
 
     def connect(self, calibrate: bool = True) -> None:
-        self._walk = script_walk(self.config.waypoints, self.config.step_deg, self.config.travel_cap_deg)
+        self._walk = script_walk(self.config.waypoints, self.config.step_deg)
 
     def calibrate(self) -> None:
         pass

@@ -161,7 +161,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `streaming.TRACKING`, `streaming.HOLDING`, `streaming.STOPPED`, `streaming.FAULTED`, `streaming.ENDED`, `streaming.SEND`, `streaming.STOP`, `streaming.END` | state and action names | ours | internal labels | n/a |
 | `policy_arm.MOTORS` | `limits.ARM_MOTORS` | ours | alias | n/a |
 | `policy_arm.DEFAULT_SPEED_PCT` | 25 | ours | starting stream speed, a quarter of the vendor `MaxSpeed`, matching `streaming.DEFAULT_SPEED_FRACTION` | n/a |
-| `policy_arm.DEFAULT_TRAVEL_CAP_DEG`, `policy_arm.LEAD_LIMIT_DEG`, `policy_arm.LEAD_MARGIN_DEG`, `policy_arm.STEP_MAX_DEG` | 2.0, 2.0, 1.5, 0.5 | ours | the PolicyArm clamp | n/a |
+| `policy_arm.LEAD_LIMIT_DEG`, `policy_arm.LEAD_MARGIN_DEG`, `policy_arm.STEP_MAX_DEG` | 2.0, 1.5, 0.5 | ours | the PolicyArm step and lead clamp; travel uses both nominal vendor windows after vendor Home | `VENDOR_DLL_PROTOCOL.md` section 11.5 |
 | `policy_arm.MAX_REUSE_AGE_S` | 2 x `streaming.DEFAULT_PERIOD_S` (0.048 s) | ours | how old the preceding `observe()` reading may be for `act()` to clamp against it instead of reading fresh | n/a |
 | `policy_arm.STEP_LIMITS` | ("fixed", "speed") | ours | step limit modes: "fixed" is `STEP_MAX_DEG` per call (the default); "speed" (opt-in) is what the vendor `MaxSpeed` (`streaming.VENDOR_MAX_SPEED_COUNTS_S`) at `speed_pct` covers since the last call, never above `LEAD_MARGIN_DEG` | n/a |
 | `policy_arm.WRIST_JOINTS` | ("pitch", "roll") | ours | `PolicyArm(wrist=True)` joint names, from `source_model.JOINTS`; pitch is the gripper's angle to the floor, from the two wrist motors alone | n/a |
