@@ -423,6 +423,21 @@ def closeMov(b_1, media, orden, signal_out, epout, epin, buffer, write, read):
 def stopMov(b_1, media, epout, epin, buffer, write, read):
 	media = [transform([buffer[pos], buffer[pos+1]]) for pos in VEC_POS]
 	hold = get_hold(buffer)
+	return _stop_with_hold(b_1, media, hold, epout, epin, buffer, write, read)
+
+
+# CT20: freeze the guard's trusted counts before the stop replies can update them. Never read
+# setpoints from the suspect reply or clear the guard. Same stop bytes and sleeps; arm unverified.
+def stop_at_trusted(b_1, media, epout, epin, buffer, write, read):
+	if _guard["buffer"] is not buffer or _guard["trusted"] is None:
+		raise CountJumpError("No trusted counts for this buffer; cannot build a stop")
+	counts = list(_guard["trusted"])
+	media = [(count + 0x7FFFFF) & 0xFFFF for count in counts]
+	hold = ''.join(setpointField(count) for count in counts)
+	return _stop_with_hold(b_1, media, hold, epout, epin, buffer, write, read)
+
+
+def _stop_with_hold(b_1, media, hold, epout, epin, buffer, write, read):
 	for i in range(2, 6):
 		cadena = libhex.mov_comm(i)
 		b_1 = countByte1(b_1)
