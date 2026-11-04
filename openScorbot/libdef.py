@@ -657,6 +657,12 @@ def matrizT(d, tita, a, alfa):
 # con   -> Conversion identifier
 # value -> Value to transform
 #
+# The controller's collision flag: IN byte 59, one bit per motor (0x01 base, 0x02 shoulder,
+# 0x04 elbow, 0x18 the two wrist motors, 0x20 gripper; ULPGC thesis p. 57). A jog stops only on
+# the bits of the motors it moves: the gripper's move ends against a stop, so its bit may stay set.
+COLLISION_BYTE = 59
+
+
 def conversorAngEnc(arti, conv, value):
 	if arti == 1:
 		if conv == 0:
@@ -681,9 +687,9 @@ def conversorAngEnc(arti, conv, value):
 				x = 65535 - abs(x)
 	elif arti == 4:
 		if conv == 0:
-			x = (20*value)/676
+			x = (90*value)/2511
 		elif conv == 1:
-			x = (676*value)/20
+			x = (2511*value)/90
 			if x < 0:
 				x = 65535 - abs(x)
 	elif arti == 5:

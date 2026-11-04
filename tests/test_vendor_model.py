@@ -193,13 +193,11 @@ class InverseTests(unittest.TestCase):
 
 
 class LegacyComparisonTests(unittest.TestCase):
-    def test_legacy_wrist_scale_disagrees_with_the_vendor_scale(self):
-        # Recorded, not fixed: the legacy jog planner uses 33.8 counts per
-        # degree for pitch where the vendor formula gives 27.9 per motor.
+    def test_legacy_wrist_scale_matches_the_vendor_scale(self):
         from openScorbot.motion_profile import COUNTS_PER_DEGREE
         legacy = COUNTS_PER_DEGREE["wrist_pitch"]
-        self.assertAlmostEqual(legacy, 33.8, delta=0.05)
-        self.assertGreater(legacy / vm.ER4U.counts_per_degree(3), 1.2)
+        self.assertEqual(legacy, 27.9)
+        self.assertEqual(legacy, vm.ER4U.counts_per_degree(3))
 
 
 if __name__ == "__main__":
