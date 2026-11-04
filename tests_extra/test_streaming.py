@@ -157,7 +157,8 @@ class LegacyStreamTests(unittest.TestCase):
             zero = dict.fromkeys(("base", "shoulder", "elbow"), 0)
             core = StreamCore(zero, travel_cap=dict.fromkeys(zero, 1400),
                               lead_limit=dict.fromkeys(zero, 300))
-            stream = Stream(robot, core, dict.fromkeys(JOINTS, START), None)
+            stream = Stream(robot, core, dict.fromkeys(JOINTS, START), None,
+                            home_signed=dict.fromkeys(JOINTS, START))
             core.set_target({"base": 500}, time.monotonic())
             calls = []
 
@@ -546,6 +547,25 @@ class SdkStreamTests(SimulatedRobotCase):
         with self.assertRaises(ScorbotError):
             stream.close()
 
+    # count-frame.md CT15
+    def test_one_reply_with_a_corrupt_top_byte_sends_no_setpoint_and_names_the_motor(self):
+        for motor, top in (("shoulder", 0x81), ("elbow", 0x7F)):
+            with self.subTest(motor=motor, top=top):
+                robot = self.robot()
+                stream = robot.start_stream()
+                self.assertTrue(self.follow(stream, robot, {motor: 40}))     # top byte 0x80
+                robot.sim.stream_sign_override = {motor: top}                # reads 40 +/- 65536
+                deadline = time.monotonic() + 2
+                while robot._fault is None and time.monotonic() < deadline:
+                    time.sleep(0.002)
+                self.assertRegex(robot._fault or "", f"{motor}.*corrupt reply")
+                self.assert_latched(robot)
+                index = ("base", "shoulder", "elbow").index(motor)
+                self.assertTrue(all(abs(step[index] - 40) <= 40 for step in robot.sim.stream_sent),
+                                "no setpoint from the corrupt reply")
+                with self.assertRaises(ScorbotError):
+                    stream.close()
+
     def test_r6_collision_flag_of_a_motor_not_streamed_is_ignored(self):
         robot = self.robot()
         robot.sim.stream_collision_bits = 0x20 | 0x18   # gripper and the wrist, not streamed by default
@@ -842,7 +862,7 @@ class SetpointConversionTests(unittest.TestCase):
                           lead_limit=dict.fromkeys(MOTORS, 100.0), period_s=0.001,
                           now=time.monotonic())
         self.robot = _QuietRobot()
-        stream = Stream(self.robot, core, home, None)
+        stream = Stream(self.robot, core, home, None, home_signed=dict.fromkeys(MOTORS, home_signed))
         stream._pace = lambda: None     # the conversion is the subject here, not the timing
         return stream, encode_packet
 
@@ -883,6 +903,23 @@ class SetpointConversionTests(unittest.TestCase):
         self.assertTrue(stream.fault_reported)
         stream.source(encode({}))
         self.assertEqual(self.robot.faults, ["made up"])
+
+    # count-frame.md CT15
+    def test_a_corrupt_top_byte_is_a_fault_naming_the_motor_not_a_setpoint(self):
+        # Home 1000 is raw 0x8003E7. A top byte of 0x81 or 0x7F reads 65536 away while the low word,
+        # which `measured` comes from, has not moved: before this check the setpoint jumped 65536.
+        from scorbot.streaming import MOTORS
+        for motor in MOTORS:
+            for top in (0x7F, 0x81):
+                with self.subTest(motor=motor, top=top):
+                    stream, encode = self.stream(1000)
+                    sent = self.drive(stream, encode, 1000, 30, steps=5)
+                    self.assertEqual(len(sent), 5)
+                    there = {m: 1000 + stream.steps[-1]["commanded"][m] for m in MOTORS}   # where it was sent
+                    reply = encode(there, sign_override={motor: top})
+                    self.assertEqual(stream.source(reply), ("stop",))
+                    self.assertRegex(stream.core.fault, f"{motor}.*corrupt reply")
+                    self.assertEqual(self.robot.faults, [stream.core.fault])
 
     def test_the_end_of_the_counter_range_is_a_fault_not_a_wrap(self):
         # The controller's 24-bit counter runs out at -0x7FFFFF and 0x800000

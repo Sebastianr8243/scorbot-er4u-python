@@ -319,10 +319,11 @@ class Stream:
     stop. Use it as a context manager so it always ends.
     """
 
-    def __init__(self, robot, core: StreamCore, home_counts: dict, before, *,
+    def __init__(self, robot, core: StreamCore, home_counts: dict, before, *, home_signed: dict,
                  use_emergency_bit: bool = False):
         self.robot, self.core = robot, core
         self._home = dict(home_counts)
+        self._home_signed = dict(home_signed)    # home as the controller count (stream_control's ``home``)
         self._before = before
         self._use_emergency_bit = use_emergency_bit
         self._next_step_time = None
@@ -417,6 +418,17 @@ class Stream:
                 self.core.fail(f"the controller's collision flag is set for {', '.join(hit)}")
             measured = {m: signed_count_delta(state.encoder_counts[m], self._home[m])
                         for m in self.core.motors}
+            # The setpoint below adds the reply's 24-bit count, so its top byte must agree with the low
+            # word `measured` comes from. One corrupt top byte moves the count by 65536 while the low
+            # word stays: a fault, never a setpoint (docs/requirements/count-frame.md CT15).
+            for m in self.core.motors:
+                if state.signed_encoder_counts[m] - self._home_signed[m] != measured[m]:
+                    self.core.fail(
+                        f"{m}: the reply's count {state.signed_encoder_counts[m]} (top byte "
+                        f"{state.encoder_sign_bytes[m]:#04x}) is not the {self._home_signed[m] + measured[m]} "
+                        "its low word gives: a corrupt reply, or the motor is past the reach from home; "
+                        "no setpoint sent")
+                    return (STOP,)
             errors = {m: signed_error_word(state.controller_error_counts[m]) for m in self.core.motors}
             emergency = self._use_emergency_bit and bool(reply[2] & 1)
             step = self.core.step(measured, time.monotonic(), error_counts=errors,

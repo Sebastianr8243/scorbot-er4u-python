@@ -79,6 +79,7 @@ def syncro(cola_sync, cola_read, epout, epin, buffer, command_waiting=None, setp
 # buffer    -> Vector storing the most recent read data
 #
 def msg_start(epout,epin,buffer):
+	libdef.reset_count_guard()	# a new connection: the counts may be anywhere (CT16)
 	media = []
 	vec_pos = conf.readData("general","VEC_POS")
 	for i in range(len(vec_pos)):

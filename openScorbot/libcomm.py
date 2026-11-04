@@ -64,6 +64,25 @@ VENDOR_TORQUE = 25
 #------------------------------------------------------------------------------#
 
 
+# The legacy jog keeps its joint as a low word and the sign word of 128 or 127 (libdef.get_signo), so it
+# cannot jog a joint past -65535..65536. It learns that from the reply to the open message, which has
+# already been sent: so it then sends the stop at the counts it read (libdef.stopMov), reports failure 1
+# and hands the media back for the idle loop, instead of raising with the movement open and the worker
+# dead (docs/requirements/count-frame.md CT17). Returns the sign words, or None after such a stop.
+def jog_signs(positions, b_1, media, epout, epin, buffer, write, read, cola_read, cola_orden):
+	try:
+		return [libdef.get_signo(pos, buffer) for pos in positions], b_1
+	except libdef.CountJumpError:
+		raise
+	except ValueError as exc:
+		logging.warning("Jog refused, stopping: %s", exc)
+		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
+		cola_orden.put(1)
+		logging.warning(libdef.error_msg(1))
+		cola_read.put(media)
+		return None, b_1
+
+
 # Movimiento de la cadera, separado en tres partes: inicio del movimiento,
 # incremento de los valores de encoders (sentido según orden) y fin del
 # movimiento. El movimiento depende de la velocidad, las iteraciones y la orden.
@@ -76,7 +95,10 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 	profile = motion_profile.plan_jog(orden, ang, vel)["increments"]
 	ite = len(profile)
 	step_in = media[0]
-	signo = libdef.get_signo(21, buffer)
+	signos, b_1 = jog_signs((21,), b_1, media, epout, epin, buffer, write, read, cola_read, cola_orden)
+	if signos is None:
+		return b_1
+	signo = signos[0]
 	dato_in = [step_in, signo]
 	signal_out= ''
 	stopped = False
@@ -149,7 +171,10 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 	profile = motion_profile.plan_jog(orden, ang, vel)["increments"]
 	ite = len(profile)
 	step_in = media[1]
-	signo = libdef.get_signo(26, buffer)
+	signos, b_1 = jog_signs((26,), b_1, media, epout, epin, buffer, write, read, cola_read, cola_orden)
+	if signos is None:
+		return b_1
+	signo = signos[0]
 	dato_in = [step_in, signo]
 	signal_out= ''
 	stopped = False
@@ -221,7 +246,10 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 	profile = motion_profile.plan_jog(orden, ang, vel)["increments"]
 	ite = len(profile)
 	step_in = media[2]
-	signo = libdef.get_signo(31, buffer)
+	signos, b_1 = jog_signs((31,), b_1, media, epout, epin, buffer, write, read, cola_read, cola_orden)
+	if signos is None:
+		return b_1
+	signo = signos[0]
 	dato_in = [step_in, signo]
 	signal_out= ''
 	stopped = False
@@ -295,8 +323,10 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 
 	step_in_1 = media[3]
 	step_in_2 = media[4]
-	signo_1 = libdef.get_signo(36, buffer)
-	signo_2 = libdef.get_signo(41, buffer)
+	signos, b_1 = jog_signs((36, 41), b_1, media, epout, epin, buffer, write, read, cola_read, cola_orden)
+	if signos is None:
+		return b_1
+	signo_1, signo_2 = signos
 	dato_in_1 = [step_in_1, signo_1]
 	dato_in_2 = [step_in_2, signo_2]
 	signal_out= ''
@@ -681,6 +711,7 @@ def vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 					abandon()
 				failed = True
 				break
+	libdef.reset_count_guard()	# the home's 48 re-zeroed the counters: any jump is legal (CT16)
 	cola_read.put(fresh_media(buffer))
 	if failed or io_error is not None:
 		logging.warning("The vendor-style home failed; switching the motors off")

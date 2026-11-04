@@ -40,9 +40,10 @@ from collections.abc import Generator
 from dataclasses import dataclass
 
 from .packet import PENDANT_ABORT
+from .state import COUNT_ZERO
 
-ZERO24 = 0x7FFFFF
-"""Raw 24-bit reading of a count of zero."""
+ZERO24 = COUNT_ZERO
+"""Raw 24-bit reading of a count of zero (``scorbot.state.COUNT_ZERO``, the one definition)."""
 UNUSED_SLOT = 0
 """Unused setpoint slots 6 and 7: raw zero bytes in every PL51 OUT packet."""
 

@@ -157,9 +157,23 @@ class CodecContractTests(unittest.TestCase):
             with self.subTest(step=step), self.assertRaisesRegex(ValueError, "step"):
                 codec.step_count(65535, 128, step)
 
+    def test_step_count_takes_back_every_target_it_returns(self):
+        # count-frame.md CT18: a jog target past 65535 (128 side) or below 0 (127 side) is the same count
+        # (libdef.suma/resta keep counting there, CT10), so the next step must accept it, not raise.
+        for start, step in (((65530, 128), 3), ((5, 127), -3), ((65000, 128), 100), ((300, 127), -100)):
+            with self.subTest(start=start, step=step):
+                state = start
+                count = int.from_bytes(codec.encode_count(*state), "little", signed=True)
+                for _ in range(20):
+                    state = codec.step_count(*state, step)
+                    count += step
+                    self.assertEqual(int.from_bytes(codec.encode_count(*state), "little", signed=True), count)
+                self.assertFalse(0 <= state[0] <= 65535, "the target ran past the low word")
+
     def test_step_count_rejects_bad_state(self):
-        for count, sign, step in ((-1, 128, 1), (65536, 128, 1), (0, 0, 1),
-                                  (0, 128, 1.5), (0, 128, True)):
+        for count, sign, step in ((0, 0, 1), (0, 128, 1.5), (0, 128, True), (1.0, 128, 1),
+                                  (0x800000 - 65536 * 128 + 0x7FFFFF, 128, 1),     # past the 24-bit end
+                                  (-0x7FFFFF - 65536 * 127 + 0x7FFFFF, 127, -1)):
             with self.subTest(count=count, sign=sign, step=step), self.assertRaises(ValueError):
                 codec.step_count(count, sign, step)
 

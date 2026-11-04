@@ -93,8 +93,8 @@ def review_idle(path):
     for joint in JOINTS:
         values = [state.get("encoder_counts", {}).get(joint) for state in samples]
         if values and all(type(value) is int for value in values):
-            # Measure against the first sample with the wrap-aware delta: signed
-            # counts jump by 65536 when a joint at rest jitters across 0/65535.
+            # Measure against the first sample with the wrap-aware delta: these are
+            # low words, which wrap by 65536 when a joint at rest jitters across 0/65535.
             try:
                 offsets = [signed_count_delta(value, values[0]) for value in values]
             except ValueError:

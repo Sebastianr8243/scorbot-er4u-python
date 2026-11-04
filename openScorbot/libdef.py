@@ -50,6 +50,58 @@ posRef = []
 # message, stopMov's hold, or the measured snapshot motors_on takes. libcomm.execute clears it
 # before every order and hands it on after the order (docs/protocol/LEDGER.md PL98).
 ultimo_hold = None
+# Joint names in VEC_POS order, for the messages of CountJumpError.
+JOINT_NAMES = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2", "gripper")
+
+
+# A reply whose 24-bit count disagrees with its low word: the top byte changed without the low word
+# wrapping, so the count moved by a multiple of 65536 in one reply (a corrupt reply). Raised by the
+# echo and hold builders so no setpoint is built from it (docs/requirements/count-frame.md CT16).
+class CountJumpError(ValueError):
+	pass
+
+
+# The count guard: the buffer it watches, the last count of each joint it trusted, and the joints the
+# last reply failed. Every reply passes through `check`, which judges it against the trusted counts
+# (never against the reply before, so one corrupt reply cannot make the next good one look wrong).
+_guard = {"buffer": None, "trusted": None, "suspect": {}}
+
+
+# Forget the trusted counts; the next reply is trusted as it is. For a new connection
+# (libsync.msg_start) and after the vendor home, whose `48` re-zeroes the counters.
+def reset_count_guard():
+	_guard.update(buffer=None, trusted=None, suspect={})
+
+
+# The six controller counts (raw24 - 0x7FFFFF) of the reply in buffer.
+def reply_counts(buffer):
+	return [(buffer[pos + 2] << 16 | buffer[pos + 1] << 8 | buffer[pos]) - 0x7FFFFF for pos in VEC_POS]
+
+
+# Judges the reply just read into buffer. A joint's count may move by any amount its low word moves
+# (the shortest way, under 32768 counts per reply); a change the low word does not show is suspect and
+# the trusted count is kept. A buffer the guard has not seen starts it afresh.
+def watch_counts(buffer):
+	counts = reply_counts(buffer)
+	if _guard["buffer"] is not buffer or _guard["trusted"] is None:
+		_guard.update(buffer=buffer, trusted=counts, suspect={})
+		return
+	trusted, suspect = _guard["trusted"], {}
+	for i, (now, was) in enumerate(zip(counts, trusted)):
+		if now - was == (now - was + 32768) % 65536 - 32768:
+			trusted[i] = now
+		else:
+			suspect[JOINT_NAMES[i]] = (was, now, buffer[VEC_POS[i] + 2])
+	_guard["suspect"] = suspect
+
+
+# Raises CountJumpError, naming the motors, when the last reply in buffer failed the guard.
+def refuse_jumped_counts(buffer):
+	if _guard["buffer"] is buffer and _guard["suspect"]:
+		raise CountJumpError("; ".join(
+			f"{name}: the reply's count {now} (top byte {top:#04x}) jumped from {was} without its low word "
+			"moving that far: a corrupt reply; no setpoint is built from it"
+			for name, (was, now, top) in _guard["suspect"].items()))
 
 
 # Fills the message with zeros so it reaches the specified length.
@@ -132,6 +184,7 @@ def get_media(buffer, media):
 
 # The setpoint region that echoes the smoothed positions: each joint's `media` low word with the sign
 # byte of the last reply, written as the controller count (countField).
+# A reply the count guard failed raises CountJumpError instead (watch_counts).
 #
 # The data order by joint is:
 #
@@ -141,6 +194,7 @@ def get_media(buffer, media):
 # media  -> Encoder position adjustment vector
 #
 def get_encoder(buffer, media):
+	refuse_jumped_counts(buffer)
 	msg = ''
 	vec_pos = VEC_POS
 	for i in range(len(vec_pos)):
@@ -152,12 +206,13 @@ def get_encoder(buffer, media):
 # The controller's count is raw24 - 0x7FFFFF and it reads each setpoint as a signed 32-bit count
 # (docs/protocol/VENDOR_DLL_PROTOCOL.md sections 3 and 6), so -1 is held as ffffffff and +1 as
 # 01000000, as countField writes the echo. The old echo of the low word and sign word held every count
-# one low.
+# one low. A reply the count guard failed raises CountJumpError instead (watch_counts).
 # Unverified on the arm.
 #
 # buffer -> Vector storing the most recent read data
 #
 def get_hold(buffer):
+	refuse_jumped_counts(buffer)
 	msg = ''
 	for pos in VEC_POS:
 		msg += slotHex(buffer[pos+2], transform([buffer[pos], buffer[pos+1]]))
@@ -506,6 +561,7 @@ def check(x,epout,epin,buffer, write,read):
 		time.sleep(read)
 	except Exception as exc:
 		raise RuntimeError(f"USB read failed: {exc}") from exc
+	watch_counts(buffer)
 
 
 # Converts a pair of int values into a single equivalent int.
