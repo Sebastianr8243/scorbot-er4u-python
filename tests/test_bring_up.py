@@ -87,36 +87,33 @@ class BringUpTests(unittest.TestCase):
         self.assertEqual([r["step"] for r in rows if r["event"] == "step_fail"], ["1 degree sine stream"])
 
     def test_the_settle_wait_keeps_refreshing_the_return_target(self):
-        robot = SimulatedScorbot()
-        targets = []
-        start_stream = robot.start_stream
+        clock = {"ms": 0}
+        fake_time = mock.Mock(
+            monotonic=lambda: clock["ms"] / 1000,
+            sleep=lambda seconds: clock.__setitem__("ms", clock["ms"] + round(seconds * 1000)))
+        counts = dict.fromkeys(bring_up.JOINTS, 0)
+        robot = mock.MagicMock(_home_counts=counts)
+        robot._motion_state.return_value = mock.Mock(
+            encoder_counts=counts, fault=None, collision_bits=0, home_switch_bits=0)
+        robot.preview_jog.return_value = {"motor_count_deltas": {"base": 142}}
+        stream = robot.start_stream.return_value.__enter__.return_value
 
-        class Spy:
-            def __init__(self, stream):
-                self.stream = stream
-
-            def set_target(self, target):
-                targets.append(dict(target))
-                return self.stream.set_target(target)
-
-        class Wrapper:
-            def __init__(self, context):
-                self.context = context
-
-            def __enter__(self):
-                return Spy(self.context.__enter__())
-
-            def __exit__(self, *exc):
-                return self.context.__exit__(*exc)
-
-        robot.start_stream = lambda **kw: Wrapper(start_stream(**kw))
-        # No reading counts as settled, so the wait runs its whole (shortened) time.
-        with mock.patch.object(bring_up, "SETTLE_SECONDS", 0.3), \
+        # Exercise the whole wait without shortening a real follower's return trajectory.
+        with mock.patch.object(bring_up, "time", fake_time), \
                 mock.patch.object(bring_up.limits, "STABLE_COUNTS", -1):
-            result, lines, rows = self.run_ladder(options(stream=True), lambda **kw: robot)
-        self.assertEqual(result, 0, lines)
-        back = targets[-1]
-        self.assertGreaterEqual(targets.count(back), 4)     # sent once, then again while waiting
+            bring_up._sine(robot, "base", 1, False, 0.25)
+        back = {m: 0 for m in ("base", "shoulder", "elbow")}
+        waits = round(bring_up.SETTLE_SECONDS / 0.05)
+        self.assertEqual(clock["ms"], 1000 + round(bring_up.SETTLE_SECONDS * 1000))
+        self.assertEqual(stream.set_target.call_args_list[-(waits + 1):],
+                         [mock.call(back)] * (waits + 1))     # once, then every settle poll
+
+    def test_a_return_55_counts_below_zero_is_rejected_across_the_seam(self):
+        counts = dict.fromkeys(bring_up.JOINTS, 0)
+        before = mock.Mock(encoder_counts=counts)
+        after = mock.Mock(encoder_counts={**counts, "base": 65480})
+        with self.assertRaisesRegex(bring_up.ScorbotError, "Unexpected base count change: -55; abort"):
+            bring_up._check_move(before, after, {})
 
     def test_first_injected_fault_aborts_before_home_or_jog_and_latches(self):
         controller = SimulatedController()
