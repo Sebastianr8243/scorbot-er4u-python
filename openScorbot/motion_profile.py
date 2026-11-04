@@ -114,6 +114,9 @@ def plan_jog(order, degrees, speed):
 
 
 def count_distance(a, b):
-    """Shortest distance between two raw encoder counts (modulus 65535; 0 and 65535 are equal)."""
-    gap = abs(a - b) % 65535
-    return min(gap, 65535 - gap)
+    """Shortest distance between two raw encoder low words (modulus 65536, docs/requirements/count-frame.md).
+
+    Until 2026-11-04 the modulus was 65535, which read 0 and 65535 as equal.
+    """
+    gap = abs(a - b) % 65536
+    return min(gap, 65536 - gap)

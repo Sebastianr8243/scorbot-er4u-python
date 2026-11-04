@@ -24,6 +24,8 @@ HAS_RUCKIG = find_spec("ruckig") is not None
 OPEN, STEP, MODE, CONTROL_OFF, MOTOR = 0x47, 0x0D, 0x4F, 0x73, 0x42
 STOPPED = 14
 START = 1000
+ZERO24 = 0x7FFFFF          # the controller count is raw24 - 0x7FFFFF
+START_LOW = START - 1      # its low word under sign byte 128, the form the smoothed media keeps
 
 
 class Controller:
@@ -34,16 +36,15 @@ class Controller:
         self.reply = bytearray(64)
         self.reply[1] = 13
         for offset in ENCODER_OFFSETS:
-            self.reply[offset:offset + 2] = START.to_bytes(2, "little")
-            self.reply[offset + 2] = 128
+            self.reply[offset:offset + 3] = (START + ZERO24).to_bytes(3, "little")
 
     def write(self, data, timeout):
+        # Each slot is a controller count (signed 32-bit); the reply reports it as raw24 - 0x7FFFFF.
         data = bytes(data)
         self.packets.append(data)
         for index, offset in enumerate(ENCODER_OFFSETS):
-            self.reply[offset:offset + 2] = data[12 + 4 * index:14 + 4 * index]
-            self.reply[offset + 2] = 127 if data[14 + 4 * index:16 + 4 * index] == b"\xff\xff" \
-                else 128
+            count = int.from_bytes(data[12 + 4 * index:16 + 4 * index], "little", signed=True)
+            self.reply[offset:offset + 3] = (count + ZERO24).to_bytes(3, "little")
         return len(data)
 
     def read(self, buffer, timeout):
@@ -55,9 +56,8 @@ class Controller:
 
 
 def field(packet, index):
-    """One joint's setpoint in an OUT packet, as a signed count."""
-    value = int.from_bytes(packet[12 + 4 * index:14 + 4 * index], "little")
-    return value - 65535 if packet[14 + 4 * index:16 + 4 * index] == b"\xff\xff" else value
+    """One joint's setpoint in an OUT packet: the controller count, signed 32-bit."""
+    return int.from_bytes(packet[12 + 4 * index:16 + 4 * index], "little", signed=True)
 
 
 @unittest.skipUnless(find_spec("usb"), "PyUSB is needed to import the legacy modules")
@@ -82,7 +82,7 @@ class LegacyStreamTests(unittest.TestCase):
         controller = Controller()
         buffer = bytearray(controller.reply)
         reads, results = queue.Queue(), queue.Queue()
-        reads.put([START] * len(JOINTS))
+        reads.put([START_LOW] * len(JOINTS))
         seen = []
         steps = iter(script)
 
@@ -123,14 +123,16 @@ class LegacyStreamTests(unittest.TestCase):
             self.assertEqual([field(packet, i) for i in range(5)], [1010, 990, 1005, 1100, 900])
             self.assertEqual(field(packet, 5), START)
 
-    def test_negative_setpoints_use_the_legacy_sign_form(self):
+    def test_setpoints_are_the_controller_counts_as_signed_32_bit(self):
+        # Until 2026-11-04 the old decode's form, -1 as FE FF FF FF (docs/requirements/count-frame.md).
         controller, _, _ = self.stream([("send", (-1, 0, -142)), ("end",)])
         step = controller.packets[1]
-        self.assertEqual(step[12:16], bytes([0xFE, 0xFF, 0xFF, 0xFF]))
+        self.assertEqual(step[12:16], bytes([0xFF, 0xFF, 0xFF, 0xFF]))
         self.assertEqual(step[16:20], bytes([0x00, 0x00, 0x00, 0x00]))
         self.assertEqual([field(step, i) for i in range(3)], [-1, 0, -142])
+        self.assertEqual(self.lib.setpointField(65536), "00000100")
         with self.assertRaises(ValueError):
-            self.lib.setpointField(65536)
+            self.lib.setpointField(0x800001)
 
     def test_r5_stop_ends_with_the_stop_sequence_on_the_measured_position(self):
         script = [("send", (1300, 1000, 1000)), ("stop",)]
@@ -139,10 +141,8 @@ class LegacyStreamTests(unittest.TestCase):
         self.assertEqual(results, [STOPPED])
         # the stop asks for where the arm is reported to be, not for the target
         for packet in controller.packets[2:]:
-            self.assertLessEqual(field(packet, 0), 1301)    # 1300 reported = controller count 1301
-            # reported 1000 in the legacy reading is controller count 1001 (raw24 - 0x7FFFFF); the hold
-            # writes the controller count, which field() reads in the legacy frame as 1001
-            self.assertEqual([field(packet, i) for i in (1, 2)], [1001, 1001])
+            self.assertLessEqual(field(packet, 0), 1300)
+            self.assertEqual([field(packet, i) for i in (1, 2)], [1000, 1000])
 
     @unittest.skipUnless(HAS_RUCKIG, "needs the planning extra")
     def test_teach_mode_mid_stream_sends_exactly_the_normal_stop_bytes(self):
@@ -152,7 +152,7 @@ class LegacyStreamTests(unittest.TestCase):
             controller = Controller()
             buffer = bytearray(controller.reply)
             reads, results = queue.Queue(), queue.Queue()
-            reads.put([START] * len(JOINTS))
+            reads.put([START_LOW] * len(JOINTS))
             robot = Scorbot()
             zero = dict.fromkeys(("base", "shoulder", "elbow"), 0)
             core = StreamCore(zero, travel_cap=dict.fromkeys(zero, 1400),
@@ -199,7 +199,7 @@ class LegacyStreamTests(unittest.TestCase):
         buffer = bytearray(controller.reply)
         sync, orders, reads, results = (queue.Queue() for _ in range(4))
         sync.put(1)
-        reads.put([START] * len(JOINTS))
+        reads.put([START_LOW] * len(JOINTS))
         worker = threading.Thread(
             target=self.comm.execute,
             args=(sync, orders, reads, controller, controller, buffer, results), daemon=True)
@@ -885,17 +885,16 @@ class SetpointConversionTests(unittest.TestCase):
         self.assertEqual(self.robot.faults, ["made up"])
 
     def test_the_end_of_the_counter_range_is_a_fault_not_a_wrap(self):
-        # The two-byte count with its sign byte runs out at 65535. The legacy
-        # arithmetic would wrap there; the vendor's counter is wider and does
-        # not (docs/protocol/VENDOR_DLL_PROTOCOL.md), so a wrapped setpoint would be
-        # about 65535 counts from the arm.
-        for home_signed, target in ((65500, 60), (-65500, -60)):
+        # The controller's 24-bit counter runs out at -0x7FFFFF and 0x800000
+        # (docs/requirements/count-frame.md; until 2026-11-04 this stopped at
+        # +/-65535): a setpoint past it would wrap, so it is a fault.
+        for home_signed, target in ((0x800000 - 35, 60), (-0x7FFFFF + 35, -60)):
             with self.subTest(home=home_signed):
                 stream, encode = self.stream(home_signed)
                 sent = self.drive(stream, encode, home_signed, target)
                 self.assertIn("counter range", stream.core.fault or "")
                 self.assertEqual(self.robot.faults, [stream.core.fault])
-                self.assertTrue(all(abs(value) <= 65535 for value in sent))
+                self.assertTrue(all(-0x7FFFFF <= value <= 0x800000 for value in sent))
                 self.assertTrue(all(abs(value - home_signed) <= 60 for value in sent))
 
 

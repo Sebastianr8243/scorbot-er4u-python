@@ -107,7 +107,7 @@ class LegacyIdleHoldTests(unittest.TestCase):
         last = controller.packets[-1]
         self.assertEqual(last[4], MOTOR, "the jog ended with closeMov")
         self.assertEqual(hold, last[12:36], "the hold is the setpoint region closeMov sent last")
-        target = int.from_bytes(hold[SHOULDER_REGION - 12:SHOULDER_REGION - 10], "little")
+        target = controller.slot_low_word(hold, SHOULDER_REGION - 12)
         self.assertEqual(target, max(controller.targets(SHOULDER_REGION)), "the shoulder field is the jog target")
         self.assertGreater(target, START)
         before = list(controller.position)

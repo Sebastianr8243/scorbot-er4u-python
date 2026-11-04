@@ -148,7 +148,7 @@ class WriterTests(unittest.TestCase):
             writer.log_state(state, raw_packet=bytes(packet))
             writer.log_state(asdict(state), observed_monotonic_ns=5)
         (_, first, p1), (_, second, p2) = raw_messages(writer.mcap_path)
-        self.assertEqual(p1["encoder_counts"]["base"], 1234)
+        self.assertEqual(p1["encoder_counts"]["base"], 1235)   # raw 1234 under 128 is count 1235 (CT13)
         self.assertEqual(p1["raw_packet_hex"], bytes(packet).hex())
         self.assertIsNone(p1["_rec"]["observed_monotonic_ns"])
         self.assertEqual(first.publish_time, first.log_time)

@@ -1,8 +1,8 @@
 """The legacy settle checks near the 0/65535 count seam (backlog item 5). No USB.
 
 A jog is judged settled when the measured count is within 20 of the target.
-Raw counts wrap at 65535, so a target at 0 and a reading of 65532 are 3 counts
-apart, not 65532.
+Raw low words wrap every 65536 (docs/requirements/count-frame.md), so a target at 0
+and a reading of 65532 are 4 counts apart, not 65532.
 """
 
 from importlib.util import find_spec
@@ -23,10 +23,11 @@ except ImportError:      # discovered with -s tests: the folder itself is on sys
 
 class CountDistanceTests(unittest.TestCase):
     def test_either_side_of_the_seam_is_close(self):
-        self.assertEqual(count_distance(3, 65533), 5)
-        self.assertEqual(count_distance(65533, 3), 5)
-        self.assertEqual(count_distance(0, 65535), 0)
-        self.assertEqual(count_distance(65535, 0), 0)
+        self.assertEqual(count_distance(3, 65533), 6)
+        self.assertEqual(count_distance(65533, 3), 6)
+        # One count apart: until 2026-11-04 the 65535 modulus read them as equal.
+        self.assertEqual(count_distance(0, 65535), 1)
+        self.assertEqual(count_distance(65535, 0), 1)
 
     def test_away_from_the_seam_it_is_the_plain_difference(self):
         for a in range(0, 65536, 997):
@@ -39,7 +40,7 @@ class CountDistanceTests(unittest.TestCase):
         for a in range(0, 65536, 811):
             for b in range(0, 65536, 823):
                 with self.subTest(a=a, b=b):
-                    self.assertLessEqual(count_distance(a, b), 32767)
+                    self.assertLessEqual(count_distance(a, b), 32768)
                     self.assertEqual(count_distance(a, b), count_distance(b, a))
                     try:
                         expected = abs(signed_count_delta(a, b))

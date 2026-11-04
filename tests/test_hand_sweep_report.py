@@ -15,7 +15,7 @@ JOINTS = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2", "grippe
 
 
 def sample(index, counts, bits=0, *, enabled=False, simulated=False):
-    counts = {name: counts.get(name, 0) % 65535 for name in JOINTS}
+    counts = {name: counts.get(name, 0) % 65536 for name in JOINTS}   # low words
     return {"type": "sample", "index": index, "state": {
         "encoder_counts": counts, "home_switch_bits": bits, "enabled": enabled,
         "simulated": simulated, "host_monotonic_ns": index * 100_000_000}}

@@ -83,7 +83,8 @@ _REC = {"type": "object", "description": "Recorder bookkeeping: seq, logged/obse
 PROPERTIES = {
     "scorbot.RobotState": {
         "timestamp_utc": _t("string"),
-        "encoder_counts": _joint_map("Raw unsigned 16-bit counts; wraps (sawtooth)"),
+        "encoder_counts": _joint_map("Low 16 bits of the controller count; wraps (sawtooth). "
+                                     "Logs before 2026-11-04 hold the raw low word, one less"),
         "controller_error_counts": _joint_map("Controller position error counts"),
         "home_switch_bits": _t("integer"),
         "connected": _t("boolean"),
@@ -92,11 +93,12 @@ PROPERTIES = {
         "fault": _t("string", nullable=True),
         "packet_index": _t("integer", nullable=True),
         "host_monotonic_ns": _t("integer", nullable=True),
-        "encoder_sign_bytes": {**_joint_map("Sign byte per joint: 127 or 128"),
+        "encoder_sign_bytes": {**_joint_map("Sign byte per joint: the top byte of the 24-bit raw value "
+                                            "(128 and 127 near zero)"),
                                "type": ["object", "null"]},
         "signed_encoder_counts": {**_joint_map(
-            "Sign-byte decoded counts (+/-65535); plot these, but they jump at the "
-            "0/65535 seam, so take differences from encoder_counts"),
+            "Controller counts, raw24 - 0x7FFFFF (-8388607..8388608), continuous through "
+            "zero; logs before 2026-11-04 hold the old decode, one count low above zero"),
                                   "type": ["object", "null"]},
         "simulated": _t("boolean"),
         "collision_bits": _t("integer", description=(

@@ -12,7 +12,7 @@ import time
 from dataclasses import asdict
 
 from . import limits, nominal, pacing, source_model
-from .calibration import signed_count_delta
+from .calibration import MAX_COUNTS_FROM_HOME, signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .state import RobotState
 from .streaming import MOTORS as STREAM_MOTORS
@@ -109,6 +109,18 @@ class StreamMixin:
             per_degree.update({m: 2 * source_model.COUNTS_PER_DEGREE[m] for m in motors[3:]})
             rounding = {m: 2 if m in limits.WRIST_MOTORS else 0 for m in motors}
             try:
+                home = {m: signed_count_delta(self._home_counts[m], 0) for m in limits.RECORDED_MOTORS}
+            except ValueError as exc:
+                raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
+            # The stream reads each motor from home by its low word, which aliases past 32766 counts
+            # (wrist_motor_2's vendor EncLimit is +/-1,000,000): refuse rather than misread it (CT14).
+            far = {m: before.signed_encoder_counts[m] - home[m] for m in (*motors, *limits.WRIST_MOTORS)
+                   if abs(before.signed_encoder_counts[m] - home[m]) > MAX_COUNTS_FROM_HOME}
+            if far:
+                raise ScorbotError("Cannot place the arm relative to home: "
+                                   + ", ".join(f"{m} is {v} counts from home" for m, v in far.items())
+                                   + f", past the {MAX_COUNTS_FROM_HOME} a stream can read; jog it back first")
+            try:
                 start = {m: signed_count_delta(before.encoder_counts[m], self._home_counts[m])
                          for m in motors}
                 # The wrist pitch follows the wrist motors too, and a stream without
@@ -117,7 +129,6 @@ class StreamMixin:
                         for m in limits.WRIST_MOTORS if m not in motors}
             except ValueError as exc:
                 raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
-            home = {m: signed_count_delta(self._home_counts[m], 0) for m in limits.RECORDED_MOTORS}
             window = {m: (nominal.VENDOR_ENCODER_SOFT_LIMITS[m].minimum - home[m],
                           nominal.VENDOR_ENCODER_SOFT_LIMITS[m].maximum - home[m]) for m in motors}
             travel_cap = {m: max(abs(low), abs(high)) for m, (low, high) in window.items()}

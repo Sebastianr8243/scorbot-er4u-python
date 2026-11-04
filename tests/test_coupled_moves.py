@@ -415,13 +415,14 @@ class ParkTests(SimulatedRobotCase):
     def test_park_brings_every_motor_back_to_the_home_counts(self):
         robot = self.moved_robot()
         counts = robot.get_state().signed_encoder_counts
-        self.assertGreater(abs(counts["base"] - robot._home_counts["base"]), 1000)
+        self.assertGreater(abs(counts["base"] - robot._home_counts["base"] % 65535), 1000)
         before = len(robot.sim.commands)
         result = robot.park_at_home(operator_at_stop=True)
         self.assertTrue(result["parked"], result)
         after = robot.get_state().signed_encoder_counts
-        for motor in MOTORS:
-            self.assertLessEqual(abs(after[motor] - robot._home_counts[motor]), 45, motor)
+        from scorbot.calibration import signed_count_delta
+        for motor in MOTORS:      # _home_counts holds low words (docs/requirements/count-frame.md)
+            self.assertLessEqual(abs(after[motor] - signed_count_delta(robot._home_counts[motor], 0)), 45, motor)
         self.assertIn("parked", self.events())
         orders = {c[0] for c in robot.sim.commands[before:] if c}
         self.assertTrue(orders <= ALLOWED_ORDERS, orders)
@@ -535,8 +536,8 @@ class ParkTests(SimulatedRobotCase):
     def test_wrist_roll_that_builds_up_during_a_park_faults_it(self):
         robot = self.robot()
         with robot.sim._lock:                       # a pitch displacement of 600 counts to undo
-            robot.sim.counts["wrist_motor_1"] = (robot.sim.counts["wrist_motor_1"] + 600) % 65535
-            robot.sim.counts["wrist_motor_2"] = (robot.sim.counts["wrist_motor_2"] - 600) % 65535
+            robot.sim.counts["wrist_motor_1"] += 600      # the simulator holds signed counts
+            robot.sim.counts["wrist_motor_2"] -= 600
         original = robot._command
 
         def command(payload, **kwargs):
@@ -545,11 +546,10 @@ class ParkTests(SimulatedRobotCase):
                     before = robot.sim.counts["wrist_motor_2"]
                 original(payload, **kwargs)
                 with robot.sim._lock:                # motor 2 lands 20 counts short each time
-                    moved = signed_count_delta(robot.sim.counts["wrist_motor_2"], before)
+                    moved = robot.sim.counts["wrist_motor_2"] - before
                     if abs(moved) > 20:
                         shortfall = 20 if moved > 0 else -20
-                        robot.sim.counts["wrist_motor_2"] = (
-                            robot.sim.counts["wrist_motor_2"] - shortfall) % 65535
+                        robot.sim.counts["wrist_motor_2"] -= shortfall
             else:
                 original(payload, **kwargs)
 

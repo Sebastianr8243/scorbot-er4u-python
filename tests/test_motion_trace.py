@@ -280,7 +280,7 @@ class JogTraceTests(unittest.TestCase):
         rows = rows_from_controller_log(log)
         self.assertEqual([r["direction"] for r in rows], ["out", "out", "in"])
         self.assertEqual([r["byte0"] for r in rows[:2]], [1, 2])
-        self.assertEqual(rows[2]["encoder_counts"]["base"], 5)
+        self.assertEqual(rows[2]["signed_encoder_counts"]["base"], 5)
 
 
 if __name__ == "__main__":
