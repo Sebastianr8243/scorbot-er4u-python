@@ -98,7 +98,7 @@ class CodecTests(unittest.TestCase):
         self.assertEqual(packet[6:8], b"\x34\x12")
         self.assertEqual(packet[8:12], bytes.fromhex("a6ffffff"))
         self.assertEqual(int.from_bytes(packet[16:20], "little", signed=True), -2)
-        self.assertEqual(packet[36:44], bytes.fromhex("010080ff010080ff"))   # the two unused slots, as the vendor writes them
+        self.assertEqual(packet[36:44], bytes(8))   # PL51: raw zero bytes, not ZERO24
 
     def test_the_setpoint_stream_message_is_all_nop_plus_slots(self):
         packet = vh.encode_out(vh.Out(vh.NOP, setpoints=(0,) * 6), 5)

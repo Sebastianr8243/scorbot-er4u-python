@@ -85,13 +85,12 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		value_err = libdef.getError(buffer, VEC_ERROR[0])
-		if value_err >= MAX_ERROR:
+		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x01
+		if fault:
 			print("Joint limit reached")
 			cola_orden.put(1)
 			logging.warning(libdef.error_msg(1))
-			# A stop that came with the error still ends the jog where the arm is:
-			# closeMov would command the jog target. Result 1 stays the only result.
-			stopped = stop_event is not None and stop_event.is_set()
+			stopped = True
 			break
 
 		media = libdef.get_media(buffer,media)
@@ -111,12 +110,12 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
-		if stop_event is not None and stop_event.is_set():
-			# An error in this reply is still a fault (result 1), not a clean stop.
-			value_err = libdef.getError(buffer, VEC_ERROR[0])
-			if value_err >= MAX_ERROR:
-				cola_orden.put(1)
-				logging.warning(libdef.error_msg(1))
+		value_err = libdef.getError(buffer, VEC_ERROR[0])
+		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x01
+		if fault:
+			cola_orden.put(1)
+			logging.warning(libdef.error_msg(1))
+		if fault or (stop_event is not None and stop_event.is_set()):
 			stopped = True
 			break
 		if cont == 100:
@@ -128,7 +127,7 @@ def move_hips(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, s
 
 	if stopped:
 		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-		if value_err < MAX_ERROR:
+		if not fault:
 			cola_orden.put(STOPPED)
 			logging.warning(libdef.error_msg(STOPPED))
 	else:
@@ -157,13 +156,12 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		value_err = libdef.getError(buffer, VEC_ERROR[1])
-		if value_err >= MAX_ERROR:
+		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x02
+		if fault:
 			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
-			# A stop that came with the error still ends the jog where the arm is:
-			# closeMov would command the jog target. Result 1 stays the only result.
-			stopped = stop_event is not None and stop_event.is_set()
+			stopped = True
 			break
 
 		media = libdef.get_media(buffer,media)
@@ -182,12 +180,12 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
-		if stop_event is not None and stop_event.is_set():
-			# An error in this reply is still a fault (result 1), not a clean stop.
-			value_err = libdef.getError(buffer, VEC_ERROR[1])
-			if value_err >= MAX_ERROR:
-				cola_orden.put(1)
-				logging.warning(libdef.error_msg(1))
+		value_err = libdef.getError(buffer, VEC_ERROR[1])
+		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x02
+		if fault:
+			cola_orden.put(1)
+			logging.warning(libdef.error_msg(1))
+		if fault or (stop_event is not None and stop_event.is_set()):
 			stopped = True
 			break
 		if cont == 100:
@@ -199,7 +197,7 @@ def move_shoulder(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,an
 
 	if stopped:
 		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-		if value_err < MAX_ERROR:
+		if not fault:
 			cola_orden.put(STOPPED)
 			logging.warning(libdef.error_msg(STOPPED))
 	else:
@@ -229,13 +227,12 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer, step=profile[i])
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		value_err = libdef.getError(buffer, VEC_ERROR[2])
-		if value_err >= MAX_ERROR:
+		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x04
+		if fault:
 			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
-			# A stop that came with the error still ends the jog where the arm is:
-			# closeMov would command the jog target. Result 1 stays the only result.
-			stopped = stop_event is not None and stop_event.is_set()
+			stopped = True
 			break
 
 		media = libdef.get_media(buffer,media)
@@ -254,12 +251,12 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
-		if stop_event is not None and stop_event.is_set():
-			# An error in this reply is still a fault (result 1), not a clean stop.
-			value_err = libdef.getError(buffer, VEC_ERROR[2])
-			if value_err >= MAX_ERROR:
-				cola_orden.put(1)
-				logging.warning(libdef.error_msg(1))
+		value_err = libdef.getError(buffer, VEC_ERROR[2])
+		fault = value_err >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x04
+		if fault:
+			cola_orden.put(1)
+			logging.warning(libdef.error_msg(1))
+		if fault or (stop_event is not None and stop_event.is_set()):
 			stopped = True
 			break
 		if cont == 100:
@@ -271,7 +268,7 @@ def move_elbow(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 
 	if stopped:
 		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-		if value_err < MAX_ERROR:
+		if not fault:
 			cola_orden.put(STOPPED)
 			logging.warning(libdef.error_msg(STOPPED))
 	else:
@@ -332,13 +329,12 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		value_err1 = libdef.getError(buffer, VEC_ERROR[3])
 		value_err2 = libdef.getError(buffer, VEC_ERROR[4])
 
-		if value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR:
+		fault = value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x18
+		if fault:
 			print("Joint limit reached")
 			cola_orden.put(1) #Introduce codigo de error en la ejecucion de la orden
 			logging.warning(libdef.error_msg(1))
-			# A stop that came with the error still ends the jog where the arm is:
-			# closeMov would command the jog target. Result 1 stays the only result.
-			stopped = stop_event is not None and stop_event.is_set()
+			stopped = True
 			break
 
 		media = libdef.get_media(buffer,media)
@@ -357,13 +353,13 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 		cadena += libdef.getStruct(orden, signal_out, msg)
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 		media = libdef.get_media(buffer, media)
-		if stop_event is not None and stop_event.is_set():
-			# An error in this reply is still a fault (result 1), not a clean stop.
-			value_err1 = libdef.getError(buffer, VEC_ERROR[3])
-			value_err2 = libdef.getError(buffer, VEC_ERROR[4])
-			if value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR:
-				cola_orden.put(1)
-				logging.warning(libdef.error_msg(1))
+		value_err1 = libdef.getError(buffer, VEC_ERROR[3])
+		value_err2 = libdef.getError(buffer, VEC_ERROR[4])
+		fault = value_err1 >= MAX_ERROR or value_err2 >= MAX_ERROR or buffer[libdef.COLLISION_BYTE] & 0x18
+		if fault:
+			cola_orden.put(1)
+			logging.warning(libdef.error_msg(1))
+		if fault or (stop_event is not None and stop_event.is_set()):
 			stopped = True
 			break
 		if cont == 100:
@@ -375,7 +371,7 @@ def move_wrist(b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel,ang, 
 
 	if stopped:
 		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-		if value_err1 < MAX_ERROR and value_err2 < MAX_ERROR:
+		if not fault:
 			cola_orden.put(STOPPED)
 			logging.warning(libdef.error_msg(STOPPED))
 	else:

@@ -1,6 +1,7 @@
 {
 "source":"lab USBC.dll (SHA-256 starts 6118465d) via usbc_server --online on a fake controller (pipe_server.py), Home('A') then OpenGripper, CloseGripper, OpenGripper, CloseGripper, 2026-11-01",
 "fields":"per call: header and command (bytes 1-11) as hex, 0D count, gripper setpoint per message, distinct arm setpoints",
+"unused_slots_hex":"0000000000000000",
 "calls":[
 {
 "direction":"open",

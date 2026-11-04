@@ -12,6 +12,7 @@ last ``42``, the fixture keeps:
 * ``nop_count``  how many ``0D`` messages lay between them.
 * ``gripper``    the gripper setpoint (OUT bytes 32-35, signed) of every message, ``4F`` to ``42``.
 * ``arm``        every distinct setpoint tuple of slots 0-4 in those messages.
+* ``unused_slots_hex`` at the top level: the shared OUT bytes 36-43 (slots 6 and 7).
 
 The timestamps are not kept: the fake answers in about 1 ms, and the vendor's planner advances a fixed tick per
 reply (``docs/protocol/VENDOR_DLL_PROTOCOL.md`` section 11), so wall time on the fake says nothing about the
@@ -72,9 +73,12 @@ def describe(call):
 
 def main(argv):
     source, start_line, target = argv[1], int(argv[2]), argv[3]
+    messages = load_messages(source, start_line)
+    unused_slots_hex, = {m[36:44].hex() for m in messages}
     fixture = {"source": SOURCE, "fields": "per call: header and command (bytes 1-11) as hex, 0D count, "
                                            "gripper setpoint per message, distinct arm setpoints",
-               "calls": [describe(call) for call in calls(load_messages(source, start_line))]}
+               "unused_slots_hex": unused_slots_hex,
+               "calls": [describe(call) for call in calls(messages)]}
     with open(target, "x", encoding="utf-8", newline="\n") as handle:
         json.dump(fixture, handle, indent=0, separators=(",", ":"))
         handle.write("\n")

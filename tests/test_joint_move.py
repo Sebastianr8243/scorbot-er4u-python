@@ -9,7 +9,7 @@ first supervised trial.
 import random
 import unittest
 
-from scorbot import joint_move, source_model
+from scorbot import joint_move, source_model, vendor_model
 from scorbot.calibration import signed_count_delta
 
 HOME = source_model.HOME_ANGLES
@@ -253,12 +253,11 @@ class LedgerTests(unittest.TestCase):
 
 class ConstantsTests(unittest.TestCase):
     def test_a_wrist_step_is_progress_checked_and_stays_under_the_jog_ceiling(self):
-        # A wrist jog cannot be cut short by a stop (the legacy wrist loop takes no stop event),
-        # so it is small; and it is large enough to be checked for progress.
+        # Keep the wrist step small and large enough to be checked for progress.
         step = joint_move.STEP_LIMIT_COUNTS["wrist_pitch"]
         self.assertGreaterEqual(step, joint_move.PROGRESS_CHECK_COUNTS)
         self.assertLessEqual(step, 60)
-        self.assertLessEqual(step / 33.8, 2.0)                  # legacy pitch scale, ceiling 2
+        self.assertLessEqual(step / vendor_model.ER4U.counts_per_degree(3), 5.0)  # SDK jog ceiling
 
     def test_the_thresholds_sit_around_the_legacy_settle_band(self):
         # The legacy jog ends within 20 counts of its target (libcomm settle loop).

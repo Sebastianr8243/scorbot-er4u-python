@@ -40,9 +40,8 @@ FINAL_MIN_COUNTS = 30
 # The most one jog of a coupled move asks of a motor, in counts (about a degree of the joint;
 # the wrist pitch jog moves its two motors by this many counts each, opposite ways). Larger
 # amounts are split, so the motors are never far from the coupled path. The wrist step is the
-# smallest: the legacy wrist loop takes no stop event, so a wrist jog cannot be cut short and
-# should end within about two seconds; 60 counts is also the size from which a step is
-# progress-checked, and about 1.8 legacy wrist degrees, under the jog ceiling of 2.
+# smallest: 60 counts is also the size from which a step is progress-checked,
+# and about 2.15 vendor wrist degrees, under the SDK's jog ceiling of 5.
 STEP_LIMIT_COUNTS = {"base": 150, "shoulder": 120, "elbow": 120, "wrist_pitch": 60}
 # A jog this large (in counts) must have moved at least 40 percent of what was asked, or the
 # joint is not following (a hard stop, no power): the move stops before the next jog.
