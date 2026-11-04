@@ -95,7 +95,7 @@ class CountFrameTests(unittest.TestCase):
         self.assertEqual(list(results.queue), [])
         return arm.packets, self.profile.plan_jog(order, 1.0, 10)["increments"]
 
-    # CF01
+    # CT01
     def test_after_a_stop_the_jog_keeps_every_joint_where_it_was(self):
         for mover, order, moving in MOVERS:
             for start in STARTS:
@@ -111,7 +111,7 @@ class CountFrameTests(unittest.TestCase):
                         self.assertEqual(abs(slots(packets[1])[joint] - start), abs(increments[0]),
                                          "the first step moves by the first increment, not one more")
 
-    # CF03
+    # CT03
     def test_the_jog_ends_holding_the_start_plus_the_jog(self):
         for mover, order, moving in MOVERS:
             for start in STARTS:
@@ -125,7 +125,7 @@ class CountFrameTests(unittest.TestCase):
                         else:
                             self.assertEqual(hold[joint], start, JOINTS[joint])
 
-    # CF02
+    # CT02
     def test_every_motor_on_message_carries_the_reported_counts(self):
         for counts in ([-1, 0, 1, -2, 2, 0], [-65535, 65535, 65536, -30000, 30000, 7],
                        [s for s in STARTS[:6]]):
