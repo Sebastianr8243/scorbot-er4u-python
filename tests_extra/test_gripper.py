@@ -85,8 +85,7 @@ class LegacyGripperTests(unittest.TestCase):
             with self.subTest(order=order):
                 controller, _ = self.move(order)
                 steps = [p for p in controller.packets if p[4] == STEP]
-                targets = [int.from_bytes(p[GRIPPER_REGION:GRIPPER_REGION + 2], "little")
-                           for p in steps]
+                targets = [controller.slot_low_word(p, GRIPPER_REGION) for p in steps]
                 moves = [b - a for a, b in zip([GRIP_START] + targets, targets)]
                 self.assertTrue(all(move * sign >= 0 for move in moves), "one direction only")
                 self.assertEqual(targets[-1], GRIP_START + sign * self.travel())
@@ -97,7 +96,7 @@ class LegacyGripperTests(unittest.TestCase):
         for packet in controller.packets:
             for joint in range(GRIPPER):
                 region = 12 + 4 * joint
-                self.assertEqual(int.from_bytes(packet[region:region + 2], "little"), START)
+                self.assertEqual(controller.slot_low_word(packet, region), START)
         self.assertEqual(controller.position[:GRIPPER], [START] * GRIPPER)
 
     def test_a_gripper_that_reaches_its_target_ends_normally(self):

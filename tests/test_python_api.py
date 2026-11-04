@@ -215,7 +215,8 @@ class LegacyPacketTests(unittest.TestCase):
             packet[offset + 2] = 128
         mean = legacy.get_media(packet, [100] * 6)
         self.assertTrue(all(type(value) is int for value in mean))
-        self.assertEqual(legacy.get_encoder(packet, mean), "64000000" * 6)
+        # low word 100 under sign byte 128 is controller count 101 (docs/requirements/count-frame.md)
+        self.assertEqual(legacy.get_encoder(packet, mean), "65000000" * 6)
 
     def test_motion_increments_remain_integer_for_usb_packet(self):
         legacy = Scorbot()._legacy("libdef")
