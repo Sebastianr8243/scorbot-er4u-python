@@ -158,7 +158,9 @@ class StreamCore:
         positions = [float(start[m]) for m in self.motors]
         self._input.current_position = positions
         self._input.target_position = positions
-        self._input.max_velocity = [limits.max_velocity] * len(self.motors)
+        # Plan at whole counts per period so the step guard cannot fall behind in cruise.
+        velocity = math.floor(limits.max_velocity * period_s + 1e-9) / period_s
+        self._input.max_velocity = [velocity] * len(self.motors)
         self._input.max_acceleration = [limits.max_acceleration] * len(self.motors)
         self._input.max_jerk = [limits.max_jerk] * len(self.motors)
         self._target = {m: float(start[m]) for m in self.motors}
@@ -208,7 +210,8 @@ class StreamCore:
         with self._lock:
             if self.state not in (TRACKING, HOLDING):
                 raise StreamRefused(f"the stream is {self.state}; its speed is fixed")
-            self._input.max_velocity = [limits.max_velocity] * len(self.motors)
+            velocity = math.floor(limits.max_velocity * self.period_s + 1e-9) / self.period_s
+            self._input.max_velocity = [velocity] * len(self.motors)
             # Never lower acceleration or jerk mid-stream: with less jerk, an acceleration already
             # under way takes longer to end and the speed overshoots past MaxSpeed (review 2026-11-01).
             self._input.max_acceleration = [max(a, limits.max_acceleration)
