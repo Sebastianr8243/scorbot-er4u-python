@@ -257,11 +257,12 @@ class SdkStreamTests(unittest.TestCase):
                 mock.patch.object(self.robot._commands, "put", wraps=self.robot._commands.put) as orders:
             stream = self.robot.start_stream(travel_cap_deg=None)
             stream.set_target({"base": 20})
-            begin = len(link.sent)
+            # Fail only once the stream is sending setpoints: packets counted on the link
+            # can still be idle ones from before the worker picked up the stream.
             deadline = time.monotonic() + 10
-            while len(link.sent) < begin + 5 and time.monotonic() < deadline:
+            while len(stream.steps) < 3 and time.monotonic() < deadline:
                 time.sleep(0.001)
-            self.assertGreaterEqual(len(link.sent), begin + 5)
+            self.assertGreaterEqual(len(stream.steps), 3)
             failing.set()
             deadline = time.monotonic() + 3
             while self.robot._fault is None and time.monotonic() < deadline:
@@ -301,10 +302,12 @@ class SdkStreamTests(unittest.TestCase):
         with mock.patch.object(out, "write", side_effect=write):
             stream = self.robot.start_stream(travel_cap_deg=None)
             stream.set_target({"base": 20})
-            begin = len(link.sent)
+            # Fail only once the stream is sending setpoints: packets counted on the link
+            # can still be idle ones from before the worker picked up the stream.
             deadline = time.monotonic() + 10
-            while len(link.sent) < begin + 5 and time.monotonic() < deadline:
+            while len(stream.steps) < 3 and time.monotonic() < deadline:
                 time.sleep(0.001)
+            self.assertGreaterEqual(len(stream.steps), 3)
             failing.set()
             with self.assertRaises(ScorbotError):
                 stream.close()
