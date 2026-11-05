@@ -5,12 +5,14 @@ on the simulated controller runs where Ruckig is installed (the stand-in base cl
 against a real lerobot run only where lerobot is importable; the full record and replay is the example, by hand.
 """
 
+import atexit
 from contextlib import ExitStack
 from importlib.util import find_spec
 import math
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -22,7 +24,7 @@ from examples import lerobot_sim_check  # noqa: E402
 from lerobot_robot_scorbot import robot as plugin  # noqa: E402
 from lerobot_robot_scorbot import REAL_ARM_REFUSED, ScorbotRobot, ScorbotRobotConfig  # noqa: E402
 from lerobot_robot_scorbot.teleop_map import (  # noqa: E402
-    DEFAULT_SCRIPT, check_limits, home, keyboard_to_target, parse_script, script_walk, step_toward, to_action)
+    DEFAULT_SCRIPT, check_limits, home, parse_script, script_walk, step_toward, to_action)
 
 KEYS = ("base.pos", "shoulder.pos", "elbow.pos", "pitch.pos", "roll.pos", "gripper.pos")
 HAVE_LEROBOT = find_spec("lerobot") is not None
@@ -98,8 +100,9 @@ class RealArmCleanupTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.hardware = self.stack.enter_context(mock.patch.object(plugin, "Scorbot",
                                                             side_effect=SimulatedScorbot))
-        self.register = self.stack.enter_context(mock.patch("atexit.register"))
-        self.unregister = self.stack.enter_context(mock.patch("atexit.unregister"))
+        self.atexit = self.stack.enter_context(mock.patch.object(plugin, "atexit"))
+        self.register = self.atexit.register
+        self.unregister = self.atexit.unregister
         config = sim_config(self.tmp.name, real_arm_confirmed=True, speed_pct=30, step_limit="speed")
         config.simulate = False
         self.robot = ScorbotRobot(config)
@@ -116,7 +119,8 @@ class RealArmCleanupTests(unittest.TestCase):
         controller = self.robot._arm.robot
         self.assertTrue(controller.sim.motors_on)
         self.disable = self.stack.enter_context(mock.patch.object(controller, "disable", wraps=controller.disable))
-        self.exit_cleanup = self.register.call_args.args[0]
+        self.register.assert_called_once_with(self.robot.disconnect)
+        self.exit_cleanup = self.robot.disconnect
         return controller
 
     def assert_stopped_once(self, controller):
@@ -136,6 +140,21 @@ class RealArmCleanupTests(unittest.TestCase):
         controller = self.connect()
         self.robot.disconnect()
         self.assert_stopped_once(controller)
+
+    def test_a_foreign_atexit_registration_does_not_confuse_the_hook_check(self):
+        from scorbot import SimulatedScorbot
+        stub = mock.Mock()
+        self.addCleanup(atexit.unregister, stub)
+
+        def make_controller(**kwargs):
+            controller = SimulatedScorbot(**kwargs)
+            atexit.register(stub)
+            return controller
+
+        self.hardware.side_effect = make_controller
+        controller = self.connect()
+        self.assert_stopped_once(controller)
+        stub.assert_not_called()
 
     def assert_operation_stops(self, source, error):
         controller = self.connect()
@@ -189,7 +208,8 @@ class RealArmCleanupTests(unittest.TestCase):
             disable.assert_called_once_with()
         self.assertFalse(controller.sim.motors_on)
         self.assertFalse(self.robot.is_connected)
-        self.unregister.assert_called_once_with(self.register.call_args.args[0])
+        self.register.assert_called_once_with(self.robot.disconnect)
+        self.unregister.assert_called_once_with(self.robot.disconnect)
 
     def test_arm_close_error_never_raises_or_repeats_cleanup(self):
         controller = self.connect()
@@ -206,6 +226,25 @@ class RealArmCleanupTests(unittest.TestCase):
 
 @unittest.skipUnless(find_spec("ruckig"), "needs the planning extra")
 class SimDriveTests(unittest.TestCase):
+    def test_the_twin_receives_counts_and_gripper_from_the_same_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            robot = ScorbotRobot(sim_config(tmp, cameras={}))
+            robot.connect()
+            try:
+                robot._scene = mock.Mock()
+                for gripper_pct in (0.0, 100.0):
+                    with self.subTest(gripper_pct=gripper_pct):
+                        if gripper_pct:
+                            robot.send_action({"gripper.pos": gripper_pct})
+                        robot._scene.reset_mock()
+                        with mock.patch.object(robot._arm, "observe", wraps=robot._arm.observe) as observed:
+                            obs = robot.get_observation()
+                        observed.assert_called_once_with(gripper=True)
+                        self.assertAlmostEqual(obs["gripper.pos"], gripper_pct, delta=1.0)
+                        robot._scene.set_counts.assert_called_once_with(robot._arm.counts_seen, obs["gripper.pos"])
+            finally:
+                robot.disconnect()
+
     def test_connect_observe_act_disconnect(self):
         with tempfile.TemporaryDirectory() as tmp:
             robot = ScorbotRobot(sim_config(tmp))
@@ -310,32 +349,77 @@ class SimDriveTests(unittest.TestCase):
 
 
 class TeleopMapTests(unittest.TestCase):
-    def test_keys_step_the_target_beyond_the_old_cap(self):
-        target = home()
-        target = keyboard_to_target({"delta_x": 1, "delta_y": -1, "delta_z": 0}, target, 0.5)
-        self.assertEqual(target, {"base": 0.5, "shoulder": -0.5, "elbow": 0.0, "pitch": 0.0, "roll": 0.0,
-                                  "gripper": 0.0})
-        for _ in range(10):
-            target = keyboard_to_target({"delta_x": 1, "delta_y": 0, "delta_z": -1}, target, 0.5)
-        self.assertEqual(target, {"base": 5.5, "shoulder": -0.5, "elbow": -5.0, "pitch": 0.0, "roll": 0.0,
-                                  "gripper": 0.0})
+    def test_each_joint_key_steps_exactly_its_motor_in_either_case(self):
+        from lerobot_robot_scorbot.teleop_map import JOINT_KEYS, keys_to_target
+        bindings = {"a": ("base", 1), "d": ("base", -1),
+                    "s": ("shoulder", 1), "w": ("shoulder", -1),
+                    "k": ("elbow", 1), "i": ("elbow", -1),
+                    "t": ("pitch", 1), "g": ("pitch", -1),
+                    "l": ("roll", 1), "j": ("roll", -1)}
+        self.assertEqual(JOINT_KEYS, bindings)
+        for key, (motor, sign) in bindings.items():
+            for raw in (key, key.upper()):
+                with self.subTest(key=raw):
+                    start = home()
+                    self.assertEqual(keys_to_target([raw], start, 0.5), {**home(), motor: sign * 0.5})
+                    self.assertEqual(start, home())
 
-    def test_a_bigger_raw_value_is_still_one_step(self):
-        self.assertEqual(keyboard_to_target({"delta_x": 5.0}, home(), 0.5)["base"], 0.5)
+    def test_pitch_and_roll_keys_step_and_repeated_presses_accumulate(self):
+        from lerobot_robot_scorbot.teleop_map import keys_to_target
+        target = home()
+        for _ in range(3):
+            target = keys_to_target(iter(["t", "j"]), target, 0.5)
+        self.assertEqual(target, {**home(), "pitch": 1.5, "roll": -1.5})
+
+    def test_duplicate_joint_keys_still_move_at_most_one_step(self):
+        from lerobot_robot_scorbot.teleop_map import keys_to_target
+        self.assertEqual(keys_to_target(["a", "A", "a"], home(), 0.5), {**home(), "base": 0.5})
 
     def test_the_gripper_keys_open_close_and_hold(self):
-        target = keyboard_to_target({"gripper": 2}, home(), 0.5)      # keyboard_ee: right ctrl
-        self.assertEqual(target, {**home(), "gripper": 100.0})
-        for raw in ({"gripper": 1}, {"gripper": -1}, {"gripper": 3}, {"gripper": True}, {"gripper": "x"}, {}):
-            with self.subTest(raw=raw):
-                self.assertEqual(keyboard_to_target(raw, target, 0.5)["gripper"], 100.0)
-        self.assertEqual(keyboard_to_target({"gripper": 0}, target, 0.5)["gripper"], 0.0)   # left ctrl
+        from lerobot_robot_scorbot.teleop_map import keys_to_target
+        for held in (0.0, 37.0, 100.0):
+            for pressed, want in ((["o"], 100.0), (["c"], 0.0), ([], held), (["o", "c"], held)):
+                with self.subTest(held=held, pressed=pressed):
+                    start = {**home(), "gripper": held}
+                    self.assertEqual(keys_to_target(pressed, start, 0.5), {**home(), "gripper": want})
+                    self.assertEqual(start, {**home(), "gripper": held})
 
-    def test_no_key_and_bad_values_hold(self):
+    def test_unbound_record_and_invalid_keys_hold_without_mutating_the_target(self):
+        from lerobot_robot_scorbot.teleop_map import RECORD_KEYS, keys_to_target
         start = {"base": 1.0, "shoulder": 0.0, "elbow": -1.0, "pitch": 0.5, "roll": -0.5, "gripper": 100.0}
-        for raw in ({}, {"gripper": 1}, {"delta_x": float("nan")}, {"delta_x": "x"}, {"delta_x": True}):
+        snapshot = dict(start)
+        fake_right = mock.Mock(name="Key.right")
+        fake_right.name = "right"
+        for pressed in ([], ["x", "up", "down", "shift", "ctrl"], list(RECORD_KEYS),
+                        [key.upper() for key in RECORD_KEYS], [fake_right, None, 5]):
+            with self.subTest(pressed=pressed):
+                self.assertEqual(keys_to_target(pressed, start, 0.5), snapshot)
+                self.assertEqual(start, snapshot)
+
+    def test_bindings_are_lowercase_letters_disjoint_from_record_controls(self):
+        from lerobot_robot_scorbot.teleop_map import GRIPPER_KEYS, JOINT_KEYS, RECORD_KEYS
+        self.assertEqual(GRIPPER_KEYS, {"o": 100.0, "c": 0.0})
+        self.assertIsInstance(RECORD_KEYS, frozenset)
+        self.assertEqual(RECORD_KEYS, frozenset({"right", "left", "esc", "n", "r", "q"}))
+        bindings = set(JOINT_KEYS) | set(GRIPPER_KEYS)
+        self.assertTrue(bindings.isdisjoint(RECORD_KEYS))
+        self.assertTrue(all(len(key) == 1 and "a" <= key <= "z" for key in bindings))
+
+    def test_opposite_keys_cancel(self):
+        from lerobot_robot_scorbot.teleop_map import keys_to_target
+        start = {**dict.fromkeys(home(), 1.0), "gripper": 37.0}
+        for pressed in (["a", "d"], ["s", "w"], ["k", "i"], ["t", "g"], ["l", "j"],
+                        list("adswkitglj")):
+            with self.subTest(pressed=pressed):
+                self.assertEqual(keys_to_target(pressed, start, 0.5), start)
+
+    def test_key_name_normalizes_letters_named_keys_and_invalid_values(self):
+        from lerobot_robot_scorbot.teleop_map import key_name
+        fake_up = mock.Mock()
+        fake_up.name = "up"
+        for raw, want in (("A", "a"), (fake_up, "up"), ("RIGHT", "right"), ("", ""), (None, None), (5, None)):
             with self.subTest(raw=raw):
-                self.assertEqual(keyboard_to_target(raw, start, 0.5), start)
+                self.assertEqual(key_name(raw), want)
 
     def test_action_keys(self):
         self.assertEqual(tuple(to_action(home())), KEYS)
@@ -438,6 +522,28 @@ def twin_cameras(width=160, height=120):
 
 @unittest.skipUnless(HAVE_TWIN, "needs lerobot, mujoco and ruckig (the LeRobot venv)")
 class TwinCameraTests(unittest.TestCase):
+    def test_the_twin_render_shows_the_jaw_at_the_observed_gripper_pos(self):
+        import numpy as np
+        from scorbot import mujoco_twin
+        with tempfile.TemporaryDirectory() as tmp:
+            robot = ScorbotRobot(sim_config(tmp, cameras=twin_cameras()))
+            robot.connect()
+            try:
+                closed = robot.get_observation()
+                self.assertAlmostEqual(closed["gripper.pos"], 0.0, delta=1.0)
+                for name in mujoco_twin.JAW_JOINTS:
+                    self.assertAlmostEqual(robot._scene.data.joint(name).qpos[0],
+                                           mujoco_twin.jaw_opening(closed["gripper.pos"]), delta=1e-9, msg=name)
+                robot.send_action({"gripper.pos": 100.0})
+                obs = robot.get_observation()
+                self.assertAlmostEqual(obs["gripper.pos"], 100.0, delta=1.0)
+                for name in mujoco_twin.JAW_JOINTS:
+                    self.assertAlmostEqual(robot._scene.data.joint(name).qpos[0],
+                                           mujoco_twin.jaw_opening(obs["gripper.pos"]), delta=1e-9, msg=name)
+                self.assertFalse(np.array_equal(obs["wrist"], closed["wrist"]), "opening the jaw left the wrist frame unchanged")
+            finally:
+                robot.disconnect()
+
     def test_the_twin_follows_the_commanded_pose(self):
         import time
         from scorbot import mujoco_twin, policy_arm
@@ -547,6 +653,29 @@ class TwinCameraTests(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_LEROBOT, "needs lerobot (examples/lerobot_sim_check.py in its own venv)")
 class WithLerobotTests(unittest.TestCase):
+    @unittest.skipUnless(find_spec("pynput"), "LeRobot's keyboard teleoperator needs pynput even to construct")
+    def test_keys_teleop_clears_held_keys_when_release_case_changes(self):
+        from lerobot_robot_scorbot import ScorbotJointKeys
+        from lerobot_robot_scorbot.teleop import ScorbotJointKeysConfig
+        teleop = ScorbotJointKeys(ScorbotJointKeysConfig())
+        with mock.patch.object(type(teleop), "is_connected", new_callable=mock.PropertyMock, return_value=True):
+            teleop.event_queue.put(("A", True))
+            self.assertEqual(teleop.get_action()["base.pos"], 0.5)
+            teleop.event_queue.put(("a", False))
+            self.assertEqual(teleop.get_action()["base.pos"], 0.5)
+            self.assertEqual(teleop.get_action()["base.pos"], 0.5)
+
+            teleop.event_queue.put((SimpleNamespace(name="shift"), True))
+            teleop.event_queue.put((None, True))
+            teleop.event_queue.put(("t", True))
+            self.assertEqual(teleop.get_action()["pitch.pos"], 0.5)
+            self.assertTrue(teleop.current_pressed["shift"])
+            self.assertNotIn(None, teleop.current_pressed)
+            teleop.event_queue.put(("T", False))
+            self.assertEqual(teleop.get_action()["pitch.pos"], 0.5)
+            self.assertEqual(teleop.get_action()["pitch.pos"], 0.5)
+            self.assertEqual(teleop.current_pressed, {"a": False, "shift": True, "t": False})
+
     def test_registered_and_built_by_lerobot(self):
         from lerobot.robots import Robot, RobotConfig
         from lerobot.robots.utils import make_robot_from_config
@@ -570,20 +699,24 @@ class WithLerobotTests(unittest.TestCase):
 
     @unittest.skipUnless(find_spec("pynput"), "LeRobot's keyboard teleoperator needs pynput even to construct")
     def test_keys_teleop_maps_lerobots_keyboard_action_to_joint_targets(self):
-        from unittest import mock
-        from lerobot.teleoperators.keyboard import KeyboardEndEffectorTeleop
+        from lerobot.teleoperators.keyboard import KeyboardTeleop, KeyboardTeleopConfig
         from lerobot_robot_scorbot import ScorbotJointKeys
         from lerobot_robot_scorbot.teleop import ScorbotJointKeysConfig
         teleop = ScorbotJointKeys(ScorbotJointKeysConfig())     # no connect: that needs pynput and a keyboard
+        self.assertIn(KeyboardTeleop, ScorbotJointKeys.__bases__)
+        self.assertIn(KeyboardTeleopConfig, ScorbotJointKeysConfig.__bases__)
         self.assertEqual(teleop.action_features, dict.fromkeys(KEYS, float))
-        self.assertTrue(teleop.config.use_gripper)
-        raw = {"delta_x": 1, "delta_y": 0, "delta_z": -1, "gripper": 2}
-        with mock.patch.object(KeyboardEndEffectorTeleop, "get_action", return_value=raw):
-            self.assertEqual(teleop.get_action(), {"base.pos": 0.5, "shoulder.pos": 0.0, "elbow.pos": -0.5,
-                                                   "pitch.pos": 0.0, "roll.pos": 0.0, "gripper.pos": 100.0})
-            raw["gripper"] = 1
-            self.assertEqual(teleop.get_action(), {"base.pos": 1.0, "shoulder.pos": 0.0, "elbow.pos": -1.0,
-                                                   "pitch.pos": 0.0, "roll.pos": 0.0, "gripper.pos": 100.0})
+        teleop.current_pressed = {"a": True, "t": True, "o": True, "d": False}
+        with mock.patch.object(teleop, "_drain_pressed_keys", return_value=None) as drain, \
+                mock.patch.object(type(teleop), "is_connected", new_callable=mock.PropertyMock, return_value=True):
+            self.assertEqual(teleop.get_action(), {"base.pos": 0.5, "shoulder.pos": 0.0, "elbow.pos": 0.0,
+                                                   "pitch.pos": 0.5, "roll.pos": 0.0, "gripper.pos": 100.0})
+            drain.assert_called_once_with()
+            self.assertEqual(teleop.get_action(), {"base.pos": 1.0, "shoulder.pos": 0.0, "elbow.pos": 0.0,
+                                                   "pitch.pos": 1.0, "roll.pos": 0.0, "gripper.pos": 100.0})
+            last = to_action(dict(teleop._target))
+        with mock.patch.object(type(teleop), "is_connected", new_callable=mock.PropertyMock, return_value=False):
+            self.assertEqual(teleop.get_action(), last)
 
 
 if __name__ == "__main__":

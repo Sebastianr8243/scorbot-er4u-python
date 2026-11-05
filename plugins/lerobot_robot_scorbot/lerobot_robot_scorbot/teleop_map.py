@@ -1,10 +1,11 @@
-"""Teleoperator logic that needs no lerobot, so the normal test run covers it.
+"""Letter-key and scripted targets that need no lerobot, so the normal test run covers them.
 
 Both teleoperators hold their own absolute target (degrees from home) and move it with
 ``scorbot.policy_arm.clamp``: at most ``step_deg`` per call. Vendor travel guards live on the robot,
 which knows this session's vendor Home counts; the teleoperator has no separate travel cap.
 The measured position is not known to a teleoperator, so the lead band is left to ``PolicyArm``
 on the robot side (``clamp`` is called with measured = target, which never binds).
+Letters are case-insensitive; duplicate keys count once, opposite keys cancel and record controls hold.
 """
 
 from __future__ import annotations
@@ -16,10 +17,14 @@ from scorbot.policy_arm import JOINTS, MOTORS, STEP_MAX_DEG, clamp
 from .robot import ACTION_KEYS
 
 GRIPPER = "gripper"         # 0 closed .. 100 open; ScorbotRobot thresholds it at 50
-GRIPPER_KEYS = {0: 0.0, 2: 100.0}       # keyboard_ee's "gripper": 0 left ctrl (close), 2 right ctrl (open), 1 stay
-KEY_AXES = {"delta_x": "base", "delta_y": "shoulder", "delta_z": "elbow"}     # keyboard_ee: left/right x, up/down y, shifts z
-# base,shoulder,elbow[,pitch,roll[,gripper]] waypoints (degrees, gripper 0..100); ends at home. keyboard_ee has
-# no wrist keys: they hold.
+JOINT_KEYS = {"a": ("base", 1), "d": ("base", -1),
+              "s": ("shoulder", 1), "w": ("shoulder", -1),
+              "k": ("elbow", 1), "i": ("elbow", -1),
+              "t": ("pitch", 1), "g": ("pitch", -1),
+              "l": ("roll", 1), "j": ("roll", -1)}
+GRIPPER_KEYS = {"o": 100.0, "c": 0.0}
+RECORD_KEYS = frozenset({"right", "left", "esc", "n", "r", "q"})
+# base,shoulder,elbow[,pitch,roll[,gripper]] waypoints (degrees, gripper 0..100); ends at home.
 DEFAULT_SCRIPT = "1,0,0,0,0;1,1,0,1,0;0,1,-1,1,-1;0,0,0,0,0"
 
 
@@ -44,18 +49,24 @@ def step_toward(target: dict, goal: dict, step_deg: float) -> dict[str, float]:
     return {**new, GRIPPER: goal.get(GRIPPER, target[GRIPPER])}
 
 
-def keyboard_to_target(raw: dict, target: dict, step_deg: float) -> dict[str, float]:
-    """LeRobot's keyboard_ee action (delta_x/y/z in -1..1, gripper 0/1/2) to the next absolute target. Gripper 0
-    closes, 2 opens, anything else holds. Other keys are ignored."""
-    delta = {}
-    for key, motor in KEY_AXES.items():
-        value = raw.get(key, 0)
-        delta[motor] = float(value) * step_deg if isinstance(value, (int, float)) and not isinstance(value, bool) \
-            else math.nan       # clamp holds a motor with a bad value
+def key_name(key) -> str | None:
+    """Lowercase text or a named pynput key; invalid values have no name. Needs no pynput."""
+    name = key if isinstance(key, str) else getattr(key, "name", None)
+    return name.lower() if isinstance(name, str) else None
+
+
+def keys_to_target(pressed, target: dict, step_deg: float) -> dict[str, float]:
+    """Held keys to a new absolute target. Each joint steps once, opposite keys cancel; o/c open/close,
+    both or neither hold. Unbound keys (including record controls) do nothing. Pure."""
+    held = {key_name(key) for key in pressed}
+    delta = dict.fromkeys(JOINTS, 0.0)
+    for key, (motor, sign) in JOINT_KEYS.items():
+        if key in held:
+            delta[motor] += sign * step_deg
     new, _ = clamp(delta, target, target, step_max_deg=step_deg, lead_margin_deg=math.inf)
-    key = raw.get(GRIPPER)
-    if isinstance(key, int) and not isinstance(key, bool) and key in GRIPPER_KEYS:
-        new[GRIPPER] = GRIPPER_KEYS[key]
+    gripper = held & GRIPPER_KEYS.keys()
+    if len(gripper) == 1:
+        new[GRIPPER] = GRIPPER_KEYS[gripper.pop()]
     return new
 
 
@@ -91,5 +102,5 @@ def script_walk(waypoints: list[dict], step_deg: float):
         yield dict(target)
 
 
-__all__ = ["ACTION_KEYS", "DEFAULT_SCRIPT", "GRIPPER", "GRIPPER_KEYS", "KEY_AXES", "check_limits", "home", "keyboard_to_target", "parse_script",
-           "script_walk", "step_toward", "to_action"]
+__all__ = ["ACTION_KEYS", "DEFAULT_SCRIPT", "GRIPPER", "GRIPPER_KEYS", "JOINT_KEYS", "RECORD_KEYS", "check_limits",
+           "home", "key_name", "keys_to_target", "parse_script", "script_walk", "step_toward", "to_action"]

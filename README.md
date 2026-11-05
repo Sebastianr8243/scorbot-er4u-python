@@ -44,6 +44,7 @@ Hardware claims are "unverified" until a bench log backs them.
 | Path | What it is |
 |---|---|
 | `scorbot/bridge.py` | The Python API (`Arm`, `FakeArm`), standard library only |
+| `scorbot/cli.py` | Stack 2 launcher: `scorbot doctor`, `scorbot <group> <task>` |
 | `tools/usbc_server/` | The 32-bit server that holds the DLL session |
 | `tools/usbc_home`, `usbc_jog`, `usbc_move` | One-shot lab tools through the DLL |
 | `tools/usbc_fake/` | The DLL against a fake controller (no arm) |

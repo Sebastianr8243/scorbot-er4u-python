@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (branch scorbot-launcher-158, 2026-11-04)
+
+- `scorbot` and `python -m scorbot`: a read-only setup doctor with text/JSON output and short commands for existing Stack 2 tools. Arguments and safety gates stay unchanged; Ctrl+C waits for child cleanup. `scorbot record` prints the separate LeRobot simulation command.
+
 ## Unreleased (branch move-timing, 2026-10-22)
 
 - `usbc_server` replies to a move carry `timing_s` (read, define, teach, move, settle) and to a gripper call (call, settle); `Position.timing` exposes it and `arm_latency.py` prints the median per step. No change to what the arm does. Tested against the fake DLL only; not run on the arm.

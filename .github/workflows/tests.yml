@@ -17,7 +17,37 @@ permissions:
   contents: read
 
 jobs:
+  # A pull request that changes only docs (docs/**, *.md) skips the test steps below. The unit jobs
+  # still run and report success, because stack2 requires them by name; paths-ignore would leave them
+  # pending forever. Pushes and manual runs always run everything.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      # On a pull request HEAD is the merge commit, so HEAD^1..HEAD is what the PR changes on the base.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+      - id: diff
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          echo "$changed"
+          # Docs-only means at least one file changed and every one is under docs/ or ends in .md.
+          if [ -n "$changed" ] && ! grep -qvE '^docs/|\.md$' <<< "$changed"; then
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docs-only change: unit jobs skip the test suite"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   unit:
+    needs: changes
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -28,46 +58,75 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # Python 3.12+ can trace through sys.monitoring: coverage then costs almost nothing.
+      # Empty on 3.10, where coverage uses its default tracer.
+      COVERAGE_CORE: ${{ matrix.python-version == '3.13' && 'sysmon' || '' }}
+      CODE: ${{ needs.changes.outputs.code }}
+      DOCS_CELL: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -e ".[dev]"
+      # The toolbox is large; one OS is enough for the kinematics cross-check.
+      - if: env.CODE == 'true'
+        run: python -m pip install -e ".[dev${{ matrix.os == 'ubuntu-latest' && ',kinematics' || '' }}]"
       - name: Lint (ruff, correctness rules)
+        if: env.CODE == 'true'
         run: ruff check .
       - name: Documentation check
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        if: env.DOCS_CELL == 'true'
         run: python scripts/check_docs.py
+      # The two tests that read Markdown (folder README indexes, SOURCE_AUDIT.md), so a docs-only
+      # change cannot break them unseen. Standard library only, no install needed.
+      - name: Tests that read docs (docs-only change)
+        if: env.DOCS_CELL == 'true' && env.CODE != 'true'
+        run: python -m unittest tests.test_docs_index tests.test_source_audit
       # uv.lock pins the lab PC install; fail if pyproject.toml changed without it.
       - name: uv.lock matches pyproject.toml
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        if: env.CODE == 'true' && env.DOCS_CELL == 'true'
         run: |
           python -m pip install uv
           uv lock --check
-      # The toolbox is large; one OS is enough for the kinematics cross-check.
-      - if: matrix.os == 'ubuntu-latest'
-        run: python -m pip install -e ".[dev,kinematics]"
-      - run: python -m compileall -q scorbot openScorbot scripts examples tests tests_extra
+      - if: env.CODE == 'true'
+        run: python -m compileall -q scorbot openScorbot scripts examples tests tests_extra
       # tests/ is the lab-visit gate; tests_extra/ is everything off the first-trial path.
       # CI runs both so the extras do not rot.
       - name: Tests in parallel with coverage (pytest runs the unittest suite)
+        if: env.CODE == 'true'
         run: |
           python -m coverage run -m pytest tests tests_extra
           python -m coverage combine
       - name: Coverage summary
-        if: always()
+        if: always() && env.CODE == 'true'
         run: |
           echo "### Coverage — ${{ matrix.os }}, Python ${{ matrix.python-version }}" >> "$GITHUB_STEP_SUMMARY"
           python -m coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY" || true
           python -m coverage report
+      # The lab PC runs `python -m unittest discover -s tests` (setup_windows.ps1), with no
+      # conftest, so tests/ runs for real. tests_extra/ already ran under pytest above; here it
+      # only has to import and load without pytest (a broken import would otherwise hide as a
+      # _FailedTest until run).
       - name: Plain unittest still works
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+        if: env.CODE == 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
         run: |
           python -m unittest discover -s tests
-          python -m unittest discover -s tests_extra
+          python - <<'EOF'
+          import unittest
+          loader = unittest.TestLoader()
+          def walk(suite):
+              for item in suite:
+                  yield from walk(item) if isinstance(item, unittest.TestSuite) else [item]
+          tests = list(walk(loader.discover("tests_extra")))
+          broken = [t.id() for t in tests if isinstance(t, unittest.loader._FailedTest)]
+          assert tests and not broken and not loader.errors, (broken, loader.errors)
+          print(f"tests_extra: {len(tests)} tests load under plain unittest")
+          EOF
       - name: Synthetic session smoke test
+        if: env.CODE == 'true'
         run: python examples/make_synthetic_session.py --root "${{ runner.temp }}/sessions"
       # The README quickstart: the arm API with no server and no hardware.
       - name: FakeArm quickstart
+        if: env.CODE == 'true'
         run: python -c "from scorbot.bridge import FakeArm; a = FakeArm(); a.move_by(dz=20); assert a.where().z == 220"

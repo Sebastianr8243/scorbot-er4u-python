@@ -21,6 +21,8 @@ class Check:
     name: str
     passed: bool
     detail: str
+    level: str = ""
+    fix: str = ""
 
 
 def run_checks() -> list[Check]:

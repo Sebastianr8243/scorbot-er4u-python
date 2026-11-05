@@ -235,6 +235,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `calibration.CALIBRATED_JOINTS` | base, shoulder, elbow | ours | the joints calibration fits | n/a |
 | `calibration.MAX_COUNTS_FROM_HOME` | 32766 | ours | derived: the largest offset `signed_count_delta` reads from two 16-bit low words (32767-32769 are refused as ambiguous) | `docs/requirements/count-frame.md` CT14 |
 | `mujoco_twin.CAMERAS`, `mujoco_twin._AXES` | names, axis vectors | ours | simulation twin set-up | n/a |
+| `mujoco_twin.JAW_JOINTS`, `mujoco_twin.JAW_TRAVEL_M` | names; 19.5 mm per jaw | ours | visual twin jaw: open matches the old fixed plates, closed leaves a 1 mm gap; not measured on the gripper | `docs/requirements/lerobot-teleop.md` LT06, LT07 |
 | `bridge.XYZ_UNITS_PER_MM` | 1000 | vendor | the DLL's xyz unit, read back on the fake (2026-10-20); physical scale unmeasured | **unverified** |
 | `bridge.HOST`, `bridge.PORT`, `bridge.POSITIONS`, `bridge.BOX`, `bridge.REPLY_TIMEOUT_S`, `bridge.POLL_S`, `bridge.LINE_END`, `bridge.FAILURE_CODES` | local server settings | ours | our link to `tools/usbc_server` and its exit codes | n/a |
 
@@ -254,6 +255,7 @@ None of these reach the controller.
 | `session.replay._KNOWN_OPCODES`, `session.replay._MAGIC`, `session.replay._MAX_RECORD`, `session.schemas.IMAGE_SCHEMA`, `session.replay._IDENTITY_KEYS` | MCAP opcodes and magic, Foxglove schema name | ours | the MCAP and Foxglove file formats, not the controller | n/a |
 | `camera.recorder.EMPTY_READS_BEFORE_FAILURE`, `camera.recorder.HEALTH_ROWS_KEPT`, `camera.source._BLOCK`, `camera.stream.STREAM_VERSION`, `camera.stream.STREAM_METADATA`, `camera.stream._IDENTITY` | camera settings | ours | camera recording | n/a |
 | `provenance._SOURCE_FILES` | file list | ours | which legacy files are hashed into a session's provenance | n/a |
+| `cli.REPO_ROOT`, `cli.TARGETS`, `cli.DESCRIPTIONS`, `cli.SYNC_FIX`, `cli.CALIBRATION_FIX`, `cli.DRIVER_FIX` | launcher menu and doctor fix text | ours | which existing script each `scorbot` command starts, and the fix line doctor prints | n/a |
 
 ## 3. Corrections found while tagging
 
