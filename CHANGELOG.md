@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (branch stream-usb-error-169, 2026-11-04)
+
+- #169 / ST14: a USB error mid-stream ends setpoints, attempts stop and motors-off with bounded failures, and reports a latched fault with physical-stop guidance while keeping the command worker alive. Tested with fake endpoints only; never run on the arm.
+
 ## Merged to stack2, 2026-11-01 to 2026-11-04
 
 Desk only: nothing below ran on the arm. Newest first.

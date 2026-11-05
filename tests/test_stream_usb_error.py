@@ -133,8 +133,10 @@ class LegacyStreamTests(unittest.TestCase):
         worker = threading.Thread(target=self.comm.execute, daemon=True,
                                   args=(syncs, orders, reads, wire, wire, buffer, results,
                                         threading.Event(), threading.Event()))
-        worker.start()
-        worker.join(timeout=60)
+        # EXIT's scorbotoff waits for the controller's handshake ack, which this fake does not model.
+        with mock.patch.object(self.comm, "scorbotoff", lambda *args: None):
+            worker.start()
+            worker.join(timeout=60)
         self.assertFalse(worker.is_alive())                       # it ran the exit order: not dead mid-stream
         self.assertEqual(results.get_nowait(), 1)                 # the stream failed
         self.assertEqual(results.get_nowait(), self.comm.DONE)    # and the order was still completed

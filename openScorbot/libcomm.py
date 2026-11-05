@@ -403,6 +403,10 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 #   ("end",)                           finish like a normal movement
 #   ("stop",)                          finish with the stop sequence
 # Any other answer is treated as a stop.
+# A USB error on a setpoint ends the stream without another setpoint: try stopMov, giving up
+# after IO_ABORT_TRIES more failures, then try motors_off once as vendor_home_run does. Always
+# restore the media and report result 1; never raise and skip execute's sequence hand-back and DONE.
+# Motor state remains unverified on a failing link; the physical stop may be needed.
 # No new command byte or template; the write/read delays are the base's.
 # From the vendor disassembly (docs/protocol/VENDOR_DLL_PROTOCOL.md); never run on the arm.
 #
@@ -416,6 +420,7 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 	[b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, write, read)
 	signal_out = ''
 	stopped = False
+	io_failures = 0
 	while True:
 		step = source(bytes(buffer))
 		if step[0] == "end":
@@ -430,12 +435,35 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 		cadena = libdef.fill_msg(cadena, 24)
 		msg = libdef.get_encoder(buffer, media)
 		cadena += libdef.getStruct(20, signal_out, msg)
-		if pace is None:
-			libdef.set_msg(cadena, epout, epin, buffer, write, read)
-		else:
-			libdef.set_msg(cadena, epout, epin, buffer, write, 0)
-			time.sleep(pace(b_1, bytes(buffer)))
+		try:
+			if pace is None:
+				libdef.set_msg(cadena, epout, epin, buffer, write, read)
+			else:
+				libdef.set_msg(cadena, epout, epin, buffer, write, 0)
+				time.sleep(pace(b_1, bytes(buffer)))
+		except Exception as exc:
+			io_failures = 1
+			logging.warning("USB error during the stream (%s); trying to stop the motors", exc)
+			break
 		media = libdef.get_media(buffer, media)
+
+	if io_failures:
+		while io_failures <= IO_ABORT_TRIES:
+			try:
+				[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
+			except Exception as exc:
+				io_failures += 1
+				logging.warning("Could not stop the motors after the failed stream: %s", exc)
+			else:
+				break
+		cola_read.put(media)
+		try:
+			b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
+		except Exception as exc:
+			logging.warning("Could not switch the motors off after the failed stream: %s", exc)
+			cola_read.put(fresh_media(buffer))	# motors_off took the media out and did not put it back
+		cola_orden.put(1)
+		return b_1
 
 	if stopped or signal_out == '':
 		# Nothing was sent, or a stop: end on the measured position.
