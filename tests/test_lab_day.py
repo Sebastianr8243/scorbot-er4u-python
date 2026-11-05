@@ -116,6 +116,41 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual((rows[0]["event"], rows[-1]["event"], rows[-1]["exit"]), ("lab_day_start", "lab_day_end", 3))
         self.assertTrue(all(row["data_source"] == "real" and row["simulated"] is False for row in rows))
 
+    def test_a_jog_skipped_inside_g_reaches_the_index_and_the_exit(self):
+        def bring_up_run(argv, capture):
+            logs = Path(argv[argv.index("--logs") + 1])
+            logs.mkdir(parents=True)
+            rows = [{"event": "step_skipped", "step": "shoulder velocity jog"},
+                    {"event": "step_pass", "step": "base velocity jog"}]
+            (logs / "real-1.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            return 0, ""
+        replies = iter(["GO", "GO", "GO", "ALIGNED"])
+        with tempfile.TemporaryDirectory() as parent, redirect_stdout(io.StringIO()), \
+                unittest.mock.patch.object(lab_day, "step_t", return_value=[]), \
+                unittest.mock.patch.object(lab_day, "step_s", return_value=[]), \
+                unittest.mock.patch.object(lab_day, "step_p", return_value=[]), \
+                unittest.mock.patch.object(lab_day, "step_g", lambda args, folder, ask=input, real=lab_day.step_g:
+                                           real(args, folder, bring_up_run, ask=ask)), \
+                unittest.mock.patch.object(lab_day.subprocess, "Popen", side_effect=AssertionError("real tool")), \
+                unittest.mock.patch.object(lab_day.subprocess, "run", side_effect=AssertionError("real tool")):
+            code = lab_day.main(["--online", "--transport", "pyusb", "--logs", parent], ask=lambda _: next(replies))
+            rows = day_rows(parent)
+        (g,) = [row for row in rows if row["event"] == "lab_step" and row["step"] == "G"]
+        self.assertEqual((g["result"], g["skipped"]), ("pass", ["shoulder velocity jog"]))
+        self.assertEqual((code, rows[-1]["exit"]), (3, 3))
+
+    def test_an_interrupt_still_closes_the_index(self):
+        def interrupted():
+            raise KeyboardInterrupt
+        for argv, steps, ask in ((["--simulate", "--from", "P"], {"P": interrupted}, lambda _: ""),
+                                 (["--online", "--from", "P"], {"P": list}, unittest.mock.Mock(side_effect=EOFError))):
+            with self.subTest(argv=argv), tempfile.TemporaryDirectory() as parent, redirect_stdout(io.StringIO()):
+                with self.assertRaises((KeyboardInterrupt, EOFError)):
+                    lab_day.main([*argv, "--logs", parent], ask=ask, steps=steps)
+                rows = day_rows(parent)
+                self.assertEqual(rows[-1]["event"], "lab_day_end")
+                self.assertEqual((rows[-1]["exit"], rows[-1]["interrupted"]), (130, True))
+
     def test_a_fail_is_logged_with_its_problems(self):
         ran, steps = self.recorder({"P": ["gap median 30 ms"]})
         with tempfile.TemporaryDirectory() as parent, redirect_stdout(io.StringIO()):
@@ -185,7 +220,9 @@ class SimulatedDayTests(unittest.TestCase):
             (folder,) = Path(parent).glob("lab-*")
             steps = {row["step"]: row for row in rows if row["event"] == "lab_step"}
             self.assertEqual(list(steps), list(lab_day.STEPS))
-            self.assertTrue(all(row["result"] == "pass" for row in steps.values()))
+            # T and S cannot run on the simulator: they say so, they do not pass
+            self.assertEqual({k: row["result"] for k, row in steps.items()},
+                             {"T": "n/a", "S": "n/a", "P": "pass", "G": "pass"})
             self.assertTrue(all(row["data_source"] == "simulated" for row in rows))
             self.assertEqual(steps["P"]["logs"], ["probe-reads.jsonl"])
             (bring_up_log,) = steps["G"]["logs"]
@@ -205,6 +242,7 @@ class SimulatedDayTests(unittest.TestCase):
         for axis in ("base", "shoulder", "elbow"):
             self.assertIn(f"{axis} velocity jog: out", text)
         self.assertIn("G pass", text)
+        self.assertIn("T n/a", text)
 
     def test_the_sheet_says_which_steps_and_jogs_were_skipped(self):
         stamp = {"timestamp_utc": "2026-11-05T00:00:00+00:00", "data_source": "simulated", "simulated": True}
@@ -232,6 +270,44 @@ class SimulatedDayTests(unittest.TestCase):
         self.assertIn("base velocity jog: out -61 counts, back +61 counts (stop)", text)
         self.assertIn("shoulder velocity jog: skipped", text)
         self.assertIn("elbow velocity jog: not in the logs", text)
+
+    def test_the_sheet_refuses_index_paths_outside_its_folder(self):
+        stamp = {"timestamp_utc": "2026-11-05T00:00:00+00:00", "data_source": "simulated", "simulated": True}
+        jog = [{"event": "velocity_jog_complete", "joint": "base", "speed": 5, "reason": "stop",
+                "setpoint_counts": -61, **stamp}]
+        with tempfile.TemporaryDirectory() as parent:
+            folder = Path(parent) / "lab-1"
+            folder.mkdir()
+            (Path(parent) / "outside.jsonl").write_text(json.dumps(jog[0]) + "\n", encoding="utf-8")
+            day = [{"event": "lab_day_start", **stamp},
+                   {"event": "lab_step", "step": "G", "result": "pass", "problems": [],
+                    "logs": ["../outside.jsonl"], **stamp}]
+            (folder / "lab-day.jsonl").write_text("".join(json.dumps(r) + "\n" for r in day), encoding="utf-8")
+            with redirect_stdout(io.StringIO()) as out:
+                lab_summary.main([str(folder / "lab-day.jsonl"), "--sheet"])
+        text = out.getvalue()
+        self.assertIn("outside the lab-day folder", text)
+        self.assertIn("base velocity jog: not in the logs", text)
+
+    def test_the_sheet_pairs_out_and_back_within_one_log_by_sign(self):
+        stamp = {"timestamp_utc": "2026-11-05T00:00:00+00:00", "data_source": "simulated", "simulated": True}
+
+        def out_only(counts):
+            return [{"event": "velocity_jog_complete", "joint": "base", "speed": 5, "reason": "stop",
+                     "setpoint_counts": counts, **stamp}]
+        day = [{"event": "lab_day_start", **stamp},
+               {"event": "lab_step", "step": "G", "result": "pass", "problems": [],
+                "logs": ["bring-up/a.jsonl", "bring-up/b.jsonl"], **stamp}]
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "bring-up").mkdir()
+            for name, rows in (("lab-day.jsonl", day), ("bring-up/a.jsonl", out_only(-61)),
+                               ("bring-up/b.jsonl", out_only(-62))):
+                (Path(folder) / name).write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            with redirect_stdout(io.StringIO()) as out:
+                lab_summary.main([str(Path(folder) / "lab-day.jsonl"), "--sheet"])
+        text = out.getvalue()
+        self.assertNotIn("back -62", text)
+        self.assertIn("base velocity jog: out -62 counts, no back jog (stop)", text)
 
 
 class StepTests(unittest.TestCase):
@@ -263,6 +339,17 @@ class StepTests(unittest.TestCase):
                 self.assertIn("--velocity-jog", calls[0])
                 self.assertIn(mode, calls[0])
                 self.assertNotIn("--online" if simulate else "--simulate", calls[0])
+
+    def test_steps_that_cannot_run_here_say_so(self):
+        run = lambda argv, capture: (0, "PASS")                          # noqa: E731
+        with redirect_stdout(io.StringIO()):
+            skipped = lab_day.step_t(SimpleNamespace(simulate=False, transport="pyusb"), run)
+            ran = lab_day.step_t(SimpleNamespace(simulate=False, transport="auto"), run)
+            simulated_s = lab_day.step_s(SimpleNamespace(simulate=True, transport="auto"))
+        self.assertIsInstance(skipped, lab_day.NotRun)
+        self.assertIsInstance(simulated_s, lab_day.NotRun)
+        self.assertEqual((list(skipped), skipped.reason != ""), ([], True))
+        self.assertNotIsInstance(ran, lab_day.NotRun)
 
     def test_g_passes_only_when_the_operator_types_aligned(self):
         run = lambda argv, capture: (0, "")                              # noqa: E731

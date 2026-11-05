@@ -77,6 +77,25 @@ class BringUpTests(unittest.TestCase):
         self.assertEqual(jogged, {"base", "elbow"})
         self.assertTrue(any("SKIPPED shoulder velocity jog" in line for line in lines))
 
+    def test_a_velocity_jog_that_ends_by_itself_is_a_fail(self):
+        robot = SimulatedScorbot()
+
+        class EndedAtTheWindow:
+            reason = "limit"
+
+            def renew(self):
+                pass
+
+            def stop(self):
+                return robot._motion_state()
+
+        with mock.patch.object(robot, "start_velocity_jog", return_value=EndedAtTheWindow()):
+            result, lines, rows = self.run_ladder(options(velocity_jog=True), lambda **kw: robot)
+        self.assertEqual(result, 1, lines)
+        (fail,) = [row for row in rows if row["event"] == "step_fail"]
+        self.assertEqual(fail["step"], "base velocity jog")
+        self.assertIn("limit", fail["error"])
+
     def test_without_the_flag_there_is_no_velocity_jog(self):
         result, _, rows = self.run_ladder(options(), lambda **kw: SimulatedScorbot())
         self.assertEqual(result, 0)
