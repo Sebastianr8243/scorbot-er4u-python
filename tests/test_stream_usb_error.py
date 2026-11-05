@@ -132,6 +132,23 @@ class LegacyStreamTests(unittest.TestCase):
                 self.assertEqual([p[12:36] for p in recovery], [hold] * 30)
                 self.assertEqual(bytes(buffer), bytes(answer()))   # the caller's buffer was restored in place
 
+    def test_a_short_motors_off_read_restores_the_last_complete_reply_and_media(self):
+        for buffer in (answer(), array("B", answer())):
+            with self.subTest(buffer=type(buffer).__name__):
+                self.libdef.reset_count_guard()
+                # The stream read fails, then four stop replies succeed before motors-off fails.
+                wire = ShortReadWire(FAIL_AT, FAIL_AT + 5)
+                reads, results, _ = self.run_stream(wire, buffer=buffer)
+                self.assertEqual(results.get_nowait(), 1)
+                self.assertEqual(wire.reads, FAIL_AT + 5)
+                self.assertTrue(self.matches(wire.sent[-1], self.libhex.motorsoff(1)))
+                media = reads.get_nowait()
+                self.assertTrue(reads.empty())
+                self.assertEqual(media, self.comm.fresh_media(answer()))
+                echo = bytes.fromhex(self.libdef.get_encoder(buffer, media))
+                self.assertEqual(int.from_bytes(echo[:4], "little", signed=True), 1)
+                self.assertEqual(bytes(buffer), bytes(answer()))
+
     def test_a_failed_stop_read_consumes_its_packet_id_and_retries_that_message(self):
         for sequence in (1, 248):     # also cross 255 -> 1 during recovery
             with self.subTest(sequence=sequence):

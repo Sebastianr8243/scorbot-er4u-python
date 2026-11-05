@@ -480,9 +480,11 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 		else:
 			libdef.ultimo_hold = bytes.fromhex(hold)
 		cola_read.put(media)
+		last_reply = buffer[:]
 		try:
 			b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
 		except Exception as exc:
+			buffer[:] = last_reply
 			logging.warning("Could not switch the motors off after the failed stream: %s", exc)
 			cola_read.put(fresh_media(buffer))	# motors_off took the media out and did not put it back
 		cola_orden.put(1)
