@@ -151,8 +151,8 @@ class ScorbotRobot(Robot):
             if twins:
                 from .sim_cameras import TwinScene
                 self._scene = TwinScene()
-                arm.observe()
-                self._scene.set_counts(arm.counts_seen)
+                observed = arm.observe(gripper=True)
+                self._scene.set_counts(arm.counts_seen, observed["gripper"])
                 for cam in twins:
                     cam.attach(self._scene)
             for cam in self.cameras.values():
@@ -167,7 +167,7 @@ class ScorbotRobot(Robot):
         try:
             obs = {m + SUFFIX: value for m, value in self._arm.observe(gripper=True).items()}
             if self._scene is not None:      # images show the pose in the same reading
-                self._scene.set_counts(self._arm.counts_seen)
+                self._scene.set_counts(self._arm.counts_seen, obs[GRIPPER_KEY])
             for name, cam in self.cameras.items():
                 obs[name] = cam.async_read()
             return obs

@@ -4,9 +4,9 @@
 drawings share one set of numbers (manual, vendor INI and community CAD placements; none measured
 on our arm). It imports nothing beyond the standard library; only ``load()`` needs ``mujoco``
 (``pip install mujoco``, not a dependency of this package). Wired into no motion command: the
-LeRobot plugin's twin cameras pose it to follow the simulator (``chain_angles``, ``set_pose``).
+LeRobot plugin's twin cameras pose it to follow the simulator (``chain_angles``, ``set_pose``, ``set_jaw``).
 Joint angles are ``arm_chain``'s convention (degrees, zero = arm stretched out level), not
-degrees from home. The gripper is fixed open: driving it is a later step.
+degrees from home. Two sliding jaw plates follow the observed gripper percent (nominal travel, unmeasured).
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from .arm_chain import JOINTS, MESH_MODEL, ChainGeometry
 from .nominal import AXIS_RANGES
 
 CAMERAS = ("front", "wrist")
+JAW_JOINTS = ("jaw_left", "jaw_right")
+JAW_TRAVEL_M = 0.024 - 0.004 - 0.0005     # old open centres; 4 mm half-thickness, 1 mm closed gap
 _AXES = {"base": "0 0 1", "shoulder": "0 -1 0", "elbow": "0 -1 0", "wrist_pitch": "0 -1 0",
          "wrist_roll": "1 0 0"}
 
@@ -48,6 +50,7 @@ def mjcf(geometry: ChainGeometry = MESH_MODEL) -> str:
     j = {name: f'<joint name="{name}" axis="{_AXES[name]}" range="{_range(name)}"/>'
          for name in JOINTS}
     act = "".join(f'<position name="{n}" joint="{n}" kp="400" forcerange="-200 200"/>' for n in JOINTS)
+    act += "".join(f'<position name="{n}" joint="{n}" kp="4000" forcerange="-20 20"/>' for n in JAW_JOINTS)
     meshes = (_taper("turret", -78, 92, 150, 140, 120, 140, zc=70)
               + _taper("upper_arm", -24, G["upper_arm_mm"] + 10, 66, 76, 54, 58)
               + _taper("forearm", -12, G["forearm_mm"] - 6, 54, 50, 42, 38))
@@ -101,8 +104,14 @@ def mjcf(geometry: ChainGeometry = MESH_MODEL) -> str:
                 {j['wrist_roll']}
                 <geom type="cylinder" fromto="0.012 0 0 0.046 0 0" size="0.024"/>
                 <geom type="box" pos="0.069 0 0" size="0.023 0.034 0.015" material="motor"/>
-                <geom type="box" pos="{(0.092 + t) / 2} 0.024 0" size="{(t - 0.092) / 2} 0.004 0.011" material="plate"/>
-                <geom type="box" pos="{(0.092 + t) / 2} -0.024 0" size="{(t - 0.092) / 2} 0.004 0.011" material="plate"/>
+                <body name="jaw_left" pos="{(0.092 + t) / 2} {0.024 - JAW_TRAVEL_M} 0">
+                  <joint name="jaw_left" type="slide" axis="0 1 0" range="0 {JAW_TRAVEL_M}"/>
+                  <geom type="box" size="{(t - 0.092) / 2} 0.004 0.011" material="plate"/>
+                </body>
+                <body name="jaw_right" pos="{(0.092 + t) / 2} {-0.024 + JAW_TRAVEL_M} 0">
+                  <joint name="jaw_right" type="slide" axis="0 -1 0" range="0 {JAW_TRAVEL_M}"/>
+                  <geom type="box" size="{(t - 0.092) / 2} 0.004 0.011" material="plate"/>
+                </body>
                 <site name="tool" pos="{t} 0 0" size="0.006" group="4"/>
                 <camera name="wrist" pos="0.105 0 0.035" xyaxes="0 -1 0 0.5 0 0.866" fovy="70"/>
               </body>
@@ -143,4 +152,27 @@ def set_pose(model, data, q_deg) -> None:
     for name, deg in zip(JOINTS, q_deg, strict=True):
         data.qpos[model.jnt_qposadr[model.joint(name).id]] = math.radians(deg)
         data.ctrl[model.actuator(name).id] = math.radians(deg)      # the actuators hold it if stepped
+    mujoco.mj_forward(model, data)
+
+
+def jaw_opening(pct) -> float:
+    """Gripper percent (0 closed, 100 open) to each jaw's travel in metres, clamped. Pure.
+    None, NaN and other non-finite values raise ValueError."""
+    try:
+        value = float(pct)
+    except (TypeError, ValueError):
+        raise ValueError(f"gripper percent must be finite, got {pct!r}") from None
+    if not math.isfinite(value):
+        raise ValueError(f"gripper percent must be finite, got {pct!r}")
+    return max(0.0, min(100.0, value)) / 100.0 * JAW_TRAVEL_M
+
+
+def set_jaw(model, data, pct) -> None:
+    """Pose both jaw plates from gripper percent and set their holding targets. No physics step;
+    needs ``mujoco``."""
+    import mujoco
+    opening = jaw_opening(pct)
+    for name in JAW_JOINTS:
+        data.qpos[model.jnt_qposadr[model.joint(name).id]] = opening
+        data.ctrl[model.actuator(name).id] = opening
     mujoco.mj_forward(model, data)

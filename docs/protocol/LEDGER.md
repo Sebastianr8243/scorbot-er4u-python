@@ -172,6 +172,15 @@ Lab build addresses (`6118465d`); details and the full table in `DLL_ERROR_CODES
 | PL112 | **Emergency and link loss come from the monitor loop.** Reply byte 2 bit 0 turning on makes `0x10019dfc` call `Control('&', 0)` and report 300; turning off reports 301. After initialisation, a USB write failure (`0x1008aa24` = 0) makes it stop the link and report 20 once | reversed | E3 | `0x10019dfc`, `0x1000b210`, USB loop `0x1003ccc8` |
 | PL113 | **Reply byte 59 is an error only while homing.** The homing routines (`0x1000805b`, `0x1000823d`, `0x1000ad0c`) return 201 when any bit of byte 59 is set after an axis drive. The only other readers are `SetParameter` and `SetParameterFolder`, which switch control back on when it is set, and the USB loop's log. During moves, 201 comes only from the error word against `ImpactDetect` (PL98), and from the `Impact` export, which works only offline or in simulation. Error 563 has no raise site in the lab build | reversed | E3 | the ten call sites of `0x1000b240`; `Impact` `0x1001ca7a` |
 
+## Count conversion in the lab build (2026-11-04, issue #152 item 4)
+
+Lab build addresses (`6118465d`); details in `VENDOR_DLL_PROTOCOL.md` section 10.7 and the bench list in `docs/lab/PHYSICAL_CALIBRATION.md`. Unverified on the arm.
+
+| ID | Claim | Status | Level | Source |
+|---|---|---|---|---|
+| PL114 | **The lab build converts counts and angles as `vendor_model.py` does.** Counts to joints is `0x1003026b`, joints to counts `0x10030d62`, scales `0x100068cf`. Each matches the 2018 functions term for term, including the truncating halvings and `__ftol`. The ER-4u path is taken because `SystemType` defaults to `0x29` (the `0x24` / `0xEC` one-wrist path is not). New in this read: an `AxisType` bit 0 axis is scaled per 90 degrees instead of per pi/2; no ER-4u axis has it | reversed | E3 | the three functions and their assembly; `0x1002f52e`, `0x10002a38` |
+| PL115 | **All five lab parameter sets give the same conversion and home.** `$2kg`, `$3kg`, `$CURRENT`, `$Default` and `$MaxSpeed` share `[Gearing]` `1, -1, -1, 1`. They share `NoEnc90` -12770, -10216, 10216, 2511, 2511, `HorizPos` 0, -13653, -10786, -1773, 0, and `[Homing] Offset` 0, -190, 45, 850, -690, 0 (axes 1 to 6). So after a vendor Home the DLL's model puts the upper arm at -120.28, the forearm at -25.26 and the gripper at +63.55 degrees to its horizontal | reversed (parameter files) | E3 | lab tree `er4u/*/ROB_4u.INI`, `ER4Ax1-6.ini` (outside the repo) |
+
 ## Driver (`ERUSB.sys`, sha256 `1da14fca...bdad3`)
 
 | ID | Claim | Status | Level | Source |
