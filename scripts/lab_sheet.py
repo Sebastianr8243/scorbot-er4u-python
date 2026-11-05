@@ -3,7 +3,8 @@
 
 Each row prints a value with the record and file it came from, or ``by hand:`` and what to read. Every value is a
 lead for the operator to check against what they saw, never a safety or calibration verdict. A file's
-``<run>.controller.jsonl`` beside it is read too (stream steps). Never opens USB.
+``<run>.controller.jsonl`` beside it is read too (stream steps). A lab-day index also loads its listed
+logs and prints step results and velocity-jog counts. Never opens USB.
 """
 
 from pathlib import Path
@@ -75,9 +76,10 @@ def _review_problems(path, rows):
 
 
 def load(paths):
-    """[(name, rows, controller rows, review problems)] and problems, reading each sibling controller log once."""
+    """Load ordinary logs, index-listed logs and sibling controller logs once each, plus problems and sources."""
     files, problems, seen = [], [], set()
-    for path in map(Path, paths):
+    pending = [(Path(path), True) for path in paths]
+    for path, expand_index in pending:
         if path.resolve() in seen:
             continue
         seen.add(path.resolve())
@@ -89,6 +91,16 @@ def load(paths):
         except ValueError as exc:
             problems.append(f"{path.name}: {str(exc).replace(str(path), path.name)}")
             continue
+        if expand_index and any(row.get("event") == "lab_day_start" for row in rows):
+            for row in rows:
+                if row.get("event") != "lab_step":
+                    continue
+                for log in row.get("logs", []):
+                    listed = path.parent / log
+                    if not listed.resolve().is_relative_to(path.parent.resolve()):
+                        problems.append(f"{path.name}: {log} is outside the lab-day folder")
+                        continue
+                    pending.append((listed, False))
         controller = []
         sibling = path.with_name(path.name.removesuffix(".jsonl") + ".controller.jsonl")
         if sibling != path and sibling.exists() and sibling.resolve() not in seen:
@@ -287,12 +299,12 @@ def _sheet(paths, phone):
     rows += [_row(n, by_hand=ALWAYS_BY_HAND[n]) for n in ("3", "4")] + [row_5(files, phone)]
     rows += [_row("6", by_hand=ALWAYS_BY_HAND["6"]), row_7(files), row_8(files),
              _row("9", by_hand=ALWAYS_BY_HAND["9"]), row_10(files), row_stream(files), row_gripper_times(files)]
-    return rows, problems, sources
+    return rows, problems, sources, files
 
 
 def print_sheet(paths, phone):
     """Print the sheet; exit code 1 if any file had a problem."""
-    rows, problems, sources = _sheet(paths, phone)
+    rows, problems, sources, files = _sheet(paths, phone)
     banner = "SIMULATED DATA: rehearsal logs, not evidence from the physical arm."
     if "simulated" in sources:
         print(banner)
@@ -302,6 +314,39 @@ def print_sheet(paths, phone):
             print(f"{row['row']:<3} {row['unknown']}: {row['value']}  [{row['source']}; {row['file']}]")
         else:
             print(f"{row['row']:<3} {row['unknown']}: by hand: {row['by_hand']}")
+    indexes = [(name, entries) for name, entries, _, _, _ in files
+               if any(row.get("event") == "lab_day_start" for row in entries)]
+    for name, entries in indexes:
+        print(f"Lab day steps ({name}):")
+        for row in entries:
+            if row.get("event") == "lab_step":
+                detail = ": " + "; ".join(row["problems"]) if row.get("problems") else ""
+                print(f"{row['step']} {row['result']}{detail}")
+    if indexes:
+        print("Velocity jogs:")
+        entries = [row for _, rows_, controller, _, _ in files for row in rows_ + controller]
+        for axis in ("base", "shoulder", "elbow"):
+            out = back = None
+            for _, rows_, controller, _, _ in files:
+                for part in (rows_, controller):
+                    ends = iter(row for row in part
+                                if row.get("event") in ("velocity_jog_complete", "velocity_jog_stopped")
+                                and row.get("joint") == axis)
+                    first_out = next((row for row in ends if row.get("speed", 0) > 0), None)
+                    if first_out is not None:
+                        out = first_out
+                        back = next((row for row in ends if row.get("speed", 0) < 0), None)
+            if back is not None:
+                print(f"{axis} velocity jog: out {out['setpoint_counts']:+d} counts, "
+                      f"back {back['setpoint_counts']:+d} counts ({back['reason']})")
+            elif out is not None:
+                print(f"{axis} velocity jog: out {out['setpoint_counts']:+d} counts, no back jog "
+                      f"({out['reason']})")
+            elif any(row.get("event") == "step_skipped" and row.get("step") == f"{axis} velocity jog"
+                     for row in entries):
+                print(f"{axis} velocity jog: skipped")
+            else:
+                print(f"{axis} velocity jog: not in the logs")
     for problem in problems:
         print(f"PROBLEM: {problem}")
     print("Each value is a lead to check against what you saw, not a safety or calibration verdict.")

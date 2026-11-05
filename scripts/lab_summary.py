@@ -2,6 +2,7 @@
 
     python scripts/lab_summary.py logs/idle-01.jsonl logs/base-01.jsonl ... [--phone base=1.2]
     python scripts/lab_summary.py logs/*.jsonl --sheet [--phone base=1.2]   # the record sheet, row by row
+    python scripts/lab_summary.py logs/lab-<UTC time>/lab-day.jsonl --sheet   # indexed steps and velocity jogs too
 
 Reads bench_joint, bench_stream, policy_loop and record_raw_state records (it tells them apart itself)
 and reuses the reviewers in review_lab_logs.py. Per jog it says which way the counts went for a
@@ -145,7 +146,7 @@ def main(argv=None):
                         help="angle change you measured for that joint's jog")
     parser.add_argument("--sheet", action="store_true",
                         help="print docs/lab/LAB_RECORD_SHEET.md row by row: a value and its source, or what to "
-                             "read by hand")
+                             "read by hand; a lab-day index also loads its logs and prints steps and velocity jogs")
     args = parser.parse_args(argv)
     phone = parse_phone(args.phone)
     bad = 0
