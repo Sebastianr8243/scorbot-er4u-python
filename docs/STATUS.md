@@ -65,7 +65,7 @@ Steps and pass lines: [`lab/LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) section 3b.
 |---|---|
 | Driver for the visit: Intelitek's (`--transport auto`) or WinUSB via Zadig (`pyusb`, swap back before leaving) | The next lab visit (date not set) |
 | Installing `lerobot` (new dependency) | The LeRobot wrapper (done in a separate venv for the simulator check; the repo itself still does not depend on it) |
-| Near-home confirmation, shoulder travel bound, BACKLOG 20 (`project/BACKLOG.md (in git history)`) | Stack 2 streaming on the arm |
+| Decided 2026-11-04: near-home start (every joint within 20 counts of home), shoulder travel = vendor limits with no extra cap, BACKLOG 20 already fixed (`_latch_fault`). Requirements: [streaming](requirements/streaming.md); its open questions Q1 to Q5 (gripper resume first) | Building the streaming changes |
 
 ## Not covered here
 
