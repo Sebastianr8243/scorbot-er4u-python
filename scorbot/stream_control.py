@@ -168,7 +168,7 @@ class StreamMixin:
                 self._vendor_joint_target = None
                 self._vendor_joint_hold = None
                 self._stream = stream
-                self._commands.put([STREAM_ORDER, stream.source,
+                self._commands.put([STREAM_ORDER, stream,
                                        pacing.make_pace() if adaptive_pacing else 0])
             return stream
 

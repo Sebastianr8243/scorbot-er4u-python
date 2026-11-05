@@ -403,14 +403,18 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 #   ("end",)                           finish like a normal movement
 #   ("stop",)                          finish with the stop sequence
 # Any other answer is treated as a stop.
-# A USB error on a setpoint ends the stream without another setpoint: try stopMov, giving up
-# after IO_ABORT_TRIES more failures, then try motors_off once as vendor_home_run does. Always
-# restore the media and report result 1; never raise and skip execute's sequence hand-back and DONE.
+# A USB error on a setpoint ends the stream without another setpoint. Restore the last complete
+# reply in place (a short read can overwrite it) and notify source.interrupt, if present, so the
+# session faults on the worker even if the caller never closes the stream. Freeze the stop hold
+# from that reply, then send mov_comm(2..5), consuming each packet ID before attempting it and
+# retrying only the failed message. After IO_ABORT_TRIES more failures give up the stop; then try
+# motors_off once as vendor_home_run does. Restore the media and report result 1; never raise and
+# skip execute's sequence hand-back and DONE. The clean end and stop paths still use libdef's helpers.
 # Motor state remains unverified on a failing link; the physical stop may be needed.
 # No new command byte or template; the write/read delays are the base's.
 # From the vendor disassembly (docs/protocol/VENDOR_DLL_PROTOCOL.md); never run on the arm.
 #
-# source -> callable described above; it must not raise
+# source -> callable described above, optionally with interrupt(message); neither must raise
 # pace   -> None (the base's fixed read delay, the default) or pace(sent_id, reply) -> seconds, which
 #           replaces that delay after each setpoint reply (scorbot/pacing.py); never run on the arm
 def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace=None):
@@ -435,6 +439,7 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 		cadena = libdef.fill_msg(cadena, 24)
 		msg = libdef.get_encoder(buffer, media)
 		cadena += libdef.getStruct(20, signal_out, msg)
+		last_reply = buffer[:]
 		try:
 			if pace is None:
 				libdef.set_msg(cadena, epout, epin, buffer, write, read)
@@ -442,20 +447,38 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 				libdef.set_msg(cadena, epout, epin, buffer, write, 0)
 				time.sleep(pace(b_1, bytes(buffer)))
 		except Exception as exc:
+			buffer[:] = last_reply	# a short read may already have overwritten part of the reply
 			io_failures = 1
 			logging.warning("USB error during the stream (%s); trying to stop the motors", exc)
+			interrupt = getattr(source, "interrupt", None)
+			if interrupt is not None:
+				interrupt("Stream failed (USB error); motors-off was sent but is not confirmed: "
+				          "check the MOTORS LED; motor state is unverified, "
+				          "use the physical stop if needed")
 			break
 		media = libdef.get_media(buffer, media)
 
 	if io_failures:
-		while io_failures <= IO_ABORT_TRIES:
-			try:
-				[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-			except Exception as exc:
-				io_failures += 1
-				logging.warning("Could not stop the motors after the failed stream: %s", exc)
-			else:
+		media = fresh_media(buffer)
+		hold = libdef.get_hold(buffer)
+		for i in range(2, 6):
+			while io_failures <= IO_ABORT_TRIES:
+				b_1 = libdef.countByte1(b_1)	# consume the ID even if the write or read fails
+				cadena = libhex.mov_comm(i).format(libdef.f_byte(b_1))
+				cadena = libdef.fill_msg(cadena, 24) + hold
+				last_reply = buffer[:]
+				try:
+					libdef.set_msg(cadena, epout, epin, buffer, write, read)
+				except Exception as exc:
+					buffer[:] = last_reply
+					io_failures += 1
+					logging.warning("Could not stop the motors after the failed stream: %s", exc)
+				else:
+					break
+			if io_failures > IO_ABORT_TRIES:
 				break
+		else:
+			libdef.ultimo_hold = bytes.fromhex(hold)
 		cola_read.put(media)
 		try:
 			b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
