@@ -158,6 +158,17 @@ class StreamCoreBTests(unittest.TestCase):
                 self.assertLessEqual(max(map(abs, acceleration)), limits.max_acceleration + 2 / PERIOD ** 2)
                 self.assertEqual(positions[-1], 6000)
 
+    def test_st09_a_speed_under_one_count_per_period_is_refused(self):
+        """Whole counts per period: a speed that rounds to zero counts is refused up front, not raised mid-step."""
+        from scorbot.streaming import StreamRefused, prior_limits
+        slow = prior_limits(0.005)                       # 32.5 counts/s, 0.78 count per 24 ms
+        with self.assertRaises(StreamRefused):
+            core(limits=slow)
+        stream_core = core()
+        with self.assertRaises(StreamRefused):
+            stream_core.set_speed(0.005)
+        self.assertEqual(stream_core.state, "tracking")
+
     def test_st10_a_setpoint_is_never_sent_past_the_lead_limit_and_the_stream_then_faults(self):
         lead = {m: 100.0 for m in STREAM}
         stream_core = core(lead_limit=lead)
