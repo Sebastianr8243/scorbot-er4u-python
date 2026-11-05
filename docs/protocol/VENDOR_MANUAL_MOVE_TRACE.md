@@ -57,7 +57,7 @@ This disagrees with `docs/protocol/PROTOCOL.md`, which says `SetHome` only store
 
 ## 4. The lab build's velocity jog (2026-11-04, issue #148)
 
-Read from the lab `USBC.dll` (532,576 bytes, SHA-256 `6118465d...bd821`, hash checked before reading) in a Ghidra decompile and its assembly; `EnterManual` and `CloseManual` were decompiled again in a second Ghidra session (same output), and the 2008 build's `EnterManual` was compared the same way. Addresses are the lab build's. V means read in the code, I inferred, and **desk** means checked against the lab DLL's own recording on the fake controller: `tests/fixtures/dll_lab_manual.json` on branch `stack2-velocity-jog` (PR #102, closed; not on `stack2`), 12 jogs, 2026-11-02. A model of the code below (kept outside the repo, like the decompile) reproduces the jogged setpoint of every message of the 10 recorded `MoveManual`/`CloseManual` jogs (axes 0, 1 and 2, speeds -100 to +50, about 1,000 messages) with no difference. Nothing here has been run on the arm.
+Read from the lab `USBC.dll` (532,576 bytes, SHA-256 `6118465d...bd821`, hash checked before reading) in a Ghidra decompile and its assembly; `EnterManual` and `CloseManual` were decompiled again in a second Ghidra session (same output), and the 2008 build's `EnterManual` was compared the same way. Addresses are the lab build's. V means read in the code, I inferred, and **desk** means checked against the lab DLL's own recording on the fake controller: `tests/fixtures/dll_lab_manual.json` on branch `stack2-velocity-jog` (PR #102, closed; not on `stack2`), 12 jogs, 2026-11-02. A model of the code below (kept outside the repo, like the decompile) reproduces the jogged setpoint of every message of the 10 recorded `MoveManual`/`CloseManual` jogs (axes 0, 1 and 2, speeds -100 to +50, about 1,000 messages) with no difference. That comparison was one message off in phase (the table below was shifted, found in review of PR #156); `tests/test_vendor_manual.py` now reduces both sides the same way, consecutive packet differences from the `47`, and matches every recorded packet. Nothing here has been run on the arm.
 
 ### Summary
 
@@ -91,7 +91,7 @@ Read from the lab `USBC.dll` (532,576 bytes, SHA-256 `6118465d...bd821`, hash ch
 
 **The S-curve** (`0x1001292d`, evaluated by `0x10012e18`; V, desk). With T = 0.6, p = 0.5, j = 0.05: jerk from 0 to 0.015 s (t1 = j p T), constant acceleration to 0.285 s, jerk down to 0.3 s (t3 = p T) where s = 0.5 and the slope is V = 1 / ((1 - p) T) = 10/3 per second; with the cruise flag set, s = 0.5 + (t - 0.3) x 10/3 from then on. So the vendor's "A = 0.3" is the ramp time in seconds and "J = 0.05" the share of the ramp spent in jerk, not an acceleration and a jerk (correction to `VENDOR_DLL_PROTOCOL.md` section 11).
 
-**The tick** (`0x10025afc`, called by the USB loop `0x1003ccc8` at `0x1003e075` after each reply; V). In state 4: setpoint(`+0x140`) = `+0xf70` + trunc(`+0x520`[i] x s(t)) for each axis (`0x1002ff65`, then `0x1002fe87`, at `0x10026cda`); then t (`+0x7b8`) advances by the fixed period `+0x850` = `PCPeriod` x `USBCPeriod` x 0.001 = 16 x 1.5 x 0.001 = 0.024 s (`0x10015178`), whatever the real reply interval. The communication thread carries the setpoint out in ordinary `0D` messages (`VENDOR_DLL_PROTOCOL.md` section 5). Desk: the first jog message carries the setpoint of t = 0.024, so message k (counted from the one that carries `47`, from 0) carries s((k + 1) x 0.024).
+**The tick** (`0x10025afc`, called by the USB loop `0x1003ccc8` at `0x1003e075` after each reply; V). In state 4: setpoint(`+0x140`) = `+0xf70` + trunc(`+0x520`[i] x s(t)) for each axis (`0x1002ff65`, then `0x1002fe87`, at `0x10026cda`); then t (`+0x7b8`) advances by the fixed period `+0x850` = `PCPeriod` x `USBCPeriod` x 0.001 = 16 x 1.5 x 0.001 = 0.024 s (`0x10015178`), whatever the real reply interval. The communication thread carries the setpoint out in ordinary `0D` messages (`VENDOR_DLL_PROTOCOL.md` section 5). Desk: message k (counted from the one that carries `47`, from 0) carries s(k x 0.024). The `47` carries the start, equal to the idle `0D` before it, checked on every recorded jog.
 
 **Clamps** (V): none on `v` itself (\|v\| over 100 scales past `Manual`; only the speed check 0x391 limits it). When homed, the window and predicted-position checks of section 2 apply at set-up and on every tick (0x38a, 0x38b); a failure sets the keep-alive to 1, which ramps the jog down.
 
@@ -121,14 +121,16 @@ This is the recorded "closed after 0.8 s, speed 50" jog, so a test can compare a
 
 | k | Command bytes (from byte 4) | Base setpoint - S |
 |---|---|---|
-| 0 | `47` | -1 |
-| 1 to 13 | `0D` | -5, -14, -27, -43, -64, -88, -117, -149, -186, -226, -271, -318, -365 |
-| 14 to 70 | `0D` | trunc(-589 x (0.5 + ((k + 1) x 0.024 - 0.3) x 10/3)): -47 or -48 per message (k = 53: -2249; k = 70: -3051) |
-| 71 to 82 | `0D` | -3097, -3139, -3177, -3212, -3242, -3269, -3292, -3310, -3325, -3335, -3342, -3345 |
+| 0 | `47` | 0 |
+| 1 to 14 | `0D` | -1, -5, -14, -27, -43, -64, -88, -117, -149, -186, -226, -271, -318, -365 |
+| 15 to 71 | `0D` | trunc(-589 x (0.5 + (k x 0.024 - 0.3) x 10/3)): -47 or -48 per message (k = 54: -2249; k = 71: -3051) |
+| 72 to 82 | `0D` | -3097, -3139, -3177, -3212, -3242, -3269, -3292, -3310, -3325, -3335, -3342 |
 | 83 | `4F 3F 53` | -3345 |
 | 84 | `73 20` | -3345 |
 | 85 | `42 20 00 00` | -3345 |
 
-Rows 0 to 70 are V and desk; the close is desk. Where the ramp down starts (k = 71 here) depends on when the host calls `CloseManual` and is the one fitted number; the ramp itself is fixed (the tick after `CloseManual` stops the planner at its t, then 0.3 s, then the three-message tail). A general test should take the close tick as an input, not wall-clock time. The `0D` byte layout is in `BRING_UP_SEQUENCE.md` row 6.
+The earlier table was one message ahead, found in review of PR #156.
+
+Rows 0 to 71 are V and desk; the close is desk. Where the ramp down starts (k = 72 here) depends on when the host calls `CloseManual` and is the one fitted number; the ramp itself is fixed (the tick after `CloseManual` stops the planner at its t, then 0.3 s, then the three-message tail). A general test should take the close tick as an input, not wall-clock time. The `0D` byte layout is in `BRING_UP_SEQUENCE.md` row 6.
 
 **What the x87 hides, and what is left open.** Every value above is computed in 80-bit x87 registers; the model uses 64-bit doubles. They can differ only where a product falls within about 1e-15 of a whole number before truncation. No such case appeared in about 1,000 recorded messages, but exactness is shown only for the recorded speeds (5, 10, 20, 50 and 100 percent). Not compared with any recording: the reflected close before 0.3 s, the keep-alive expiry, the doubled manual queue, the `47` being left out when not settled, axes 3 to 5, type 1 (XYZ) and the gripper path. All of it is **unverified on the arm**.
