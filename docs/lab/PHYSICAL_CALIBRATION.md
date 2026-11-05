@@ -72,6 +72,31 @@ It takes the counts, the robot id and the approach direction (the sign of that s
 
 The fitter wants measured angles at least 2.5 degrees beyond each soft limit, so a +/-7 degree soft range needs readings out to about +/-9.5 degrees. The guided session allows up to the joint limits (the cap was lifted from 10 degrees on 2026-10-06); the shoulder only goes about 3.7 degrees up, so its upper soft limit stays small. Unverified on the arm: the builder has run on synthetic logs only.
 
+## Vendor math to test at the bench (task D)
+
+The lab `USBC.dll` converts counts to angles exactly as `scorbot/vendor_model.py` does (`docs/protocol/VENDOR_DLL_PROTOCOL.md` section 10.7, LEDGER PL114 and PL115). Every lab parameter set has the same values, so the vendor's predictions below are fixed. They are **priors to test, not calibration**: the rules above still apply, and nothing here is copied into a calibration file.
+
+"Absolute" means the angle of a link to the horizontal, read with a digital level. The DLL's elbow and wrist motors set exactly these angles (section 10.3). Each item gives the prediction and what to record.
+
+| # | Measure | Vendor prediction | How | Needs |
+|---|---|---|---|---|
+| D1 | Counts right after a vendor Home, three homes from the same start pose | All five arm counters read 0 (Home moves `Offset` counts past the switch edge, then sends `48` value 0) | Read the counts in the log after each Home; spread across homes | vendor Home on the arm |
+| D2 | Physical pose after vendor Home: base heading mark, upper arm, forearm and gripper absolute angles | Upper arm 120.28 degrees, forearm 25.26 degrees and gripper 63.55 degrees from the DLL's horizontal (DLL signs -120.28, -25.26, +63.55); base 0 | Digital level on each link, protractor for the base; also note which side of horizontal each link is on | D1 |
+| D3 | Counts per degree for base, shoulder, elbow, with the direction of positive counts | 141.89, 113.51, 113.51 counts per degree in size (signs -, -, + in the DLL's convention) | The existing `fit` and `verify` rows above, small jogs in both directions | D1 |
+| D4 | Shoulder motor alone: does the forearm keep its angle? | Upper arm changes 8.81 degrees per 1000 counts; forearm and gripper absolute angles do not change | Jog the shoulder motor only (the default one-motor pre-home move), level on the forearm before and after | D3 for the shoulder |
+| D5 | Elbow motor alone | Forearm absolute angle changes 8.81 degrees per 1000 counts; gripper absolute angle does not change | As D4, level on forearm and gripper | D3 for the elbow |
+| D6 | Wrist mixing (gated: wrist jogs are not bench-tested yet) | Motors in opposite directions by N counts each: pitch changes N / 27.90 degrees, roll unchanged; same direction: roll changes N / 27.90 degrees, pitch unchanged | Two-motor experiment, both sign combinations | D2, and the wrist gate lifted |
+| D7 | Repeatability of D2 | Same angles within the home spread of D1 | Repeat D2 after each of the three homes | D1, D2 |
+
+What these settle:
+- **D1** shows whether the controller takes `48`. If the counters do not read 0, the vendor zero does not exist on this arm, and everything below must be measured relative to the home counts.
+- **D2** with D3 gives each joint's physical zero. The DLL puts a joint's zero at the count `HorizPos` (shoulder -13653, elbow -10786; -1773 on the wrist pitch term, half the motor difference; base and roll 0). The bench checks this by comparing the measured home angle with the prediction. Do not drive to those counts to test it: they are far outside the measured clear region.
+- **D4 and D5** test the "absolute angle" reading of the formulas (`vendor_model.orientation_is_decoupled`), which the pre-home and coupling docs rely on.
+- **Offsets.** The wrist homes are not at the switch edge: motor 1 `Offset` 850 and motor 2 -690 counts are moved before zeroing; shoulder -190 and elbow 45. D2 measures their combined effect, so no separate offset measurement is needed.
+- Not in this list: gripper width (its own experiment), signs of the `4D` drive and pendant directions (`VENDOR_HOMING_TRACE.md`), and anything beyond the measured clear region.
+
+All predictions are from the DLL and its parameter files, **unverified on the arm**.
+
 ## Manual priors and bounds
 
 `scorbot/nominal.py` holds the ER-4u manual's values (#100343 Rev. B, pp. 4-6), each with its source. They are **nominal, from the manual, not measured**, and serve only as priors and sanity bounds:

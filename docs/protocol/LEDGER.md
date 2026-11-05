@@ -151,6 +151,15 @@ Lab build addresses (`6118465d`), not the SDK Release build's. Read in the lab d
 | PL105 | **Keep-alive and queue.** The set-up sets a 300-tick keep-alive (`+0x4b6`); a same-axis `MoveManual` resets it to 300, another axis is ignored. At 0 the tick stops the planner, as `CloseManual` does (PL97's countdown; PR #102's "no keep-alive" came from a 281-message jog). While a manual code is stored the queue limit is `ManualBuffers` (config `0x1008a2fc`; 4 in the SDK `ER4CONF.INI`, code default 5), doubled once per process when the measured tick gap is not below the period, at most 45 | reversed | E3 | `0x1000ec6e`, `0x10025afc`, USB loop `0x1003ccc8`, `0x10011340`; the expiry and the doubling were not seen on the desk |
 | PL106 | **The close.** `CloseManual` (`0x1001bc47`) sends nothing; it sets the keep-alive to 1. The next tick starts a 0.3 s mirrored ramp down (`0x10012cba`); when it ends the tick sends `4F 3F 53` (`0x1003f379(.., 3, 'A')`), `73 20`, `42 20 00 00` (`0x10022ee0`), no `47`, then clears the manual code. The last setpoint is held on those messages | reversed, desk | E3 | tick state 4 and 3; every recorded close |
 
+## Count conversion in the lab build (2026-11-04, issue #152 item 4)
+
+Lab build addresses (`6118465d`); details in `VENDOR_DLL_PROTOCOL.md` section 10.7 and the bench list in `docs/lab/PHYSICAL_CALIBRATION.md`. Unverified on the arm.
+
+| ID | Claim | Status | Level | Source |
+|---|---|---|---|---|
+| PL114 | **The lab build converts counts and angles as `vendor_model.py` does.** Counts to joints is `0x1003026b`, joints to counts `0x10030d62`, scales `0x100068cf`. Each matches the 2018 functions term for term, including the truncating halvings and `__ftol`. The ER-4u path is taken because `SystemType` defaults to `0x29` (the `0x24` / `0xEC` one-wrist path is not). New in this read: an `AxisType` bit 0 axis is scaled per 90 degrees instead of per pi/2; no ER-4u axis has it | reversed | E3 | the three functions and their assembly; `0x1002f52e`, `0x10002a38` |
+| PL115 | **All five lab parameter sets give the same conversion and home.** `$2kg`, `$3kg`, `$CURRENT`, `$Default` and `$MaxSpeed` share `[Gearing]` `1, -1, -1, 1`. They share `NoEnc90` -12770, -10216, 10216, 2511, 2511, `HorizPos` 0, -13653, -10786, -1773, 0, and `[Homing] Offset` 0, -190, 45, 850, -690, 0 (axes 1 to 6). So after a vendor Home the DLL's model puts the upper arm at -120.28, the forearm at -25.26 and the gripper at +63.55 degrees to its horizontal | reversed (parameter files) | E3 | lab tree `er4u/*/ROB_4u.INI`, `ER4Ax1-6.ini` (outside the repo) |
+
 ## Driver (`ERUSB.sys`, sha256 `1da14fca...bdad3`)
 
 | ID | Claim | Status | Level | Source |
