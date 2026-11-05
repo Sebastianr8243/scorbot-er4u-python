@@ -82,6 +82,32 @@ class Source:
         return ("send", (1000 + self.calls, 1000, 1000))
 
 
+class FailWritesWire(FlakyWire):
+    """Fails each write whose 1-based number is in ``fail_writes``; the packet is not delivered."""
+
+    def __init__(self, *fail_writes):
+        super().__init__()
+        self.fail_writes, self.attempted = fail_writes, []
+
+    def write(self, data, timeout=None):
+        self.writes += 1
+        self.attempted.append(bytes(data))
+        if self.writes in self.fail_writes:
+            raise OSError("write timed out")
+        self.sent.append(bytes(data))
+
+
+class InterruptingSource(Source):
+    """A Source with the optional ``interrupt`` hook ``Stream`` provides."""
+
+    def __init__(self, count=STEPS):
+        super().__init__(count)
+        self.interrupts = []
+
+    def interrupt(self, message):
+        self.interrupts.append(message)
+
+
 @unittest.skipUnless(find_spec("usb"), "PyUSB is needed to import the legacy modules")
 class LegacyStreamTests(unittest.TestCase):
     @classmethod
@@ -215,6 +241,88 @@ class LegacyStreamTests(unittest.TestCase):
         self.assertEqual(results.get_nowait(), self.comm.DONE)    # and the order was still completed
         self.assertEqual(results.get_nowait(), self.comm.DONE)    # then the exit
 
+
+    # -- #175: a USB error on the stream's opening message (openMov), before any setpoint ----------
+
+    def test_a_usb_error_on_the_open_message_stops_and_switches_the_motors_off(self):
+        wire, source = FlakyWire(fail_at=1), InterruptingSource()
+        reads, results, returned = self.run_stream(wire, source)       # must not raise
+        self.assertIsInstance(returned, int)
+        self.assertEqual(source.calls, 0)                               # no setpoint was asked for
+        self.assertEqual(len(wire.sent), 30)                            # only the stop and motors-off
+        self.assertTrue(self.ends_with_stop_then_motors_off(wire.sent))
+        self.assertEqual(results.get_nowait(), 1)
+        self.assertTrue(results.empty())
+        self.assertFalse(reads.empty())
+        self.assertEqual(len(source.interrupts), 1)
+        self.assertIn("physical stop", source.interrupts[0])
+
+    def test_a_short_read_on_the_open_message_stops_at_the_last_complete_reply(self):
+        hold = bytes.fromhex(self.libdef.get_hold(answer()))
+        for buffer in (answer(), array("B", answer())):
+            with self.subTest(buffer=type(buffer).__name__):
+                self.libdef.reset_count_guard()
+                wire = ShortReadWire(1)
+                reads, results, _ = self.run_stream(wire, buffer=buffer)
+                recovery = wire.sent[1:]
+                self.assertEqual(results.get_nowait(), 1)
+                self.assertTrue(self.ends_with_stop_then_motors_off(recovery))
+                self.assertEqual([p[12:36] for p in recovery], [hold] * 30)
+                self.assertEqual(bytes(buffer), bytes(answer()))
+                self.assertFalse(reads.empty())
+
+    def test_execute_survives_a_usb_error_on_the_open_message(self):
+        wire = FlakyWire(fail_at=1)
+        buffer = answer()
+        syncs, orders, reads, results = queue.Queue(), queue.Queue(), queue.Queue(), queue.Queue()
+        reads.put([1000] * 6)
+        syncs.put(10)
+        orders.put([self.comm.STREAM, Source(), 0])
+        orders.put([self.comm.EXIT, 1, 1])
+        worker = threading.Thread(target=self.comm.execute, daemon=True,
+                                  args=(syncs, orders, reads, wire, wire, buffer, results,
+                                        threading.Event(), threading.Event()))
+        with mock.patch.object(self.comm, "scorbotoff", lambda *args: None):
+            worker.start()
+            worker.join(timeout=60)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(results.get_nowait(), 1)
+        self.assertEqual(results.get_nowait(), self.comm.DONE)
+        self.assertEqual(results.get_nowait(), self.comm.DONE)
+
+    # -- #173: motors_off failing part-way keeps the sequence bytes it used ------------------------
+
+    def test_a_failed_motors_off_read_returns_the_last_packet_id_used(self):
+        for sequence in (1, 240):     # also cross 255 -> 1
+            with self.subTest(sequence=sequence):
+                self.libdef.reset_count_guard()
+                # The stream read fails, the four stop replies succeed, motors-off's third read fails.
+                wire = ShortReadWire(FAIL_AT, FAIL_AT + 4 + 3)
+                _, results, returned = self.run_stream(wire, sequence=sequence)
+                self.assertEqual(results.get_nowait(), 1)
+                self.assertTrue(self.matches(wire.sent[-1], self.libhex.motorsoff(3)))
+                self.assertEqual(returned, wire.sent[-1][0])    # the ID that went out last, not an older one
+
+    def test_a_failed_motors_off_write_returns_the_id_it_consumed(self):
+        # The stream write fails, the four stop messages go out, motors-off's third write fails.
+        wire = FailWritesWire(FAIL_AT, FAIL_AT + 4 + 3)
+        _, results, returned = self.run_stream(wire)
+        self.assertEqual(results.get_nowait(), 1)
+        self.assertTrue(self.matches(wire.attempted[-1], self.libhex.motorsoff(3)))
+        self.assertEqual(returned, wire.attempted[-1][0])
+
+    def test_vendor_home_motors_off_failing_returns_the_last_packet_id_used(self):
+        # A failed vendor home (the source answers stop at once) switches the motors off; its third read fails.
+        wire = ShortReadWire(3)
+        buffer = answer()
+        reads, results = queue.Queue(), queue.Queue()
+        reads.put([1000] * 6)
+        returned = self.comm.vendor_home_run(10, wire, wire, buffer, reads, results,
+                                             lambda reply, following: ("stop",))
+        self.assertEqual(results.get_nowait(), 1)
+        self.assertTrue(self.matches(wire.sent[-1], self.libhex.motorsoff(3)))
+        self.assertEqual(returned, wire.sent[-1][0])
+        self.assertFalse(reads.empty())
 
 @unittest.skipUnless(find_spec("usb") and find_spec("ruckig"), "needs PyUSB and the planning extra")
 class SdkStreamTests(unittest.TestCase):
