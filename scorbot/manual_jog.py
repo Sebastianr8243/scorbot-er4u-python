@@ -174,11 +174,16 @@ class ManualJogMixin:
             if window[direction > 0] == 0:
                 raise ValueError(f"The {joint} is at the edge of its travel cap, source-model or vendor limits "
                                  "that way (not measured)")
-            source = VendorHomeSource(
-                start=lambda first: vendor_manual.velocity_jog(
+            def start_jog(first):
+                run = yield from vendor_manual.velocity_jog(
                     first, axis, speed, control,
                     _window(_from_home_at(first, now, before), joint,
-                            dict(zip(limits.RECORDED_MOTORS, first.counts))), settled=True),
+                            dict(zip(limits.RECORDED_MOTORS, first.counts))), settled=True)
+                self._vendor_joint_hold = b"".join(int(v).to_bytes(4, "little", signed=True)
+                                                 for v in (*run.setpoints[:5], 0, 0, 0))
+                return run
+
+            source = VendorHomeSource(start=start_jog,
                 stop_event=self._stop_event, cancel_event=self._cancel_event,
                 total_seconds=vendor_manual.MAX_SECONDS + 10.0)
             jog = VelocityJog(self, joint, speed, control, source, before)

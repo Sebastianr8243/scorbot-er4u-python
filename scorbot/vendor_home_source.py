@@ -138,6 +138,7 @@ class VendorHomeSource:
             self.aborting = bool(out.aborting)
             return self._send(out, sequence)
         reply = None
+        interruption_reply = None
         lag = self._measure_lag(reply_bytes, sequence)
         try:
             if self.aborting:
@@ -153,6 +154,11 @@ class VendorHomeSource:
             else:
                 if self.interrupted is None:
                     self.interrupted = self._interruption(now)
+                    if self.interrupted is not None:
+                        try:
+                            interruption_reply = self._decode(reply_bytes, now)
+                        except ValueError:
+                            pass  # an interruption still wins over an unreadable reply
                     if self.interrupted is None and lag is not None and lag > vh.MAX_LAG:
                         self.interrupted = (vh.ERR_LAG, f"the controller fell {lag} messages behind")
                     elif self.interrupted is None and lag is None and len(reply_bytes) >= vh.REPLY_MIN_LENGTH:
@@ -170,14 +176,20 @@ class VendorHomeSource:
                             reply = self.last_reply
             if thrown is not None:
                 self._thrown = True
-                out = self.generator.throw(vh.HomeError(*thrown))
+                error = vh.HomeError(*thrown)
+                if interruption_reply is not None:
+                    error.reply = interruption_reply
+                out = self.generator.throw(error)
             else:
                 out = self.generator.send(reply)
             if self.commit is not None and not self.committed and not out.aborting and self.commit(out):
                 late = self._interruption(self.clock())
                 if late is not None:
                     self.interrupted, self._thrown = late, True
-                    out = self.generator.throw(vh.HomeError(*late))
+                    error = vh.HomeError(*late)
+                    if reply is not None:
+                        error.reply = reply
+                    out = self.generator.throw(error)
                 else:
                     self.committed = True
         except StopIteration as stop:

@@ -19,11 +19,14 @@ from scorbot import ScorbotError, limits, nominal, source_model, vendor_home as 
 from scorbot import calibration, manual_jog, vendor_move
 from scorbot.robot import MotionStopped
 from scorbot.simulated import SimulatedScorbot
+from scorbot.vendor_home_source import VendorHomeSource
 
 try:
     from tests.desk_wire import record_gripper
+    from tests.vendor_home_plant import Plant
 except ImportError:                                     # plain `unittest discover -s tests`
     from desk_wire import record_gripper
+    from vendor_home_plant import Plant
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "dll_lab_manual.json").read_text(encoding="utf-8"))
 CLOSE = ["0000004f3f530000000000", "0000007320000000000000", "0000004220000000000000"]   # CloseManual's end
@@ -60,30 +63,29 @@ def curve(t):
 def trace_positions(axis, speed, close_at, *, half_pi=1.5708):
     """VJ02/VJ05: request close after zero-based message close_at."""
     scale = slot(axis, speed, half_pi)
-    requested = (close_at + 1) * 0.024
+    requested = close_at * 0.024
     end = requested + 0.3 if requested > 0.3 else 2 * requested
-    positions = []
-    for k in range(close_at + 16):
-        t = (k + 1) * 0.024
-        if k > close_at and t > end:
-            return positions + [positions[-1]] * 3
-        if k <= close_at:
-            value = curve(t)
-        elif requested > 0.3:
+    positions = [math.trunc(scale * curve(k * 0.024)) for k in range(close_at + 1)]
+    ramp = []
+    k = close_at + 1
+    while k * 0.024 <= end:
+        t = k * 0.024
+        if requested > 0.3:
             value = curve(requested) + 0.5 - curve(0.3 - (t - requested))
         else:
             value = 2 * curve(requested) - curve(2 * requested - t)
-        positions.append(math.trunc(scale * value))
-    raise AssertionError("the close did not end")
+        ramp.append(math.trunc(scale * value))
+        k += 1
+    return (positions + ramp[:-1] if ramp else positions) + [(positions + ramp)[-1]] * 3
 
 
 def steps(positions):
     return [b - a for a, b in zip(positions, positions[1:])]
 
 
-def recorded_steps(sent, axis, start=0):
-    """The fixture's ``steps`` for what we sent: from the start, the last message left out."""
-    return steps([start, *[out.setpoints[axis] for out in sent][:-1]])
+def recorded_steps(sent, axis):
+    """Consecutive differences from the opening 47, just like the raw fixture packets."""
+    return steps([out.setpoints[axis] for out in sent])
 
 
 def trace_commands(length, *, settled=True):
@@ -153,20 +155,20 @@ class Planner(unittest.TestCase):
             for speed in (*range(-100, 0), *range(1, 101)):
                 sent, _ = closed_jog(axis, speed, 24)
                 actual = [out.setpoints[axis] for out in sent[:25]]
-                expected = [math.trunc(slot(axis, speed) * curve((k + 1) * 0.024)) for k in range(25)]
+                expected = [math.trunc(slot(axis, speed) * curve(k * 0.024)) for k in range(25)]
                 if actual != expected:
                     mismatches.append((axis, speed))
         self.assertEqual(len(mismatches), 0, f"axis/speed cases differ; first five: {mismatches[:5]}")
 
     def test_the_trace_table_speed_50(self):
         """VJ02: every row of section 4's k = 0..85 table."""
-        expected = [-1, -5, -14, -27, -43, -64, -88, -117, -149, -186, -226, -271, -318, -365]
-        expected += [math.trunc(-589 * (0.5 + ((k + 1) * 0.024 - 0.3) * (10 / 3)))
-                     for k in range(14, 71)]
+        expected = [0, -1, -5, -14, -27, -43, -64, -88, -117, -149, -186, -226, -271, -318, -365]
+        expected += [math.trunc(-589 * (0.5 + (k * 0.024 - 0.3) * (10 / 3)))
+                     for k in range(15, 72)]
         expected += [-3097, -3139, -3177, -3212, -3242, -3269, -3292, -3310,
-                     -3325, -3335, -3342, -3345, -3345, -3345, -3345]
+                     -3325, -3335, -3342, -3345, -3345, -3345]
         candidates = [c for c in range(60, 80) if trace_positions(0, 50, c) == expected]
-        self.assertEqual(candidates, [70], "request after k=70; ramp down starts at k=71")
+        self.assertEqual(candidates, [71], "request after k=71; ramp down starts at k=72")
         first = reply((100, -200, 300, -400, 500, -600))
         sent, run = closed_jog(0, 50, candidates[0], first=first)
         self.assertEqual(commands(sent), trace_commands(86))
@@ -177,14 +179,13 @@ class Planner(unittest.TestCase):
     def test_every_recorded_jog_matches_exactly(self):
         """VJ03/VJ08: exact recordings, including ignored speed/sign re-sends.
 
-        The fixture's steps are message 0 minus the start, then each message minus the one before,
-        without the last (always 0): ``recorded_steps`` builds the same from what we send.
+        The fixture and ``recorded_steps`` both take consecutive differences from the opening 47.
         """
         for golden in FIXTURE["jogs"]:
             axis, speed = golden["axis"], golden["speed"]
             with self.subTest(axis=axis, speed=speed, label=golden["label"]):
                 if golden["label"].startswith("Stop("):
-                    # The DLL's own Stop, not modelled: the message before its 47 is one count off the S-curve.
+                    # The Stop's own 47 holds the fake's measured counts (PL98, Stop copies them), not modelled.
                     before_stop = golden["commands"][1][0]
                     sent, _ = closed_jog(axis, speed, before_stop + 5)
                     self.assertEqual(commands(sent[:before_stop]), golden["commands"][:1])
@@ -195,14 +196,13 @@ class Planner(unittest.TestCase):
                 close_command = golden["commands"][1][0]
                 close_range = range(max(0, close_command - 16), close_command)
                 for c in close_range:
-                    # The reducer takes differences from the held opening 47.
-                    recorded = [0, *trace_positions(axis, speed, c)[:-1]]
+                    recorded = trace_positions(axis, speed, c)
                     if steps(recorded) == golden["steps"] and trace_commands(len(recorded)) == golden["commands"]:
                         candidates.append(c)
                 self.assertEqual(len(candidates), 1, candidates)
                 c = candidates[0]
                 for half_pi in (1.5708, math.pi / 2):
-                    self.assertEqual(steps([0, *trace_positions(axis, speed, c, half_pi=half_pi)[:-1]]),
+                    self.assertEqual(steps(trace_positions(axis, speed, c, half_pi=half_pi)),
                                      golden["steps"])
                 matches = []
                 for candidate in close_range:
@@ -229,15 +229,15 @@ class Planner(unittest.TestCase):
     def test_close_after_the_ramp(self):
         """VJ05: cruise ends with the mirror ramp and a held three-message close.
 
-        c=12/30 unverified case: follows the trace, no recording.
+        c=13/30 unverified case: follows the trace, no recording.
         """
-        for c in (12, 30, 70):
+        for c in (13, 30, 70):
             with self.subTest(close_at=c):
                 sent, run = closed_jog(0, -50, c)
                 expected = trace_positions(0, -50, c)
                 self.assertEqual(commands(sent), trace_commands(len(expected)))
                 self.assertEqual([out.setpoints[0] for out in sent], expected)
-                self.assertEqual(run.end, math.trunc(slot(0, -50) * (curve((c + 1) * 0.024) + 0.5)))
+                self.assertEqual(run.end, expected[-1])
                 self.assertEqual(run.reason, "stop")
 
     def test_close_during_the_ramp_is_reflected(self):
@@ -248,7 +248,7 @@ class Planner(unittest.TestCase):
                 expected = trace_positions(0, -50, c)
                 self.assertEqual(commands(sent), trace_commands(len(expected)))
                 self.assertEqual([out.setpoints[0] for out in sent], expected)
-                self.assertEqual(run.end, math.trunc(2 * slot(0, -50) * curve((c + 1) * 0.024)))
+                self.assertEqual(run.end, math.trunc(2 * slot(0, -50) * curve(c * 0.024)))
 
     def test_keep_alive_runs_out_after_300_messages(self):
         """VJ06, unverified case: follows the trace, no recording.
@@ -314,6 +314,14 @@ class Planner(unittest.TestCase):
             with self.subTest(speed=speed, window=window):
                 sent, run = drive(vm.velocity_jog(reply(), 0, speed, vm.JogControl(3.0), window))
                 self.assertEqual(run.reason, "limit")
+                c = 0
+                while True:
+                    t = (c + 1) * 0.024
+                    final = math.trunc(slot(0, speed) * (curve(t) + 0.5 if t > 0.3 else 2 * curve(t)))
+                    if not window[0] <= final <= window[1]:
+                        break
+                    c += 1
+                self.assertEqual([o.setpoints[0] for o in sent], trace_positions(0, speed, c))
                 positions = [o.setpoints[0] for o in sent]
                 self.assertTrue(all(window[0] <= p <= window[1] for p in positions), (min(positions), max(positions)))
                 self.assertEqual([vh.encode_out(o, 0)[1:12].hex() for o in sent[-3:]], CLOSE)
@@ -330,6 +338,34 @@ class Planner(unittest.TestCase):
         self.assertTrue(run.stopped)
         self.assertEqual([vh.encode_out(o, 0)[4:8].hex() for o in sent[-4:]], LEGACY_STOP)
         self.assertEqual({o.setpoints for o in sent[-4:]}, {(5, 0, 0, 0, 0, 0)}, "the last reply's counts")
+
+    def test_a_stop_holds_the_newest_measurement(self):
+        """VJ09: the reply arriving with the stop supplies every held slot."""
+        plant, stop = Plant(), threading.Event()
+        source = VendorHomeSource(
+            start=lambda first: vm.velocity_jog(first, 0, -20, vm.JogControl(3.0, clock=Clock()), OPEN),
+            stop_event=stop, clock=Clock())
+        packet = vh.encode_out(vh.Out(vh.NOP), 1)
+        sent = []
+        for n in range(40):
+            plant.phys = [n * (axis + 1) - plant.off[axis] for axis in range(6)]
+            answer = plant.reply(packet)
+            if n == 10:
+                stop.set()
+                newest = vh.decode_reply(answer, 0).counts
+            step = source(answer, packet[0] % 255 + 1)
+            if step[0] != "send":
+                break
+            packet = step[1]
+            sent.append(packet)
+        else:
+            self.fail("the stopped jog did not end")
+        self.assertEqual(step, ("end",))
+        self.assertIsNone(source.error)
+        self.assertEqual(source.result.reason, "stopped")
+        self.assertEqual([p[4:8].hex() for p in sent[-4:]], LEGACY_STOP)
+        held = b"".join(int(v).to_bytes(4, "little", signed=True) for v in newest)
+        self.assertEqual([p[12:36] for p in sent[-4:]], [held] * 4)
 
     def test_an_emergency_stops_then_faults(self):
         """VJ09: an emergency input sends the stop before raising."""
@@ -438,8 +474,37 @@ class Simulated(unittest.TestCase):
         time.sleep(0.2)
         jog.stop()
         self.assertIsNone(self.robot._vendor_joint_target)
-        self.assertIsNone(self.robot._vendor_joint_hold)
+        self.assertEqual(self.robot._vendor_joint_hold, self.robot.sim.vendor_packets[-1][12:32] + bytes(12))
         self.assertIsNone(self.robot._fault)
+
+    def test_the_idle_hold_keeps_the_close_setpoint(self):
+        """VJ15: close and request_stop leave a fixed hold even if the encoders drift."""
+        for requested in (False, True):
+            with self.subTest(request_stop=requested):
+                jog = self.robot.start_velocity_jog("base", -20)
+                time.sleep(0.2)
+                if requested:
+                    self.robot.request_stop()
+                    with self.assertRaises(MotionStopped):
+                        jog.stop()
+                else:
+                    jog.stop()
+                last = self.robot.sim.vendor_packets[-1]
+                expected = last[12:32] + bytes(12)
+                self.assertEqual(self.robot._idle_setpoint(), expected)
+                with self.robot.sim._lock:
+                    self.robot.sim.counts["base"] += 25
+                self.assertEqual(self.robot._idle_setpoint(), expected)
+
+        with self.subTest(send_nothing=True):
+            with mock.patch.object(manual_jog, "_window", side_effect=[OPEN, (0, 0)]):
+                jog = self.robot.start_velocity_jog("base", -20)
+                jog.stop()
+            self.assertEqual(jog.reason, "limit")
+            self.assertEqual(self.robot.sim.vendor_packets, [])
+            start = jog._source.last_reply.counts[:5]
+            expected = b"".join(int(v).to_bytes(4, "little", signed=True) for v in (*start, 0, 0, 0))
+            self.assertEqual(self.robot._idle_setpoint(), expected)
 
     def test_stop_ramps_down_and_returns_the_state(self):
         """VJ05: stop collects the settled state after the close."""
@@ -669,6 +734,10 @@ class DeskWire(unittest.TestCase):
         self.assertEqual(ours[-1][4:8], bytes.fromhex("42 20 00 00"))
         self.assertEqual({p[16:32] for p in ours}, {bytes(16)}, "only the base slot moves")
         self.assertGreater(int.from_bytes(ours[-1][12:16], "little", signed=True), 0)
+        idle = [p for p in packets[end + 1:] if p[4] == vh.NOP]
+        if not idle:
+            self.skipTest("record_gripper recorded no idle packets after 42")
+        self.assertEqual(idle[0][12:32], packets[end][12:32])
 
 
 if __name__ == "__main__":

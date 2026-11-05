@@ -1,6 +1,6 @@
 """The vendor's joint jog (``EnterManual(0)``, ``MoveManual``, ``CloseManual``) as a pure generator. Never imports ``usb``.
 
-``EnterManual(0)`` queues ``47`` when settled. That first message already carries the first jog setpoint;
+``EnterManual(0)`` queues ``47`` when settled. That first message carries the start setpoint;
 otherwise it is a plain ``0D``. ``MoveManual`` scales the axis file's manual speed into an integer slot,
 then advances a jerk-limited S-curve by 24 ms per message. Only the jogged slot changes. Same-axis calls
 re-arm a 300-message keep-alive without changing speed or sign. ``CloseManual`` or keep-alive expiry
@@ -15,7 +15,7 @@ recorded message exactly (``VENDOR_MANUAL_MOVE_TRACE.md`` section 4). Ours, not 
   called for ``control.deadline_s``, after ``MAX_SECONDS`` in all, or before the
   setpoint would pass ``window`` (counts from the first reply, ramp-down included).
 * A stop thrown in (``HomeError`` ``ERR_STOPPED``: ``request_stop``, the pendant's Abort) does not ramp: it holds the
-  last reply's counts and sends ``47``, ``4F 3F 53``, ``73 20``, ``42 20 00 00``, the legacy jog's stop (``libdef.stopMov``),
+  newest reply's counts and sends ``47``, ``4F 3F 53``, ``73 20``, ``42 20 00 00``, the legacy jog's stop (``libdef.stopMov``),
   and returns ``stopped``. The DLL's own ``Stop('&')`` switches control off instead (``73 FF``, ``42 FF``).
 * A setpoint more than ``LEAD_LIMIT_COUNTS`` ahead of the measured count, or an impact flag, is a fault: the same
   stop messages, then the error is raised and the runner switches the motors off. Excessive lead during the close,
@@ -46,7 +46,7 @@ TICK_S = 0.024
 _PROFILE = VendorProfile(0.6, 0.5, 0.05)
 """The manual planner's T, p and j; its acceleration half is shared with joint moves."""
 KEEP_ALIVE_MESSAGES = 300
-"""Messages allowed before a same-axis ``MoveManual`` must re-arm the jog."""
+"""Messages allowed before a same-axis ``MoveManual`` must re-arm the jog; this count is unverified."""
 MAX_SPEED = 100
 """``MoveManual`` speed is a signed percent of the axis' manual speed."""
 DEADLINE_RANGE_S = (0.1, 3.0)
@@ -108,6 +108,8 @@ class JogRun:
     start: int
     end: int
     """The last setpoint sent, controller counts."""
+    setpoints: tuple[int, ...]
+    """Every slot of the last message, or the start counts if nothing was sent."""
     reason: str
     """"stop", "deadline", "keepalive", "limit", "total", or "stopped" (held, no ramp)."""
 
@@ -142,7 +144,10 @@ def check_speed(axis, speed):
 
 
 def velocity_jog(first, axis, speed, control, window, *, settled=True):
-    """Jog ``axis`` at ``speed`` until ``control`` ends it. ``window`` is (low, high) counts from ``first``'s count."""
+    """Jog ``axis`` at ``speed`` until ``control`` ends it. ``window`` is (low, high) counts from ``first``'s count.
+
+    Message k carries the profile at k x 24 ms. The 300-message keep-alive count is unverified.
+    """
     check_speed(axis, speed)
     low, high = window
     run = vh._Run(first, 0)
@@ -151,29 +156,26 @@ def velocity_jog(first, axis, speed, control, window, *, settled=True):
     if first.emergency:
         raise vh.HomeError(vh.ERR_EMERGENCY, "emergency input active")
     if (scale > 0 and high <= 0) or (scale < 0 and low >= 0):
-        return JogRun(axis, speed, start, start, "limit")      # already at the window's edge this way: send nothing
+        return JogRun(axis, speed, start, start, tuple(run.setp), "limit")      # already at the window's edge this way: send nothing
     started = control.clock()
     reason = None
     try:
         tick = 0
         ramp = _PROFILE.times[2]
         while reason is None:
-            following = (tick + 1) * TICK_S
+            following = tick * TICK_S
             braking = scale * (_curve(following) + 0.5 if following > ramp else 2 * _curve(following))
-            if not low <= math.trunc(braking) <= high:
+            if tick > 0 and not low <= math.trunc(braking) <= high:
                 reason = "limit"
                 break
-            tick += 1
             control.tick()
-            cmd = vh.CLEAR if settled and tick == 1 else vh.NOP
+            cmd = vh.CLEAR if settled and tick == 0 else vh.NOP
             yield from _step(run, axis, start, scale * _curve(tick * TICK_S), cmd)
             reason = control.why_end(started)
-        if tick == 0:
-            return JogRun(axis, speed, start, start, "limit")
-        requested = tick * TICK_S
+            tick += 1
+        requested = (tick - 1) * TICK_S
         end = requested + ramp if requested > ramp else 2 * requested
         while True:
-            tick += 1
             t = tick * TICK_S
             if t > end:
                 break
@@ -181,16 +183,20 @@ def velocity_jog(first, axis, speed, control, window, *, settled=True):
                 position = _curve(requested) + 0.5 - _curve(ramp - (t - requested))
             else:
                 position = 2 * _curve(requested) - _curve(2 * requested - t)
+            if (tick + 1) * TICK_S > end:
+                run.setp[axis] = start + int(scale * position)  # the last ramp setpoint rides on 4F
+                break
             yield from _step(run, axis, start, scale * position)
+            tick += 1
         impact, lead = 0, 0
         for cmd, mask, arg in ((vh.MODE, 0x3F, vh.MODE_S), (vh.CONTROL_OFF, 0x20, 0), (vh.MOTORS, 0x20, 0)):
             yield from run.send(cmd, mask, arg)
             impact = impact or run.reply.impact
             lead = max(lead, abs(run.setp[axis] - run.reply.counts[axis]))
     except vh.HomeError as error:
-        # The legacy jog's stop: hold the last reply's counts on every message (libdef.stopMov), whatever the replies say.
+        # The legacy jog's stop: hold the newest reply's counts on every message (libdef.stopMov), whatever the replies say.
         run.aborting = True
-        run.setp = list(run.reply.counts)
+        run.setp = list((getattr(error, "reply", None) or run.reply).counts)
         alarm, impact = False, 0
         for cmd, mask, arg in ((vh.CLEAR, 0, 0), (vh.MODE, 0x3F, vh.MODE_S), (vh.CONTROL_OFF, 0x20, 0),
                                (vh.MOTORS, 0x20, 0)):
@@ -203,13 +209,13 @@ def velocity_jog(first, axis, speed, control, window, *, settled=True):
             raise vh.HomeError(vh.ERR_EMERGENCY, "emergency input active while the jog stopped") from error
         if impact:
             raise vh.HomeError(vh.ERR_IMPACT, f"impact flag {impact:#04x} while the jog stopped", axis) from error
-        return JogRun(axis, speed, start, run.setp[axis], "stopped")
+        return JogRun(axis, speed, start, run.setp[axis], tuple(run.setp), "stopped")
     if impact:      # the close went out in full; the runner now switches the motors off and the session faults
         raise vh.HomeError(vh.ERR_IMPACT, f"impact flag {impact:#04x} while the jog closed", axis)
     if lead > LEAD_LIMIT_COUNTS:
         raise vh.HomeError(ERR_LEAD, f"the setpoint was {lead} counts from the measured count while the jog closed, "
                                     f"more than {LEAD_LIMIT_COUNTS}", axis)
-    return JogRun(axis, speed, start, run.setp[axis], reason)
+    return JogRun(axis, speed, start, run.setp[axis], tuple(run.setp), reason)
 
 
 def _step(run, axis, start, position, cmd=vh.NOP):
