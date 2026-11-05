@@ -344,7 +344,7 @@ class PolicyArmGripperTests(unittest.TestCase):
     def test_any_jog_in_between_clears_the_resume(self):
         # ST02: any arm motion in between clears it, even one that ends within
         # 20 counts of where the stream ended (a small jog, or out and back).
-        far = rf"counts from home"
+        far = "counts from home"
         for name, jogs in (("small jog", [("base", 0.05)]),
                            ("out and back", [("base", 1.0), ("base", -1.0)])):
             with self.subTest(name):
