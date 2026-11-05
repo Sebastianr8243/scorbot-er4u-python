@@ -273,6 +273,21 @@ Reviewed independently against the disassembly and INI files: the gearing branch
 
 Added to the lab plan as V16-V18: the counts per degree of base, shoulder and elbow against a physical angle; that the forearm keeps its orientation during a shoulder jog; and, when wrist jogs are bench-tested, the 27.9 scale and the difference/sum mixing.
 
+### 10.7 The lab build (2026-11-04, issue #152 item 4)
+
+Read in the lab `USBC.dll` (532,576 bytes, SHA-256 `6118465d...bd821`) decompile and assembly. The conversion is the same as above, term for term, at new addresses (V). `scorbot/vendor_model.py` needs no change for this build.
+
+| Step | 2018 build | Lab build | Same? |
+|---|---|---|---|
+| Scales | `0x100068ff` | `0x100068cf`: counts per radian = `NoEnc90` / (pi/2), radians per count its inverse, offset = -`HorizPos` | yes (V); the lab build also has a branch: `AxisType` bit 0 set gives `NoEnc90` / 90 (a degree axis). All ER-4u axes have `AxisType 0` |
+| Counts to joints | `0x100303db` | `0x1003026b`: base, shoulder, elbow (with the shoulder encoder by `Gearing_1`), pitch (-`Gearing_1` x shoulder, plus the half-difference wrist term, plus `Gearing_2` x elbow), roll (half-sum); C division truncates toward zero | yes (V) |
+| Joints to counts | `0x10030ed2` | `0x10030d62`: each term `__ftol`(H + counts per radian x angle), elbow minus the shoulder count, wrist pitch term from pitch + shoulder + elbow, then motor 4 = P + R and motor 5 = R - P (assembly `0x10030d83` to `0x10030f79`) | yes (V) |
+| Robot type | not traced | `0x1007252f` = low byte of `SystemType`, set in `0x1002f52e`; `0x24` and `0xEC` take a one-wrist-motor path. `SystemType` defaults to `0x29` (`0x10002a38`), which takes the ER-4u path | yes (V) |
+| Gearing | `1, -1, -1, 1` | `ROB_4u.INI` `[Gearing]` in all five lab sets (`$2kg`, `$3kg`, `$CURRENT`, `$Default`, `$MaxSpeed`): `1, -1, -1, 1`, read into `0x1008abb0` to `0x1008abb6` | yes |
+| `NoEnc90`, `HorizPos` | table 10.1 | all five lab sets equal the table: -12770, -10216, 10216, 2511, 2511 and 0, -13653, -10786, -1773, 0 | yes |
+
+**Home offset.** Home zeroes each counter at the switch edge plus the axis's `[Homing] Offset` (`VENDOR_HOMING_TRACE.md` section 5): `48` sets that count to 0. The lab sets all give `Offset` 0, -190, 45, 850, -690 and 0 for axes 1 to 6. So after a vendor Home the DLL takes the arm to be at the all-zero-count pose. By the formulas that pose is: base 0, upper arm -120.28 degrees, forearm -25.26 degrees and gripper pitch +63.55 degrees to the DLL's horizontal (the toolboxes report shoulder 120.28, elbow -95.02, pitch -88.81). Where that horizontal is physically, and which way is positive, is what the bench must show (`docs/lab/PHYSICAL_CALIBRATION.md`, "Vendor math to test at the bench"). `SetHome('A')` zeroes the counters where the arm stands instead (PL72). After it the formulas give the same angles, wherever the arm actually was.
+
 ## 11. Motion planner
 
 Desk analysis, 2026-10-04, question A of the plan. **Partly done.** The profile shape and the limits are recovered; how a move's distance and duration are worked out, and the planner's lifecycle, are not. Re-implemented in `scorbot/vendor_profile.py`, tested in `tests/test_vendor_profile.py`. A prior from disassembly, not measured on our arm. Labels as in section 10 (V read, E emulated, S second source, I inference).
