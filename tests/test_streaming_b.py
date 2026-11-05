@@ -175,7 +175,7 @@ class StreamCoreBTests(unittest.TestCase):
         from scorbot.streaming import prior_limits
         stream_core = core(limits=prior_limits(1.0), travel_cap={m: 60000.0 for m in STREAM})
         counts, positions, step = {m: 0 for m in STREAM}, [0], None
-        for index in range(1000):
+        for index in range(3000):                    # 0.1 speed is 15 counts per period: 40000 takes ~2100
             now = index * PERIOD
             if index < 60 or not finish:
                 stream_core.set_target({"base": 40000}, now)
