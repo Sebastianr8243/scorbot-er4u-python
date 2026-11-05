@@ -15,6 +15,7 @@
 
 ## Merged to stack2, 2026-11-01 to 2026-11-04
 
+- #170: streams wait for rest and start within 20 counts of home on all five arm motors; only a clean close permits a one-use resume near its final pose for gripper handoffs, with start and refusal rows logged. Tested on the simulator and fakes only.
 Desk only: nothing below ran on the arm. Newest first.
 
 - #164 `scorbot.lab`: the guided lab session requires explicit `--simulate` or `--online`; no mode refuses before setup, and real connections require `--online` because connecting energises the motors.

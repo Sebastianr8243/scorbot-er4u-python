@@ -211,10 +211,10 @@ class PolicyArm:
         if self.robot.get_state().teach_mode:
             raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before connecting")
 
-    def _start_stream(self) -> None:
+    def _start_stream(self, *, resume: bool = False) -> None:
         self._stream = self.robot.start_stream(
             travel_cap_deg=None, lead_limit_deg=LEAD_LIMIT_DEG,
-            speed_fraction=self.speed_pct / 100, wrist=self.wrist)
+            speed_fraction=self.speed_pct / 100, wrist=self.wrist, resume=resume)
         self._last_act = monotonic()
 
     def _exit_stream(self, kind, value, traceback):
@@ -260,7 +260,7 @@ class PolicyArm:
             raise MotionStopped("A stop was requested; the gripper was not moved", state=state, started=False)
         result = self.robot.move_gripper(direction)
         self.gripper = 100.0 if direction == "open" else 0.0     # open_gripper/close_gripper too
-        self._start_stream()
+        self._start_stream(resume=True)
         self._seen = None       # a reading from before the move is stale; act() must read again
         return result
 

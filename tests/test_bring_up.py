@@ -127,7 +127,7 @@ class BringUpTests(unittest.TestCase):
 
         def state_with_flag(*args, **kwargs):
             state = motion_state(*args, **kwargs)
-            if not seen["stream"]:
+            if not seen["stream"] or robot._stream is None:
                 return state
             seen["reads"] += 1      # the flag shows for the first few reads and clears before the final check
             return dataclasses.replace(state, collision_bits=1) if seen["reads"] <= 3 else state
