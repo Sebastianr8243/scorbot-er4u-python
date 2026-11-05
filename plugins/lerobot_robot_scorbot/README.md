@@ -7,23 +7,60 @@ Checked 2026-11-01 against `lerobot` 0.6.1 (Python 3.12.2, torch 2.11.0 CPU, `le
 ## Install and check (a separate venv, never the lab `.venv`)
 
 ```powershell
-py -3.12 -m venv C:\envs\lerobot-stack2
-C:\envs\lerobot-stack2\Scripts\python.exe -m pip install "lerobot[dataset]>=0.6,<0.7"
-C:\envs\lerobot-stack2\Scripts\python.exe -m pip install -e ".[planning]"
-C:\envs\lerobot-stack2\Scripts\python.exe -m pip install -e plugins/lerobot_robot_scorbot --no-deps   # LeRobot finds lerobot_robot_* by name
-C:\envs\lerobot-stack2\Scripts\python.exe examples/lerobot_sim_check.py                             # all checks passed, exit 0
+py -3.12 -m venv "$env:USERPROFILE\envs\lerobot-stack2"
+& "$env:USERPROFILE\envs\lerobot-stack2\Scripts\python.exe" -m pip install "lerobot[dataset]>=0.6,<0.7"
+& "$env:USERPROFILE\envs\lerobot-stack2\Scripts\python.exe" -m pip install -e ".[planning]"
+& "$env:USERPROFILE\envs\lerobot-stack2\Scripts\python.exe" -m pip install -e plugins/lerobot_robot_scorbot --no-deps   # LeRobot finds lerobot_robot_* by name
+& "$env:USERPROFILE\envs\lerobot-stack2\Scripts\python.exe" examples/lerobot_sim_check.py                             # all checks passed, exit 0
 ```
 
 Without the `dataset` extra, `lerobot.datasets` refuses to import. On Windows set `$env:PYTHONUTF8 = "1"` before calling `lerobot-record` yourself. A `torchcodec` load error is printed and LeRobot falls back to PyAV; it does not matter without cameras.
 
-The keyboard teleoperator needs `pynput` even to be built (`pip install "lerobot[pynput-dep]"` in the same venv; 1.8.2 was used). Its map from LeRobot's keyboard action is tested; it has never run under `lerobot-record` or with a person at the keys.
+The keyboard teleoperator needs `pynput` even to be built (`pip install "lerobot[pynput-dep]"` in the same venv; 1.8.2 was used). The letter map and listener integration have automated tests; no person has tried these keys under `lerobot-record`.
+
+## Record your first sim demo
+
+1. From the repository root in PowerShell, use the separate venv installed above. Activate it, install the keyboard extra only if pynput is missing, and enable UTF-8 output:
+
+```powershell
+. "$env:USERPROFILE\envs\lerobot-stack2\Scripts\Activate.ps1"
+python -m pip install "lerobot[pynput-dep]"   # only if pynput is missing
+$env:PYTHONUTF8 = "1"
+$env:HF_HUB_OFFLINE = "1"
+```
+
+If activation is unavailable, call `python.exe`, `lerobot-record.exe` and `lerobot-replay.exe` under `$env:USERPROFILE\envs\lerobot-stack2\Scripts` by their full quoted paths with `&`. Twin cameras also need the existing MuJoCo installation.
+
+2. Record two 20 s episodes at 10 fps with 5 s to reset between them. Use a fresh dataset root under `rehearsal/` each run. Both cameras are 320x240; images are saved without video encoding and nothing is pushed to the hub. The three Home confirmations are still required in simulation.
 
 ```powershell
 lerobot-record --robot.type=scorbot --robot.simulate=true --teleop.type=scorbot_joint_keys `
+  --robot.cameras="{front: {type: scorbot_twin, camera: front, width: 320, height: 240}, wrist: {type: scorbot_twin, camera: wrist, width: 320, height: 240}}" `
   --robot.operator_at_stop=true --robot.jaws_empty=true --robot.wrist_clear=true `
-  --dataset.repo_id=local/my_first_demo --dataset.root=rehearsal/my_first_demo --dataset.single_task="move the arm" `
-  --dataset.push_to_hub=false --dataset.num_episodes=2 --dataset.episode_time_s=20 --dataset.reset_time_s=5 --dataset.fps=10
+  --dataset.repo_id=local/my_first_sim_demo --dataset.root=rehearsal/my_first_sim_demo --dataset.single_task="move the arm" `
+  --dataset.push_to_hub=false --dataset.num_episodes=2 --dataset.episode_time_s=20 --dataset.reset_time_s=5 --dataset.fps=10 `
+  --dataset.video=false --play_sounds=false
 ```
+
+3. During each episode, hold a joint key from the [Teleoperators table](#teleoperators) to step its target; release to hold. Use t/g for wrist pitch, l/j for wrist roll and o/c to open/close. Letters work with shift held; opposite keys cancel, and o+c holds the gripper. **Keys are global:** pynput hears them in any window, so keep this terminal focused and do not type elsewhere. Right arrow (or n) ends the episode early, left arrow (or r) re-records it, and Esc (or q) stops recording. Releasing Esc also stops the teleoperator's listener; its last target holds.
+
+4. After recording exits, reload the local dataset and print its frame count and features. Expect roughly 400 frames if both episodes ran their full length, six state/action values and front/wrist image features. Early endings and slow gripper frames can reduce that count.
+
+```powershell
+python -c "from lerobot.datasets.lerobot_dataset import LeRobotDataset; d = LeRobotDataset('local/my_first_sim_demo', root='rehearsal/my_first_sim_demo'); print(d.num_frames, d.features)"
+```
+
+Replay episode 0 with the same simulator robot and camera arguments:
+
+```powershell
+lerobot-replay --robot.type=scorbot --robot.simulate=true `
+  --robot.cameras="{front: {type: scorbot_twin, camera: front, width: 320, height: 240}, wrist: {type: scorbot_twin, camera: wrist, width: 320, height: 240}}" `
+  --robot.operator_at_stop=true --robot.jaws_empty=true --robot.wrist_clear=true `
+  --dataset.repo_id=local/my_first_sim_demo --dataset.root=rehearsal/my_first_sim_demo --dataset.episode=0 --dataset.fps=10 `
+  --play_sounds=false
+```
+
+5. This is a hand-run recipe, not a completed human trial. No person has tried these keys under `lerobot-record`; which way the real arm turns, physical zero and calibration remain unverified. The twin is a nominal visual model.
 
 ## Real-arm switch (unverified on the arm)
 
@@ -43,7 +80,7 @@ These are desk-tested cleanup attempts, **unverified on the arm**; Python cleanu
 
 ## Twin cameras (simulator images)
 
-`type: scorbot_twin` (`sim_cameras.py`, needs `mujoco`; 3.17.0 used) renders the MuJoCo twin (`scorbot/mujoco_twin.py`). On every `get_observation` the robot reads the simulator's five encoder counts, turns them into the twin's joint angles through `scorbot.source_model` (`mujoco_twin.chain_angles`: the elbow motor sets the forearm's angle to the floor and the wrist motors the gripper's, so it is not degrees from home plus the home angle), poses the twin (`set_pose`, no physics step) and renders the cameras, so each frame shows the pose in the same observation. Frames are `uint8` `(height, width, 3)` RGB, at most 640x480.
+`type: scorbot_twin` (`sim_cameras.py`, needs `mujoco`; 3.17.0 used) renders the MuJoCo twin (`scorbot/mujoco_twin.py`). On every `get_observation` the robot reads the simulator's five encoder counts and `gripper.pos` together, turns the counts into the twin's joint angles through `scorbot.source_model` (`mujoco_twin.chain_angles`: the elbow motor sets the forearm's angle to the floor and the wrist motors the gripper's, so it is not degrees from home plus the home angle), poses arm and jaw under one lock (`set_pose`, `set_jaw`, no physics step) and renders the cameras. Each frame shows the pose and jaw opening in the same observation. Frames are `uint8` `(height, width, 3)` RGB, at most 640x480.
 
 ```powershell
 lerobot-record --robot.type=scorbot --robot.simulate=true `
@@ -51,7 +88,7 @@ lerobot-record --robot.type=scorbot --robot.simulate=true `
   ...   # the rest as above
 ```
 
-Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1, mujoco 3.17.0, Windows 11): 3 episodes of 3 s at 10 fps with both cameras at 160x120, 90 frames reloaded with image features, replayed frame 0 identical to the recorded one. The scene is nominal solids, not CAD and not measured. The gripper is fixed open (follow-up: drive it once `gripper.pos` exists), and the block never moves because the arm is posed, not simulated. Off-screen rendering that fails raises with the reason. Two 160x120 renders take about 30 ms per observation on this laptop.
+Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1, mujoco 3.17.0, Windows 11): 3 episodes of 3 s at 10 fps with both cameras at 160x120, 90 frames reloaded with image features, replayed frame 0 identical to the recorded one. The scene is nominal solids, not CAD and not measured. The jaw now follows the observed `gripper.pos`, from nearly touching at 0 percent to the original plate centres at y = +/-24 mm at 100 percent. The block never moves because the arm is posed, not simulated. Off-screen rendering that fails raises with the reason. Two 160x120 renders took about 30 ms per observation on this laptop in that check.
 
 ## Shape
 
@@ -66,8 +103,19 @@ Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1
 
 | Type | What it does |
 |---|---|
-| `scorbot_joint_keys` | LeRobot's `keyboard_ee` keys: left/right arrows base, up/down arrows shoulder, left/right shift elbow (which way the arm turns is unverified); it has no wrist keys, so pitch and roll hold at home. Each loop with a key held moves an absolute target by `step_deg` (default and most 0.5), through `scorbot.policy_arm.clamp`; the robot applies both vendor travel windows using its session Home counts, with no teleoperator travel cap. Needs `pynput`. **No person has tried it** |
+| `scorbot_joint_keys` | Letter keys below drive all five joints, including wrist pitch and roll, and o/c drive the gripper. Each loop with a joint key held moves an absolute target by `step_deg` (default and most 0.5), through `scorbot.policy_arm.clamp`; the robot applies both vendor travel windows using its session Home counts, with no teleoperator travel cap. Needs `pynput`. **No person has tried it under `lerobot-record`** |
 | `scorbot_joint_scripted` | Walks `--teleop.script="base,shoulder,elbow[,pitch,roll];..."` (absolute degrees; pitch and roll 0 when left out) at `step_deg` per loop, around again. For unattended runs and the check |
+
+| Joint / gripper | Positive / open | Negative / close |
+|---|---|---|
+| Base | a | d |
+| Shoulder | s | w |
+| Elbow | k | i |
+| Wrist pitch | t | g |
+| Wrist roll | l | j |
+| Gripper | o (100 percent) | c (0 percent) |
+
+Letters also work with shift held. Duplicate keys count once, opposite joint keys cancel and o+c holds the gripper. Right/left arrows, Esc, n, r and q are left to `lerobot-record`: right/n ends an episode, left/r re-records, Esc/q stops. Unbound keys hold the target. A stopped keyboard listener also holds its last target. Which way the real arm turns is unverified.
 
 Named apart from the Stack 1 teleoperators (`scorbot_keys`, `scorbot_scripted` on `main`) so both plugins can share one venv. The map logic is in `teleop_map.py` and needs no lerobot.
 
@@ -75,11 +123,11 @@ PolicyArm holds the entire frame at the last allowed target when either vendor w
 
 ## Not done yet
 
-- **The gripper is binary and blocking.** Open or closed only, no width or force; each change stalls the loop for the vendor move plus a stream restart. Unverified on the arm. Teleop: `scorbot_joint_keys` opens with right ctrl and closes with left ctrl; `scorbot_joint_scripted` takes an optional sixth number per waypoint (0 to 100).
+- **The gripper is binary and blocking.** Open or closed only, no width or force; each change stalls the loop for the vendor move plus a stream restart. Unverified on the arm. Teleop: `scorbot_joint_keys` opens with o and closes with c; `scorbot_joint_scripted` takes an optional sixth number per waypoint (0 to 100).
 - `examples/lerobot_sim_check.py` was last run against lerobot 0.6.1 with the five joints and the gripper on 2026-11-03: all six checks passed. Its replay check (0.25 degree between replayed and recorded observations) is tight and failed some runs on simulator timing alone, with or without the gripper.
-- The twin's gripper (fixed open) and block contact (the arm is posed, not simulated).
+- Twin block contact (the arm and jaw are posed, not simulated).
 - The real-arm path (explicit opt-in, unverified on the arm), real cameras with this robot, training, a policy run through `lerobot-record --policy.path`.
 
 ## Tests
 
-`tests_extra/test_lerobot_scorbot_plugin.py`: without lerobot it uses stand-in base classes (default refusal, real-arm opt-in patched to the simulator, idempotent cleanup and process hooks, features, a simulated drive, both teleoperator maps, the check's record command); with lerobot importable it also checks registration, `make_robot_from_config` and both teleoperators. Run the repository's full suite in the lab `.venv`: in the lerobot venv, draccus 0.11.6 installs its own top-level `tests` package, which hides this repository's `tests/` (8 modules fail to import there). In the lerobot venv run only this file.
+`tests_extra/test_lerobot_scorbot_plugin.py`: without lerobot it uses stand-in base classes (default refusal, real-arm opt-in patched to the simulator, idempotent cleanup and process hooks, features, a simulated drive, both teleoperator maps, the check's record command); with lerobot importable it also checks registration, `make_robot_from_config`, both teleoperators and twin camera frames. `tests_extra/test_mujoco_twin.py` checks the pure jaw mapping and, with MuJoCo installed, plate separation and holding under physics. See the [teleop requirements](../../docs/requirements/lerobot-teleop.md). Run the repository's full suite in the lab `.venv`: in the lerobot venv, draccus 0.11.6 installs its own top-level `tests` package, which hides this repository's `tests/` (8 modules fail to import there). In the lerobot venv run only these two extra test files.

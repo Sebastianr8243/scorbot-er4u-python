@@ -1,14 +1,22 @@
 """Two LeRobot teleoperators for ScorbotRobot, found by lerobot-record once this package is installed.
 
-    scorbot_joint_keys      LeRobot's keyboard_ee keys (left/right: base, up/down: shoulder, shifts: elbow) step an absolute
-                            joint target by step_deg per loop; PolicyArm applies vendor travel limits. Right ctrl opens the
-                            gripper, left ctrl closes it. Needs pynput.
+    scorbot_joint_keys      Letter keys step an absolute joint target by step_deg per loop; PolicyArm
+                            applies vendor travel limits. Needs pynput. Letters also work with shift held.
     scorbot_joint_scripted  walks through fixed waypoints (base,shoulder,elbow[,pitch,roll[,gripper]]) at step_deg per loop, for unattended runs and
                             examples/lerobot_sim_check.py.
 
+    Joint / gripper    Positive / open    Negative / close
+    base               a                  d
+    shoulder           s                  w
+    elbow              k                  i
+    wrist pitch        t                  g
+    wrist roll         l                  j
+    gripper            o (100 percent)    c (0 percent)
+
 Both output exactly ScorbotRobot's action keys (absolute degrees from home). Named apart from the Stack 1
 teleoperators (scorbot_keys, scorbot_scripted) so both plugins can share one environment. Which key moves
-the real arm which way is unverified; the robot is simulator-only.
+the real arm which way is unverified; these keys are checked only on the simulator. Right/left arrows,
+Esc, n, r and q are left to lerobot-record (end episode, re-record, stop). A stopped listener holds.
 """
 
 from __future__ import annotations
@@ -16,25 +24,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lerobot.teleoperators import Teleoperator, TeleoperatorConfig
-from lerobot.teleoperators.keyboard import KeyboardEndEffectorTeleop, KeyboardEndEffectorTeleopConfig
+from lerobot.teleoperators.keyboard import KeyboardTeleop, KeyboardTeleopConfig
 
 from scorbot.policy_arm import STEP_MAX_DEG
 
 from .robot import ACTION_KEYS
-from .teleop_map import DEFAULT_SCRIPT, check_limits, home, keyboard_to_target, parse_script, script_walk, to_action
+from .teleop_map import DEFAULT_SCRIPT, check_limits, home, keys_to_target, parse_script, script_walk, to_action
 
 
 @TeleoperatorConfig.register_subclass("scorbot_joint_keys")
 @dataclass
-class ScorbotJointKeysConfig(KeyboardEndEffectorTeleopConfig):
+class ScorbotJointKeysConfig(KeyboardTeleopConfig):
     step_deg: float = STEP_MAX_DEG                  # one loop with a key held moves the target this far
 
     def __post_init__(self):
         check_limits(self.step_deg)
-        self.use_gripper = True         # ctrl keys: gripper 0 close, 2 open, 1 stay; no wrist keys: they hold
 
 
-class ScorbotJointKeys(KeyboardEndEffectorTeleop):
+class ScorbotJointKeys(KeyboardTeleop):
     config_class = ScorbotJointKeysConfig
     name = "scorbot_joint_keys"
 
@@ -47,7 +54,11 @@ class ScorbotJointKeys(KeyboardEndEffectorTeleop):
         return {key: float for key in ACTION_KEYS}
 
     def get_action(self) -> dict:
-        self._target = keyboard_to_target(super().get_action(), self._target, self.config.step_deg)
+        if not self.is_connected:
+            return to_action(self._target)
+        self._drain_pressed_keys()
+        self._target = keys_to_target([k for k, down in self.current_pressed.items() if down],
+                                     self._target, self.config.step_deg)
         return to_action(self._target)
 
 
