@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -652,6 +653,29 @@ class TwinCameraTests(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_LEROBOT, "needs lerobot (examples/lerobot_sim_check.py in its own venv)")
 class WithLerobotTests(unittest.TestCase):
+    @unittest.skipUnless(find_spec("pynput"), "LeRobot's keyboard teleoperator needs pynput even to construct")
+    def test_keys_teleop_clears_held_keys_when_release_case_changes(self):
+        from lerobot_robot_scorbot import ScorbotJointKeys
+        from lerobot_robot_scorbot.teleop import ScorbotJointKeysConfig
+        teleop = ScorbotJointKeys(ScorbotJointKeysConfig())
+        with mock.patch.object(type(teleop), "is_connected", new_callable=mock.PropertyMock, return_value=True):
+            teleop.event_queue.put(("A", True))
+            self.assertEqual(teleop.get_action()["base.pos"], 0.5)
+            teleop.event_queue.put(("a", False))
+            self.assertEqual(teleop.get_action()["base.pos"], 0.5)
+            self.assertEqual(teleop.get_action()["base.pos"], 0.5)
+
+            teleop.event_queue.put((SimpleNamespace(name="shift"), True))
+            teleop.event_queue.put((None, True))
+            teleop.event_queue.put(("t", True))
+            self.assertEqual(teleop.get_action()["pitch.pos"], 0.5)
+            self.assertTrue(teleop.current_pressed["shift"])
+            self.assertNotIn(None, teleop.current_pressed)
+            teleop.event_queue.put(("T", False))
+            self.assertEqual(teleop.get_action()["pitch.pos"], 0.5)
+            self.assertEqual(teleop.get_action()["pitch.pos"], 0.5)
+            self.assertEqual(teleop.current_pressed, {"a": False, "shift": True, "t": False})
+
     def test_registered_and_built_by_lerobot(self):
         from lerobot.robots import Robot, RobotConfig
         from lerobot.robots.utils import make_robot_from_config

@@ -66,6 +66,15 @@ class MujocoTwinTests(unittest.TestCase):
             r = AXIS_RANGES[name]
             self.assertAlmostEqual(high - low, r.span_deg, places=6, msg=name)
 
+    def test_view_hold_pose_sets_only_the_five_arm_controls(self):
+        from examples import mujoco_twin_view
+        pose = (20, 30, -40, -30, 10)
+        mujoco_twin_view.hold_pose(self.model, self.data, pose)
+        for name, deg in zip(mujoco_twin.JOINTS, pose):
+            self.assertAlmostEqual(self.data.ctrl[self.model.actuator(name).id], math.radians(deg), msg=name)
+        for name in mujoco_twin.JAW_JOINTS:
+            self.assertEqual(self.data.ctrl[self.model.actuator(name).id], 0.0, name)
+
     def test_the_arm_holds_a_commanded_pose(self):
         target = [math.radians(v) for v in (20, 30, -40, -30, 0)]
         for name, want in zip(arm_chain.JOINTS, target):

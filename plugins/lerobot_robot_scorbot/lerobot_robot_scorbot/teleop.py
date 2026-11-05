@@ -29,7 +29,7 @@ from lerobot.teleoperators.keyboard import KeyboardTeleop, KeyboardTeleopConfig
 from scorbot.policy_arm import STEP_MAX_DEG
 
 from .robot import ACTION_KEYS
-from .teleop_map import DEFAULT_SCRIPT, check_limits, home, keys_to_target, parse_script, script_walk, to_action
+from .teleop_map import DEFAULT_SCRIPT, check_limits, home, key_name, keys_to_target, parse_script, script_walk, to_action
 
 
 @TeleoperatorConfig.register_subclass("scorbot_joint_keys")
@@ -52,6 +52,13 @@ class ScorbotJointKeys(KeyboardTeleop):
     @property
     def action_features(self) -> dict:
         return {key: float for key in ACTION_KEYS}
+
+    def _drain_pressed_keys(self):
+        while not self.event_queue.empty():
+            key, is_pressed = self.event_queue.get_nowait()
+            name = key_name(key)
+            if name is not None:
+                self.current_pressed[name] = is_pressed
 
     def get_action(self) -> dict:
         if not self.is_connected:
