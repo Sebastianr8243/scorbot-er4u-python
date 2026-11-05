@@ -16,7 +16,7 @@ the follower itself has no outside reference.
 
 Most of this is built and tested on the simulator and fakes. What the next issue builds, from the
 **to build** checks in the table:
-- **New behaviour:** ST01 (near-home start), ST02 (gripper resume, pending Q1), ST05 (at-rest wait).
+- **New behaviour:** ST01 (near-home start), ST02 (gripper resume, Q1 accepted), ST05 (at-rest wait).
 - **Built, test missing:** ST12 (pendant Abort mid-stream), ST16 (idle hold after the stream).
 - **Partly covered, one test to add:** ST03 (default bounds equal the vendor window), ST13 (motors-off for
   every fault cause), ST18 (log rows for the ST01 and ST05 refusals).
@@ -49,7 +49,7 @@ read from the last reply before the start.
 | ID | Type | Statement | Check |
 |---|---|---|---|
 | ST01 | SHALL | Decision 1, verbatim: "Near home: streaming starts only with every joint at home (0 counts from home, within a small tolerance you propose and justify)." Tolerance: 20 counts (above). `start_stream` is refused, with nothing queued and a `stream_refused_not_home` row naming each motor and its counts, unless base, shoulder, elbow, `wrist_motor_1` and `wrist_motor_2` are each within `limits.DRIFT_COUNTS` (20) counts of home. This applies on a wrist stream and on a three-motor stream (the held wrist counts too). | **to build**: `SdkStreamTests::test_a_stream_starts_only_within_20_counts_of_home` (each motor at 19, 20 and 21 counts, both signs, wrist and no-wrist streams); refusal leaves the command queue empty |
-| ST02 | SHALL | **Pending Q1.** The PolicyArm gripper handoff (a stream ended by `close`, a vendor gripper move, then the stream started again in the same session with no stop, fault, disconnect or reconnect in between) is exempt from ST01, because it resumes from the held setpoint of a stream that itself started near home. Every other start obeys ST01. | **to build**: `test_policy_arm_gripper.py::test_gripper_resume_away_from_home_restarts_the_stream`; `test_a_stop_or_fault_clears_the_resume_exemption` |
+| ST02 | SHALL | Q1, accepted 2026-11-04. Only a start asked for as a resume (`start_stream(resume=True)`, which only the PolicyArm gripper handoff uses) is exempt from ST01, and only when the stream before it ended cleanly by `close` and every one of the five arm motors is still within `limits.DRIFT_COUNTS` (20) counts of where that stream ended. The exemption is cleared by a stopped or faulted stream, a stop request, a disconnect or reconnect, a motors-off, a home, and any arm motion that moves the arm in between (a jog). Each resume uses it up; a resumed stream that closes cleanly sets it again, so the handoff can repeat. It is safe because the arm resumes from the held setpoint of a chain of streams whose first one started near home. Every other start, including a plain `start_stream()`, obeys ST01. | **to build**: `test_policy_arm_gripper.py::test_gripper_resume_away_from_home_restarts_the_stream`; `test_a_stop_or_fault_clears_the_resume_exemption` |
 | ST03 | SHALL | Decision 2, verbatim: "Shoulder travel: as far as the hardware and the Intelitek manual allow, i.e. the existing vendor limits (`nominal.vendor_limit_problem`, the windows in `docs/protocol/VENDOR_DLL_PROTOCOL.md` 11.5), no extra software cap." By default (`travel_cap_deg=limits.TRAVEL_CAP_DEG`, which is `None`) every streamed motor's bounds are the vendor encoder window (`nominal.VENDOR_ENCODER_SOFT_LIMITS` minus this session's home), and every target and every setpoint also passes `nominal.vendor_limit_problem` (the joint windows, 11.5). No smaller default bound exists on any joint. An explicit positive `travel_cap_deg` is the caller's own extra bound. | test: `tests/test_one_limit.py::test_default_cap_is_none`, `test_stream_optional_cap_has_no_ceiling_and_keeps_vendor_windows`, `tests_extra/test_streaming.py::SdkStreamTests::test_r4_the_shoulder_cannot_be_streamed_past_its_joint_limit`; **to build**: `SdkStreamTests::test_the_default_shoulder_bounds_are_the_vendor_window_exactly` (bounds equal the window minus home on both sides) |
 | ST04 | SHALL | Start conditions besides ST01: connected, enabled, legacy home done and vendor Home done this session (`_gripper_homed`), pendant in Auto, no pending stop, no other stream, no session fault, and every streamed motor within `MAX_COUNTS_FROM_HOME` of home. Any failure refuses with nothing queued. | test: `SdkStreamTests::test_r12_streaming_needs_enable_and_home_and_queues_nothing_otherwise`, `test_a_pending_stop_refuses_the_stream_before_anything_is_sent`, `tests/test_teach_mode.py` (stream refused in teach mode), `tests/test_count_frame.py::HomeReachTests::test_a_stream_refuses_a_motor_past_the_home_reach_and_names_it` |
 | ST05 | SHALL | At rest before the start: the arm counts as at rest after `STOP_SETTLE_QUIET_PAIRS` (3) reply pairs in a row move at most `STABLE_COUNTS` (2) counts on every motor, the rule `_settled_after_stop` already uses. If it does not come to rest within `STOP_SETTLE_TIMEOUT_S` (8 s), the start is refused with nothing queued. | **to build**: `SdkStreamTests::test_a_stream_waits_for_rest_and_refuses_an_arm_still_moving` (simulator counts drifting 5 counts per reply, then still) |
@@ -69,7 +69,8 @@ read from the last reply before the start.
 | ST19 | SHALL NOT | Streaming changes any legacy flow's bytes: the #130 golden tests pass unchanged. | test: `tests/test_legacy_golden.py`; review: `git diff origin/stack2 -- tests/fixtures/legacy_golden` is empty |
 | ST20 | SHALL NOT | The build opens USB, moves hardware, or adds a dependency (Ruckig stays the optional `planning` extra). | review: final diff and the commands run; tests under the `conftest.py` USB guard |
 
-## Open questions (with my pick)
+## Questions (picks accepted 2026-11-04)
+Each pick below was accepted as written; ST02 is a slightly stricter form of the Q1 pick.
 - **Q1. Gripper resume (ST02).** PolicyArm ends the stream for each vendor gripper move and starts it
   again (`policy_arm.py` `_start_stream`). Read strictly, ST01 refuses that restart whenever the policy
   grips away from home, which is nearly always. **Pick:** exempt only that same-session resume (ST02):
@@ -96,7 +97,7 @@ read from the last reply before the start.
 | `examples/policy_loop.py` | Homes, then starts one stream | Satisfies it |
 | `scripts/bring_up.py` (and `scripts/lab_day.py`, which runs it) | Jogs +1 then -1 degree, checks it is back within 20 counts of the state read after home, then streams | Satisfies it while that state is at home. The build checks against home, not that state, so the two 20-count bands cannot add up to 40 |
 | `PolicyArm.connect` (and the LeRobot plugin) | Starts the stream after vendor Home | Satisfies it right after Home; a later connect away from home is refused |
-| `PolicyArm` gripper handoff | Restarts the stream wherever the gripper move left the arm | Needs Q1 (ST02) |
+| `PolicyArm` gripper handoff | Restarts the stream wherever the gripper move left the arm | Exempt as a resume (ST02) |
 
 ## Not modelled, unverified
 - Every limit and period is a prior: the 24 ms period, the 0.5 s hold timeout, 25 percent of MaxSpeed,
@@ -127,3 +128,5 @@ read from the last reply before the start.
 
 ## Change log
 - 2026-11-04 Baseline from issue #167 with owner decisions on near-home and shoulder-travel decisions.
+- 2026-11-05 Q1 to Q6 picks accepted; ST02 written out (resume only after a clean close, within 20
+  counts of where that stream ended; also cleared by a home or a jog). Issue #170.
