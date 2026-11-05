@@ -303,8 +303,9 @@ class SdkStreamTests(SimulatedRobotCase):
         with robot.start_stream() as stream:
             stream.set_target({"elbow": -2000})                    # wrist at home: fine
         robot = self.robot()
-        robot.sim.counts["wrist_motor_1"] += 1000
-        with robot.start_stream() as stream:
+        with robot.start_stream(wrist=True) as stream:
+            self.assertTrue(self.follow(stream, robot, {"wrist_motor_1": 1000}))
+        with robot.start_stream(resume=True) as stream:
             with self.assertRaises(StreamRefused) as caught:
                 stream.set_target({"elbow": -2000})
             self.assertIn("pitch", str(caught.exception))
@@ -376,6 +377,7 @@ class SdkStreamTests(SimulatedRobotCase):
         robot.sim.stream_wrist_error_word = 71              # above ImpactDetect, 70 (LEDGER.md PL98)
         with robot.start_stream() as stream:              # the wrist is not streamed: not its business
             self.assertTrue(self.follow(stream, robot, {"base": 50}))
+            self.assertTrue(self.follow(stream, robot, {"base": 0}))
         self.assertIsNone(robot._fault)
         stream = robot.start_stream(wrist=True)
         stream.set_target({"wrist_motor_1": 50})

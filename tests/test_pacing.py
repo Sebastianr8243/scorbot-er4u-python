@@ -133,6 +133,7 @@ class HookTests(unittest.TestCase):
         import inspect
         from scorbot.stream_control import StreamMixin
         self.assertFalse(inspect.signature(StreamMixin.start_stream).parameters["adaptive_pacing"].default)
+        self.assertFalse(inspect.signature(StreamMixin.start_stream).parameters["resume"].default)
 
 
 if __name__ == "__main__":
