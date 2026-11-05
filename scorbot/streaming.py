@@ -287,7 +287,15 @@ class StreamCore:
                 self._fault(f"the trajectory generator failed: {outcome}")
                 return result(STOP)
             self._output.pass_to_input(self._input)
-            proposed = {m: round(p) for m, p in zip(self.motors, self._output.new_position)}
+            proposed = {}
+            for m, p, velocity in zip(self.motors, self._output.new_position, self._input.max_velocity):
+                max_step = math.floor(velocity * self.period_s + 1e-9)
+                step = math.trunc(p - self._commanded[m])
+                end_step = round(p) - self._commanded[m]
+                # A finished position can be a fraction short of its integer endpoint.
+                if outcome == Result.Finished and abs(end_step) <= max_step:
+                    step = end_step
+                proposed[m] = self._commanded[m] + max(-max_step, min(max_step, step))
             if any(not self.bounds[m][0] <= proposed[m] <= self.bounds[m][1] for m in self.motors):
                 self._fault(f"commanded position left the travel cap: {proposed}")
                 return result(STOP)

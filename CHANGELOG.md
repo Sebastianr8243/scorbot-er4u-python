@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #171, 2026-11-05)
+
+- #171: ST09 setpoint steps round toward zero and stay within the current speed limit per period; finished trajectories reach their rounded endpoint within that limit. Added test coverage for ST07-ST10 and a strict velocity assertion in the core tests. Simulator and core tests only; never run on the arm.
+
 ## Unreleased (issue #166, 2026-11-05)
 
 - One-command lab day: G adds supervised velocity jogs of base, shoulder and elbow at manual speed 5 for 0.3 s each way (JOG per axis); declining GO skips and continues. One dated `lab-day.jsonl` indexes step results and logs for `lab_summary.py --sheet`, including signed jog counts and skips. Simulator checked only; velocity jogs unverified on the arm.

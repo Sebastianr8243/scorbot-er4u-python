@@ -141,6 +141,23 @@ class StreamCoreBTests(unittest.TestCase):
                     previous = record.commanded
                 self.assertLessEqual(worst, limit + 1e-9)
 
+    def test_st09_the_step_bound_never_breaks_the_acceleration_limit(self):
+        """Clamping steps must not let the setpoint fall behind the plan and then catch up with a jolt.
+
+        Same tolerance as ``test_r2``: two counts of rounding per acceleration sample. The target must still be
+        reached exactly.
+        """
+        from scorbot.streaming import prior_limits
+        for fraction in (0.25, 0.3, 0.77):
+            with self.subTest(speed_fraction=fraction):
+                limits = prior_limits(fraction)
+                records = drive(core(limits=limits), 600, target={"base": 6000})
+                positions = [r.commanded["base"] for r in records]
+                velocity = [(b - a) / PERIOD for a, b in zip(positions, positions[1:])]
+                acceleration = [(b - a) / PERIOD for a, b in zip(velocity, velocity[1:])]
+                self.assertLessEqual(max(map(abs, acceleration)), limits.max_acceleration + 2 / PERIOD ** 2)
+                self.assertEqual(positions[-1], 6000)
+
     def test_st10_a_setpoint_is_never_sent_past_the_lead_limit_and_the_stream_then_faults(self):
         lead = {m: 100.0 for m in STREAM}
         stream_core = core(lead_limit=lead)
