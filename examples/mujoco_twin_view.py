@@ -19,13 +19,18 @@ from PIL import Image
 from scorbot import mujoco_twin
 
 
+def hold_pose(model, data, pose_deg):
+    for name, deg in zip(mujoco_twin.JOINTS, pose_deg):
+        data.ctrl[model.actuator(name).id] = math.radians(deg)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--pose", type=float, nargs=5, default=(20, 30, -40, -30, 0))
     args = ap.parse_args(argv)
     model, data = mujoco_twin.load()
-    data.ctrl[:] = [math.radians(v) for v in args.pose]
+    hold_pose(model, data, args.pose)
     for _ in range(1500):
         mujoco.mj_step(model, data)
     args.out.mkdir(parents=True, exist_ok=True)

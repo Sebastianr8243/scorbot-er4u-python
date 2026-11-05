@@ -2,8 +2,8 @@
 
 ``ScorbotRobot`` poses the twin from the simulator's encoder counts on every ``get_observation``
 (``scorbot.mujoco_twin.chain_angles``), then reads these cameras, so each frame shows the pose in the same
-observation. The scene is nominal solids, not CAD; the gripper is fixed open and the block is never pushed
-(the arm is posed, not simulated). ``mujoco`` is imported on connect only. Off-screen rendering that fails
+observation. The jaw follows the observed gripper percent. The scene is nominal solids, not CAD; the block
+is never pushed (the arm is posed, not simulated). ``mujoco`` is imported on connect only. Off-screen rendering that fails
 (no OpenGL) raises with the reason; nothing falls back to a blank frame.
 
     --robot.cameras='{front: {type: scorbot_twin, camera: front, width: 320, height: 240},
@@ -43,9 +43,11 @@ class TwinScene:
         self.model, self.data = mujoco_twin.load()
         self.lock = threading.Lock()
 
-    def set_counts(self, counts_from_home: dict[str, int]) -> None:
+    def set_counts(self, counts_from_home: dict[str, int], gripper_pct: float) -> None:
+        """Pose arm and jaw from one observation under the render lock. No physics step."""
         with self.lock:
             mujoco_twin.set_pose(self.model, self.data, mujoco_twin.chain_angles(counts_from_home))
+            mujoco_twin.set_jaw(self.model, self.data, gripper_pct)
 
 
 class ScorbotTwinCamera(Camera):
