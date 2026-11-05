@@ -327,6 +327,14 @@ def _clamp_off(b_1, media, epout, epin, buffer, write, read, orden, signal_out, 
 		libdef.set_msg(cadena, epout, epin, buffer, write, read)
 	return [b_1, media]
 
+class MotorsOffError(RuntimeError):
+	"""A failed motors-off exchange, with the packet ID it consumed."""
+
+	def __init__(self, sequence, error):
+		super().__init__(str(error))
+		self.sequence = sequence
+
+
 # Desactiva el control sobre los motores
 def motors_off(b_1, epout, epin, buffer,cola_read):
 	media = libdef.get_media(buffer,cola_read.get())
@@ -337,7 +345,10 @@ def motors_off(b_1, epout, epin, buffer,cola_read):
 		cadena = libdef.fill_msg(cadena, 24)
 		media = libdef.get_media(buffer,media)
 		cadena += libdef.get_encoder(buffer,media)
-		libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
+		try:
+			libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
+		except Exception as exc:
+			raise MotorsOffError(b_1, exc) from exc
 
 	cola_read.put(media)
 	return b_1
@@ -405,8 +416,8 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 #   ("end",)                           finish like a normal movement
 #   ("stop",)                          finish with the stop sequence
 # Any other answer is treated as a stop.
-# A USB error on a setpoint ends the stream without another setpoint. Restore the last complete
-# reply in place (a short read can overwrite it) and notify source.interrupt, if present, so the
+# A USB error on the opening message or a setpoint ends the stream without another setpoint.
+# Restore the last complete reply in place (a short read can overwrite it) and notify source.interrupt, if present, so the
 # session faults on the worker even if the caller never closes the stream. Freeze the stop hold
 # from that reply, then send mov_comm(2..5), consuming each packet ID before attempting it and
 # retrying only the failed message. After IO_ABORT_TRIES more failures give up the stop; then try
@@ -423,11 +434,16 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 	write = conf.readData("cadera","write")
 	read = conf.readData("cadera","read")
 	media = cola_read.get()
-	[b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, write, read)
+	io_error = None
+	last_reply = buffer[:]
+	try:
+		[b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, write, read)
+	except Exception as exc:
+		b_1 = libdef.countByte1(b_1)	# openMov consumed this ID before attempting its write
+		io_error = exc
 	signal_out = ''
 	stopped = False
-	io_failures = 0
-	while True:
+	while io_error is None:
 		step = source(bytes(buffer))
 		if step[0] == "end":
 			break
@@ -449,18 +465,19 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 				libdef.set_msg(cadena, epout, epin, buffer, write, 0)
 				time.sleep(pace(b_1, bytes(buffer)))
 		except Exception as exc:
-			buffer[:] = last_reply	# a short read may already have overwritten part of the reply
-			io_failures = 1
-			logging.warning("USB error during the stream (%s); trying to stop the motors", exc)
-			interrupt = getattr(source, "interrupt", None)
-			if interrupt is not None:
-				interrupt("Stream failed (USB error); motors-off was sent but is not confirmed: "
-				          "check the MOTORS LED; motor state is unverified, "
-				          "use the physical stop if needed")
+			io_error = exc
 			break
 		media = libdef.get_media(buffer, media)
 
-	if io_failures:
+	if io_error is not None:
+		buffer[:] = last_reply	# a short read may already have overwritten part of the reply
+		io_failures = 1
+		logging.warning("USB error during the stream (%s); trying to stop the motors", io_error)
+		interrupt = getattr(source, "interrupt", None)
+		if interrupt is not None:
+			interrupt("Stream failed (USB error); motors-off was sent but is not confirmed: "
+			          "check the MOTORS LED; motor state is unverified, "
+			          "use the physical stop if needed")
 		media = fresh_media(buffer)
 		hold = libdef.get_hold(buffer)
 		for i in range(2, 6):
@@ -486,6 +503,8 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 		try:
 			b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
 		except Exception as exc:
+			if isinstance(exc, MotorsOffError):
+				b_1 = exc.sequence
 			buffer[:] = last_reply
 			logging.warning("Could not switch the motors off after the failed stream: %s", exc)
 			cola_read.put(fresh_media(buffer))	# motors_off took the media out and did not put it back
@@ -568,6 +587,8 @@ def vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 		try:
 			b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
 		except Exception as exc:
+			if isinstance(exc, MotorsOffError):
+				b_1 = exc.sequence
 			logging.warning("Could not switch the motors off after the failed home: %s", exc)
 			cola_read.put(fresh_media(buffer))	# motors_off took the media out of the queue and did not put it back
 		cola_orden.put(1)
