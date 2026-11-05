@@ -168,7 +168,7 @@ class StreamMixin:
                 self._vendor_joint_target = None
                 self._vendor_joint_hold = None
                 self._stream = stream
-                self._commands.put([STREAM_ORDER, stream.source,
+                self._commands.put([STREAM_ORDER, stream,
                                        pacing.make_pace() if adaptive_pacing else 0])
             return stream
 
@@ -215,7 +215,12 @@ class StreamMixin:
             if failure is None and stream.core.fault:
                 failure = f"Stream fault: {stream.core.fault}"
             if failure is None and result not in (0, self._STOPPED_CODE):
-                failure = f"Legacy controller returned error code {result}"
+                if result == 1:
+                    failure = ("Stream failed (USB error); motors-off was sent but is not confirmed: "
+                               "check the MOTORS LED; motor state is unverified, "
+                               "use the physical stop if needed")
+                else:
+                    failure = f"Legacy controller returned error code {result}"
             if failure is not None:
                 # A worker that comes back must stop, not carry on slowing
                 # down after the session has reported a fault. A setpoint it

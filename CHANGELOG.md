@@ -4,6 +4,15 @@
 
 - One-command lab day: G adds supervised velocity jogs of base, shoulder and elbow at manual speed 5 for 0.3 s each way (JOG per axis); declining GO skips and continues. One dated `lab-day.jsonl` indexes step results and logs for `lab_summary.py --sheet`, including signed jog counts and skips. Simulator checked only; velocity jogs unverified on the arm.
 
+## Unreleased (branch fix-stream-usb-173-175, 2026-11-05)
+
+- #175: a failed write or partial read on the stream's opening message uses the existing stop and motors-off recovery, restores the last complete reply, and keeps the command worker alive without reusing the opening packet ID. Tested with fake endpoints only; never run on the arm.
+- #173: stream and vendor-home recovery return the last packet ID consumed when motors-off fails, including failed writes, partial reads and sequence-byte wraparound. Clean motors-off messages and return values stay unchanged. Tested with fake endpoints only; never run on the arm.
+
+## Unreleased (branch stream-usb-error-169, 2026-11-04)
+
+- #169 / ST14: a USB error mid-stream ends setpoints, attempts stop and motors-off with bounded failures, and reports a latched fault with physical-stop guidance while keeping the command worker alive. Tested with fake endpoints only; never run on the arm.
+
 ## Merged to stack2, 2026-11-01 to 2026-11-04
 
 Desk only: nothing below ran on the arm. Newest first.
