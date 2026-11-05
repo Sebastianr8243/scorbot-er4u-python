@@ -151,6 +151,16 @@ Lab build addresses (`6118465d`), not the SDK Release build's. Read in the lab d
 | PL105 | **Keep-alive and queue.** The set-up sets a 300-tick keep-alive (`+0x4b6`); a same-axis `MoveManual` resets it to 300, another axis is ignored. At 0 the tick stops the planner, as `CloseManual` does (PL97's countdown; PR #102's "no keep-alive" came from a 281-message jog). While a manual code is stored the queue limit is `ManualBuffers` (config `0x1008a2fc`; 4 in the SDK `ER4CONF.INI`, code default 5), doubled once per process when the measured tick gap is not below the period, at most 45 | reversed | E3 | `0x1000ec6e`, `0x10025afc`, USB loop `0x1003ccc8`, `0x10011340`; the expiry and the doubling were not seen on the desk |
 | PL106 | **The close.** `CloseManual` (`0x1001bc47`) sends nothing; it sets the keep-alive to 1. The next tick starts a 0.3 s mirrored ramp down (`0x10012cba`); when it ends the tick sends `4F 3F 53` (`0x1003f379(.., 3, 'A')`), `73 20`, `42 20 00 00` (`0x10022ee0`), no `47`, then clears the manual code. The last setpoint is held on those messages | reversed, desk | E3 | tick state 4 and 3; every recorded close |
 
+## Error codes (2026-11-04, issue #152 item 3)
+
+Lab build addresses (`6118465d`); details and the full table in `DLL_ERROR_CODES.md`. Unverified on the arm.
+
+| ID | Claim | Status | Level | Source |
+|---|---|---|---|---|
+| PL111 | **One reporter, with its own texts and stops.** Every DLL error passes through `0x10013ce2`. It has text for 41 codes (38 distinct texts; 961 to 963 reuse the 908 text). For 5, 11, 568, 581, 582, 583, 586, 907, 909 to 914, 924, 930, 939 and 940 it calls `Stop('&')` itself (`47`, `73 FF`, `42 FF` on the desk: motors off), so a refused command such as `MoveJoint` during a move (911) also switches the arm off. It logs the code and hands it to the host's error callback | reversed | E3 | `0x10013ce2`; texts read from the DLL; `Stop('&')` bytes from the PR #102 desk recording |
+| PL112 | **Emergency and link loss come from the monitor loop.** Reply byte 2 bit 0 turning on makes `0x10019dfc` call `Control('&', 0)` and report 300; turning off reports 301. After initialisation, a USB write failure (`0x1008aa24` = 0) makes it stop the link and report 20 once | reversed | E3 | `0x10019dfc`, `0x1000b210`, USB loop `0x1003ccc8` |
+| PL113 | **Reply byte 59 is an error only while homing.** The homing routines (`0x1000805b`, `0x1000823d`, `0x1000ad0c`) return 201 when any bit of byte 59 is set after an axis drive. The only other readers are `SetParameter` and `SetParameterFolder`, which switch control back on when it is set, and the USB loop's log. During moves, 201 comes only from the error word against `ImpactDetect` (PL98), and from the `Impact` export, which works only offline or in simulation. Error 563 has no raise site in the lab build | reversed | E3 | the ten call sites of `0x1000b240`; `Impact` `0x1001ca7a` |
+
 ## Driver (`ERUSB.sys`, sha256 `1da14fca...bdad3`)
 
 | ID | Claim | Status | Level | Source |
