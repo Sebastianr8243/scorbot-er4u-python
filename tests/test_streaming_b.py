@@ -106,7 +106,7 @@ class StreamCoreBTests(unittest.TestCase):
     def test_st08_holding_never_drifts_and_a_new_target_resumes_tracking(self):
         stream_core = core()
         counts = {m: 0 for m in STREAM}
-        stream_core.set_target({"base": 400}, 0.0)
+        stream_core.set_target({"base": 6000}, 0.0)    # about 4 s away: the timeout must brake it
         held = []
         for index in range(200):                     # targets stop at once: 4.8 s, ten hold timeouts
             step = stream_core.step(counts, index * PERIOD)
@@ -115,6 +115,7 @@ class StreamCoreBTests(unittest.TestCase):
                 held.append(step.commanded)
         self.assertEqual(stream_core.state, "holding")
         self.assertEqual(len({tuple(sorted(c.items())) for c in held}), 1, "the held setpoint never moves")
+        self.assertLess(held[0]["base"], 3000, "the hold timeout brakes the move well short of the target")
         start = 200 * PERIOD
         stream_core.set_target({"base": -300}, start)
         self.assertEqual(stream_core.state, "tracking")
@@ -168,6 +169,42 @@ class StreamCoreBTests(unittest.TestCase):
         with self.assertRaises(StreamRefused):
             stream_core.set_speed(0.005)
         self.assertEqual(stream_core.state, "tracking")
+
+    def slowed(self, *, finish):
+        """Cruise at full speed, then set_speed(0.1) at step 60 (and finish at once if asked)."""
+        from scorbot.streaming import prior_limits
+        stream_core = core(limits=prior_limits(1.0), travel_cap={m: 60000.0 for m in STREAM})
+        counts, positions, step = {m: 0 for m in STREAM}, [0], None
+        for index in range(1000):
+            now = index * PERIOD
+            if index < 60 or not finish:
+                stream_core.set_target({"base": 40000}, now)
+            if index == 60:
+                stream_core.set_speed(0.1)
+                if finish:
+                    stream_core.finish()
+            step = stream_core.step(counts, now)
+            if step.action == "send":
+                counts = dict(step.commanded)
+                positions.append(counts["base"])
+            if step.action in ("stop", "end"):
+                break
+        return stream_core, step, positions
+
+    def test_st09_slowing_down_mid_move_brakes_within_the_acceleration_limit(self):
+        """A lower speed brakes smoothly from the old one: the step bound must not cut the speed in one period."""
+        from scorbot.streaming import prior_limits
+        positions = self.slowed(finish=False)[2]
+        velocity = [(b - a) / PERIOD for a, b in zip(positions, positions[1:])]
+        acceleration = [(b - a) / PERIOD for a, b in zip(velocity, velocity[1:])]
+        self.assertLessEqual(max(map(abs, acceleration)), prior_limits(1.0).max_acceleration + 2 / PERIOD ** 2)
+        self.assertEqual(positions[-1], 40000)
+
+    def test_st09_finish_after_slowing_down_sends_the_resting_endpoint(self):
+        """The stream ends only once the last sent setpoint is the planner's rounded resting point."""
+        stream_core, step, positions = self.slowed(finish=True)
+        self.assertEqual((step.action, stream_core.state), ("end", "ended"))
+        self.assertLessEqual(abs(positions[-1] - positions[-2]), 1, "it ends at rest, not mid-move")
 
     def test_st10_a_setpoint_is_never_sent_past_the_lead_limit_and_the_stream_then_faults(self):
         lead = {m: 100.0 for m in STREAM}
