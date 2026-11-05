@@ -5,6 +5,7 @@ on the simulated controller runs where Ruckig is installed (the stand-in base cl
 against a real lerobot run only where lerobot is importable; the full record and replay is the example, by hand.
 """
 
+import atexit
 from contextlib import ExitStack
 from importlib.util import find_spec
 import math
@@ -98,8 +99,9 @@ class RealArmCleanupTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.hardware = self.stack.enter_context(mock.patch.object(plugin, "Scorbot",
                                                             side_effect=SimulatedScorbot))
-        self.register = self.stack.enter_context(mock.patch("atexit.register"))
-        self.unregister = self.stack.enter_context(mock.patch("atexit.unregister"))
+        self.atexit = self.stack.enter_context(mock.patch.object(plugin, "atexit"))
+        self.register = self.atexit.register
+        self.unregister = self.atexit.unregister
         config = sim_config(self.tmp.name, real_arm_confirmed=True, speed_pct=30, step_limit="speed")
         config.simulate = False
         self.robot = ScorbotRobot(config)
@@ -116,7 +118,8 @@ class RealArmCleanupTests(unittest.TestCase):
         controller = self.robot._arm.robot
         self.assertTrue(controller.sim.motors_on)
         self.disable = self.stack.enter_context(mock.patch.object(controller, "disable", wraps=controller.disable))
-        self.exit_cleanup = self.register.call_args.args[0]
+        self.register.assert_called_once_with(self.robot.disconnect)
+        self.exit_cleanup = self.robot.disconnect
         return controller
 
     def assert_stopped_once(self, controller):
@@ -136,6 +139,21 @@ class RealArmCleanupTests(unittest.TestCase):
         controller = self.connect()
         self.robot.disconnect()
         self.assert_stopped_once(controller)
+
+    def test_a_foreign_atexit_registration_does_not_confuse_the_hook_check(self):
+        from scorbot import SimulatedScorbot
+        stub = mock.Mock()
+        self.addCleanup(atexit.unregister, stub)
+
+        def make_controller(**kwargs):
+            controller = SimulatedScorbot(**kwargs)
+            atexit.register(stub)
+            return controller
+
+        self.hardware.side_effect = make_controller
+        controller = self.connect()
+        self.assert_stopped_once(controller)
+        stub.assert_not_called()
 
     def assert_operation_stops(self, source, error):
         controller = self.connect()
@@ -189,7 +207,8 @@ class RealArmCleanupTests(unittest.TestCase):
             disable.assert_called_once_with()
         self.assertFalse(controller.sim.motors_on)
         self.assertFalse(self.robot.is_connected)
-        self.unregister.assert_called_once_with(self.register.call_args.args[0])
+        self.register.assert_called_once_with(self.robot.disconnect)
+        self.unregister.assert_called_once_with(self.robot.disconnect)
 
     def test_arm_close_error_never_raises_or_repeats_cleanup(self):
         controller = self.connect()
