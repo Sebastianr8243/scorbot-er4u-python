@@ -92,8 +92,15 @@ def load(paths):
             problems.append(f"{path.name}: {str(exc).replace(str(path), path.name)}")
             continue
         if expand_index and any(row.get("event") == "lab_day_start" for row in rows):
-            pending.extend((path.parent / log, False) for row in rows if row.get("event") == "lab_step"
-                           for log in row.get("logs", []))
+            for row in rows:
+                if row.get("event") != "lab_step":
+                    continue
+                for log in row.get("logs", []):
+                    listed = path.parent / log
+                    if not listed.resolve().is_relative_to(path.parent.resolve()):
+                        problems.append(f"{path.name}: {log} is outside the lab-day folder")
+                        continue
+                    pending.append((listed, False))
         controller = []
         sibling = path.with_name(path.name.removesuffix(".jsonl") + ".controller.jsonl")
         if sibling != path and sibling.exists() and sibling.resolve() not in seen:
@@ -319,15 +326,22 @@ def print_sheet(paths, phone):
         print("Velocity jogs:")
         entries = [row for _, rows_, controller, _, _ in files for row in rows_ + controller]
         for axis in ("base", "shoulder", "elbow"):
-            ends = [row for row in entries if row.get("event") in ("velocity_jog_complete", "velocity_jog_stopped")
-                    and row.get("joint") == axis]
-            if len(ends) >= 2:
-                out, back = ends[:2]
+            out = back = None
+            for _, rows_, controller, _, _ in files:
+                for part in (rows_, controller):
+                    ends = iter(row for row in part
+                                if row.get("event") in ("velocity_jog_complete", "velocity_jog_stopped")
+                                and row.get("joint") == axis)
+                    first_out = next((row for row in ends if row.get("speed", 0) > 0), None)
+                    if first_out is not None:
+                        out = first_out
+                        back = next((row for row in ends if row.get("speed", 0) < 0), None)
+            if back is not None:
                 print(f"{axis} velocity jog: out {out['setpoint_counts']:+d} counts, "
                       f"back {back['setpoint_counts']:+d} counts ({back['reason']})")
-            elif ends:
-                print(f"{axis} velocity jog: out {ends[0]['setpoint_counts']:+d} counts, no back jog "
-                      f"({ends[0]['reason']})")
+            elif out is not None:
+                print(f"{axis} velocity jog: out {out['setpoint_counts']:+d} counts, no back jog "
+                      f"({out['reason']})")
             elif any(row.get("event") == "step_skipped" and row.get("step") == f"{axis} velocity jog"
                      for row in entries):
                 print(f"{axis} velocity jog: skipped")

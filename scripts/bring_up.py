@@ -182,6 +182,8 @@ def run(args, handle, *, robot_factory=None, ask=None, emit=print):
                         time.sleep(0.02)
                 finally:
                     motion.stop()
+                    if motion.reason != "stop":
+                        raise ScorbotError(f"{axis} velocity jog ended by itself ({motion.reason}) before its stop")
 
         perform("probe", probe)
         perform("enable motors", robot.enable)
