@@ -51,10 +51,18 @@ This creates or reuses `.venv`, installs the Python packages, and runs the offli
 Plug the **original ER-4U controller** into the PC with a USB data cable and power it according to your lab procedure. Close Intelitek software and the old GUI. Keep the physical emergency stop accessible. Then run:
 
 ```powershell
+.\.venv\Scripts\scorbot.exe doctor
+```
+
+With the venv activated, use `scorbot doctor`. Green `[ok]` means a check passed, yellow `[!!]` means a warning with a suggested fix, and red `[XX]` means a problem to fix before continuing. `[--]` means a check was skipped. Doctor reads setup and enumerates USB; it never opens the controller or sends robot commands.
+
+If Python setup failed, use the PowerShell fallback:
+
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.ps1
 ```
 
-The script lists any present Windows device with hardware ID `VID_09F1&PID_0007`, then runs the read-only Python preflight. The desired result is `PASS USB 09F1:0007`. This shows that the PC and Python can enumerate the controller; it does not test robot commands. Neither check sends motion commands. If the Python part cannot run because setup failed, the Windows device listing is still useful evidence.
+The fallback lists any present Windows device with hardware ID `VID_09F1&PID_0007`, then runs the read-only Python preflight. The desired preflight result is `PASS USB 09F1:0007`. This shows that the PC and Python can enumerate the controller; it does not test robot commands. Neither check sends motion commands. If the Python part cannot run because setup failed, the Windows device listing is still useful evidence.
 
 If Windows does not list the ID, check power, cable, USB port, and the controller's **Hardware Ids** in Device Manager. If Windows lists the correct ID but Python preflight fails, read [the USB driver section of the bench guide](docs/lab/WINDOWS_BENCH_RUN.md#2-usb-driver-and-read-only-preflight). Only consider [official Zadig](https://zadig.akeo.ie/) for that exact device after recording the current driver. Changing the driver can prevent the original Intelitek software from using the controller.
 

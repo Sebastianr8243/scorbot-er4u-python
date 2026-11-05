@@ -78,21 +78,36 @@ The original code remains under `openScorbot/`. The new adapter is under `scorbo
 
 Run any of these with `--simulate` first. Per-script detail lives in [scripts/README.md](../scripts/README.md) and [examples/README.md](../examples/README.md); add a row there and here when you add a script.
 
-| Script | Moves the arm? | What it does |
-|---|---|---|
-| `python -m scorbot.lab` | Yes, unless `--simulate` | The guided lab session: the main entry point |
-| `examples/bench_joint.py` | Yes, unless `--simulate` | One home and one jog of at most 1 degree |
-| `examples/bench_stream.py` | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
-| `examples/bench_gripper.py` | Yes, unless `--simulate` | A vendor Home, then one gripper trial of at most four opens and closes (never run on the arm; the gripper is refused before a vendor Home) |
-| `examples/policy_loop.py` | Yes, unless `--simulate` | A bounded, clamped multi-joint policy run (never run on the arm); `scripts/export_policy_dataset.py` turns it into a dataset |
-| `scripts/lab_day.py` | Yes, unless `--simulate` | Runs lab steps T, S, P (X) and G of `docs/lab/LAB_CHECKLIST.md` in order, each against its pass line |
-| `examples/record_raw_state.py` | Connects, no motion, unless `--simulate` | Idle state recording |
-| `tools/usbc_home/` | `--online` only | Vendor-DLL home; needs a 32-bit Python and the vendor DLL |
-| `tools/usbc_server/` + `python -m scorbot.bridge` | `--online` only | One homed DLL session serving the Python API (`scorbot.bridge.Arm`); see [RUN_THE_ARM](lab/RUN_THE_ARM.md) |
-| `examples/arm_characterise.py`, `examples/pick_place.py` | Yes, through the arm server | Measure frame, scale, repeatability and grid error; scripted pick-and-place with a per-run record |
-| `examples/preview_jog.py`, `kinematics_check.py`, `make_synthetic_session.py` | No | Offline previews and a synthetic session |
-| `scripts/*.py` (calibration, trace and log readers) | No | Offline analysis of logs and USB captures |
-| `scripts/setup_windows.ps1`, `windows_usb_check.ps1` | No | Windows setup and a read-only USB check |
+| Script | scorbot | Moves the arm? | What it does |
+|---|---|---|---|
+| `python -m scorbot.preflight` | `scorbot doctor` | No | Setup checks, fixes and USB enumeration; never opens the controller |
+| `python -m scorbot.lab` | `scorbot lab session` | Yes, unless `--simulate` | The guided lab session |
+| `examples/bench_joint.py` | | Yes, unless `--simulate` | One home and one jog of at most 1 degree |
+| `examples/bench_stream.py` | | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
+| `examples/bench_gripper.py` | | Yes, unless `--simulate` | A vendor Home, then one gripper trial of at most four opens and closes (never run on the arm; the gripper is refused before a vendor Home) |
+| `examples/policy_loop.py` | | Yes, unless `--simulate` | A bounded, clamped multi-joint policy run (never run on the arm); `scripts/export_policy_dataset.py` turns it into a dataset |
+| `scripts/lab_day.py` | `scorbot lab day` | Yes, unless `--simulate` | Runs lab steps T, S, P (X) and G of `docs/lab/LAB_CHECKLIST.md` in order, each against its pass line |
+| `scripts/bring_up.py` | `scorbot lab bring-up` | Yes, unless `--simulate` | Supervised bring-up steps with the existing authorization gates |
+| `scripts/watch_lab_log.py` | `scorbot lab watch` | No | Watch a running lab log |
+| `scripts/lab_summary.py` | `scorbot lab summary` | No | Summarize lab measurements |
+| `examples/record_raw_state.py` | | Connects, no motion, unless `--simulate` | Idle state recording |
+| `tools/usbc_home/` | | `--online` only | Vendor-DLL home; needs a 32-bit Python and the vendor DLL |
+| `tools/usbc_server/` + `python -m scorbot.bridge` | | `--online` only | One homed DLL session serving the Python API (`scorbot.bridge.Arm`); see [RUN_THE_ARM](lab/RUN_THE_ARM.md) |
+| `examples/arm_characterise.py`, `examples/pick_place.py` | | Yes, through the arm server | Measure frame, scale, repeatability and grid error; scripted pick-and-place with a per-run record |
+| `examples/preview_jog.py` | `scorbot jog preview` | No | Preview a jog offline |
+| `examples/kinematics_check.py`, `examples/make_synthetic_session.py` | | No | Offline kinematics and a synthetic session |
+| `examples/lerobot_sim_check.py` | `scorbot sim check` | No | Check the LeRobot simulation pipeline in its separate venv |
+| `examples/mujoco_twin_view.py` | `scorbot sim view` | No | View the simulated arm |
+| `lerobot-record` (separate venv) | `scorbot record` | No | Print the plugin README's simulate command; does not run it |
+| `scripts/review_lab_logs.py` | `scorbot analyze review-logs` | No | Review lab logs |
+| `scripts/follow_report.py` | `scorbot analyze follow` | No | Measure streamed target lag |
+| `scripts/usb_trace.py` | `scorbot analyze usb-trace` | No | Read USB captures |
+| `scripts/vendor_check.py` | `scorbot analyze vendor-check` | No | Compare a trace with the vendor protocol |
+| `scripts/fit_calibration.py` | `scorbot analyze fit-calibration` | No | Fit physical calibration |
+| `scripts/build_calibration_csv.py` | `scorbot analyze build-calibration-csv` | No | Build a measurement table |
+| `scripts/export_policy_dataset.py` | `scorbot analyze export-dataset` | No | Export policy logs as a dataset |
+| `python -m scorbot.session` | `scorbot analyze session` | No | Inspect or replay recorded sessions |
+| `scripts/setup_windows.ps1`, `windows_usb_check.ps1` | | No | Windows setup and a read-only USB check |
 
 ## Hardware reference
 

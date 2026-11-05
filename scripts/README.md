@@ -2,6 +2,8 @@
 
 Offline analysis tools, Windows setup and the explicitly supervised `bring_up.py` lab runner. Root rules in [../CONTRIBUTING.md](../CONTRIBUTING.md) apply.
 
+Most scripts are reachable as `scorbot lab ...` or `scorbot analyze ...`; `scorbot` passes flags through unchanged.
+
 A new script gets a row in the table below and in the README's "Scripts and examples" table, in the same PR.
 
 | Script | Purpose | Reads | Notes |
