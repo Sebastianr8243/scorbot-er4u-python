@@ -5,6 +5,7 @@ from importlib.util import find_spec
 import json
 from pathlib import Path
 import tempfile
+from time import monotonic, sleep
 import unittest
 from unittest import mock
 
@@ -227,6 +228,100 @@ class PolicyArmGripperTests(unittest.TestCase):
         with self.assertRaises(MotionStopped):
             arm.open_gripper()
         self.assertLess(abs(arm.robot.sim.counts["gripper"]), vg.AT_TARGET_COUNTS)
+
+    # ST02 (docs/requirements/streaming.md, pick for Q1, issue #170): the same-session gripper resume
+    # is exempt from ST01 (near home); anything else that ends the session's trust clears it.
+    FAR = {"base": 600}         # about 4 degrees, far past ST01's 20 counts
+
+    @staticmethod
+    def reach(robot, stream, target, seconds=3.0):
+        deadline = monotonic() + seconds
+        while monotonic() < deadline:
+            stream.set_target(target)
+            counts = robot.get_state().signed_encoder_counts
+            if all(counts[m] == v for m, v in target.items()):
+                return
+            sleep(0.002)
+        raise AssertionError(f"the simulator did not reach {target}")
+
+    @staticmethod
+    def starts(robot):
+        rows = [json.loads(line) for line in robot.log_path.read_text(encoding="utf-8").splitlines()]
+        return [r for r in rows if r["event"] == "stream_start"]
+
+    def test_gripper_resume_away_from_home_restarts_the_stream(self):
+        arm = self.arm()
+        self.reach(arm.robot, arm._stream, self.FAR)
+        old = arm._stream
+        arm.open_gripper()
+        self.assertIsNot(arm._stream, old)
+        self.assertIs(arm.robot._stream, arm._stream)
+        arm.close_gripper()                      # a resume of a resumed stream: still the same chain
+        self.assertIs(arm.robot._stream, arm._stream)
+        starts = self.starts(arm.robot)
+        self.assertEqual([r["resume"] for r in starts], [False, True, True])
+        self.assertEqual(starts[-1]["start_counts_from_home"]["base"], self.FAR["base"])
+        self.assertIsNone(arm.robot._fault)
+
+    def session(self):
+        """A homed simulated Scorbot whose stream was closed cleanly at FAR: the resume case."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        robot = SimulatedScorbot(log_path=Path(tmp.name) / "e.jsonl", robot_id="t").__enter__()
+        self.addCleanup(robot.__exit__, None, None, None)
+        robot.enable()
+        robot.vendor_home(**CONFIRMED)
+        stream = robot.start_stream()
+        self.reach(robot, stream, self.FAR)
+        return robot, stream
+
+    def test_a_stop_or_fault_clears_the_resume_exemption(self):
+        far = rf"base is {self.FAR['base']} counts from home"
+        with self.subTest("control: a clean close, then a resume, starts"):
+            robot, stream = self.session()
+            stream.close()
+            robot.start_stream(resume=True).close()
+        with self.subTest("a plain start is never a resume"):
+            robot, stream = self.session()
+            stream.close()
+            with self.assertRaisesRegex(ScorbotError, far):
+                robot.start_stream()
+        with self.subTest("a stream that was stopped"):
+            robot, stream = self.session()
+            stream.stop()
+            with self.assertRaisesRegex(ScorbotError, far):
+                robot.start_stream(resume=True)
+        with self.subTest("a stop requested after a clean close"):
+            robot, stream = self.session()
+            stream.close()
+            robot.request_stop()
+            with self.assertRaises(MotionStopped):
+                robot.start_stream(resume=True)      # the stop refuses this start (ST04) ...
+            with self.assertRaisesRegex(ScorbotError, far):
+                robot.start_stream(resume=True)      # ... and the exemption went with it
+        with self.subTest("another arm motion in between (not a gripper move)"):
+            robot, stream = self.session()
+            stream.close()
+            robot.jog_joint("base", -1.0)
+            with self.assertRaisesRegex(ScorbotError, "counts from home"):
+                robot.start_stream(resume=True)
+        with self.subTest("a disconnect and reconnect"):
+            robot, stream = self.session()
+            stream.close()
+            left = dict(robot.sim.counts)
+            robot.disconnect()
+            robot.connect()
+            robot.enable()
+            robot.vendor_home(**CONFIRMED)
+            robot.sim.counts.update(left)            # back exactly where the stream ended
+            with self.assertRaisesRegex(ScorbotError, far):
+                robot.start_stream(resume=True)
+        with self.subTest("a fault"):
+            robot, stream = self.session()
+            stream.close()
+            robot._latch_fault("injected for the test")
+            with self.assertRaises(ScorbotError):
+                robot.start_stream(resume=True)
 
 if __name__ == "__main__":
     unittest.main()

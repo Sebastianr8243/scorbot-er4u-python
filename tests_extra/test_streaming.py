@@ -798,6 +798,125 @@ class SdkStreamTests(SimulatedRobotCase):
         self.assertIn("stream_fault", events)
         self.assertNotIn("stream_trace", events)
 
+    # Start rules, docs/requirements/streaming.md ST01, ST05, ST18 (issue #170).
+    FIVE = ("base", "shoulder", "elbow", "wrist_motor_1", "wrist_motor_2")
+
+    def test_a_stream_starts_only_within_20_counts_of_home(self):
+        # ST01: every arm motor, streamed or held, within limits.DRIFT_COUNTS of home; refused
+        # otherwise with nothing queued and a stream_refused_not_home row naming the motor.
+        from scorbot import limits
+        self.assertEqual(limits.DRIFT_COUNTS, 20)
+        robot = self.robot()
+        home = dict(robot.sim.counts)
+        for wrist in (False, True):
+            for motor in self.FIVE:
+                for offset in (19, 20, 21, -19, -20, -21):
+                    with self.subTest(wrist=wrist, motor=motor, offset=offset):
+                        robot.sim.counts.update(home)
+                        robot.sim.counts[motor] = home[motor] + offset
+                        queued, seen = list(robot.sim.commands), len(self.rows())
+                        if abs(offset) <= 20:
+                            robot.start_stream(wrist=wrist).close()
+                            continue
+                        try:
+                            started = robot.start_stream(wrist=wrist)
+                        except ScorbotError as exc:
+                            self.assertRegex(str(exc), rf"{motor} is {offset} counts from home")
+                        else:
+                            started.close()             # keep the next case independent
+                            self.fail(f"a stream started with {motor} {offset} counts from home")
+                        self.assertEqual(robot.sim.commands, queued)
+                        self.assertIsNone(robot._stream)
+                        new = self.rows()[seen:]
+                        refused = [r for r in new if r["event"] == "stream_refused_not_home"]
+                        self.assertEqual(len(refused), 1)
+                        self.assertEqual(refused[0]["counts_from_home"], {motor: offset})
+                        self.assertEqual(refused[0]["tolerance_counts"], 20)
+                        self.assertNotIn("stream_start", [r["event"] for r in new])
+        robot.sim.counts.update(home)
+        self.assertIsNone(robot._fault)
+
+    def test_near_home_reads_the_whole_count_not_the_low_word(self):
+        # ST01 with CT14: a motor a whole low word (65536 counts) plus 5 from home reads 5 in the
+        # low word. It must still be refused. Guard: passes before #170 (the reach check), and
+        # must keep passing after it.
+        robot = self.robot()
+        home = dict(robot.sim.counts)
+        robot.sim.counts["wrist_motor_2"] = home["wrist_motor_2"] + 65541
+        queued = list(robot.sim.commands)
+        for wrist in (False, True):
+            with self.subTest(wrist=wrist), \
+                    self.assertRaisesRegex(ScorbotError, "wrist_motor_2 is 65541 counts from home"):
+                robot.start_stream(wrist=wrist)
+        self.assertEqual(robot.sim.commands, queued)
+        self.assertIsNone(robot._stream)
+
+    def drifting(self, robot, replies):
+        """Make the base move 10 counts between replies (+/-5 about home), for ``replies`` replies
+        (None: for ever). Returns the list of replies read, for counting."""
+        home, original, reads = robot.sim.counts["base"], robot.sim.snapshot, []
+        left = {"n": replies}
+
+        def snapshot(*args, **kwargs):
+            if left["n"] is None or left["n"] > 0:
+                robot.sim.counts["base"] = home + (5 if len(reads) % 2 else -5)
+                if left["n"] is not None:
+                    left["n"] -= 1
+            reads.append(robot.sim.counts["base"])
+            return original(*args, **kwargs)
+
+        patch = mock.patch.object(robot.sim, "snapshot", side_effect=snapshot)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return reads, left
+
+    def test_a_stream_waits_for_rest_and_refuses_an_arm_still_moving(self):
+        # ST05 (Q5): at rest is STOP_SETTLE_QUIET_PAIRS (3) reply pairs in a row moving at most
+        # STOP_SETTLE_COUNTS (2) counts; not at rest within STOP_SETTLE_TIMEOUT_S: refused,
+        # nothing queued, no fault latched (a refusal, not the stop-settle fault).
+        robot = self.robot()
+        reads, left = self.drifting(robot, 8)
+        with robot.start_stream() as stream:
+            waited = len(reads)
+            start = next(r for r in self.rows() if r["event"] == "stream_start")
+        self.assertGreaterEqual(waited, 8 + robot.STOP_SETTLE_QUIET_PAIRS)
+        self.assertEqual(start["state"]["signed_encoder_counts"]["base"], reads[waited - 1])
+        self.assertIsNone(robot._fault)
+        del stream
+
+        left["n"] = None                                   # never comes to rest
+        queued, seen = list(robot.sim.commands), len(self.rows())
+        began = time.monotonic()
+        with self.assertRaisesRegex(ScorbotError, "not at rest"):
+            robot.start_stream()
+        self.assertGreaterEqual(time.monotonic() - began, robot.STOP_SETTLE_TIMEOUT_S)
+        self.assertEqual(robot.sim.commands, queued)
+        self.assertIsNone(robot._stream)
+        self.assertIsNone(robot._fault)
+        new = [r["event"] for r in self.rows()[seen:]]
+        self.assertIn("stream_refused_not_at_rest", new)
+        self.assertNotIn("stream_start", new)
+        self.assertNotIn("stop_settle_failed", new)
+
+        left["n"] = 0                                      # at rest again: the session still works
+        robot.start_stream().close()
+        self.assertIsNone(robot._fault)
+
+    def test_the_stream_start_row_logs_the_resume_flag_and_all_five_motors(self):
+        # ST18, stream_start part: every setting (including resume and the ST01 tolerance), the
+        # start counts from home of all five motors ST01 checked (held ones too), and the state.
+        robot = self.robot()
+        robot.sim.counts["wrist_motor_1"] += 7
+        robot.start_stream().close()
+        row = next(r for r in self.rows() if r["event"] == "stream_start")
+        for key in ("travel_cap_deg", "speed_fraction", "lead_limit_deg", "hold_timeout_s",
+                    "period_s", "use_emergency_bit", "adaptive_pacing", "wrist", "state"):
+            self.assertIn(key, row)
+        self.assertIs(row["resume"], False)
+        self.assertEqual(row["home_tolerance_counts"], 20)
+        self.assertEqual(set(row["start_counts_from_home"]), set(self.FIVE))
+        self.assertEqual(row["start_counts_from_home"]["wrist_motor_1"], 7)
+
 
 class WristReversalTests(unittest.TestCase):
     """Review 2026-11-02: a pitch and roll reversal made Ruckig overshoot one wrist motor, past the roll cap
