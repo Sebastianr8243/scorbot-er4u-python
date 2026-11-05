@@ -919,6 +919,32 @@ class SdkStreamTests(SimulatedRobotCase):
         self.assertEqual(set(row["start_counts_from_home"]), set(self.FIVE))
         self.assertEqual(row["start_counts_from_home"]["wrist_motor_1"], 7)
 
+    def test_teach_mode_during_the_rest_wait_refuses_the_start(self):
+        # Codex review P2 / ST04: the pendant switched to Teach while ST05 waits for rest; the
+        # settled reading is checked for teach mode too, before anything is queued.
+        import dataclasses
+        robot = self.robot()
+        motion_state, calls = robot._motion_state, {"n": 0}
+
+        def teach_after_the_first_read(*args, **kwargs):
+            state = motion_state(*args, **kwargs)
+            calls["n"] += 1
+            return dataclasses.replace(state, teach_mode=True) if calls["n"] > 1 else state
+
+        queued = list(robot.sim.commands)
+        with mock.patch.object(robot, "_motion_state", side_effect=teach_after_the_first_read):
+            try:
+                started = robot.start_stream()
+            except ScorbotError as exc:
+                self.assertIn("teach mode", str(exc))
+            else:
+                started.close()
+                self.fail("a stream started on a reading in teach mode")
+        self.assertGreater(calls["n"], 1)
+        self.assertEqual(robot.sim.commands, queued)
+        self.assertIsNone(robot._stream)
+        self.assertIn("stream_refused_teach_mode", self.events())
+
 
 class WristReversalTests(unittest.TestCase):
     """Review 2026-11-02: a pitch and roll reversal made Ruckig overshoot one wrist motor, past the roll cap

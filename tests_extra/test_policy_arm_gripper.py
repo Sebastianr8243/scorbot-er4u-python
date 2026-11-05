@@ -323,5 +323,37 @@ class PolicyArmGripperTests(unittest.TestCase):
             with self.assertRaises(ScorbotError):
                 robot.start_stream(resume=True)
 
+    def test_a_stop_that_lands_as_the_gripper_finishes_clears_the_resume(self):
+        # Codex review P1: the gripper move ends "too late" for the stop and clears the stop event
+        # itself, so the start never consumes it. The request alone must clear ST02's exemption.
+        arm = self.arm()
+        self.reach(arm.robot, arm._stream, self.FAR)
+        robot, command = arm.robot, arm.robot._command
+
+        def command_then_stop(payload, *args, **kwargs):
+            result = command(payload, *args, **kwargs)
+            if payload[0] == vg.GRIPPER_ORDER:
+                robot.request_stop()            # lands after the jaw finished, before the restart
+            return result
+
+        with mock.patch.object(robot, "_command", side_effect=command_then_stop):
+            with self.assertRaisesRegex(ScorbotError, "counts from home"):
+                arm.open_gripper()
+        self.assertIsNone(robot._stream)
+
+    def test_any_jog_in_between_clears_the_resume(self):
+        # Codex review P2 / ST02: any arm motion in between clears it, even one that ends within
+        # 20 counts of where the stream ended (a small jog, or out and back).
+        far = rf"counts from home"
+        for name, jogs in (("small jog", [("base", 0.05)]),
+                           ("out and back", [("base", 1.0), ("base", -1.0)])):
+            with self.subTest(name):
+                robot, stream = self.session()
+                stream.close()
+                for joint, degrees in jogs:
+                    robot.jog_joint(joint, degrees)
+                with self.assertRaisesRegex(ScorbotError, far):
+                    robot.start_stream(resume=True)
+
 if __name__ == "__main__":
     unittest.main()
