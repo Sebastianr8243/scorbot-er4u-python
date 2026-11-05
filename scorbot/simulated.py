@@ -46,6 +46,7 @@ from .streaming import STREAM_ORDER
 from .vendor_home_model import Plant
 from .vendor_gripper import GRIPPER_ORDER as VENDOR_GRIPPER_ORDER
 from .vendor_io import IO_ORDER as VENDOR_IO_ORDER
+from .vendor_manual import MANUAL_ORDER as VENDOR_MANUAL_ORDER
 from .vendor_torque import SHOW_TORQUE, TORQUE_ORDER as VENDOR_TORQUE_ORDER
 from .vendor_home_source import VENDOR_HOME_ORDER
 
@@ -136,6 +137,9 @@ def encode_packet(signed_counts: dict[str, int], switch_bits: int = 0,
 
 class SimulatedController:
     """In-memory controller: answers the legacy command queue and serves packets."""
+
+    MANUAL_MESSAGE_S = 0.01
+    """Velocity jog pacing: one message per 10 ms, about the legacy worker's rate (ours, not measured)."""
 
     def __init__(self, *, home_counts: dict[str, int] | None = None,
                  start_counts: dict[str, int] | None = None, step_delay_s: float = 0.0,
@@ -315,6 +319,10 @@ class SimulatedController:
             if not self.motors_on:
                 return _ERROR_MOTORS_OFF
             return self._vendor_home(payload[1])
+        elif order == VENDOR_MANUAL_ORDER:
+            if not self.motors_on:
+                return _ERROR_MOTORS_OFF
+            return self._vendor_manual(payload[1])
         elif order == VENDOR_IO_ORDER:
             # Output writes need no motors; their setpoints hold the counts, so the gripper model stays put.
             return self._vendor_gripper(payload[1])
@@ -442,6 +450,32 @@ class SimulatedController:
             for motor, counts in self.gripper_disturbs.items():
                 self.counts[motor] += counts
         return 0
+
+    def _vendor_manual(self, source) -> int:
+        """Run the velocity jog the way ``libcomm.vendor_home_run`` does (order 26), one message every
+        ``MANUAL_MESSAGE_S``. The arm motors follow their setpoints (OUT bytes 12-31) at once; ``stream_emergency``
+        sets the emergency bit. A failure switches the motors off and answers 1."""
+        self.vendor_packets = []
+        sequence = 1
+        while True:
+            with self._lock:
+                reply = bytearray(encode_packet(self.counts, self.switch_bits))
+                reply[2] |= 1 if self.stream_emergency else 0
+            reply[0] = sequence
+            sequence = sequence % 255 + 1
+            step = source(bytes(reply), sequence)
+            if step[0] == "end":
+                return 0
+            if step[0] != "send":
+                with self._lock:
+                    self.motors_on = False
+                return 1
+            self.vendor_packets.append(step[1])
+            time.sleep(self.MANUAL_MESSAGE_S)
+            with self._lock:
+                for index, motor in enumerate(ARM_MOTORS):
+                    setpoint = int.from_bytes(step[1][12 + 4 * index:16 + 4 * index], "little", signed=True)
+                    self.counts[motor] = setpoint
 
     def _vendor_torque(self, source) -> int:
         """Run the torque readout the way ``libcomm.vendor_home_run`` does (order 25). Each reply echoes the

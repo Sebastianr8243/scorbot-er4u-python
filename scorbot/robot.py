@@ -19,6 +19,7 @@ from .calibration import load_calibration, signed_count_delta
 from .errors import MotionStopped, ScorbotError, _WorkerCrashed
 from .gripper import GripperMixin, GripperMove  # noqa: F401  (GripperMove stays importable from here)
 from .io import IoMixin
+from .manual_jog import ManualJogMixin, VelocityJog  # noqa: F401  (VelocityJog importable from here)
 from .homing import HomingMixin
 from .torque import TorqueMixin
 from .stream_control import StreamMixin
@@ -78,7 +79,7 @@ def slow_sleep_warning(platform: str = sys.platform, version=sys.version_info) -
     return None
 
 
-class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin):
+class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, ManualJogMixin):
     """ER-4U legacy USB adapter.
 
     Legacy jogs are relative. Calibrated absolute steps require measured data;
