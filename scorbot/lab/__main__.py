@@ -1,7 +1,7 @@
-"""Guided lab session: python -m scorbot.lab [--simulate] [--profile lab.json] [--logs DIR]
+"""Guided lab session: python -m scorbot.lab [--simulate | --online] [--profile lab.json] [--logs DIR]
 
-Without --simulate this connects to the real controller, and connecting
-energises the motors: an operator must be at the physical stop.
+A real session needs --online: connecting to the real controller energises
+the motors, so an operator must be at the physical stop.
 """
 
 from __future__ import annotations
@@ -41,8 +41,12 @@ def _software_commit() -> str:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python -m scorbot.lab", description=__doc__)
-    parser.add_argument("--simulate", action="store_true",
-                        help="Rehearse with the simulated controller: no USB, no robot")
+    mode = parser.add_mutually_exclusive_group(required=False)
+    mode.add_argument("--simulate", action="store_true",
+                      help="Rehearse with the simulated controller: no USB, no robot")
+    mode.add_argument("--online", action="store_true",
+                      help="Connect to the real controller (energises the motors; "
+                           "operator at the physical stop)")
     parser.add_argument("--rehearse-motors-dropped", action="store_true",
                         help="With --simulate: the simulated controller cuts motor power "
                              "right after homing, without telling the software")
@@ -64,6 +68,10 @@ def main(argv=None) -> int:
     parser.add_argument("--logs", type=Path, default=None,
                         help="Log folder (default: logs, or rehearsal with --simulate)")
     args = parser.parse_args(argv)
+    if not (args.simulate or args.online):
+        parser.error("No mode chosen; nothing was opened. Without --simulate the session "
+                     "connects to the real controller, and connecting energises the motors. "
+                     "Add --simulate to rehearse, or --online with an operator at the physical stop.")
     if args.rehearse_motors_dropped and not args.simulate:
         parser.error("--rehearse-motors-dropped needs --simulate")
     if args.vendor_home and (args.inch_home or args.coupled_pre_home):

@@ -81,7 +81,7 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/RE
 | Script | scorbot | Moves the arm? | What it does |
 |---|---|---|---|
 | `python -m scorbot.preflight` | `scorbot doctor` | No | Setup checks, fixes and USB enumeration; never opens the controller |
-| `python -m scorbot.lab` | `scorbot lab session` | Yes, unless `--simulate` | The guided lab session |
+| `python -m scorbot.lab` | `scorbot lab session` | Yes, with `--online` | The guided lab session |
 | `examples/bench_joint.py` | | Yes, unless `--simulate` | One home and one jog of at most 1 degree |
 | `examples/bench_stream.py` | | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
 | `examples/bench_gripper.py` | | Yes, unless `--simulate` | A vendor Home, then one gripper trial of at most four opens and closes (never run on the arm; the gripper is refused before a vendor Home) |

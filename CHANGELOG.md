@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (branch lab-online-gate-160, 2026-11-04)
+
+- The guided lab session requires explicit `--simulate` or `--online`; no mode refuses before setup, and real connections require `--online` because connecting energises the motors.
+
 ## Unreleased (branch scorbot-launcher-158, 2026-11-04)
 
 - `scorbot` and `python -m scorbot`: a read-only setup doctor with text/JSON output and short commands for existing Stack 2 tools. Arguments and safety gates stay unchanged; Ctrl+C waits for child cleanup. `scorbot record` prints the separate LeRobot simulation command.
