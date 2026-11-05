@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #166, 2026-11-05)
+
+- One-command lab day: G adds supervised velocity jogs of base, shoulder and elbow at manual speed 5 for 0.3 s each way (JOG per axis); declining GO skips and continues. One dated `lab-day.jsonl` indexes step results and logs for `lab_summary.py --sheet`, including signed jog counts and skips. Simulator checked only; velocity jogs unverified on the arm.
+
 ## Merged to stack2, 2026-11-01 to 2026-11-04
 
 Desk only: nothing below ran on the arm. Newest first.

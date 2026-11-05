@@ -7,8 +7,10 @@
     python scripts/lab_day.py --online --x                    # P also judges X (Stack 1 left the arm off home)
 
 Step H (the vendor Home, Stack 1) comes first and is run by hand: this script never loads the vendor DLL.
-Every step that connects to the arm waits for a typed GO; G's own prompts (EMPTY, CLEAR, HOME) still follow.
-It stops at the first FAIL. Every log goes in one new folder, ``logs/lab-<UTC time>/``.
+Every step that connects to the arm waits for a typed GO; declining skips that step and continues.
+G's own prompts (EMPTY, CLEAR, HOME) still follow, then JOG before each low-speed velocity jog of
+base, shoulder and elbow. It stops at the first FAIL. Every log goes in one new folder,
+``logs/lab-<UTC time>/``, indexed by ``lab-day.jsonl`` for ``lab_summary.py --sheet``.
 Ctrl+C is not an emergency stop; the red physical stop is.
 
 The steps reuse the existing tools, each in its own process (``read_timeout_check.py``,
@@ -178,7 +180,7 @@ def step_p(args, folder, run=run_tool):
 
 
 def step_g(args, folder, run=run_tool, ask=input):
-    argv = [sys.executable, "scripts/bring_up.py", "--logs", str(folder / "bring-up")]
+    argv = [sys.executable, "scripts/bring_up.py", "--logs", str(folder / "bring-up"), "--velocity-jog"]
     argv += ["--simulate"] if args.simulate else ["--online", "--transport", args.transport]
     code, _ = run(argv, capture=False)
     logs = sorted((folder / "bring-up").glob("*.jsonl"))
@@ -199,7 +201,8 @@ def step_g(args, folder, run=run_tool, ask=input):
 TITLES = {"S": "home switches, pressed by hand (connects; no commanded motion)",
           "T": "driver timeout: one read, no write (no motion)",
           "P": "Stack 2 probe, 200 replies (connect pulses the motors)",
-          "G": "Stack 2 vendor Home and a 1 degree jog (MOVES THE ARM; jaws empty)"}
+          "G": "Stack 2 vendor Home, a 1 degree jog and low-speed velocity jogs of base, shoulder and elbow "
+               "(MOVES THE ARM; jaws empty)"}
 CONNECTS = {"S", "P", "G"}
 
 
@@ -222,27 +225,50 @@ def main(argv=None, *, ask=input, steps=None):
     label = "SIMULATED" if args.simulate else "REAL"
     print(f"{label} lab day, transport {args.transport}; logs in {folder}")
     print("Step H (the vendor Home, Stack 1) is done by hand first. The red physical stop is the only emergency stop.")
-    results = []
-    for name in STEPS[STEPS.index(args.start):]:
-        print(f"\n=== {name}: {TITLES[name]} ===")
-        if name in CONNECTS and not args.simulate:
-            print("Hand on the red stop. Nobody in the arm's path. SCORBASE and the vendor tools closed.")
-            if ask(f"Type GO to start step {name} (anything else stops here): ").strip() != "GO":
-                print(f"Stopped by you before {name}. Nothing was started.")
-                return 3
-        try:
-            problems = runners[name]()
-        except Exception as exc:        # a tool's own refusal or a lost link: still a plain FAIL, never a traceback
-            problems = [f"{type(exc).__name__}: {exc}"]
-        results.append((name, problems))
-        if problems:
-            for problem in problems:
-                print(f"FAIL {name}: {problem}")
-            print(f"Stop here and write it down. Logs: {folder}. Resume after you resolve it: --from {name}")
-            return 1
-        print(f"PASS {name}")
-    print(f"\n{label} all steps passed: {' '.join(n for n, _ in results)}. Logs: {folder}")
-    return 0
+    results, code = [], 0
+    with (folder / "lab-day.jsonl").open("x", encoding="utf-8") as handle:
+        def record(event, **fields):
+            row = {"event": event, "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                   "data_source": "simulated" if args.simulate else "real", "simulated": args.simulate,
+                   **fields}
+            handle.write(json.dumps(row, allow_nan=False) + "\n")
+            handle.flush()
+
+        record("lab_day_start", options=vars(args))
+        for name in STEPS[STEPS.index(args.start):]:
+            print(f"\n=== {name}: {TITLES[name]} ===")
+            if name in CONNECTS and not args.simulate:
+                print("Hand on the red stop. Nobody in the arm's path. SCORBASE and the vendor tools closed.")
+                if ask(f"Type GO to start step {name} (anything else skips): ").strip() != "GO":
+                    print(f"SKIPPED {name}: not started")
+                    record("lab_step", step=name, result="skipped", problems=[], logs=[])
+                    code = 3
+                    continue
+            try:
+                problems = runners[name]()
+            except Exception as exc:        # a tool's own refusal or a lost link: still a plain FAIL, never a traceback
+                problems = [f"{type(exc).__name__}: {exc}"]
+            results.append((name, problems))
+            logs = []
+            if name == "P" and (folder / "probe-reads.jsonl").exists():
+                logs = ["probe-reads.jsonl"]
+            elif name == "G":
+                logs = [path.relative_to(folder).as_posix() for path in sorted((folder / "bring-up").glob("*.jsonl"))]
+            record("lab_step", step=name, result="fail" if problems else "pass", problems=problems, logs=logs)
+            if problems:
+                for problem in problems:
+                    print(f"FAIL {name}: {problem}")
+                print(f"Stop here and write it down. Logs: {folder}. Resume after you resolve it: --from {name}")
+                code = 1
+                break
+            print(f"PASS {name}")
+        if code == 0:
+            print(f"\n{label} all steps passed: {' '.join(n for n, _ in results)}. Logs: {folder}")
+        elif code == 3:
+            print(f"\n{label} lab day finished with skipped steps. Logs: {folder}")
+        record("lab_day_end", exit=code)
+    print(f"python scripts/lab_summary.py {folder / 'lab-day.jsonl'} --sheet")
+    return code
 
 
 if __name__ == "__main__":

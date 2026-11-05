@@ -1,4 +1,7 @@
-"""Supervised Stack 2 ladder. Use --simulate for a desk rehearsal without USB."""
+"""Supervised Stack 2 ladder. Use --simulate for a desk rehearsal without USB.
+
+--velocity-jog adds a low-speed out-and-back jog of base, shoulder and elbow, each confirmed with JOG.
+"""
 
 import argparse
 from dataclasses import asdict
@@ -38,6 +41,8 @@ def _check_move(before, after, expected):
 
 
 SETTLE_SECONDS = 3.0    # the follower trails its target; the end-of-stream drift check waits for it
+VELOCITY_JOG_SPEED = 5    # manual speed percent; ours, a low first-trial speed
+VELOCITY_JOG_SECONDS = 0.3
 
 
 def _sine(robot, joint, seconds, adaptive_pacing, speed_fraction):
@@ -167,6 +172,17 @@ def run(args, handle, *, robot_factory=None, ask=None, emit=print):
             robot.jog_joint(args.joint, delta, speed=1)
             _check_move(start, robot._motion_state(), expected)
 
+        def velocity_jog(axis):
+            for speed in (VELOCITY_JOG_SPEED, -VELOCITY_JOG_SPEED):
+                motion = robot.start_velocity_jog(axis, speed)
+                try:
+                    deadline = time.monotonic() + VELOCITY_JOG_SECONDS
+                    while time.monotonic() < deadline:
+                        motion.renew()
+                        time.sleep(0.02)
+                finally:
+                    motion.stop()
+
         perform("probe", probe)
         perform("enable motors", robot.enable)
         perform("Home", home)
@@ -178,6 +194,16 @@ def run(args, handle, *, robot_factory=None, ask=None, emit=print):
             _check_move(origin, robot._motion_state(), {})
 
         perform(f"{args.joint} back 1 degree", back)
+        if args.velocity_jog:
+            for axis in ("base", "shoulder", "elbow"):
+                name = f"{axis} velocity jog"
+                if not args.simulate and ask(
+                        f"REAL {axis} velocity jog at speed {VELOCITY_JOG_SPEED} for {VELOCITY_JOG_SECONDS} s "
+                        "out and back; type JOG (anything else skips): ") != "JOG":
+                    record("step_skipped", step=name)
+                    say(f"SKIPPED {name}")
+                    continue
+                perform(name, lambda axis=axis: velocity_jog(axis))
         if args.stream:
             perform("1 degree sine stream", lambda: _sine(robot, args.joint, args.stream_seconds,
                                                           args.adaptive_pacing, args.speed_pct / 100))
@@ -221,6 +247,7 @@ def parse_args(argv=None):
     parser.add_argument("--online", action="store_true", help="real controller (default is refusing)")
     parser.add_argument("--joint", choices=("base", "shoulder", "elbow"), default="base")
     parser.add_argument("--legacy-home", action="store_true")
+    parser.add_argument("--velocity-jog", action="store_true")
     parser.add_argument("--stream", action="store_true")
     parser.add_argument("--stream-seconds", type=float, default=3)
     parser.add_argument("--adaptive-pacing", action="store_true")
