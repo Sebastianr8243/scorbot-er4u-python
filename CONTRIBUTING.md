@@ -67,15 +67,17 @@ flowchart TD
 
 ## Commands
 
-**Verify before saying done** (about 1 min with `-n 2`, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot openScorbot scripts examples tests && python -m pytest -n 2 -q tests`. Last run 2026-10-22: 1011 passed in 54 s.
+**Verify before saying done** (about 5 min with `-n 2` on a laptop, no USB, never moves the arm): `ruff check . && python -m compileall -q scorbot openScorbot scripts examples tests && python -m pytest -n 2 -q tests`. Last run 2026-11-04 (stack2 67ed59a, Windows laptop): `tests` 1374 passed in 5 min 27 s; `tests tests_extra` 2006 tests, 1988 passed and 18 skipped in about 8 min.
 
 ```powershell
 python -m pip install -e ".[dev]"              # add ,kinematics for the Robotics Toolbox cross-check; windows extra adds libusb-package; gui adds PyQt5
 uv sync --locked --extra windows --extra test --extra planning  # lab PC: Python 3.13 + exact versions from uv.lock (planning = Ruckig, needed by start_stream); after editing deps run `uv lock` (CI checks it)
 python -m compileall -q scorbot openScorbot scripts examples tests
-python -m pytest -n 2 tests                    # the lab-visit gate: about 645 tests, under 2 min, no expected failures
-python -m pytest -n 2 tests tests_extra        # everything: about 930 tests (tests_extra = code off the first-trial path; CI runs both)
+python -m pytest -n 2 tests                    # the lab-visit gate: about 1370 tests, about 5 min, no expected failures
+python -m pytest -n 2 tests tests_extra        # everything: about 2000 tests, about 8 min (tests_extra = code off the first-trial path; CI runs both)
 python -m unittest discover -s tests -v        # the gate with plain unittest
+scorbot doctor                                 # read-only setup checks and USB enumeration; never opens the controller (`--json` for JSON)
+scorbot <group> <task>                         # short names for the Stack 2 tools, same arguments and gates (`scorbot --help`; table in docs/STACK2_SDK.md)
 python examples/make_synthetic_session.py --root <tmpdir>   # CI smoke test
 ruff check .                                   # CI rules incl. bugbear (openScorbot/ excluded); `pre-commit install` runs it on every commit
 ```
@@ -90,7 +92,7 @@ python scripts\review_lab_logs.py --idle rehearsal\idle-01.jsonl --bench rehears
 python -m scorbot.session list|export|compare <paths>
 ```
 
-CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13, compileall, unittest, synthetic session.
+CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13: ruff, compileall, pytest over `tests` and `tests_extra` with coverage (summary in the job page), plain `unittest discover -s tests` (Ubuntu 3.10), synthetic session. The Ubuntu 3.13 cell also runs `scripts/check_docs.py` and `uv lock --check`. A pull request that changes only `docs/` or `*.md` files skips install, lint, compile and tests; the four unit jobs still report under their required names, and the Ubuntu 3.13 cell still runs `check_docs.py` plus `tests.test_docs_index` and `tests.test_source_audit`.
 
 ## Conventions
 

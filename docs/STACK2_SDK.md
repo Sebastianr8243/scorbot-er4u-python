@@ -1,6 +1,6 @@
 # Stack 2: our own USB protocol (`scorbot.Scorbot`)
 
-> **The main path since 2026-10-31, not yet run on the arm.** Its one real home attempt (2026-10-06) failed; the next try is the 2026-11-02 lab visit ([lab/LAB_CHECKLIST.md](lab/LAB_CHECKLIST.md), `scripts/lab_day.py`). The vendor-DLL path stays as the backup: [lab/RUN_THE_ARM.md](lab/RUN_THE_ARM.md) and [API.md](API.md). The rest of this page moved here from the old README with only link paths changed.
+> **The main path since 2026-10-31, not yet run on the arm.** Its one real home attempt (2026-10-06) failed; 2026-11-03 visit: no bench log recorded in the repo; the next visit's date is not set ([lab/LAB_CHECKLIST.md](lab/LAB_CHECKLIST.md), `scripts/lab_day.py`). The vendor-DLL path stays as the backup: [lab/RUN_THE_ARM.md](lab/RUN_THE_ARM.md) and [API.md](API.md). The rest of this page moved here from the old README with only link paths changed.
 
 This repository contains the original OpenScorbot USB controller code and a small Python adapter for the **Intelitek ScorBot ER-4U**. The current milestone is supervised Python control through the original controller. The adapter exposes fresh raw USB responses, legacy homing, and small **relative** joint jogs. Calibrated absolute base/shoulder/elbow moves are gated behind per-arm physical measurements and a validated calibration file. It does not provide Cartesian motion, a verified software stop, or autonomous control.
 
@@ -81,7 +81,7 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/RE
 | Script | scorbot | Moves the arm? | What it does |
 |---|---|---|---|
 | `python -m scorbot.preflight` | `scorbot doctor` | No | Setup checks, fixes and USB enumeration; never opens the controller |
-| `python -m scorbot.lab` | `scorbot lab session` | Yes, unless `--simulate` | The guided lab session |
+| `python -m scorbot.lab` | `scorbot lab session` | Yes, with `--online` | The guided lab session |
 | `examples/bench_joint.py` | | Yes, unless `--simulate` | One home and one jog of at most 1 degree |
 | `examples/bench_stream.py` | | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
 | `examples/bench_gripper.py` | | Yes, unless `--simulate` | A vendor Home, then one gripper trial of at most four opens and closes (never run on the arm; the gripper is refused before a vendor Home) |
