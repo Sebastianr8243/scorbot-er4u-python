@@ -4,6 +4,7 @@
 
 Desk only: nothing below ran on the arm. Newest first.
 
+- #164 `scorbot.lab`: the guided lab session requires explicit `--simulate` or `--online`; no mode refuses before setup, and real connections require `--online` because connecting energises the motors.
 - #161 CI: a pull request that changes only `docs/` or `*.md` passes the four required unit jobs without installing or running the tests; the Ubuntu 3.13 cell still runs `check_docs.py` and the two tests that read Markdown.
 - #159 `scorbot` and `python -m scorbot`: a read-only setup doctor with text/JSON output and short commands for existing Stack 2 tools. Arguments and safety gates stay unchanged; Ctrl+C waits for child cleanup. `scorbot record` prints the separate LeRobot simulation command.
 - #155 Docs: the lab DLL's count-to-angle and home-offset math checked against `scorbot/vendor_model.py`, ending in the bench measurement list for calibration.

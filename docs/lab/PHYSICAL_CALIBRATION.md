@@ -51,7 +51,7 @@ The fitter never connects to USB and refuses to overwrite an existing output. Th
 
 ## From a guided lab session
 
-`python -m scorbot.lab` prints `Step n: planned ..., measured ...` after every jog. Write that number beside the angle you read off the level or protractor. Each homing trial is its own session and its own log, so three homes are three sessions.
+`python -m scorbot.lab --online` prints `Step n: planned ..., measured ...` after every jog. Write that number beside the angle you read off the level or protractor. Each homing trial is its own session and its own log, so three homes are three sessions.
 
 Fill one readings file by hand (`home` is the point for the angle at the homed pose):
 
