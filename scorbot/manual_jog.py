@@ -8,7 +8,7 @@ from dataclasses import asdict
 import queue
 
 from . import limits, nominal, source_model, vendor_manual
-from .calibration import signed_count_delta
+from .calibration import MAX_COUNTS_FROM_HOME, signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .state import RobotState
 from .vendor_home_source import VendorHomeSource
@@ -24,6 +24,8 @@ def _edge(now: dict, motor: str, sign: int) -> int:
     """How far ``motor`` may go from ``now`` toward ``sign`` before the pose gets further past a joint limit
     or leaves the travel cap (counts from home). Bisection, like ``source_model.home_window``."""
     low_cap, high_cap = source_model.motion_window()[motor]
+    low_cap = max(low_cap, -MAX_COUNTS_FROM_HOME)
+    high_cap = min(high_cap, MAX_COUNTS_FROM_HOME)
     room = int(high_cap - now[motor]) if sign > 0 else int(now[motor] - low_cap)
     if room <= 0:
         return 0
@@ -186,6 +188,8 @@ class ManualJogMixin:
                 self._trace.start()
             control.renew()     # the settle wait above must not eat into the first deadline
             with self._lock:
+                self._vendor_joint_target = None
+                self._vendor_joint_hold = None
                 self._stream = jog
                 self._commands.put([vendor_manual.MANUAL_ORDER, source, 0])
             return jog

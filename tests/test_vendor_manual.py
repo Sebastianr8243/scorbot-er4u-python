@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from scorbot import ScorbotError, limits, nominal, source_model, vendor_home as vh, vendor_manual as vm
+from scorbot import calibration, manual_jog, vendor_move
 from scorbot.robot import MotionStopped
 from scorbot.simulated import SimulatedScorbot
 
@@ -134,6 +135,16 @@ def closed_jog(axis, speed, close_at, *, first=None, **kwargs):
 
 
 class Planner(unittest.TestCase):
+    def test_an_uncapped_elbow_stays_within_the_home_count_reach(self):
+        """VJ10/CT14: even without pose limits, bisection has a finite count-frame bound."""
+        now = dict.fromkeys(limits.RECORDED_MOTORS, 0)
+        now["elbow"] = 100
+        with mock.patch.object(source_model, "pose_limit_excess", return_value={}):
+            for sign in (-1, 1):
+                with self.subTest(sign=sign):
+                    self.assertEqual(manual_jog._edge(now, "elbow", sign),
+                                     calibration.MAX_COUNTS_FROM_HOME - sign * now["elbow"])
+
     def test_slot_matches_the_dll_formula(self):
         """VJ01: every offered axis, sign and whole percent, through its setpoints."""
         self.assertEqual(slot(0, 50), -589)
@@ -360,6 +371,27 @@ class Planner(unittest.TestCase):
             drive(vm.velocity_jog(reply(), 0, -100, vm.JogControl(3.0), OPEN), follow=False)
         self.assertEqual(caught.exception.code, vm.ERR_LEAD)
 
+    def test_a_lead_during_the_close_still_closes_then_faults(self):
+        """VJ09: excessive lead on any close reply cannot cut the three messages short."""
+        for command in (vh.MODE, vh.CONTROL_OFF, vh.MOTORS):
+            with self.subTest(command=command):
+                control = vm.JogControl(3.0, clock=Clock())
+                generator = vm.velocity_jog(reply(), 0, -20, control, OPEN)
+                sent = [next(generator)]
+                with self.assertRaises(vh.HomeError) as caught:
+                    while True:
+                        if len(sent) == 40:
+                            control.stop()
+                        last = sent[-1]
+                        counts = list(last.setpoints)
+                        if last.cmd == command:
+                            counts[0] -= vm.LEAD_LIMIT_COUNTS + 1
+                        sent.append(generator.send(reply(counts)))
+                self.assertEqual(caught.exception.code, vm.ERR_LEAD)
+                self.assertEqual(caught.exception.axis, 0)
+                self.assertEqual([vh.encode_out(o, 0)[1:12].hex() for o in sent[-3:]], CLOSE)
+                self.assertEqual(len({o.setpoints for o in sent[-3:]}), 1)
+
     def test_speed_and_axis_are_checked(self):
         """VJ07/VJ09: reject unsupported axes, speeds and deadlines before sending."""
         for axis, speed in ((0, 0), (0, 101), (0, 2.5), (0, True), (3, 20)):
@@ -381,6 +413,33 @@ class Simulated(unittest.TestCase):
     def setUp(self):
         self.robot = ready()
         self.addCleanup(self.robot.disconnect)
+
+    def test_the_elbow_jogs_both_ways(self):
+        """VJ10: the elbow's infinite travel cap allows both manual slot signs."""
+        for speed in (5, -5):
+            with self.subTest(speed=speed):
+                before = self.robot.get_state().signed_encoder_counts["elbow"]
+                jog = self.robot.start_velocity_jog("elbow", speed)
+                time.sleep(0.2)
+                after = jog.stop()
+                moved = after.signed_encoder_counts["elbow"] - before
+                self.assertGreater(moved * slot(2, speed), 0)
+                self.assertEqual(jog.reason, "stop")
+                self.assertIsNone(self.robot._fault)
+
+    def test_a_jog_after_a_vendor_joint_move_drops_its_hold(self):
+        """VJ10: a jog replaces the completed vendor move's target and idle hold."""
+        target = list(vendor_move.home_joints())
+        target[0] += math.radians(1)
+        self.robot.move_joint_vendor(target, total_ms=3000)
+        self.assertIsNotNone(self.robot._vendor_joint_target)
+        self.assertIsNotNone(self.robot._vendor_joint_hold)
+        jog = self.robot.start_velocity_jog("base", -5)
+        time.sleep(0.2)
+        jog.stop()
+        self.assertIsNone(self.robot._vendor_joint_target)
+        self.assertIsNone(self.robot._vendor_joint_hold)
+        self.assertIsNone(self.robot._fault)
 
     def test_stop_ramps_down_and_returns_the_state(self):
         """VJ05: stop collects the settled state after the close."""
