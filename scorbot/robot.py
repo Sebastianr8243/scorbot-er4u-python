@@ -411,6 +411,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                               "above ImpactDetect", keep_first=True)
             self._cancel_event.set()
             with self._stop_lock:
+                self._stream_resume_from = None
                 self._stop_event.set()
             if self._link_alive():
                 self._commands.put([16, 1, 1])  # Runs after the idle message; never an emergency stop.
@@ -601,6 +602,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         authoritative.
         """
         with self._stop_lock:
+            self._stream_resume_from = None
             self._stop_event.set()
         stream = self._stream
         if stream is not None:
@@ -616,6 +618,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         DLL stops once). Not an emergency stop.
         """
         with self._stop_lock:
+            self._stream_resume_from = None
             self._stop_event.set()
         stream = self._stream
         if stream is not None:
@@ -626,6 +629,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
     def _emergency_input(self) -> None:
         """Latch even a one-reply emergency pulse and use the existing worker stop and disable paths."""
         with self._stop_lock:
+            self._stream_resume_from = None
             self._stop_event.set()
         self._latch_fault("Controller emergency input active", keep_first=True)
         if self._link_alive():
@@ -739,6 +743,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
 
     def jog_joint(self, joint: str, delta_degrees: float, *, speed: int = 10):
         """Move one joint by a bounded legacy relative jog; read back raw state."""
+        self._stream_resume_from = None
         return self._jog_joint(joint, delta_degrees, speed)
 
     def _jog_joint(self, joint: str, delta_degrees: float, speed: int, *, homing: bool = False,
@@ -895,6 +900,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         from .vendor_gripper import GRIPPER_ORDER
         from .vendor_home_source import VendorHomeSource
 
+        self._stream_resume_from = None
         self._refuse_if_moving()
         with self._motion_lock:
             self._refuse_if_streaming()
@@ -971,6 +977,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
     def move_joint(self, joint: str, target_degrees: float, *, speed: int = 10):
         """One bounded calibrated target step, using the existing jog backend."""
         with self._motion_lock:
+            self._stream_resume_from = None
             if self._calibration is None or joint not in self._calibration.joints:
                 raise ScorbotError(f"No validated physical calibration for {joint}")
             if (isinstance(target_degrees, bool)

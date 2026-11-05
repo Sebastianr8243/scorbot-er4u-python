@@ -324,7 +324,7 @@ class PolicyArmGripperTests(unittest.TestCase):
                 robot.start_stream(resume=True)
 
     def test_a_stop_that_lands_as_the_gripper_finishes_clears_the_resume(self):
-        # Codex review P1: the gripper move ends "too late" for the stop and clears the stop event
+        # ST02: the gripper move ends "too late" for the stop and clears the stop event
         # itself, so the start never consumes it. The request alone must clear ST02's exemption.
         arm = self.arm()
         self.reach(arm.robot, arm._stream, self.FAR)
@@ -342,7 +342,7 @@ class PolicyArmGripperTests(unittest.TestCase):
         self.assertIsNone(robot._stream)
 
     def test_any_jog_in_between_clears_the_resume(self):
-        # Codex review P2 / ST02: any arm motion in between clears it, even one that ends within
+        # ST02: any arm motion in between clears it, even one that ends within
         # 20 counts of where the stream ended (a small jog, or out and back).
         far = rf"counts from home"
         for name, jogs in (("small jog", [("base", 0.05)]),

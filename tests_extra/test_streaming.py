@@ -920,7 +920,7 @@ class SdkStreamTests(SimulatedRobotCase):
         self.assertEqual(row["start_counts_from_home"]["wrist_motor_1"], 7)
 
     def test_teach_mode_during_the_rest_wait_refuses_the_start(self):
-        # Codex review P2 / ST04: the pendant switched to Teach while ST05 waits for rest; the
+        # ST04: the pendant switched to Teach while ST05 waits for rest; the
         # settled reading is checked for teach mode too, before anything is queued.
         import dataclasses
         robot = self.robot()

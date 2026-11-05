@@ -112,6 +112,9 @@ class StreamMixin:
             if not settled:
                 self._record("stream_refused_not_at_rest", state=asdict(before))
                 raise ScorbotError("The arm is not at rest; the stream was not started")
+            if before.teach_mode:
+                self._record("stream_refused_teach_mode")
+                raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before streaming")
             motors = WRIST_STREAM_MOTORS if wrist else STREAM_MOTORS
             per_degree = {m: abs(self.preview_jog(m, 1.0)["motor_count_deltas"][m])
                           for m in STREAM_MOTORS}

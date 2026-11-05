@@ -26,6 +26,7 @@ class HomingMixin:
     def home(self, *, start_position_confirmed: bool = False):
         """Search switches from the confirmed legacy start pose; never Go Home."""
         with self._motion_lock:
+            self._stream_resume_from = None
             self._refuse_if_streaming()
             if not start_position_confirmed:
                 raise ValueError("Confirm the legacy homing start position first")
@@ -239,6 +240,7 @@ class HomingMixin:
         motors off. Not an emergency stop: the physical stop is authoritative.
         """
         with self._motion_lock:
+            self._stream_resume_from = None
             self._refuse_if_streaming()
             if not operator_at_stop:
                 raise ValueError("Confirm an operator is at the physical stop and the "
@@ -340,6 +342,7 @@ class HomingMixin:
         formulas, never run on the arm; the physical stop is authoritative.
         """
         with self._motion_lock:
+            self._stream_resume_from = None
             self._refuse_if_streaming()
             if not operator_at_stop:
                 raise ValueError("Confirm an operator is at the physical stop and the "
@@ -452,6 +455,7 @@ class HomingMixin:
         motors off. Not an emergency stop: the physical stop is authoritative.
         """
         with self._motion_lock:
+            self._stream_resume_from = None
             self._refuse_if_streaming()
             if not operator_at_stop:
                 raise ValueError("Confirm an operator is at the physical stop and the "
@@ -605,6 +609,7 @@ class HomingMixin:
         coasts; the physical stop is authoritative. Never run on the arm.
         """
         with self._motion_lock:
+            self._stream_resume_from = None
             self._refuse_if_streaming()
             if not (operator_at_stop and jaws_empty and wrist_clear):
                 raise ValueError("Confirm an operator is at the physical stop, the gripper jaws are "
