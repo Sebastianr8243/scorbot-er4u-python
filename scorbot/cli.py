@@ -117,18 +117,26 @@ def check_lock():
     except (OSError, ValueError) as exc:
         return _check("Locked deps", "warn", f"Cannot read uv.lock: {exc}", SYNC_FIX)
     versions = {}
+    required = set()
     for package in data.get("package", []):
+        if package.get("name") == "scorbot-er4u":
+            required = {re.sub(r"[-_.]+", "-", dep["name"]).lower() for dep in package.get("dependencies", [])}
         if "version" in package:
             name = re.sub(r"[-_.]+", "-", package["name"]).lower()
             versions.setdefault(name, set()).add(package["version"])
-    mismatches = []
+    mismatches, missing = [], []
     for name, locked in versions.items():
         try:
             installed = metadata.version(name)
         except metadata.PackageNotFoundError:
+            if name in required:
+                missing.append(name)
             continue  # Optional extras and other platforms need not be installed.
         if installed not in locked:
             mismatches.append(f"{name}: installed {installed}, locked {' or '.join(sorted(locked))}")
+    if missing:
+        return _check("Locked deps", "fail", f"required package not installed: {', '.join(sorted(missing))}",
+                      SYNC_FIX)
     if mismatches:
         return _check("Locked deps", "warn", "; ".join(mismatches), SYNC_FIX)
     return _check("Locked deps", "ok", "installed versions match uv.lock")
@@ -157,9 +165,21 @@ def check_driver():
         return _check("Controller", "warn", f"Cannot read driver: {exc}", DRIVER_FIX)
     visible = any(row.name == "USB 09F1:0007" and row.passed for row in preflight.run_checks())
     detail = f"09F1:0007 registered driver: {', '.join(services) or 'unknown'}"
+    if not visible and not any(_driver_started(service) for service in services):
+        return _check("Controller", "warn", detail + " (not connected now)",
+                      "plug in the controller, power it, run scorbot doctor again")
     if visible and any(service.lower() in {"winusb", "libusbk"} for service in services):
         return _check("Controller", "ok", detail)
     return _check("Controller", "warn", detail, DRIVER_FIX)
+
+
+def _driver_started(service):
+    """True if Windows has started at least one device on this driver now (the Enum key above outlives unplugging)."""
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, rf"SYSTEM\CurrentControlSet\Services\{service}\Enum") as key:
+            return int(winreg.QueryValueEx(key, "Count")[0]) > 0
+    except (OSError, ValueError):
+        return False
 
 
 def check_calibration(args):
@@ -192,7 +212,7 @@ def doctor_checks(args):
     checks = [check_python(), check_venv()]
     driver = check_driver()
     # libusb cannot see a controller bound to Intelitek's driver; Stack 2 still reaches it with --transport auto.
-    intelitek = "ERUSB" in driver.detail.upper()
+    intelitek = "ERUSB" in driver.detail.upper() and "not connected" not in driver.detail
     for row in check_packages():
         if row.name == "Python":
             continue
@@ -215,6 +235,9 @@ def _doctor(argv):
     parser.add_argument("--calibration", help="Validated calibration JSON file")
     parser.add_argument("--robot-id", default="lab-er4u-1", help="Arm identity for calibration")
     args = parser.parse_args(argv)
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(errors="replace")  # a cp1252 console must not stop the report on a non-ASCII path
     checks = doctor_checks(args)
     problems = sum(row.level == "fail" for row in checks)
     warnings = sum(row.level == "warn" for row in checks)

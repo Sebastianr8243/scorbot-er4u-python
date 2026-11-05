@@ -352,7 +352,8 @@ class DoctorOutputTests(unittest.TestCase):
         rows = [preflight.Check("USB 09F1:0007", False, "Not visible to libusb")]
         erusb = check("Controller", "warn", "09F1:0007 registered driver: ERUSB", "use --transport auto")
         absent = check("Controller", "warn", "09F1:0007 has no registered driver", "plug in")
-        for driver, expected in ((erusb, ("warn", 0)), (absent, ("fail", 1))):
+        unplugged = check("Controller", "warn", "09F1:0007 registered driver: ERUSB (not connected now)", "plug in")
+        for driver, expected in ((erusb, ("warn", 0)), (absent, ("fail", 1)), (unplugged, ("fail", 1))):
             with self.subTest(driver=driver.detail), chosen_checks(check_driver=driver),                     mock.patch.object(cli, "check_packages", return_value=rows):
                 data = json.loads(invoke("doctor", "--json").stdout)
             usb = next(row for row in data["checks"] if row["name"] == "USB 09F1:0007")
@@ -477,6 +478,29 @@ class LockCheckTests(unittest.TestCase):
         self.assertTrue(result.fix)
         installed.assert_any_call("demo-mixed-name")
 
+    @unittest.skipIf(cli.tomllib is None, "tomllib is optional on Python 3.10")
+    def test_missing_required_dependency_fails(self):
+        locked = ('version = 1\n'
+                  '[[package]]\nname = "scorbot-er4u"\nversion = "0.1.0"\n'
+                  'dependencies = [{ name = "mcap" }, { name = "numpy" }]\n'
+                  '[[package]]\nname = "mcap"\nversion = "1.5"\n'
+                  '[[package]]\nname = "numpy"\nversion = "2.0"\n'
+                  '[[package]]\nname = "extra-only"\nversion = "1.0"\n')
+
+        def version(name):
+            if name == "numpy":
+                return "2.0"
+            raise importlib.metadata.PackageNotFoundError(name)
+
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "uv.lock").write_text(locked, encoding="utf-8")
+            with mock.patch.object(cli, "REPO_ROOT", Path(folder)), \
+                    mock.patch.object(importlib.metadata, "version", side_effect=version):
+                result = cli.check_lock()
+        self.assertEqual(result.level, "fail", result.detail)
+        self.assertIn("mcap", result.detail)
+        self.assertNotIn("extra-only", result.detail)
+
     def test_without_tomllib_lock_check_skips(self):
         with mock.patch.object(cli, "tomllib", None):
             result = cli.check_lock()
@@ -484,8 +508,9 @@ class LockCheckTests(unittest.TestCase):
 
 
 class DriverCheckTests(unittest.TestCase):
-    def registry(self):
+    def registry(self, started=1):
         base = r"SYSTEM\CurrentControlSet\Enum\USB\VID_09F1&PID_0007"
+        service_enum = r"SYSTEM\CurrentControlSet\Services\ERUSB\Enum"
         instance = base + r"\FAKE_CONTROLLER"
         hive = object()
 
@@ -498,7 +523,7 @@ class DriverCheckTests(unittest.TestCase):
 
         def open_key(root, path, *args, **kwargs):
             full = path if root is hive else str(root) + "\\" + path
-            if full not in (base, instance):
+            if full not in (base, instance, service_enum):
                 raise FileNotFoundError(full)
             return Key(full)
 
@@ -510,6 +535,8 @@ class DriverCheckTests(unittest.TestCase):
         def query_value(key, name):
             if str(key) == instance and name == "Service":
                 return "ERUSB", 1
+            if str(key) == service_enum and name == "Count" and started is not None:
+                return started, 4
             raise FileNotFoundError(name)
 
         return SimpleNamespace(HKEY_LOCAL_MACHINE=hive, KEY_READ=0x20019, KEY_WOW64_64KEY=0x100,
@@ -529,6 +556,19 @@ class DriverCheckTests(unittest.TestCase):
         self.assertIn("--transport auto", result.fix)
         self.assertIn("docs/lab/WINDOWS_BENCH_RUN.md", result.fix)
         registry.QueryValueEx.assert_any_call(mock.ANY, "Service")
+
+    def test_stale_erusb_entry_without_started_device_says_not_connected(self):
+        # The USB Enum key outlives unplugging; the driver's Services Enum Count is what Windows started now.
+        invisible = [preflight.Check("USB 09F1:0007", False, "Not visible to libusb")]
+        for started in (0, None):
+            registry = self.registry(started=started)
+            with self.subTest(started=started), mock.patch.object(cli.sys, "platform", "win32"), \
+                    mock.patch.object(cli, "winreg", registry), \
+                    mock.patch.object(preflight, "run_checks", return_value=invisible):
+                result = cli.check_driver()
+            self.assertEqual(result.level, "warn")
+            self.assertIn("not connected", result.detail)
+            self.assertRegex(result.fix.lower(), r"plug.*controller")
 
     def test_non_windows_skips_without_registry_access(self):
         registry = self.registry()
