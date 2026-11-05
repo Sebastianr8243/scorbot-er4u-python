@@ -372,15 +372,26 @@ class Stream:
         whether or not the caller ever ends the stream.
         """
         answer = self._step(reply)
-        if self.core.fault and not self.fault_reported:
-            with self.report_lock:
-                if not self.fault_reported:
-                    self.robot._stream_faulted(self)
-                    self.fault_reported = True
+        if self.core.fault:
+            self.interrupt(self.core.fault)
         # Timed from the answer, the last thing before the worker writes, so
         # a slow step here cannot shorten the gap to the next write.
         self._next_step_time = time.monotonic() + self.core.period_s
         return answer
+
+    def __call__(self, reply: bytes):
+        return self.source(reply)
+
+    def interrupt(self, message: str) -> None:
+        """Report a step or USB fault on the worker, even if close is never called. Never raises."""
+        try:
+            self.core.fail(message)
+            with self.report_lock:
+                if not self.fault_reported:
+                    self.robot._stream_faulted(self)
+                    self.fault_reported = True
+        except Exception:
+            pass  # a reporting failure must not skip the worker's recovery stop
 
     def _pace(self) -> None:
         # The core plans one step per period, so steps must not come faster
