@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #166, 2026-11-05)
+
+- One-command lab day: G adds supervised velocity jogs of base, shoulder and elbow at manual speed 5 for 0.3 s each way (JOG per axis); declining GO skips and continues. One dated `lab-day.jsonl` indexes step results and logs for `lab_summary.py --sheet`, including signed jog counts and skips. Simulator checked only; velocity jogs unverified on the arm.
+
 ## Unreleased (branch fix-stream-usb-173-175, 2026-11-05)
 
 - #175: a failed write or partial read on the stream's opening message uses the existing stop and motors-off recovery, restores the last complete reply, and keeps the command worker alive without reusing the opening packet ID. Tested with fake endpoints only; never run on the arm.

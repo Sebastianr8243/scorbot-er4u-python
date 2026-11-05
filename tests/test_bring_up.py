@@ -19,7 +19,7 @@ def options(**overrides):
     return argparse.Namespace(**dict({"simulate": True, "transport": "auto", "logs": "unused",
                                      "online": False, "joint": "base", "legacy_home": False,
                                      "stream": False, "stream_seconds": 1, "adaptive_pacing": False,
-                                     "latency_ms": 0, "speed_pct": 25}, **overrides))
+                                     "latency_ms": 0, "speed_pct": 25, "velocity_jog": False}, **overrides))
 
 
 class BringUpTests(unittest.TestCase):
@@ -49,6 +49,59 @@ class BringUpTests(unittest.TestCase):
         self.assertTrue(any(row["event"] == "home_complete" and row["method"] == "vendor" for row in rows))
         stream.assert_called_once_with(adaptive_pacing=False, speed_fraction=0.25)
         self.assertFalse(robot.sim.motors_on)
+
+    def test_the_velocity_jog_runs_one_step_per_axis_out_and_back(self):
+        robot = SimulatedScorbot()
+        result, lines, rows = self.run_ladder(options(velocity_jog=True), lambda **kw: robot)
+        self.assertEqual(result, 0, lines)
+        passed = [row["step"] for row in rows if row["event"] == "step_pass"]
+        self.assertEqual(passed, ["probe", "enable motors", "Home", "base +1 degree", "base back 1 degree",
+                                  "base velocity jog", "shoulder velocity jog", "elbow velocity jog",
+                                  "disable motors"])
+        speed = bring_up.VELOCITY_JOG_SPEED
+        self.assertLessEqual(speed, 5)                                   # a low speed for a first trial
+        starts = [(row["joint"], row["speed"]) for row in rows if row["event"] == "velocity_jog_start"]
+        self.assertEqual(starts, [(axis, sign * speed) for axis in ("base", "shoulder", "elbow") for sign in (1, -1)])
+        ends = [row for row in rows if row["event"] == "velocity_jog_complete"]
+        self.assertEqual(len(ends), 6)
+
+    def test_each_velocity_jog_waits_for_an_ok_and_declining_skips_it(self):
+        robot = SimulatedScorbot()
+        ask = mock.Mock(side_effect=("EMPTY", "CLEAR", "HOME", "JOG", "no", "JOG"))
+        result, lines, rows = self.run_ladder(options(simulate=False, online=True, velocity_jog=True),
+                                             lambda **kw: robot, ask)
+        self.assertEqual(result, 0, lines)
+        self.assertEqual(ask.call_count, 6)
+        self.assertEqual([row["step"] for row in rows if row["event"] == "step_skipped"], ["shoulder velocity jog"])
+        jogged = {row["joint"] for row in rows if row["event"] == "velocity_jog_start"}
+        self.assertEqual(jogged, {"base", "elbow"})
+        self.assertTrue(any("SKIPPED shoulder velocity jog" in line for line in lines))
+
+    def test_a_velocity_jog_that_ends_by_itself_is_a_fail(self):
+        robot = SimulatedScorbot()
+
+        class EndedAtTheWindow:
+            reason = "limit"
+
+            def renew(self):
+                pass
+
+            def stop(self):
+                return robot._motion_state()
+
+        with mock.patch.object(robot, "start_velocity_jog", return_value=EndedAtTheWindow()):
+            result, lines, rows = self.run_ladder(options(velocity_jog=True), lambda **kw: robot)
+        self.assertEqual(result, 1, lines)
+        (fail,) = [row for row in rows if row["event"] == "step_fail"]
+        self.assertEqual(fail["step"], "base velocity jog")
+        self.assertIn("limit", fail["error"])
+
+    def test_without_the_flag_there_is_no_velocity_jog(self):
+        result, _, rows = self.run_ladder(options(), lambda **kw: SimulatedScorbot())
+        self.assertEqual(result, 0)
+        self.assertFalse(any(row["event"] == "velocity_jog_start" for row in rows))
+        self.assertFalse(bring_up.parse_args(["--simulate", "--logs", "x"]).velocity_jog)
+        self.assertTrue(bring_up.parse_args(["--simulate", "--logs", "x", "--velocity-jog"]).velocity_jog)
 
     def test_the_stream_runs_at_the_operators_speed(self):
         robot = SimulatedScorbot()
