@@ -146,8 +146,8 @@ class SdkStreamTests(SimulatedRobotCase):
                 self.assertTrue(self.running(stream))
                 start = len(robot.sim.commands)
                 cause(robot, stream)
-                self.assertTrue(wait_for(lambda: robot._fault is not None), "the session must latch")
-                self.assertTrue(wait_for(lambda: MOTORS_OFF in robot.sim.commands[start:]),
+                self.assertTrue(wait_for(lambda robot=robot: robot._fault is not None), "the session must latch")
+                self.assertTrue(wait_for(lambda robot=robot, start=start: MOTORS_OFF in robot.sim.commands[start:]),
                                 "motors-off must be queued without close()")
                 self.assertIsNotNone(stream.core.fault)
                 sent = len(robot.sim.stream_sent)
