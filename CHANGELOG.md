@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #166, 2026-11-05)
+
+- One-command lab day: G adds supervised velocity jogs of base, shoulder and elbow at manual speed 5 for 0.3 s each way (JOG per axis); declining GO skips and continues. One dated `lab-day.jsonl` indexes step results and logs for `lab_summary.py --sheet`, including signed jog counts and skips. Simulator checked only; velocity jogs unverified on the arm.
+
 ## Unreleased (branch fix-stream-usb-173-175, 2026-11-05)
 
 - #175: a failed write or partial read on the stream's opening message uses the existing stop and motors-off recovery, restores the last complete reply, and keeps the command worker alive without reusing the opening packet ID. Tested with fake endpoints only; never run on the arm.
@@ -11,6 +15,7 @@
 
 ## Merged to stack2, 2026-11-01 to 2026-11-04
 
+- #170: streams wait for rest and start within 20 counts of home on all five arm motors; only a clean close permits a one-use resume near its final pose for gripper handoffs, with start and refusal rows logged. Tested on the simulator and fakes only.
 Desk only: nothing below ran on the arm. Newest first.
 
 - #164 `scorbot.lab`: the guided lab session requires explicit `--simulate` or `--online`; no mode refuses before setup, and real connections require `--online` because connecting energises the motors.
