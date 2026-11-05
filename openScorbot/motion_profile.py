@@ -69,9 +69,6 @@ def increments_for_counts(counts, speed):
     return result
 
 
-GRIPPER_ORDERS = {"open": 14, "close": 15}
-
-
 def gripper_increments(speed, steps):
     """The count added to the gripper setpoint in each message of libcomm.clamp.
 

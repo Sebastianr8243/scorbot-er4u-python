@@ -4,12 +4,10 @@
 # University of La Laguna
 
 import time
-import libcomm
 import libhex
 import libdef
 import conf
 import log
-import logging
 
 ###############################################################################
 # Script that performs the initial connection between the application and the
