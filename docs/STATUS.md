@@ -1,10 +1,10 @@
 # Project status
 
-**As of 2026-11-01, branch `stack2` (PRs #62 and #63 merged).** One page: what works, how well we know it, what is in the way. Old reports: `reports/INDEX.md (in git history)`. Update this page whenever a result changes a row.
+**As of 2026-11-04, branch `stack2` (through PR #161).** One page: what works, how well we know it, what is in the way. Old reports: `reports/INDEX.md (in git history)`. Update this page whenever a result changes a row.
 
 **Goal:** our own Python code (Stack 2, no vendor DLL) drives the Intelitek ScorBot ER-4U through its original controller, so LeRobot can record demos and run VLA policies on it as a teaching tool. Decided 2026-10-31.
 
-**In one paragraph:** there are two stacks (map: root `CONTRIBUTING.md`, "Layers"). **Stack 1** drives Intelitek's own `USBC.dll` from Python (`tools/usbc_*`); its vendor Home ran on the real arm on 2026-10-20 (Home OK in 134 s, order 2, 3, 5, 4, 1, 6; log in the private repo). The arm server and Python API (`tools/usbc_server`, `scorbot/bridge.py`) are built on Stack 1 and ran end to end on the lab DLL against a fake controller, but not yet on the arm. **Stack 2** is our own USB protocol (`scorbot.Scorbot`, `openScorbot`) and the main path: its vendor-Home port now sends the lab DLL's commands in the DLL's order on a fake controller, and its whole bring-up passes there, but its one real home attempt (2026-10-06, the older legacy home) failed after 4.2 s. Next try: the 2026-11-03 lab visit. Stack 1 is the backup.
+**In one paragraph:** there are two stacks (map: root `CONTRIBUTING.md`, "Layers"). **Stack 1** drives Intelitek's own `USBC.dll` from Python (`tools/usbc_*`); its vendor Home ran on the real arm on 2026-10-20 (Home OK in 134 s, order 2, 3, 5, 4, 1, 6; log in the private repo). The arm server and Python API (`tools/usbc_server`, `scorbot/bridge.py`) are built on Stack 1 and ran end to end on the lab DLL against a fake controller, but not yet on the arm. **Stack 2** is our own USB protocol (`scorbot.Scorbot`, `openScorbot`) and the main path: its vendor-Home port now sends the lab DLL's commands in the DLL's order on a fake controller, and its whole bring-up passes there, but its one real home attempt (2026-10-06, the older legacy home) failed after 4.2 s. 2026-11-03 visit: no bench log recorded in the repo. Next visit: date not set. Stack 1 is the backup.
 
 2026-11-03 desk change: Stack 2 jogs, joint moves, streams and PolicyArm use the vendor limit (USBC.dll EncLimit / ROB_4u.INI), not measured. Vendor Home establishes the required zero; extra travel caps default to None. Requirements: [one-limit](requirements/one-limit.md). No arm run.
 
@@ -39,19 +39,19 @@
 |---|---|---|---|---|
 | Connect, handshake, raw state read | E4 | no | `evidence/2026-09-29-idle-capture-handoff.md (in git history)` | Only one idle capture |
 | Legacy home | E4 (failed) | no | `evidence/2026-10-06-lab-logs/ANALYSIS.md (in git history)` | Failed at 4.2 s |
-| Vendor-home port (`scorbot/vendor_home.py`) | E3 | no (gripper end changed 2026-10-31; 3 review rounds, the last still open on ledger PL29) | `tests/fixtures/vendor_home_trace05.json` (lab DLL on the fake, command for command), the full Stack 2 bring-up on the pipe fake, [`protocol/LEDGER.md`](protocol/LEDGER.md) | Lab visit 2026-11-03: steps T, S, P, X and G in `lab/LAB_CHECKLIST.md` (`scripts/lab_day.py` runs them) |
+| Vendor-home port (`scorbot/vendor_home.py`) | E3 | no (gripper end changed 2026-10-31; 3 review rounds, the last still open on ledger PL29) | `tests/fixtures/vendor_home_trace05.json` (lab DLL on the fake, command for command), the full Stack 2 bring-up on the pipe fake, [`protocol/LEDGER.md`](protocol/LEDGER.md) | Next lab visit (date not set): steps T, S, P, X and G in `lab/LAB_CHECKLIST.md` (`scripts/lab_day.py` runs them) |
 | Packet codec (`scorbot/transport/`) | E3 | no | `tests/test_transport_codec.py` | Not wired into `Scorbot` |
 | Joint jog, streaming, gripper, inch home, software stop | E2 | no | `tests/`, `tests_extra/` | Never ran on the arm |
 | PolicyArm binary gripper (`open_gripper`, `close_gripper`) | E2 | no | `tests_extra/test_policy_arm_gripper.py`: simulator and real SDK workers on desk fake against the existing DLL fixture; [API notes](STACK2_SDK.md#policyarm-binary-gripper-desk-only) | Physical-arm behaviour unverified; the LeRobot plugin exposes it as `gripper.pos` |
 | PolicyArm / LeRobot vendor travel guard | E2 | no | `tests_extra/test_policy_vendor_limits.py`; [requirements](requirements/vendor-limits.md), [vendor windows](protocol/VENDOR_DLL_PROTOCOL.md#115-per-axis-limits) | Both Intelitek windows after session vendor Home; whole-frame hold outside either, no policy degree cap. Physical zero and signs unverified until lab G/X |
 | Simulator, recording, replay (`scorbot/session/`) | E2 | no | `tests/` | Offline only |
-| LeRobot plugin (`plugins/lerobot_robot_scorbot`) | E2 | no | `examples/lerobot_sim_check.py` against lerobot 0.6.1 in its own venv (2026-11-01: `lerobot-record`, reload, replay), `tests_extra/test_lerobot_scorbot_plugin.py` | Simulator only, real arm refused; wrist pitch and roll added 2026-11-02; binary `gripper.pos` (0 closed, 100 open) through `PolicyArm.set_gripper`, exercised by `examples/lerobot_sim_check.py` |
+| LeRobot plugin (`plugins/lerobot_robot_scorbot`) | E2 | no | `examples/lerobot_sim_check.py` against lerobot 0.6.1 in its own venv (2026-11-01: `lerobot-record`, reload, replay), `tests_extra/test_lerobot_scorbot_plugin.py` | Simulator only. The real arm needs a second opt-in (`simulate=false` and `real_arm_confirmed=true`, off by default, added 2026-11-04, [requirements](requirements/lerobot-real-arm.md)); unverified on the arm. Wrist pitch and roll added 2026-11-02; binary `gripper.pos` (0 closed, 100 open) through `PolicyArm.set_gripper`, exercised by `examples/lerobot_sim_check.py` |
 
 ## Critical path
 
 ```mermaid
 flowchart LR
-    L["Lab 2026-11-03: vendor Home, then Stack 2 T, S, P, G"] --> J["Stack 2 jog and stream on the arm"]
+    L["Next lab visit (date not set): vendor Home, then Stack 2 T, S, P, G"] --> J["Stack 2 jog and stream on the arm"]
     J --> R["LeRobot robot wrapper and cameras"]
     R --> D["Record teleop demos"]
     D --> V["Train and run a VLA (PHS GPUs)"]
@@ -63,7 +63,7 @@ Steps and pass lines: [`lab/LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) section 3b.
 
 | Decision | Needed before |
 |---|---|
-| Driver for the visit: Intelitek's (`--transport auto`) or WinUSB via Zadig (`pyusb`, swap back before leaving) | The 2026-11-03 visit |
+| Driver for the visit: Intelitek's (`--transport auto`) or WinUSB via Zadig (`pyusb`, swap back before leaving) | The next lab visit (date not set) |
 | Installing `lerobot` (new dependency) | The LeRobot wrapper (done in a separate venv for the simulator check; the repo itself still does not depend on it) |
 | Near-home confirmation, shoulder travel bound, BACKLOG 20 (`project/BACKLOG.md (in git history)`) | Stack 2 streaming on the arm |
 
