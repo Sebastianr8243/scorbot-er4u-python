@@ -1,5 +1,5 @@
 # Velocity jog requirements
-Status: baseline v1 2026-11-04 (issue #133, approved by Sebastian through mission control)
+Status: baseline v1 2026-11-04 (issue #133, approved through mission control)
 
 ## Goal
 `Scorbot.start_velocity_jog(joint, speed, *, deadline_s=1.0)` sends what the lab `USBC.dll`'s

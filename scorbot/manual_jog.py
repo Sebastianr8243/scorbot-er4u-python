@@ -1,13 +1,13 @@
 """The velocity jog: ``Scorbot.start_velocity_jog`` and the ``VelocityJog`` handle it returns (``scorbot/vendor_manual.py``).
 
 The messages are the lab DLL's ``EnterManual(0)``, ``MoveManual`` and ``CloseManual`` (``docs/protocol/LEDGER.md``).
-The deadline, the window and the stop are ours. Unverified on the arm: never run it there before a supervised trial.
+The wall-clock deadline, the window margin and the legacy stop are ours. Unverified on the arm.
 """
 
 from dataclasses import asdict
 import queue
 
-from . import limits, source_model, vendor_manual
+from . import limits, nominal, source_model, vendor_manual
 from .calibration import signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .state import RobotState
@@ -17,7 +17,7 @@ MAX_SPEED = 20
 """Ours: the largest speed the SDK takes for a first trial (the DLL takes 100). Speed 20 jogs the base about
 19 counts per message."""
 WINDOW_MARGIN_COUNTS = 2
-"""Ours: the window is cut this much short of the travel cap and the joint limits (counting differs by one)."""
+"""Ours: the window is cut this much short of the travel cap and the source-model and vendor limits."""
 
 
 def _edge(now: dict, motor: str, sign: int) -> int:
@@ -45,19 +45,37 @@ def _edge(now: dict, motor: str, sign: int) -> int:
     return high
 
 
-def _window(now: dict, motor: str) -> tuple:
-    """(low, high) counts ``motor`` may move from ``now``, cut ``WINDOW_MARGIN_COUNTS`` short."""
-    return tuple(sign * max(0, _edge(now, motor, sign) - WINDOW_MARGIN_COUNTS) for sign in (-1, 1))
+def _window(now: dict, motor: str, absolute: dict) -> tuple:
+    """The narrower source-model and absolute vendor window, cut ``WINDOW_MARGIN_COUNTS`` short."""
+    was = nominal.vendor_limit_excess(absolute)
+    edges = []
+    for sign in (-1, 1):
+        low, high = 0, _edge(now, motor, sign)
+
+        def worse(distance, sign=sign):
+            after = {**absolute, motor: absolute[motor] + sign * distance}
+            return nominal.vendor_limit_problem(after) and any(
+                over > was.get(name, 0.0) + 1e-6 for name, over in nominal.vendor_limit_excess(after).items())
+
+        if worse(high):
+            while high - low > 1:
+                middle = (low + high) // 2
+                if worse(middle):
+                    high = middle
+                else:
+                    low = middle
+            high = low
+        edges.append(sign * max(0, high - WINDOW_MARGIN_COUNTS))
+    return tuple(edges)
 
 
 def _from_home_at(first, now: dict, before: RobotState) -> dict:
     """``now`` (counts from home at ``before``) moved by what the worker's first reply reads since then, so the
-    window is measured from where the jog really starts. ``first`` holds controller counts, which read one higher
-    than ``scorbot.state`` counts on the positive side."""
+    window is measured from where the jog really starts. Both replies hold controller counts (CT13)."""
     shifted = dict(now)
     for slot, motor in enumerate(limits.RECORDED_MOTORS):
         then = before.signed_encoder_counts[motor]
-        shifted[motor] += first.counts[slot] - (then + 1 if then > 0 else then)
+        shifted[motor] += first.counts[slot] - then
     return shifted
 
 
@@ -72,12 +90,12 @@ class VelocityJog:
 
     @property
     def reason(self):
-        """Why the jog ended ("stop", "deadline", "limit", "total", "stopped"), or None while it runs."""
+        """Why it ended ("stop", "deadline", "keepalive", "limit", "total", "stopped"), or None while running."""
         run = self._source.result
         return run.reason if run is not None else None
 
     def renew(self) -> None:
-        """Keep the jog going for another ``deadline_s``. Sends nothing. Raises once the jog has ended by itself
+        """Re-arm the 300-message keep-alive and ``deadline_s``. Sends nothing. Raises once the jog has ended by itself
         (deadline, window edge, fault): call ``stop`` to collect the result."""
         if self.final_state is not None or self._source.result is not None or self._source.error is not None:
             raise ScorbotError(f"The velocity jog has ended ({self.reason or self._source.error}); call stop()")
@@ -106,16 +124,17 @@ class ManualJogMixin:
 
     def start_velocity_jog(self, joint: str, speed: int, *, deadline_s: float = vendor_manual.DEFAULT_DEADLINE_S
                            ) -> VelocityJog:
-        """Jog ``joint`` (base, shoulder or elbow) at ``speed`` until ``stop``: the lab DLL's joint jog. Never run on the arm.
+        """Jog ``joint`` (base, shoulder or elbow) at ``speed``: the lab DLL's joint jog, unverified on the arm.
 
         ``speed`` is the DLL's ``MoveManual`` speed, a signed percent of the axis' manual speed, here 1 to
         ``MAX_SPEED`` in size; its sign is the DLL's (a positive base speed lowers the count). To change speed or
         direction, ``stop`` and start a new jog: the DLL ignores a new speed while a jog runs. The jog ends with
         the vendor's ramp-down and close when ``stop`` is called, when ``renew`` was not called for
-        ``deadline_s`` (0.1 to 3 s), after 30 s, or before the motor would leave the travel cap or take the pose
-        past a joint limit (source model, not measured).
+        ``deadline_s`` (0.1 to 3 s), after 300 messages without ``renew``, after 30 s, or before the remaining
+        ramp down would leave the narrower source-model and vendor-limit window, cut 2 counts short.
+        Vendor limits read absolute controller counts; existing violations may shrink, never grow.
 
-        Needs enabled motors, a home in this session and the arm at rest; refused while a stream or another
+        Needs enabled motors, vendor Home in this session and the arm at rest; refused while a stream or another
         motion runs. ``request_stop`` and the pendant's Abort hold the arm where it is with the legacy jog's stop
         and ``stop`` raises ``MotionStopped``; that is not an emergency stop. The emergency input, an impact flag,
         a setpoint far ahead of the arm, a USB error or an unreadable reply switch the motors off and latch a
@@ -134,6 +153,8 @@ class ManualJogMixin:
                 raise ScorbotError("Not connected")
             if not self._enabled or not self._homed or self._home_counts is None:
                 raise ScorbotError("Enable and home before a velocity jog")
+            if not (self._homed and self._gripper_homed):
+                raise ScorbotError("Run vendor Home before jogging with vendor limits")
             before = self._motion_state()
             if self._consume_stop():
                 self._record("stop_before_motion", joint=joint, speed=speed)
@@ -146,14 +167,16 @@ class ManualJogMixin:
                        for m in limits.RECORDED_MOTORS}
             except (KeyError, ValueError) as exc:
                 raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
-            window = _window(now, joint)
-            direction = 1 if speed * vendor_manual.COUNTS_PER_TICK[axis] > 0 else -1
+            window = _window(now, joint, before.signed_encoder_counts)
+            direction = 1 if vendor_manual.slot(axis, speed) > 0 else -1
             if window[direction > 0] == 0:
-                raise ValueError(f"The {joint} is at the edge of its travel cap or joint limits that way "
-                                 "(source model, not measured)")
+                raise ValueError(f"The {joint} is at the edge of its travel cap, source-model or vendor limits "
+                                 "that way (not measured)")
             source = VendorHomeSource(
                 start=lambda first: vendor_manual.velocity_jog(
-                    first, axis, speed, control, _window(_from_home_at(first, now, before), joint)),
+                    first, axis, speed, control,
+                    _window(_from_home_at(first, now, before), joint,
+                            dict(zip(limits.RECORDED_MOTORS, first.counts))), settled=True),
                 stop_event=self._stop_event, cancel_event=self._cancel_event,
                 total_seconds=vendor_manual.MAX_SECONDS + 10.0)
             jog = VelocityJog(self, joint, speed, control, source, before)

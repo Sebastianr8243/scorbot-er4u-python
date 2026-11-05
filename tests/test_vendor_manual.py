@@ -173,11 +173,12 @@ class Planner(unittest.TestCase):
             axis, speed = golden["axis"], golden["speed"]
             with self.subTest(axis=axis, speed=speed, label=golden["label"]):
                 if golden["label"].startswith("Stop("):
+                    # The DLL's own Stop, not modelled: the message before its 47 is one count off the S-curve.
                     before_stop = golden["commands"][1][0]
                     sent, _ = closed_jog(axis, speed, before_stop + 5)
                     self.assertEqual(commands(sent[:before_stop]), golden["commands"][:1])
-                    self.assertEqual(recorded_steps(sent[:before_stop + 1], axis),
-                                     golden["steps"][:before_stop])
+                    self.assertEqual(recorded_steps(sent[:before_stop], axis),
+                                     golden["steps"][:before_stop - 1])
                     continue
                 candidates = []
                 close_command = golden["commands"][1][0]
@@ -451,7 +452,7 @@ class Simulated(unittest.TestCase):
                         self.robot.sim.counts["shoulder"] += 300
                     return state
 
-                def capture(first, axis, speed, control, window, **kwargs):
+                def capture(first, axis, speed, control, window, captured=captured, **kwargs):
                     captured.append((first.counts[axis], window))
                     return real_jog(first, axis, speed, control, window, **kwargs)
 

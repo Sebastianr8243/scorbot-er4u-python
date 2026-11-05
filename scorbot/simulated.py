@@ -475,8 +475,7 @@ class SimulatedController:
             with self._lock:
                 for index, motor in enumerate(ARM_MOTORS):
                     setpoint = int.from_bytes(step[1][12 + 4 * index:16 + 4 * index], "little", signed=True)
-                    # Setpoints are controller counts; ``counts`` are state counts, one lower on the positive side.
-                    self.counts[motor] = setpoint - 1 if setpoint > 0 else setpoint
+                    self.counts[motor] = setpoint
 
     def _vendor_torque(self, source) -> int:
         """Run the torque readout the way ``libcomm.vendor_home_run`` does (order 25). Each reply echoes the
