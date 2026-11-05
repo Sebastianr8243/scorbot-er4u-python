@@ -86,6 +86,14 @@ def prior_limits(speed_fraction: float = DEFAULT_SPEED_FRACTION) -> StreamLimits
     return StreamLimits(velocity, acceleration, acceleration / jerk_up)
 
 
+def _whole_count_velocity(max_velocity: float, period_s: float) -> float:
+    # Plan at whole counts per period so the step guard cannot fall behind in cruise.
+    counts = math.floor(max_velocity * period_s + 1e-9)
+    if counts < 1:
+        raise StreamRefused("the speed is under one count per period")
+    return counts / period_s
+
+
 @dataclass(frozen=True)
 class Step:
     """What to do this period, and the numbers behind it (for the log)."""
@@ -158,8 +166,7 @@ class StreamCore:
         positions = [float(start[m]) for m in self.motors]
         self._input.current_position = positions
         self._input.target_position = positions
-        # Plan at whole counts per period so the step guard cannot fall behind in cruise.
-        velocity = math.floor(limits.max_velocity * period_s + 1e-9) / period_s
+        velocity = _whole_count_velocity(limits.max_velocity, period_s)
         self._input.max_velocity = [velocity] * len(self.motors)
         self._input.max_acceleration = [limits.max_acceleration] * len(self.motors)
         self._input.max_jerk = [limits.max_jerk] * len(self.motors)
@@ -210,7 +217,7 @@ class StreamCore:
         with self._lock:
             if self.state not in (TRACKING, HOLDING):
                 raise StreamRefused(f"the stream is {self.state}; its speed is fixed")
-            velocity = math.floor(limits.max_velocity * self.period_s + 1e-9) / self.period_s
+            velocity = _whole_count_velocity(limits.max_velocity, self.period_s)
             self._input.max_velocity = [velocity] * len(self.motors)
             # Never lower acceleration or jerk mid-stream: with less jerk, an acceleration already
             # under way takes longer to end and the speed overshoots past MaxSpeed (review 2026-11-01).
