@@ -10,10 +10,10 @@ Run from the repo root in PowerShell with the shared venv:
 
 ```powershell
 $env:PYTHONPATH = $PWD
-..\openScorbot\.venv\Scripts\python.exe -m scorbot.transport.probe --simulate --latency-ms 1
-..\openScorbot\.venv\Scripts\python.exe scripts/bring_up.py --simulate --logs rehearsal\bring-up
-..\openScorbot\.venv\Scripts\python.exe scripts/bring_up.py --simulate --stream --logs rehearsal\bring-up
-..\openScorbot\.venv\Scripts\python.exe scripts/bring_up.py --simulate --legacy-home --logs rehearsal\bring-up
+.\.venv\Scripts\python.exe -m scorbot.transport.probe --simulate --latency-ms 1
+.\.venv\Scripts\python.exe scripts/bring_up.py --simulate --logs rehearsal\bring-up
+.\.venv\Scripts\python.exe scripts/bring_up.py --simulate --stream --logs rehearsal\bring-up
+.\.venv\Scripts\python.exe scripts/bring_up.py --simulate --legacy-home --logs rehearsal\bring-up
 ```
 
 Every simulated line and JSONL row says SIMULATED. DryLink uses the existing Plant's real
@@ -31,10 +31,10 @@ start near home, clear the entire arm/wrist path, empty the jaws and put a hand 
 Keep real runs under `logs`, separate from `rehearsal`. Record a USBPcap capture alongside the log.
 
 ```powershell
-..\openScorbot\.venv\Scripts\python.exe -m scorbot.transport.probe --transport auto --online
-..\openScorbot\.venv\Scripts\python.exe scripts/bring_up.py --transport auto --online --logs logs\bring-up
+.\.venv\Scripts\python.exe -m scorbot.transport.probe --transport auto --online
+.\.venv\Scripts\python.exe scripts/bring_up.py --transport auto --online --logs logs\bring-up
 # Later, supervised streaming trial:
-..\openScorbot\.venv\Scripts\python.exe scripts/bring_up.py --transport auto --online --stream --logs logs\bring-up
+.\.venv\Scripts\python.exe scripts/bring_up.py --transport auto --online --stream --logs logs\bring-up
 ```
 
 Real runs need `--online`, like the vendor tools; without it they refuse. No other typed gate.

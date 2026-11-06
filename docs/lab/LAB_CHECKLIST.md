@@ -30,7 +30,7 @@ Any fault latches the session. After a fault, build a new instance; do not force
 ## 3a. Stack 2 command menu (run any, in any order)
 
 The ladder below is advice, not a gate: every command here runs on its own. From the repo root on the lab PC,
-in PowerShell, with `$vpy` the venv's python (`..\openScorbot\.venv\Scripts\python.exe`). Use `--transport pyusb`
+in PowerShell, with `$vpy` the venv's python (`.\.venv\Scripts\python.exe`). Use `--transport pyusb`
 instead of `auto` after a Zadig swap. Every command that moves the arm asks for typed words first; the red
 physical stop is the only emergency stop (Ctrl+C is not). Add `--simulate` (and drop `--online`) to rehearse any of them.
 
