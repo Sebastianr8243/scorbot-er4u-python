@@ -129,7 +129,7 @@ class OffGroupTests(LegacyCase):
 
     def test_clamp_off_tries_both_exchanges_after_a_failure(self):
         wire = FailWritesWire(1)
-        with self.assertRaises(Exception):
+        with self.assertRaises(RuntimeError):
             self.comm._clamp_off(1, [1000] * 6, wire, wire, answer(), 0.0, 0.0, 14, "", True)
         self.assertEqual(wire.writes, 2)
 
