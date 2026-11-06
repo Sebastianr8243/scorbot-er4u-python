@@ -13,13 +13,9 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tomllib
 
 from . import calibration, preflight
-
-try:
-    import tomllib
-except ImportError:
-    tomllib = None
 
 try:
     import winreg
@@ -106,8 +102,6 @@ def check_packages():
 
 def check_lock():
     path = REPO_ROOT / "uv.lock"
-    if tomllib is None:
-        return _check("Locked deps", "skip", "requires Python 3.11 or newer to read uv.lock")
     if not path.is_file():
         return _check("Locked deps", "skip", "uv.lock is absent from this install")
     try:

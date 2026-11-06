@@ -136,7 +136,7 @@ The tests use synthetic USB responses and measurements; they do not open USB or 
 ```
 
 `python -m unittest discover -s tests` works with the small `test` extra; the Windows setup script installs it automatically.
-GitHub runs all of this on Windows and Linux, with Python 3.10 and 3.13, on
+GitHub runs all of this on Windows and Linux, with Python 3.13 (Windows) and 3.12 (Linux), on
 every push. The coverage table appears on each run's summary page.
 
 The current adapter is based on static code inspection. Hardware communication, homing completion, joint directions, and stop behavior still require supervised bench validation on your ER-4U. The SDK timestamps successful USB reads, but a new packet does not by itself prove movement or a switch state. Motor behavior after communication failure has not been verified with this Python path.

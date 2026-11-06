@@ -27,7 +27,7 @@ This reads the DLL as a file. It never loads or runs it, opens no USB device and
 
     About one minute. The log should end with `ExportDecomp: N ok, 0 failed`.
 
-4. Query the dump (standard library only, any Python 3.10+):
+4. Query the dump (standard library only, any Python 3.12+):
 
     ```powershell
     python tools\usbc_analysis\query.py $work\usbc.c show Stop Control

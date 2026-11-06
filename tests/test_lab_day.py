@@ -214,7 +214,7 @@ class SimulatedDayTests(unittest.TestCase):
     def test_simulate_runs_every_step_with_a_velocity_jog_per_axis_into_one_log(self):
         with tempfile.TemporaryDirectory() as parent:
             # P's pass line judges the real controller's pacing; the simulated probe paces with time.sleep, which
-            # rounds up to about 15.6 ms on Windows Python 3.10 (gap median 31 ms on CI). The pass lines have their own
+            # rounds up to about 15.6 ms on Windows before Python 3.11 (gap median 31 ms on CI). The pass lines have their own
             # tests (PassLineTests); this one checks the flow and the logs, so the probe still runs but is not judged.
             with redirect_stdout(io.StringIO()) as out, \
                     unittest.mock.patch.object(lab_day, "judge_probe", return_value=[]) as judged:

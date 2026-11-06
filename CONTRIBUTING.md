@@ -90,11 +90,11 @@ python examples\bench_joint.py --output rehearsal\base-01.jsonl --robot-id lab-e
 python scripts\review_lab_logs.py --idle rehearsal\idle-01.jsonl --bench rehearsal\base-01.jsonl
 ```
 
-CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13: ruff, compileall, pytest over `tests` and `tests_extra` with coverage (summary in the job page), plain `unittest discover -s tests` (Ubuntu 3.10). The Ubuntu 3.13 cell also runs `scripts/check_docs.py` and `uv lock --check`. A pull request that changes only `docs/` or `*.md` files skips install, lint, compile and tests; the four unit jobs still report under their required names, and the Ubuntu 3.13 cell still runs `check_docs.py` plus `tests.test_docs_index` and `tests.test_source_audit`.
+CI (`.github/workflows/tests.yml`): Windows with Python 3.13 and Ubuntu with Python 3.12: ruff, compileall, pytest over `tests` and `tests_extra` with coverage (summary in the job page), plain `unittest discover -s tests` (Ubuntu 3.12). The Ubuntu 3.12 cell also runs `scripts/check_docs.py` and `uv lock --check`. A pull request that changes only `docs/` or `*.md` files skips install, lint, compile and tests; the two unit jobs still report under their required names, and the Ubuntu 3.12 cell still runs `check_docs.py` plus `tests.test_docs_index` and `tests.test_source_audit`.
 
 ## Conventions
 
-- Target is a Windows lab PC with only Python and VS Code. Keep lab-PC tools standard-library-first (`scripts/usb_trace.py`, `watch_lab_log.py` and `scorbot/nominal.py` are stdlib only). Runtime deps: `mcap`, `numpy`, `pyusb`. Python >= 3.10.
+- Target is a Windows lab PC with only Python and VS Code. Keep lab-PC tools standard-library-first (`scripts/usb_trace.py`, `watch_lab_log.py` and `scorbot/nominal.py` are stdlib only). Runtime deps: `mcap`, `numpy`, `pyusb`. Python >= 3.12.
 - Docs show PowerShell with `.\.venv\Scripts\python.exe`. Open files with `encoding="utf-8"`; console output on Windows may be cp1252.
 - Primary evidence is append-only JSONL (`open("x")`, never overwrite) plus an MCAP session (`scorbot/session`). MCAP is best-effort secondary; JSONL is written first. Payloads are strict JSON (`allow_nan=False`).
 - Encoder counts are unsigned 16-bit with a 65535 (one's complement) wrap. Take differences with `scorbot.calibration.signed_count_delta`, never subtract raw or signed counts.
