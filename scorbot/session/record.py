@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
+import functools
 import hashlib
 from importlib import metadata as importlib_metadata
 import json
@@ -17,6 +18,7 @@ import os
 from pathlib import Path
 import platform
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -53,9 +55,11 @@ class SessionWriter:
         self._schema_ids: dict[str, int] = {}
         self._channel_ids: dict[str, int] = {}
         self._closed = False
+        self._metadata_written = False
         self._broken: str | None = None
         self._last_fsync_ns = time.monotonic_ns()
         self._last_fault: str | None = None
+        self._fsync_error: str | None = None
         self._clock = metadata["clock"]
 
     @classmethod
@@ -80,34 +84,47 @@ class SessionWriter:
         path = root / session_id
         path.mkdir()
 
-        metadata = {
-            "schema_version": schemas.SCHEMA_VERSION,
-            "session_id": session_id,
-            "data_source": data_source,
-            "robot_id": str(robot_id).strip(),
-            "controller_id": controller_id,
-            "operator": operator,
-            "task": task,
-            "start_pose_note": start_pose_note,
-            "camera_ids": list(camera_ids),
-            "calibration": _calibration(calibration_path),
-            "code": _code_identity(),
-            "environment": _environment(usb_driver),
-            "clock": _clock_info(started_monotonic_ns, started_epoch_ns),
-            "started_utc": datetime.fromtimestamp(started_epoch_ns / 1e9,
-                                                  timezone.utc).isoformat(),
-        }
-        _write_json_atomic(path / "metadata.json", metadata)
-        (path / "notes.md").write_text(notes.template(session_id),
-                                       encoding="utf-8")
+        stream = None
+        try:
+            metadata = {
+                "schema_version": schemas.SCHEMA_VERSION,
+                "session_id": session_id,
+                "data_source": data_source,
+                "robot_id": str(robot_id).strip(),
+                "controller_id": controller_id,
+                "operator": operator,
+                "task": task,
+                "start_pose_note": start_pose_note,
+                "camera_ids": list(camera_ids),
+                "calibration": _calibration(calibration_path),
+                "code": _code_identity(),
+                "environment": _environment(usb_driver),
+                "clock": _clock_info(started_monotonic_ns, started_epoch_ns),
+                "started_utc": datetime.fromtimestamp(started_epoch_ns / 1e9,
+                                                      timezone.utc).isoformat(),
+            }
+            _write_json_atomic(path / "metadata.json", metadata)
+            (path / "notes.md").write_text(notes.template(session_id),
+                                           encoding="utf-8")
 
-        stream = open(path / "session.mcap", "xb")
-        # The data-section CRC lets replay detect silent edits in closed sessions.
-        writer = Writer(stream, use_chunking=False, enable_data_crcs=True)
-        writer.start(profile="", library=f"scorbot-session/{schemas.SCHEMA_VERSION}")
-        writer.add_metadata("scorbot.session", {"json": json.dumps(metadata)})
-        stream.flush()
-        return cls(path, metadata, stream, writer)
+            stream = open(path / "session.mcap", "xb")
+            # The data-section CRC lets replay detect silent edits in closed sessions.
+            writer = Writer(stream, use_chunking=False, enable_data_crcs=True)
+            writer.start(profile="", library=f"scorbot-session/{schemas.SCHEMA_VERSION}")
+            writer.add_metadata("scorbot.session", {"json": json.dumps(metadata)})
+            stream.flush()
+            return cls(path, metadata, stream, writer)
+        except BaseException:
+            # A half-created session must not look like an unfinished recording,
+            # and an open handle would keep the folder locked on Windows.
+            if stream is not None:
+                try:
+                    stream.close()
+                except BaseException:
+                    pass
+            # path.mkdir() above succeeded exclusively, outside this try block.
+            shutil.rmtree(path, ignore_errors=True)
+            raise
 
     # -- public logging API -------------------------------------------------
 
@@ -216,27 +233,46 @@ class SessionWriter:
 
     def close(self) -> None:
         with self._lock:
-            if self._closed:
+            if self._metadata_written:
                 return
-            self._closed = True
+            close_error: BaseException | None = None
+            if not self._closed:
+                self._closed = True
+                try:
+                    # After a failed write the file may end in a partial record;
+                    # appending a summary would bury it, so leave it for replay.
+                    if self._broken is None:
+                        self._writer.finish()
+                        self._stream.flush()
+                        os.fsync(self._stream.fileno())
+                except BaseException as error:
+                    close_error = error
+                try:
+                    self._stream.close()
+                except BaseException as error:
+                    if close_error is None:
+                        close_error = error
+                if close_error is not None and self._broken is None:
+                    self._broken = f"{type(close_error).__name__} while closing: {close_error}"
+                self.metadata.update({
+                    "ended_utc": datetime.now(timezone.utc).isoformat(),
+                    "event_count": self._seq,
+                    "closed_cleanly": self._broken is None,
+                })
+                if self._broken is not None:
+                    self.metadata["write_error"] = self._broken
+                if self._fsync_error is not None:
+                    self.metadata["fsync_error"] = self._fsync_error
+            # Retry a failed sidecar save without appending a second MCAP footer.
             try:
-                # After a failed write the file may end in a partial record;
-                # appending a summary would bury it, so leave it for replay.
-                if self._broken is None:
-                    self._writer.finish()
-                    self._stream.flush()
-                    os.fsync(self._stream.fileno())
-            finally:
-                self._stream.close()
-            event_count = self._seq
-        self.metadata.update({
-            "ended_utc": datetime.now(timezone.utc).isoformat(),
-            "event_count": event_count,
-            "closed_cleanly": self._broken is None,
-        })
-        if self._broken is not None:
-            self.metadata["write_error"] = self._broken
-        _write_json_atomic(self.path / "metadata.json", self.metadata)
+                _write_json_atomic(self.path / "metadata.json", self.metadata)
+            except BaseException:
+                if close_error is not None:
+                    raise close_error from None
+                raise
+            self._metadata_written = True
+            if close_error is not None:
+                raise close_error
 
     def __enter__(self):
         return self
@@ -272,6 +308,9 @@ class SessionWriter:
         missing = [key for key in schemas.REQUIRED[schema_name] if key not in payload]
         if missing:
             raise SessionError(f"{topic} payload is missing {missing}")
+        if "_rec" in payload:
+            raise SessionError(f"{topic} payload may not carry its own '_rec' field; "
+                               "the recorder owns it")
         if observed_monotonic_ns is not None:
             observed_monotonic_ns = int(observed_monotonic_ns)
         # Serialize the (possibly large) payload before taking the lock; only the
@@ -294,7 +333,8 @@ class SessionWriter:
                 rec_json = json.dumps(rec, allow_nan=False)
             except (TypeError, ValueError) as error:
                 raise SessionError(f"{topic} record fields are not strict JSON: {error}") from None
-            # body is a non-empty JSON object (required keys exist); splice _rec in.
+            # body is a non-empty JSON object (required keys exist, no '_rec'):
+            # splice _rec in.
             data = (body[:-1] + ', "_rec": ' + rec_json + "}").encode()
             # Consume seq before writing: an interrupt (Ctrl-C) landing after the
             # bytes reach disk must not let the next event reuse this number.
@@ -318,8 +358,14 @@ class SessionWriter:
                 # flush() only reaches the OS; fsync about once a second bounds
                 # what a power loss can take to that window.
                 if logged - self._last_fsync_ns >= FSYNC_INTERVAL_NS:
-                    os.fsync(self._stream.fileno())
                     self._last_fsync_ns = logged
+                    try:
+                        os.fsync(self._stream.fileno())
+                    except OSError as error:
+                        # The record is already written and flushed; a failed
+                        # fsync only weakens the power-loss guarantee. Note it
+                        # in the metadata and keep recording.
+                        self._fsync_error = f"{type(error).__name__}: {error}"
             except Exception as error:
                 self._broken = f"{type(error).__name__}: {error}"
                 raise SessionError(f"Recording failed and has stopped: {self._broken}") from error
@@ -349,22 +395,32 @@ class BestEffortRecorder:
     def __init__(self, writer: SessionWriter, warn=print):
         self._writer = writer
         self._warn = warn
-        self.failure: Exception | None = None
+        self._failure: Exception | None = None
+        self._failure_lock = threading.Lock()
+
+    @property
+    def failure(self) -> Exception | None:
+        with self._failure_lock:
+            return self._failure
 
     def __getattr__(self, name):
         attribute = getattr(self._writer, name)
-        if not name.startswith("log_"):
+        if not (name.startswith("log_") or name == "close"):
             return attribute
 
         def call(*args, **kwargs):
-            if self.failure is not None:
+            if self.failure is not None and name != "close":
                 return None
             try:
                 return attribute(*args, **kwargs)
             except Exception as error:
-                self.failure = error
-                self._warn(f"WARNING: MCAP recording stopped ({error}). The JSONL record "
-                           "and the procedure continue.")
+                with self._failure_lock:
+                    first = self._failure is None
+                    if first:
+                        self._failure = error
+                if first:
+                    self._warn(f"WARNING: MCAP recording stopped ({error}). The JSONL "
+                               "record and the procedure continue.")
                 return None
         return call
 
@@ -412,6 +468,12 @@ def _git(*args: str) -> str | None:
 
 
 def _code_identity() -> dict:
+    # Snapshot once per process; all values are scalars, so a dict copy isolates callers.
+    return dict(_code_identity_once())
+
+
+@functools.lru_cache(maxsize=1)
+def _code_identity_once() -> dict:
     commit = _git("rev-parse", "HEAD")
     status = _git("status", "--porcelain") if commit else None
     digest = hashlib.sha256()

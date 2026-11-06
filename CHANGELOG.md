@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (session recorder robustness, 2026-11-06)
+
+- Preserve and retry close metadata after recorder failures, clean up failed session creation, keep recording after periodic fsync failures with a durability note, reject caller-owned `_rec`, contain best-effort close errors with synchronized first-failure reporting, and cache code identity once per process with isolated copies.
+
 ## Unreleased (issue #199, 2026-11-06)
 
 - #199: `python -m scorbot.bridge stop` prints ok only when the server confirms the stop (new `Arm.stop_confirmed`, 3 s wait); a busy server or no reply is a failure with exit 1. `stop()` is unchanged (fire and forget, used by Ctrl+C). `scorbot doctor` now requires Python 3.12, like `preflight`. Fake server only; never run on the arm.

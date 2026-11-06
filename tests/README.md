@@ -39,6 +39,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_arm_control.py` | Fresh-packet tracking, fit/load calibration, vendor-display refusal, wrap, calibrated move, soft limits, wrist gate, jog ceiling, stale feedback |
 | `test_simulated.py` | Simulator fidelity to the facade, every fault kind latches, full G1 rehearsal, LED mismatch, recorder failure, interrupts |
 | `test_session.py`, `test_schemas.py` | Recorder, replay integrity and crash tails, schemas, source mixing |
+| `test_session_robustness.py` | Session creation and close fault injection, periodic fsync durability notes, reserved recorder fields, concurrent best-effort failures and cached code identity; pytest fixtures, no hardware |
 | `test_bench_joint.py`, `test_calibration_capture.py` | Prompt gates and exit codes of the lab scripts |
 | `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | Offline analysis scripts |
 | `test_nominal.py`, `test_motion_profile.py` | Manual values and span bound, jog planning |
