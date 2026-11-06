@@ -612,8 +612,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                     stream.request_stop("Scorbot.request_stop")
                 else:
                     stream.request_stop()
-            if self._stop_cause is None:
-                self._stop_cause = "Scorbot.request_stop"
+            self._stop_cause = "Scorbot.request_stop"
             self._stop_event.set()
         self._record("stop_requested")
 
@@ -633,8 +632,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                     stream.request_stop("pendant Abort key")
                 else:
                     stream.request_stop()
-            if self._stop_cause is None:
-                self._stop_cause = "pendant Abort key"
+            self._stop_cause = "pendant Abort key"
             self._stop_event.set()
         threading.Thread(target=self._record_quietly, args=("pendant_abort",), daemon=True,
                          name="scorbot-pendant-log").start()

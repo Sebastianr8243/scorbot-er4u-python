@@ -100,6 +100,23 @@ class StreamEndLogTests(SimulatedRobotCase):
         self.assertIsNone(robot._fault)
         self.assert_stopped_with_reason("abort")
 
+    def test_a_stop_cleared_by_another_command_does_not_name_a_later_abort(self):
+        robot = self.robot()
+        robot.request_stop()
+        robot._stop_event.clear()          # what Home, a gripper move or a jog does when it takes the stop
+
+        def abort_after_the_check():
+            robot._pendant_abort()
+            robot._input.pendant_abort_held = False
+            return False
+
+        with mock.patch.object(robot, "_consume_stop", side_effect=abort_after_the_check):
+            stream = robot.start_stream()
+        stream.set_target({"base": 1400})
+        stream.close()
+        self.assertIsNone(robot._fault)
+        self.assert_stopped_with_reason("abort")
+
     def test_an_exception_in_the_callers_block_logs_stream_stopped_naming_it(self):
         robot = self.robot()
         with self.assertRaises(KeyError):
