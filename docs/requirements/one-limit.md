@@ -13,7 +13,7 @@ Keep optional caller caps and the existing jog, lead, step and speed limits.
 | L03 | SHALL | A jog or stream requires a known vendor Home zero; an unplaceable jog latches a fault. | test: `tests/test_one_limit.py` |
 | L04 | SHALL | Vendor joint moves check target and setpoints against vendor windows. | test: `tests/test_one_limit.py`, `tests/test_vendor_move.py` |
 | L05 | SHALL | Lab, stream, PolicyArm and example travel caps default to None; positive explicit caps have no invented ceiling. | test: `tests/test_one_limit.py`, example and stream suites |
-| L06 | SHALL NOT | Source reference limits refuse or clamp a motion command. | script: inspect all callers with `rg 'LIMITS_DEG|pose_limit|limit_window|outside_limits|outside_window' scorbot examples scripts plugins` |
+| L06 | SHALL NOT | Source reference limits refuse or clamp a motion command, velocity jog included. | test: `tests/test_one_limit.py` (`test_velocity_jog_beyond_source_window_succeeds`, `test_velocity_jog_past_enclimit_is_still_refused`); script: `rg 'LIMITS_DEG|pose_limit|limit_window|motion_window|outside_limits|outside_window' scorbot examples scripts plugins` finds callers only inside `source_model.py` |
 | L07 | SHALL NOT | This work opens USB, uses the network, changes packets or dependencies, or writes git state. | review: commands and diff |
 
 ## Out of scope
@@ -29,6 +29,7 @@ Keep optional caller caps and the existing jog, lead, step and speed limits.
 None.
 
 ## Change log
+- 2026-11-05: L06 now covers the velocity jog (issue #190, cut B): `manual_jog` no longer uses `source_model.motion_window` / `pose_limit_excess`.
 - 2026-11-03: L01-L07 authorized by the explicit task brief; no commit requested.
 
 ## Desk evidence (2026-11-03)

@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scorbot import ScorbotError, limits, nominal, source_model, vendor_home as vh, vendor_manual as vm
+from scorbot import ScorbotError, limits, nominal, vendor_home as vh, vendor_manual as vm
 from scorbot import calibration, manual_jog, vendor_move
 from scorbot.robot import MotionStopped
 from scorbot.simulated import SimulatedScorbot
@@ -137,15 +137,14 @@ def closed_jog(axis, speed, close_at, *, first=None, **kwargs):
 
 
 class Planner(unittest.TestCase):
-    def test_an_uncapped_elbow_stays_within_the_home_count_reach(self):
-        """VJ10/CT14: even without pose limits, bisection has a finite count-frame bound."""
+    def test_an_unlimited_elbow_stays_within_the_home_count_reach(self):
+        """VJ10/CT14: with no vendor limit in the way, bisection has a finite count-frame bound."""
         now = dict.fromkeys(limits.RECORDED_MOTORS, 0)
         now["elbow"] = 100
-        with mock.patch.object(source_model, "pose_limit_excess", return_value={}):
-            for sign in (-1, 1):
-                with self.subTest(sign=sign):
-                    self.assertEqual(manual_jog._edge(now, "elbow", sign),
-                                     calibration.MAX_COUNTS_FROM_HOME - sign * now["elbow"])
+        with mock.patch.object(nominal, "vendor_limit_problem", return_value=None):
+            low, high = manual_jog._window(now, "elbow", dict(now))
+        self.assertEqual(low, -(calibration.MAX_COUNTS_FROM_HOME + now["elbow"] - manual_jog.WINDOW_MARGIN_COUNTS))
+        self.assertEqual(high, calibration.MAX_COUNTS_FROM_HOME - now["elbow"] - manual_jog.WINDOW_MARGIN_COUNTS)
 
     def test_slot_matches_the_dll_formula(self):
         """VJ01: every offered axis, sign and whole percent, through its setpoints."""
@@ -546,8 +545,8 @@ class Simulated(unittest.TestCase):
         self.robot.jog_joint("base", 1.0)        # the session still moves
 
     def test_the_joint_limit_ends_it(self):
-        """VJ10: the narrower source-model shoulder window still ends the jog."""
-        # Under 4 degrees up to the shoulder's limit (source model): each jog ends short of it, ramp-down included.
+        """VJ10: the vendor shoulder window ends the jog."""
+        # Under 4 degrees up to the shoulder's vendor limit: each jog ends short of it, ramp-down included.
         for _ in range(3):
             jog = self.robot.start_velocity_jog("shoulder", 20, deadline_s=3.0)
             deadline = time.monotonic() + 10
@@ -556,14 +555,16 @@ class Simulated(unittest.TestCase):
             after = jog.stop()
             self.assertEqual(jog.reason, "limit")
             self.assertGreater(after.signed_encoder_counts["shoulder"], 0)
-            self.assertEqual(source_model.pose_limit_excess({"shoulder": after.signed_encoder_counts["shoulder"]}), {})
+            self.assertEqual(nominal.vendor_limit_excess(after.signed_encoder_counts), {})
         self.robot.start_velocity_jog("shoulder", -20).stop()       # away from it is still allowed
 
     def test_the_window_is_measured_from_where_the_worker_starts(self):
         """VJ10/VJ11: drift after the checks, from either side of zero, has no count offset."""
         real_settle = self.robot._settled_after_stop
         real_jog = vm.velocity_jog
-        edge = source_model.home_window()["shoulder"][1]
+        edge = 0
+        while not nominal.vendor_limit_problem({**dict.fromkeys(limits.RECORDED_MOTORS, 0), "shoulder": edge + 1}):
+            edge += 1
         for start in (-400, 100):
             with self.subTest(start=start):
                 with self.robot.sim._lock:

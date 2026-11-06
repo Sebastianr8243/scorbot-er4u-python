@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #190, 2026-11-05)
+
+- #190 cut B, one limit source: the velocity jog window (`scorbot/manual_jog.py`) is the DLL vendor limit only; the source-model `motion_window` / `pose_limit_excess` guard (`_edge`) is gone, so a velocity jog may go to the vendor edge (elbow with the wrist at home: 7373 counts, was 5194). Every other motion path already used `nominal.vendor_limit_problem`. `source_model` limit helpers stay as reference data with no motion caller. Simulator only; never run on the arm.
+
 ## Unreleased (issue #189, 2026-11-05)
 
 - #189 cut A, one home: deleted the inch home (`Scorbot.home_inch`, `scorbot/inch_home.py`), the pre-home move (`Scorbot.pre_home_jog`) and the park (`Scorbot.park_at_home`) with their helpers, `--inch-home` and `--coupled-pre-home` in `scorbot.lab`, `bench_joint.py`, `bench_stream.py` and `policy_loop.py`, `LabSession(inch_home=, coupled_pre_home=)` and the lab session's pre-home and park prompts, requirements R16 and R24, and the tests of those. `Scorbot.home()` (legacy) and `openScorbot/setHome.py` stay as the simulator test fixture until the follow-up. Vendor Home and the lab-day path are unchanged. Never run on the arm.
