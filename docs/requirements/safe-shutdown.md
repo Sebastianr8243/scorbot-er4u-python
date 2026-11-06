@@ -1,5 +1,5 @@
 # Safe shutdown after any failure
-Status: baseline v1 2026-11-05 (issue #185; code approved by Sebastian through mission control, systems review R1-R6)
+Status: baseline v1 2026-11-05 (issue #185; code approved by the project owner, systems review R1-R6)
 
 ## Goal
 Whenever something goes wrong while the motors may be on, the software attempts motors-off once, tries every
