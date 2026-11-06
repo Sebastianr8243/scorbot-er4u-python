@@ -31,7 +31,7 @@ from scorbot import Scorbot
 with Scorbot(log_path="session.jsonl") as robot:
     print(asdict(robot.get_state()))  # Raw controller counts, not joint angles.
     robot.enable()
-    robot.home(start_position_confirmed=True)
+    robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)  # moves every axis; the only home a jog accepts
     robot.jog_joint("base", 1, speed=10)  # Relative one-degree jog.
     robot.disable()
 ```

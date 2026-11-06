@@ -54,10 +54,6 @@ def main(argv=None) -> int:
     parser.add_argument("--camera", default=None,
                         help="Record a webcam during the session: an index (0, 1, ...), "
                              "or 'fake' with --simulate")
-    parser.add_argument("--vendor-home", action="store_true",
-                        help="Home the whole arm the vendor's way (gripper, wrist roll and pitch "
-                             "included; never run on the arm). Asks for empty jaws and a clear "
-                             "wrist path first")
     parser.add_argument("--logs", type=Path, default=None,
                         help="Log folder (default: logs, or rehearsal with --simulate)")
     args = parser.parse_args(argv)
@@ -119,7 +115,7 @@ def main(argv=None) -> int:
         return LabSession(profile=profile, operator=operator, robot_factory=robot_class,
                           data_source=source, log_path=log_path,
                           session_root=folder / "sessions", preflight=preflight,
-                          software_commit=_software_commit(), vendor_home=args.vendor_home,
+                          software_commit=_software_commit(),
                           camera_factory=camera_factory).run()
 
 

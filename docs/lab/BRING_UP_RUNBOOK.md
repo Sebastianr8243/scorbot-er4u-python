@@ -13,7 +13,6 @@ $env:PYTHONPATH = $PWD
 .\.venv\Scripts\python.exe -m scorbot.transport.probe --simulate --latency-ms 1
 .\.venv\Scripts\python.exe scripts/bring_up.py --simulate --logs rehearsal\bring-up
 .\.venv\Scripts\python.exe scripts/bring_up.py --simulate --stream --logs rehearsal\bring-up
-.\.venv\Scripts\python.exe scripts/bring_up.py --simulate --legacy-home --logs rehearsal\bring-up
 ```
 
 Every simulated line and JSONL row says SIMULATED. DryLink uses the existing Plant's real
@@ -50,10 +49,10 @@ Vendor Home requires exact `EMPTY`, `CLEAR`, `HOME` at its step. A mismatch abor
    echo-lag histogram; `None` means the reply echoed no usable ID). It sends nothing beyond the handshake. First real
    timing numbers; unverified until run.
 2. Enable motors: command succeeds. Check and write down the actual MOTORS LED; SDK enabled is history.
-3. HOME: default `vendor_home`, the vendor's recorded sequence through our SDK, including wrist/gripper.
+3. HOME: `vendor_home`, the vendor's recorded sequence through our SDK, including wrist/gripper. It is the only home here.
    A successful SDK Home establishes this session's home. Controller acceptance is unverified.
-   `--legacy-home` selects `home(start_position_confirmed=True)` (the SDK's actual keyword);
-   legacy Home failed on the real arm on 2026-10-06.
+   The `--legacy-home` flag is gone (issue #197): the legacy home leaves the gripper unhomed, so every jog after it
+   is refused; it also failed on the real arm on 2026-10-06. Lab-day fallback is Stack 1.
 4. One +1 degree jog of `--joint base` (default; shoulder/elbow also available), speed 1, then -1 back.
    This order overrides the earlier jog-before-home idea: `jog_joint` requires a homed session.
    Vendor Home leaves counts on the legacy 0/65535 seam; the first move stays a 1 degree jog.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #197, 2026-11-06)
+
+- #197: the guided lab session (`python -m scorbot.lab`) and `scripts/bring_up.py` home with the vendor Home only. Before, the default session ran the legacy `home()`, which leaves the gripper unhomed, so every jog after it was refused and the session ended failed. Removed `LabSession(vendor_home=...)`, `--vendor-home` (no doc or script still passed it, so it is not kept as a no-op) and `bring_up.py --legacy-home` (nothing on the lab path needs it). `Scorbot.home()` and `openScorbot/setHome.py` stay for other callers. The docs' SDK snippet now shows `vendor_home`.
+
 ## Unreleased (issue #190, 2026-11-05)
 
 - #190 cut B, one limit source: the velocity jog window (`scorbot/manual_jog.py`) is the DLL vendor limit only; the source-model `motion_window` / `pose_limit_excess` guard (`_edge`) is gone, so a velocity jog may go to the vendor edge (elbow with the wrist at home: 7373 counts, was 5194). Every other motion path already used `nominal.vendor_limit_problem`. `source_model` limit helpers stay as reference data with no motion caller. Simulator only; never run on the arm.

@@ -208,7 +208,7 @@ class CommandSmokeTests(unittest.TestCase):
                                            "controller_label": "C-3", "driver": "none",
                                            "operator": "SR", "speed": 10}), encoding="utf-8")
             code, stdout, stderr = self.run_main(
-                lab_main.main, ["--simulate", "--vendor-home", "--profile", str(profile),
+                lab_main.main, ["--simulate", "--profile", str(profile),
                                 "--logs", str(root / "rehearsal")], answers)
             self.assertEqual(code, 0, stdout[-2000:] + stderr[-2000:])
             self.assertIn("SIMULATED", stdout)

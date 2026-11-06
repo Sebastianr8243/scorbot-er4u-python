@@ -17,7 +17,7 @@ from scripts import bring_up
 
 def options(**overrides):
     return argparse.Namespace(**dict({"simulate": True, "transport": "auto", "logs": "unused",
-                                     "online": False, "joint": "base", "legacy_home": False,
+                                     "online": False, "joint": "base",
                                      "stream": False, "stream_seconds": 1, "adaptive_pacing": False,
                                      "latency_ms": 0, "speed_pct": 25, "velocity_jog": False}, **overrides))
 
@@ -192,19 +192,18 @@ class BringUpTests(unittest.TestCase):
         factory.assert_not_called()
         self.assertEqual(rows[-1]["passed"], False)
 
-    def test_vendor_typed_empty_clear_home_and_legacy_selection(self):
-        for legacy, answers in ((False, ("EMPTY", "CLEAR", "HOME")),
-                                (True, ("HOME",))):
-            ask = mock.Mock(side_effect=answers)
-            result, lines, rows = self.run_ladder(options(simulate=False, online=True,
-                                                         legacy_home=legacy), SimulatedScorbot, ask)
-            self.assertEqual(result, 1 if legacy else 0, lines)
-            if legacy:
-                self.assertTrue(any("vendor Home" in line for line in lines))
-            self.assertEqual(ask.call_count, len(answers))
-            method = "legacy" if legacy else "vendor"
-            complete = next(row for row in rows if row["event"] == "home_complete")
-            self.assertEqual(complete.get("method", "legacy"), method)
+    def test_vendor_typed_empty_clear_home(self):
+        ask = mock.Mock(side_effect=("EMPTY", "CLEAR", "HOME"))
+        result, lines, rows = self.run_ladder(options(simulate=False, online=True),
+                                             SimulatedScorbot, ask)
+        self.assertEqual(result, 0, lines)
+        self.assertEqual(ask.call_count, 3)
+        complete = next(row for row in rows if row["event"] == "home_complete")
+        self.assertEqual(complete["method"], "vendor")
+
+    def test_the_legacy_home_flag_is_gone(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            bring_up.parse_args(["--logs", "x", "--legacy-home"])
 
     def test_wrong_home_confirmation_aborts_without_home_commands(self):
         robot = SimulatedScorbot()

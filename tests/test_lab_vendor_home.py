@@ -1,4 +1,4 @@
-"""The guided lab session with --vendor-home: prompts, confirmations, the home, and what a failure does.
+"""The guided lab session (vendor Home, its only home): prompts, confirmations, the home, and what a failure does.
 
 The simulated controller runs the vendor home against the arm model. Nothing here touches USB.
 """
@@ -37,7 +37,7 @@ class VendorHomeSessionTests(unittest.TestCase):
             robot_factory=lambda **kw: SimulatedScorbot(controller=self.ctrl, **kw),
             data_source="simulated", log_path=self.root / "s.jsonl",
             session_root=self.root / "sessions", clock=lambda: 0.0, sleep=lambda s: None,
-            vendor_home=True, **kwargs)
+            **kwargs)
         code = session.run()
         self.rows = [json.loads(line) for line in
                      (self.root / "s.jsonl").read_text(encoding="utf-8").splitlines()]
