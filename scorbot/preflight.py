@@ -28,9 +28,9 @@ class Check:
 def run_checks() -> list[Check]:
     """Inspect local dependencies, backend loading, and USB enumeration only."""
     checks = []
-    supported_python = sys.version_info >= (3, 10)
+    supported_python = sys.version_info >= (3, 12)
     checks.append(Check("Python", supported_python,
-                        f"{sys.version.split()[0]} (requires 3.10 or newer)"))
+                        f"{sys.version.split()[0]} (requires 3.12 or newer)"))
 
     for distribution, module in (("numpy", "numpy"), ("pyusb", "usb.core")):
         try:

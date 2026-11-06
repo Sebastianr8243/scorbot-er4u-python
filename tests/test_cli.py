@@ -450,7 +450,6 @@ class DoctorOutputTests(unittest.TestCase):
 
 
 class LockCheckTests(unittest.TestCase):
-    @unittest.skipIf(cli.tomllib is None, "tomllib is optional on Python 3.10")
     def test_lock_compares_only_installed_packages_with_normalized_names(self):
         locked = ('version = 1\n'
                   '[[package]]\nname = "numpy"\nversion = "2.0"\n'
@@ -477,7 +476,6 @@ class LockCheckTests(unittest.TestCase):
         self.assertTrue(result.fix)
         installed.assert_any_call("demo-mixed-name")
 
-    @unittest.skipIf(cli.tomllib is None, "tomllib is optional on Python 3.10")
     def test_missing_required_dependency_fails(self):
         locked = ('version = 1\n'
                   '[[package]]\nname = "scorbot-er4u"\nversion = "0.1.0"\n'
@@ -499,11 +497,6 @@ class LockCheckTests(unittest.TestCase):
         self.assertEqual(result.level, "fail", result.detail)
         self.assertIn("mcap", result.detail)
         self.assertNotIn("extra-only", result.detail)
-
-    def test_without_tomllib_lock_check_skips(self):
-        with mock.patch.object(cli, "tomllib", None):
-            result = cli.check_lock()
-        self.assertEqual(result.level, "skip")
 
 
 class DriverCheckTests(unittest.TestCase):

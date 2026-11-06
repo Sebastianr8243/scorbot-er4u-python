@@ -22,7 +22,7 @@ foreach ($candidate in @(
     }
     if ($LASTEXITCODE -ne 0 -or $result -notmatch '^\d+\.\d+\.\d+$') { continue }
     $version = [version]$result
-    if ($version -ge [version]'3.10') {
+    if ($version -ge [version]'3.12') {
         $pythonCommand = $command.Source
         $pythonArguments = $arguments
         $pythonVersion = $version
@@ -31,7 +31,7 @@ foreach ($candidate in @(
 }
 
 if ($null -eq $pythonCommand) {
-    Write-Host 'Python 3.10 or newer was not found.'
+    Write-Host 'Python 3.12 or newer was not found.'
     Write-Host 'Install Python 3.13 for Windows from https://www.python.org/downloads/release/python-31315/'
     Write-Host 'Then reopen the VS Code terminal and run this script again.'
     exit 2
@@ -44,8 +44,8 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the Python virtual environment.' }
 } else {
     $environmentVersion = & $venvPython -c 'import sys; print(sys.version_info[0], sys.version_info[1], sys.version_info[2], sep=chr(46))'
-    if ($LASTEXITCODE -ne 0 -or [version]$environmentVersion -lt [version]'3.10') {
-        throw 'The existing .venv does not have a working Python 3.10 or newer interpreter.'
+    if ($LASTEXITCODE -ne 0 -or [version]$environmentVersion -lt [version]'3.12') {
+        throw 'The existing .venv does not have a working Python 3.12 or newer interpreter.'
     }
     Write-Host "Reusing .venv with Python $environmentVersion"
 }

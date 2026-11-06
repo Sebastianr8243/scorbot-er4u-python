@@ -12,7 +12,7 @@ python -m unittest tests.test_python_api.CommandTests -v     # one class
 
 `tests/` is the gate: connect, state, home, jog, the safety invariants, the packet pins, the lab session and the evidence path. `tests_extra/` (see [../tests_extra/README.md](../tests_extra/README.md)) holds tests for code that is off the first-trial path; CI runs both, the lab-visit check is `tests/` only.
 
-Run from the repo root. Tests import `scripts.<name>` and `examples.<name>` as namespace packages, and `scorbot` from the editable install or the current directory. CI runs the same command on Windows and Linux, Python 3.10 and 3.13, with `.[dev]` (Hypothesis) and, on Linux only, `.[kinematics]`. Optional dependencies skip cleanly (`hypothesis`, `roboticstoolbox`, `usb`); a skipped test is not a pass, so install them locally before trusting a green run.
+Run from the repo root. Tests import `scripts.<name>` and `examples.<name>` as namespace packages, and `scorbot` from the editable install or the current directory. CI runs the same command on Windows (Python 3.13) and Linux (Python 3.12), with `.[dev]` (Hypothesis) and, on Linux only, `.[kinematics]`. Optional dependencies skip cleanly (`hypothesis`, `roboticstoolbox`, `usb`); a skipped test is not a pass, so install them locally before trusting a green run.
 
 ## How tests avoid hardware
 
