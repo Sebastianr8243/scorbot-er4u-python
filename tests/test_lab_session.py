@@ -55,7 +55,6 @@ class LabSessionTests(unittest.TestCase):
 
     def run_session(self, answers, *, stop_on_key=True, data_source="simulated",
                     **session_kwargs):
-        session_kwargs.setdefault("vendor_home", True)
         self.op = ScriptedOperator(answers)
         self.op.stop_on_key = stop_on_key
         session = LabSession(
@@ -191,12 +190,14 @@ class LabSessionTests(unittest.TestCase):
             with self.subTest(row=row["type"]):
                 self.assertEqual(len(review_session_rows(base + [row])["problems"]), baseline + 1)
 
-    def test_the_legacy_home_is_still_the_default(self):
-        code = self.run_session(CHECKLIST + ["n", "g", "pose matches photo", "HOME", "y", "g",
-                                                      "all axes homed", "y"] + FINISH, vendor_home=False)
+    def test_default_session_runs_vendor_home_and_a_jog_after_it_succeeds(self):
+        code = self.run_session(TO_LOOP + ARM + ["q", "BASE -1"] + OBS + FINISH)
         self.assertEqual(code, EXIT_OK)
-        self.assertIn(18, {c[0] for c in self.ctrl.commands if c})
-        self.assertNotIn("method", self.of("home_complete")[0])
+        self.assertEqual(self.of("home_complete")[0]["method"], "vendor")
+        self.assertNotIn(18, {c[0] for c in self.ctrl.commands if c})
+        self.assertEqual(len(self.of("jog_result")), 1)
+        self.assertFalse(self.of("jog_refused") or self.of("jog_failed"))
+        self.assertTrue(self.jog_commands())
 
     def test_unsure_led_after_connect_fails_before_enable(self):
         code = self.run_session(CHECKLIST + ["u", "g"])
@@ -275,7 +276,7 @@ class LabSessionTests(unittest.TestCase):
                           robot_factory=lambda **kw: BadPreview(controller=self.ctrl, **kw),
                           data_source="simulated", log_path=self.root / "s.jsonl",
                           session_root=self.root / "sessions", clock=self.clock,
-                          sleep=lambda s: None, vendor_home=True).run()
+                          sleep=lambda s: None).run()
         self.rows = [json.loads(line) for line in
                      (self.root / "s.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertEqual(code, EXIT_FAILED)

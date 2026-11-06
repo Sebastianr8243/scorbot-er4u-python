@@ -69,8 +69,7 @@ class SessionFailed(RuntimeError):
 class LabSession:
     def __init__(self, *, profile, operator, robot_factory, data_source, log_path,
                  session_root, preflight=None, clock=time.monotonic, sleep=time.sleep,
-                 software_commit="unknown", camera_factory=None, vendor_home=False):
-        self.vendor_home = vendor_home   # home with Scorbot.vendor_home (roll, pitch and gripper too)
+                 software_commit="unknown", camera_factory=None):
         self.profile, self.op = profile, operator
         self.robot_factory, self.data_source = robot_factory, data_source
         self.log_path, self.session_root = log_path, session_root
@@ -122,7 +121,7 @@ class LabSession:
                         profile=asdict(self.profile), software_commit=self.software_commit,
                         motion_source_sha256=motion_source_sha256(),
                         controller_event_log=self.events_path.name, led_prompts=True,
-                        home_method="vendor" if self.vendor_home else "legacy")
+                        home_method="vendor")
             self._write("profile", **asdict(self.profile))
             writer = SessionWriter.create(
                 self.session_root, data_source=self.data_source,
@@ -319,22 +318,10 @@ class LabSession:
             raise Declined("stopped after homing; no jog requested")
 
     def _home(self):
-        if self.vendor_home:
-            self._vendor_home_prompts()
-            self._vendor_home_run()
-            return
-        self.op.show("HOME NEEDED. Homing searches every axis switch from the known start "
-                     "pose.", "warn")
-        self.op.show(switch_summary(self.robot.get_state().home_switch_bits))
-        self._write("start_pose", text=self.op.text("Start pose: does it match the photo? "
-                                                    "Describe: ") or "not recorded")
-        if not self.op.confirm("Type HOME to enable motors and search home: ", "HOME"):
-            raise Declined("declined before homing")
-        self._enable_motors()
-        command = self.rec.log_command("home", {"start_position_confirmed": True})
-        self.robot.home(start_position_confirmed=True)
-        self.rec.log_command_result(command, "completed", completion_source="home() returned")
-        self._home_done(self._state("home_complete"))
+        # Vendor Home is the only home here: the legacy home() leaves the gripper unhomed and
+        # every later jog is refused (issue #197; it also failed on the arm on 2026-10-06).
+        self._vendor_home_prompts()
+        self._vendor_home_run()
 
     def _enable_motors(self):
         if self.enabled:

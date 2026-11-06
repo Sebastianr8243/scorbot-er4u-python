@@ -157,14 +157,10 @@ def run(args, handle, *, robot_factory=None, ask=None, emit=print):
             record("probe", state=asdict(state), raw_hex=packet.hex())
 
         def home():
-            if args.legacy_home:
-                confirm("HOME", "Legacy Home failed on the real arm on 2026-10-06")
-                robot.home(start_position_confirmed=True)
-            else:
-                confirm("EMPTY", "Gripper jaws empty")
-                confirm("CLEAR", "Wrist and gripper path clear")
-                confirm("HOME", "Vendor Home moves every axis; operator at physical stop")
-                robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
+            confirm("EMPTY", "Gripper jaws empty")
+            confirm("CLEAR", "Wrist and gripper path clear")
+            confirm("HOME", "Vendor Home moves every axis; operator at physical stop")
+            robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
 
         def jog(delta):
             start = robot._motion_state()
@@ -248,7 +244,6 @@ def parse_args(argv=None):
     parser.add_argument("--logs", required=True)
     parser.add_argument("--online", action="store_true", help="real controller (default is refusing)")
     parser.add_argument("--joint", choices=("base", "shoulder", "elbow"), default="base")
-    parser.add_argument("--legacy-home", action="store_true")
     parser.add_argument("--velocity-jog", action="store_true")
     parser.add_argument("--stream", action="store_true")
     parser.add_argument("--stream-seconds", type=float, default=3)
