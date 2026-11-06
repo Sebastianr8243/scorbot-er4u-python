@@ -57,6 +57,18 @@ class CheckDocsTests(unittest.TestCase):
         root, files = tree({"a.md": "Use the ownership flag.\n", "b.md": "Ask the owner.\n"})
         self.assertEqual(check(root, files), ["b.md: contains 'the owner'"])
 
+    def test_a_cited_test_name_must_exist(self):
+        row = "| A01 | SHALL | x | test: `tests/test_a.py::T::{}`, `tests_extra/test_b.py` |\n"
+        files = {"tests/test_a.py": "class T:\n    def test_real(self):\n        pass\n", "tests_extra/test_b.py": "",
+                 "docs/requirements/a.md": row.format("test_real")}
+        root, names = tree(files)
+        self.assertEqual(check(root, names), [])
+        files["docs/requirements/a.md"] = row.format("test_renamed")
+        root, names = tree(files)
+        found = check(root, names)
+        self.assertEqual(len(found), 1)
+        self.assertIn("cites test test_renamed", found[0])
+
 
 if __name__ == "__main__":
     unittest.main()
