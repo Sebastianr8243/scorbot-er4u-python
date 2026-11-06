@@ -55,10 +55,17 @@ def key_name(key) -> str | None:
     return name.lower() if isinstance(name, str) else None
 
 
-def keys_to_target(pressed, target: dict, step_deg: float) -> dict[str, float]:
+def keys_to_target(pressed, target: dict, step_deg: float, commanded: dict | None = None) -> dict[str, float]:
     """Held keys to a new absolute target. Each joint steps once, opposite keys cancel; o/c open/close,
-    both or neither hold. Unbound keys (including record controls) do nothing. Pure."""
+    both or neither hold. Unbound keys (including record controls) do nothing. Pure.
+
+    ``commanded`` is the action the robot last commanded (``send_action``'s return, ``.pos`` keys). When given
+    it replaces ``target`` as the base, so the new target is never more than one step from what the arm was
+    told to do: PolicyArm commands less than asked when the lead clamp or a vendor window binds, and a target
+    that kept its own count would run ahead and keep driving after the key is released."""
     held = {key_name(key) for key in pressed}
+    if commanded is not None:
+        target = {m: float(commanded.get(m + ".pos", target[m])) for m in (*JOINTS, GRIPPER)}
     delta = dict.fromkeys(JOINTS, 0.0)
     for key, (motor, sign) in JOINT_KEYS.items():
         if key in held:
