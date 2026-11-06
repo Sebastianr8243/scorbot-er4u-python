@@ -58,8 +58,8 @@ Stack 2 vendor Home and first motion (`bring_up.py`, vendor Home by default):
 & $vpy scripts\bring_up.py --transport auto --online --logs logs\bring-up --stream --speed-pct 25 --stream-seconds 5
 ```
 
-Bench trials (each records a session; `bench_joint`/`bench_stream`/`policy_loop` home with the legacy search,
-or `--inch-home` from any pose; the same eight labels every time):
+Bench trials (each records a session; `bench_joint`/`bench_stream`/`policy_loop` home with the vendor Home;
+the same eight labels every time):
 
 ```powershell
 $L = "--robot-id er4u-lab --arm-label <arm sticker> --controller-label <box sticker> --driver intelitek --operator <initials> --start-pose-note <where it is>".Split(" ")

@@ -7,10 +7,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from scorbot import SimulatedScorbot
-from scorbot.lab import __main__ as lab_main
 from scorbot.lab.operator import ScriptedOperator
 from scorbot.lab.profile import LabProfile
 from scorbot.lab.session import EXIT_DECLINED, EXIT_FAILED, EXIT_OK, LabSession
@@ -88,15 +86,6 @@ class VendorHomeSessionTests(unittest.TestCase):
         self.assertFalse(self.ctrl.motors_on)
         self.assertEqual(self.of("home_complete"), [])
         self.assertIn("error 300", json.dumps(self.rows))
-
-    def test_the_two_homes_cannot_be_combined(self):
-        with self.assertRaises(ValueError):
-            LabSession(profile=PROFILE, operator=ScriptedOperator([]), robot_factory=None,
-                       data_source="simulated", log_path=self.root / "x.jsonl",
-                       session_root=self.root, inch_home=True, vendor_home=True)
-        with self.assertRaises(SystemExit):
-            with mock.patch("sys.stderr"):
-                lab_main.main(["--simulate", "--vendor-home", "--inch-home"])
 
 
 if __name__ == "__main__":

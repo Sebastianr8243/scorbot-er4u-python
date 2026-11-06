@@ -47,7 +47,7 @@ flowchart TD
 
 | Path | Responsibility |
 |---|---|
-| `scorbot/` | Public SDK: facade, state decode, calibration, the shared limits (`limits.py`), the source-based joint model (`source_model.py`), nominal manual values, the streaming follower (`streaming.py`), the inch home (`inch_home.py`), offline kinematics, the vendor's formulas read from the DLL (`vendor_model.py`, `vendor_profile.py`), the viewer's link chain `arm_chain.py`, simulator, preflight |
+| `scorbot/` | Public SDK: facade, state decode, calibration, the shared limits (`limits.py`), the source-based joint model (`source_model.py`), nominal manual values, the streaming follower (`streaming.py`), offline kinematics, the vendor's formulas read from the DLL (`vendor_model.py`, `vendor_profile.py`), the viewer's link chain `arm_chain.py`, simulator, preflight |
 | `scorbot/session/` | MCAP session recorder and the replay reader. Never imports USB |
 | `scorbot/camera/` | Webcam capture: per-camera stream files next to a session, recorder threads with a bounded stop, `python -m scorbot.camera check`. OpenCV optional (`[camera]`). Never imports USB |
 | `scorbot/transport/` | Pure packet codec (`codec.py`), proven byte-identical to the legacy code by golden tests (`tests/test_transport_codec.py`). Not wired into `Scorbot`. Phase A of the USB upgrade. Also `device_file.py` (Intelitek-driver link, used by `Scorbot(transport=...)`) and `probe.py` |

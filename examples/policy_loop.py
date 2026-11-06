@@ -189,8 +189,6 @@ def _run() -> int:
     parser.add_argument("--travel-cap-deg", type=float, default=None,
                         help="optional positive travel bound from vendor Home; default: vendor windows only")
     parser.add_argument("--acknowledge-supervised-motion", action="store_true")
-    parser.add_argument("--inch-home", action="store_true",
-                        help="Home by inching (any start pose near home) instead of the legacy search")
     parser.add_argument("--session-root", type=Path, default=None)
     parser.add_argument("--simulate", action="store_true",
                         help="Rehearse with the simulated controller: no USB, no robot")
@@ -246,7 +244,7 @@ def _run() -> int:
             with robot_class(log_path=events, robot_id=args.robot_id) as robot:
                 home_state = bench.connect_and_home(
                     robot, write, rec, prompt, command,
-                    "stopped after homing; no policy run requested", inch=args.inch_home, vendor=not args.inch_home)
+                    "stopped after homing; no policy run requested", vendor=True)
                 plan = dict(policy=policy_name, steps=args.steps, rate_hz=args.rate_hz,
                             travel_cap_deg=args.travel_cap_deg, step_max_deg=STEP_MAX_DEG,
                             lead_margin_deg=LEAD_MARGIN_DEG, counts_per_degree=per_degree)

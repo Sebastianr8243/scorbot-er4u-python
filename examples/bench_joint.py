@@ -296,13 +296,11 @@ class OpenCommand:
 
 
 def connect_and_home(robot, write, rec, prompt, command: OpenCommand, declined_after_home: str,
-                     *, inch: bool = False, vendor: bool = False):
+                     *, vendor: bool = False):
     """Connected robot to a home the operator accepted. Returns the home state.
 
     Every prompt, row and LED step here is shared by the jog and the stream
     procedures; design/OPERATOR_UX.md (in git history) and the review script depend on them.
-    ``inch`` homes with ``Scorbot.home_inch`` (any start pose, small jogs, shoulder,
-    elbow and base only) instead of the legacy search; the typed words are the same.
     """
     state = robot.get_state()
     write("connected", state=asdict(state))
@@ -313,15 +311,6 @@ def connect_and_home(robot, write, rec, prompt, command: OpenCommand, declined_a
                  require_expected=True)
     if vendor:
         print("Vendor Home: confirm jaws empty and the wrist and gripper path clear before typing HOME.")
-    elif inch:
-        print("Inch homing: the arm may start in any pose. It moves shoulder, elbow and base "
-              "a degree at a time to find each switch (up to 30, 30 and 100 degrees each way). "
-              "Start the arm within a few tens of degrees of its home pose: with the elbow and "
-              "wrist motors held, a long shoulder sweep forces the elbow into its stop. "
-              "If a switch is missed it can drive the joint into its stop. Clear the "
-              "whole arm path and keep your hand at the physical stop. The wrist is NOT "
-              "homed: put it by eye where it stands at home (gripper pointing down and "
-              "forward, about 64 degrees below horizontal) before you type HOME.")
     else:
         print("Confirm the arm is in the documented legacy homing start pose.")
     print(switch_summary(robot.get_state().home_switch_bits))
@@ -334,19 +323,15 @@ def connect_and_home(robot, write, rec, prompt, command: OpenCommand, declined_a
     if vendor:
         command.start("home", {"method": "vendor", "jaws_empty": True, "wrist_clear": True})
         robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
-    elif inch:
-        command.start("home", {"method": "inch", "operator_at_stop": True})
-        robot.home_inch(operator_at_stop=True)
     else:
         command.start("home", {"start_position_confirmed": True})
         robot.home(start_position_confirmed=True)
     command_id = command.take()
     home_state = robot.get_state()
     write("home_complete", state=asdict(home_state),
-          **({"method": "vendor"} if vendor else {"method": "inch"} if inch else {}))
+          **({"method": "vendor"} if vendor else {}))
     rec.log_command_result(command_id, "completed",
-                           completion_source="vendor_home() returned" if vendor else "home_inch() returned" if inch
-                           else "home() returned")
+                           completion_source="vendor_home() returned" if vendor else "home() returned")
     rec.log_state(home_state)
     home_observation = input("Describe the physical home pose, motion, and controller indicators: ").strip()
     write("home_observation", text=home_observation or "not recorded")
@@ -414,9 +399,6 @@ def _run() -> int:
                         help="Signed requested legacy jog in degrees, at most 1")
     parser.add_argument("--speed", type=int, default=10)
     parser.add_argument("--acknowledge-supervised-motion", action="store_true")
-    parser.add_argument("--inch-home", action="store_true",
-                        help="Home by inching (any start pose; shoulder, elbow, base) instead "
-                             "of the legacy search from the fixed start pose")
     parser.add_argument("--session-root", type=Path, default=None,
                         help="Folder for the MCAP session (default: <output folder>/sessions)")
     parser.add_argument("--simulate", action="store_true",
@@ -465,7 +447,7 @@ def _run() -> int:
             with robot_class(log_path=events, robot_id=args.robot_id) as robot:
                 connect_and_home(robot, write, rec, prompt, command,
                                  "stopped after homing; no jog requested",
-                                 inch=args.inch_home, vendor=not args.inch_home)
+                                 vendor=True)
                 preview_state = robot.get_state()
                 preview = robot.preview_jog(
                     args.joint, args.delta, speed=args.speed,

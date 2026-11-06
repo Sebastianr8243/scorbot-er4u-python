@@ -69,23 +69,6 @@ class ConnectedArgumentTests(SimulatedRobotCase):
             yield
         self.assertEqual(put.call_args_list, [], "a refused call must queue nothing")
 
-    def test_park_at_home_checks_its_arguments_before_sending(self):
-        robot = self.robot()
-        with self.quiet(robot):
-            with self.assertRaisesRegex(ValueError, "operator is at the physical stop"):
-                robot.park_at_home()
-            with self.assertRaisesRegex(ValueError, "speed must be an integer"):
-                robot.park_at_home(operator_at_stop=True, speed=0)
-            with self.assertRaisesRegex(ValueError, "speed must be an integer"):
-                robot.park_at_home(operator_at_stop=True, speed=True)
-
-    def test_park_at_home_needs_a_home(self):
-        self.HOMED = False
-        robot = self.robot()
-        with self.quiet(robot):
-            with self.assertRaisesRegex(ScorbotError, "Home first"):
-                robot.park_at_home(operator_at_stop=True)
-
     def test_a_jog_with_a_bad_speed_is_refused(self):
         robot = self.robot()
         with self.quiet(robot):
@@ -95,7 +78,7 @@ class ConnectedArgumentTests(SimulatedRobotCase):
                         robot.jog_joint("base", 1, speed=speed)
 
     def test_the_private_jog_checks_the_speed_itself(self):
-        # pre_home_jog and home_inch reach _jog_joint without going through jog_joint
+        # coupled callers reach _jog_joint without going through jog_joint
         robot = self.robot()
         with self.quiet(robot):
             for speed in (0, 21, True):
