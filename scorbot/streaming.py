@@ -448,9 +448,7 @@ class Stream:
                 # A stop that landed after start_stream consumed the last one but before the stream was
                 # published (request_stop then found no stream): honour it here. Ending clears the event.
                 if getattr(self, "stop_reason", None) is None:
-                    self.stop_reason = ("pendant Abort key"
-                                        if getattr(self.robot._input, "pendant_abort_held", False)
-                                        else "Scorbot.request_stop")
+                    self.stop_reason = getattr(self.robot, "_stop_cause", None) or "Scorbot.request_stop"
                 self.core.request_stop()
             self._pace()
             state = decode_state(reply, connected=True, enabled=None, homed=True, fault=None)

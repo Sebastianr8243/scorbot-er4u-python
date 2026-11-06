@@ -86,6 +86,20 @@ class StreamEndLogTests(SimulatedRobotCase):
         self.assertIsNone(robot._fault)
         self.assert_stopped_with_reason("abort")
 
+    def test_an_abort_before_the_stream_is_up_keeps_its_cause_after_the_key_is_released(self):
+        robot = self.robot()
+        def abort_after_the_check():       # the Abort lands after start_stream took the last stop, before the stream is published
+            robot._pendant_abort()
+            robot._input.pendant_abort_held = False
+            return False
+
+        with mock.patch.object(robot, "_consume_stop", side_effect=abort_after_the_check):
+            stream = robot.start_stream()
+        stream.set_target({"base": 1400})
+        stream.close()
+        self.assertIsNone(robot._fault)
+        self.assert_stopped_with_reason("abort")
+
     def test_an_exception_in_the_callers_block_logs_stream_stopped_naming_it(self):
         robot = self.robot()
         with self.assertRaises(KeyError):
