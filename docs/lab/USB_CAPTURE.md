@@ -1,6 +1,6 @@
 # USB capture: Intelitek software vs. this Python code
 
-Goal: record the USB packets the **original Intelitek software** exchanges with the ER-4U controller (USB ID `09F1:0007`) and the packets this Python code sends for the same actions, then compare them offline. This is the "golden trace" from [ARCHITECTURE.md §25](../design/ARCHITECTURE.md#25-recommended-first-implementation-task).
+Goal: record the USB packets the **original Intelitek software** exchanges with the ER-4U controller (USB ID `09F1:0007`) and the packets this Python code sends for the same actions, then compare them offline. This is the "golden trace" from [ARCHITECTURE.md §11](../design/ARCHITECTURE.md#11-known-gaps-and-roadmap).
 
 **Analysis is offline.** `scripts/usb_trace.py` only reads capture files that were saved earlier. It never opens USB, never talks to the controller, and never commands the arm. Only the capture sessions themselves involve the robot, and those follow the normal supervised-bench rules (emergency stop in reach, operator present).
 

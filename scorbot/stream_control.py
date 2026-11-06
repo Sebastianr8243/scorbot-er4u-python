@@ -48,7 +48,8 @@ class StreamMixin:
                      period_s: float = DEFAULT_PERIOD_S,
                      use_emergency_bit: bool = True,
                      adaptive_pacing: bool = False,
-                     wrist: bool = False) -> Stream:
+                     wrist: bool = False,
+                     resume: bool = False) -> Stream:
         """Start following a stream of targets for base, shoulder and elbow.
 
         Returns a ``Stream``: call ``set_target`` with motor counts from home as
@@ -67,6 +68,8 @@ class StreamMixin:
         jogs stay disabled; only this opt-in path streams the wrist. Unverified on the arm.
         ``travel_cap_deg=None`` selects only Intelitek's encoder and joint windows,
         after vendor Home. A positive cap adds an optional bound without an upper ceiling.
+        Every arm motor must be within ``limits.DRIFT_COUNTS`` of home and at rest.
+        ``resume=True`` permits one restart near the final pose of a cleanly closed stream.
         """
         with self._motion_lock:
             if self._device is None:
@@ -88,6 +91,8 @@ class StreamMixin:
                     raise ValueError(f"{name} must be {low:g} through {high:g} seconds")
             if not isinstance(wrist, bool):
                 raise ValueError("wrist must be True or False")
+            if not isinstance(resume, bool):
+                raise ValueError("resume must be True or False")
             if not self._enabled or not self._homed or self._home_counts is None:
                 raise ScorbotError("Enable and home before streaming")
             if not self._gripper_homed:
@@ -102,6 +107,14 @@ class StreamMixin:
                 self._record("stop_before_motion", joint="stream")
                 raise MotionStopped("A stop was requested; the stream was not started",
                                     state=before, started=False)
+            resume_from, self._stream_resume_from = self._stream_resume_from, None
+            before, settled = self._wait_for_rest(before)
+            if not settled:
+                self._record("stream_refused_not_at_rest", state=asdict(before))
+                raise ScorbotError("The arm is not at rest; the stream was not started")
+            if before.teach_mode:
+                self._record("stream_refused_teach_mode")
+                raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before streaming")
             motors = WRIST_STREAM_MOTORS if wrist else STREAM_MOTORS
             per_degree = {m: abs(self.preview_jog(m, 1.0)["motor_count_deltas"][m])
                           for m in STREAM_MOTORS}
@@ -114,12 +127,21 @@ class StreamMixin:
                 raise ScorbotError(f"Cannot place the arm relative to home: {exc}") from exc
             # The stream reads each motor from home by its low word, which aliases past 32766 counts
             # (wrist_motor_2's vendor EncLimit is +/-1,000,000): refuse rather than misread it (CT14).
-            reach = {m: before.signed_encoder_counts[m] - home[m] for m in (*motors, *limits.WRIST_MOTORS)}
+            reach = {m: before.signed_encoder_counts[m] - home[m] for m in limits.RECORDED_MOTORS}
             far = {m: v for m, v in reach.items() if abs(v) > MAX_COUNTS_FROM_HOME}
             if far:
                 raise ScorbotError("Cannot place the arm relative to home: "
                                    + ", ".join(f"{m} is {v} counts from home" for m, v in far.items())
                                    + f", past the {MAX_COUNTS_FROM_HOME} a stream can read; jog it back first")
+            resumed = resume and resume_from is not None and all(
+                abs(reach[m] - resume_from[m]) <= limits.DRIFT_COUNTS for m in limits.RECORDED_MOTORS)
+            far = {m: v for m, v in reach.items() if abs(v) > limits.DRIFT_COUNTS}
+            if far and not resumed:
+                self._record("stream_refused_not_home", counts_from_home=far,
+                             tolerance_counts=limits.DRIFT_COUNTS)
+                raise ScorbotError(
+                    ", ".join(f"{m} is {v} counts from home" for m, v in far.items())
+                    + f"; every arm motor must be within {limits.DRIFT_COUNTS} counts of home")
             try:
                 start = {m: signed_count_delta(before.encoder_counts[m], self._home_counts[m])
                          for m in motors}
@@ -159,8 +181,8 @@ class StreamMixin:
                          speed_fraction=speed_fraction, lead_limit_deg=lead_limit_deg,
                          hold_timeout_s=hold_timeout_s, period_s=period_s,
                          use_emergency_bit=use_emergency_bit, adaptive_pacing=adaptive_pacing,
-                         wrist=wrist,
-                         start_counts_from_home=start,
+                         wrist=wrist, resume=resume, home_tolerance_counts=limits.DRIFT_COUNTS,
+                         start_counts_from_home=reach,
                          state=asdict(before))
             if self._trace is not None:
                 self._trace.start()
@@ -193,6 +215,7 @@ class StreamMixin:
                 if stream.final_state is None:
                     raise ScorbotError("The stream has already ended")
                 return stream.final_state
+            self._stream_resume_from = None
             result, failure, interrupt = None, None, None
             try:
                 with self._lock:
@@ -275,11 +298,16 @@ class StreamMixin:
             else:
                 after = self._motion_state(after_index=stream._before.packet_index)
                 self._record("stream_complete", state=asdict(after))
+                if not stream.core._stop_requested:
+                    self._stream_resume_from = {
+                        m: after.signed_encoder_counts[m] - stream._home_signed[m]
+                        for m in limits.RECORDED_MOTORS}
             stream.final_state = after
             return after
 
     def _abandon_stream(self) -> None:
         """Before disconnecting: end a stream the caller left open."""
+        self._stream_resume_from = None
         stream = self._stream
         if stream is not None:
             try:

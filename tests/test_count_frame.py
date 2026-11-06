@@ -572,8 +572,8 @@ class HomeReachTests(unittest.TestCase):
                 robot.start_stream(wrist=wrist)
         self.assertEqual(robot.sim.commands, queued)
         self.assertIsNone(robot._stream)
-        robot.sim.counts["wrist_motor_2"] = 32766       # within reach: on to the vendor window check
-        with self.assertRaisesRegex(ValueError, "already past a vendor limit"):   # StreamRefused
+        robot.sim.counts["wrist_motor_2"] = 32766       # within reach, but ST01 still refuses it
+        with self.assertRaisesRegex(ScorbotError, "wrist_motor_2 is 32766 counts from home"):
             robot.start_stream()
         robot.sim.counts["wrist_motor_2"] = 0
         robot.start_stream().close()

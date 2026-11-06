@@ -1,6 +1,6 @@
 # Project status
 
-**As of 2026-11-04, branch `stack2` (through PR #164).** One page: what works, how well we know it, what is in the way. Old reports: `reports/INDEX.md (in git history)`. Update this page whenever a result changes a row.
+**As of 2026-11-05, branch `stack2` (through PR #179).** One page: what works, how well we know it, what is in the way. Old reports: `reports/INDEX.md (in git history)`. Update this page whenever a result changes a row.
 
 **Goal:** our own Python code (Stack 2, no vendor DLL) drives the Intelitek ScorBot ER-4U through its original controller, so LeRobot can record demos and run VLA policies on it as a teaching tool. Decided 2026-10-31.
 
@@ -65,7 +65,7 @@ Steps and pass lines: [`lab/LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) section 3b.
 |---|---|
 | Driver for the visit: Intelitek's (`--transport auto`) or WinUSB via Zadig (`pyusb`, swap back before leaving) | The next lab visit (date not set) |
 | Installing `lerobot` (new dependency) | The LeRobot wrapper (done in a separate venv for the simulator check; the repo itself still does not depend on it) |
-| Decided 2026-11-04: near-home start (every joint within 20 counts of home), shoulder travel = vendor limits with no extra cap, BACKLOG 20 already fixed (`_latch_fault`). Requirements: [streaming](requirements/streaming.md); its open questions Q1 to Q6 (gripper resume first) | Building the streaming changes |
+| Decided 2026-11-04: near-home start (every joint within 20 counts of home), shoulder travel = vendor limits with no extra cap, BACKLOG 20 already fixed (`_latch_fault`). Requirements: [streaming](requirements/streaming.md); its picks for Q1 to Q6 accepted 2026-11-04 (ST02 gripper resume written out in #170) | Building the streaming changes (part A, #179, is merged: near-home and at-rest start, gripper resume only after a clean close; parts B #171 and C #172 are open) |
 
 ## Not covered here
 

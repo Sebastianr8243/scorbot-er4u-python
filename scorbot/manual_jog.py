@@ -142,6 +142,7 @@ class ManualJogMixin:
         a setpoint far ahead of the arm, a USB error or an unreadable reply switch the motors off and latch a
         fault. The step jog ``jog_joint`` is unchanged.
         """
+        self._stream_resume_from = None
         if not self._motion_lock.acquire(blocking=False):
             raise ScorbotError("Another motion is running; wait for it to end")
         try:

@@ -155,6 +155,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         self._stop_event = threading.Event()
         self._stop_lock = threading.Lock()       # makes "was a stop asked for" + clear one step
         self._stream = None
+        self._stream_resume_from = None
         self._enabled = False
         self._homed = False
         # True only after a vendor Home, which zeroes the gripper; read together with _homed, so every clear of
@@ -221,6 +222,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
             raise ScorbotError("Already connected")
         if self._fault is not None:
             raise ScorbotError("Create a new Scorbot instance after a fault")
+        self._stream_resume_from = None
         self._clear_idle_holds()
         # Disconnect can leave an EXIT marker and the previous encoder mean on these queues.
         self._sync = queue.Queue()
@@ -409,6 +411,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                               "above ImpactDetect", keep_first=True)
             self._cancel_event.set()
             with self._stop_lock:
+                self._stream_resume_from = None
                 self._stop_event.set()
             if self._link_alive():
                 self._commands.put([16, 1, 1])  # Runs after the idle message; never an emergency stop.
@@ -463,6 +466,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
             raise ScorbotError(f"Controller is faulted: {self._fault}")
         if self._stream is not None:
             raise ScorbotError("A stream is active; close or stop it first")
+        if payload[0] in (16, 18, 22, 528):  # motors-off, either Home, disconnect (including the simulator)
+            self._stream_resume_from = None
         if payload[0] in (*range(4, 19), 22, 23, 528):
             self._vendor_joint_target = None
             self._vendor_joint_hold = None
@@ -597,6 +602,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         authoritative.
         """
         with self._stop_lock:
+            self._stream_resume_from = None
             self._stop_event.set()
         stream = self._stream
         if stream is not None:
@@ -612,6 +618,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         DLL stops once). Not an emergency stop.
         """
         with self._stop_lock:
+            self._stream_resume_from = None
             self._stop_event.set()
         stream = self._stream
         if stream is not None:
@@ -622,6 +629,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
     def _emergency_input(self) -> None:
         """Latch even a one-reply emergency pulse and use the existing worker stop and disable paths."""
         with self._stop_lock:
+            self._stream_resume_from = None
             self._stop_event.set()
         self._latch_fault("Controller emergency input active", keep_first=True)
         if self._link_alive():
@@ -633,10 +641,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         except Exception:
             pass  # a log failure must not hide the stop, which already happened
 
-    def _settled_after_stop(self, before: RobotState, *,
-                            fault: str = "The arm was still moving after a stop request"
-                            ) -> RobotState:
-        """Wait until successive readings stop changing, or latch a fault."""
+    def _wait_for_rest(self, before: RobotState) -> tuple[RobotState, bool]:
+        """Return the last reading and whether the shared quiet-pair rule found rest."""
         deadline = time.monotonic() + self.STOP_SETTLE_TIMEOUT_S
         current = self._motion_state(after_index=before.packet_index)
         quiet = 0
@@ -652,9 +658,17 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                 moved = None  # ambiguous near half the counter range: not settled
             quiet = quiet + 1 if moved is not None and moved <= self.STOP_SETTLE_COUNTS else 0
             if quiet >= self.STOP_SETTLE_QUIET_PAIRS:
-                return current
+                return current, True
             if time.monotonic() >= deadline:
-                break
+                return current, False
+
+    def _settled_after_stop(self, before: RobotState, *,
+                            fault: str = "The arm was still moving after a stop request"
+                            ) -> RobotState:
+        """Wait until successive readings stop changing, or latch a fault."""
+        current, settled = self._wait_for_rest(before)
+        if settled:
+            return current
         self._latch_fault(f"{fault}; use the physical stop if needed")
         if self._link_alive():
             self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
@@ -675,6 +689,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         """Forget the pre-home phase's cumulative target and, unless ``keep_travel``, its
         travel. The travel bounds the whole session: disabling the motors drops the target
         (the arm may sag or be moved) but must not reopen the cap."""
+        self._stream_resume_from = None
         if not keep_travel:
             self._prehome_travel = dict.fromkeys(joint_move.JOINTS, 0.0)
         self._prehome_run = None
@@ -685,7 +700,10 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         with self._stop_lock:
             asked = self._stop_event.is_set()
             self._stop_event.clear()
-        return asked or bool(getattr(self._input, "pendant_abort_held", False))
+            asked = asked or bool(getattr(self._input, "pendant_abort_held", False))
+            if asked:
+                self._stream_resume_from = None
+        return asked
 
     def preview_jog(self, joint: str, delta_degrees: float, *, speed: int = 10,
                     starting_signed_counts: dict[str, int] | None = None) -> dict:
@@ -725,6 +743,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
 
     def jog_joint(self, joint: str, delta_degrees: float, *, speed: int = 10):
         """Move one joint by a bounded legacy relative jog; read back raw state."""
+        self._stream_resume_from = None
         return self._jog_joint(joint, delta_degrees, speed)
 
     def _jog_joint(self, joint: str, delta_degrees: float, speed: int, *, homing: bool = False,
@@ -881,6 +900,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         from .vendor_gripper import GRIPPER_ORDER
         from .vendor_home_source import VendorHomeSource
 
+        self._stream_resume_from = None
         self._refuse_if_moving()
         with self._motion_lock:
             self._refuse_if_streaming()
@@ -957,6 +977,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
     def move_joint(self, joint: str, target_degrees: float, *, speed: int = 10):
         """One bounded calibrated target step, using the existing jog backend."""
         with self._motion_lock:
+            self._stream_resume_from = None
             if self._calibration is None or joint not in self._calibration.joints:
                 raise ScorbotError(f"No validated physical calibration for {joint}")
             if (isinstance(target_degrees, bool)
@@ -984,6 +1005,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
             return achieved
 
     def disconnect(self):
+        self._stream_resume_from = None
         self._clear_idle_holds()
         if self._device is None:
             return
