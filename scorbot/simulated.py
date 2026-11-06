@@ -256,8 +256,10 @@ class SimulatedController:
     def worker(self, commands: queue.Queue, results: queue.Queue) -> None:
         with self._lock:
             self.link_up = True
+        default_results = results
         while True:
             payload = commands.get()
+            results = getattr(payload, "results", default_results)
             self.commands.append(list(payload))
             order = payload[0]
             if order == _EXIT:

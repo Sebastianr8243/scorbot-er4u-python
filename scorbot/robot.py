@@ -2,6 +2,7 @@
 
 import array
 from dataclasses import asdict
+from functools import partial
 import importlib
 import json
 import math
@@ -49,6 +50,14 @@ def _home_relative_targets(encoder_counts, home_counts, deltas) -> dict[str, int
         except (KeyError, TypeError, ValueError):
             targets[motor] = None
     return targets
+
+
+class _CommandWithResults(list):
+    """Keep a disable's reply separate from late replies to fault cleanup."""
+
+    def __init__(self, payload):
+        super().__init__(payload)
+        self.results = queue.Queue()
 
 
 class _HandshakeOutputEndpoint:
@@ -169,6 +178,9 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         # None: the idle messages follow the encoders (motors off, after a fault, homing).
         self._idle_hold = None
         self._fault = None
+        self._fault_off_queued = False
+        self._fault_off_lock = threading.Lock()
+        self._worker_failed = False
 
     def __enter__(self):
         return self.connect()
@@ -318,7 +330,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
             self._enabled = False
             self._record("connect", state=asdict(self.get_state()))
             return self
-        except Exception as exc:
+        except (Exception, KeyboardInterrupt) as exc:
             if (handshake_out is not None and handshake_out.motors_may_be_on
                     and not any(worker is not None and worker.is_alive()
                                 for worker in (self._sync_thread, self._command_thread))):
@@ -339,12 +351,15 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                 self.disconnect()
             except Exception as cleanup_error:
                 self._record("connect_cleanup_failed", error=str(cleanup_error))
+            if isinstance(exc, KeyboardInterrupt):
+                raise
             raise ScorbotError(
                 f"Connection failed: {exc}. Controller motor state is unverified; "
                 "use the physical stop if needed") from exc
 
     def _latch_fault(self, message: str, *, keep_first: bool = False) -> None:
         """Reject motion from now on; motor and home state become unverified."""
+        self._cancel_event.set()
         if not (keep_first and self._fault):
             self._fault = message
         self._enabled = None
@@ -354,6 +369,18 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         self._vendor_joint_hold = None
         self._idle_hold = None
         self._reset_prehome()
+        self._queue_fault_off()
+
+    def _queue_fault_off(self, *, force: bool = False) -> None:
+        """Queue one best-effort disable per instance, only while the link can send it.
+
+        ``force`` queues it even when the link looks dead (a command that timed out or was interrupted: the
+        worker may still recover and run it, as before).
+        """
+        with self._fault_off_lock:
+            if not self._fault_off_queued and (force or self._link_alive()):
+                self._fault_off_queued = True
+                self._commands.put([16, 1, 1])
 
     def _sync_dead(self) -> bool:
         return self._sync_thread is not None and not self._sync_thread.is_alive()
@@ -364,7 +391,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         The legacy workers pass the sequence byte between them, so if either one
         has died a queued command is never executed.
         """
-        return (self._command_thread is not None and self._command_thread.is_alive()
+        return (not self._worker_failed
+                and self._command_thread is not None and self._command_thread.is_alive()
                 and not self._sync_dead())
 
     def _run_sync_worker(self, legacy_sync, *args):
@@ -416,8 +444,6 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
             with self._stop_lock:
                 self._stream_resume_from = None
                 self._stop_event.set()
-            if self._link_alive():
-                self._commands.put([16, 1, 1])  # Runs after the idle message; never an emergency stop.
             fault = self._fault
             threading.Thread(target=self._record_quietly, args=("idle_impact",), kwargs={"error": fault},
                              daemon=True, name="scorbot-impact-log").start()
@@ -439,6 +465,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         # possibly while the operator is at a prompt and nothing reads state, so
         # fault, wake any waiting command, and say so on the terminal.
         message = f"USB {name} worker stopped: {exc}"
+        self._worker_failed = True
         self._latch_fault(message, keep_first=True)
         self._cancel_event.set()
         self._results.put(_WorkerCrashed(
@@ -452,23 +479,43 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         except Exception:
             pass  # A log write failure must not replace the banner with a traceback.
 
-    def _next_result(self, timeout: float):
-        result = self._results.get(timeout=timeout)
+    def _next_result(self, timeout: float, *, results=None):
+        if results is None:
+            result = self._results.get(timeout=timeout)
+        else:
+            deadline = time.monotonic() + timeout
+            while True:
+                try:
+                    result = results.get(timeout=min(0.1, max(0, deadline - time.monotonic())))
+                    break
+                except queue.Empty:
+                    if not self._link_alive():
+                        raise _WorkerCrashed(
+                            "USB worker stopped; motor state is unverified; use the physical stop") from None
+                    if time.monotonic() >= deadline:
+                        raise
         if isinstance(result, _WorkerCrashed):
+            self._worker_failed = True
             raise result
         if isinstance(result, Exception):
+            self._worker_failed = True
             raise _WorkerCrashed(
                 f"USB command worker crashed: {result}. Motor state is unverified; "
                 "use the physical stop if needed") from result
         return result
 
-    def _command(self, payload: list[int | float], *, timeout: float | None = None) -> None:
+    def _command(self, payload: list[int | float], *, timeout: float | None = None,
+                 allow_faulted: bool = False) -> None:
         if self._device is None:
             raise ScorbotError("Not connected")
-        if self._fault:
+        if self._fault and not allow_faulted:
             raise ScorbotError(f"Controller is faulted: {self._fault}")
         if self._stream is not None:
             raise ScorbotError("A stream is active; close or stop it first")
+        if (allow_faulted or self._command_thread is not None) and not self._link_alive():
+            self._worker_failed = True
+            self._latch_fault("USB worker is not running; motor state is unverified; use the physical stop")
+            raise _WorkerCrashed(self._fault)
         if payload[0] in (16, 18, 22, 528):  # motors-off, either Home, disconnect (including the simulator)
             self._stream_resume_from = None
         if payload[0] in (*range(4, 19), 22, 23, 528):
@@ -476,25 +523,34 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
             self._vendor_joint_hold = None
         wait_timeout = self.command_timeout if timeout is None else timeout
         with self._lock:
+            next_result = self._next_result
+            if allow_faulted:
+                try:
+                    while True:
+                        self._next_result(0)
+                except queue.Empty:
+                    pass
+                payload = _CommandWithResults(payload)
+                next_result = partial(self._next_result, results=payload.results)
             self._record("command_start", payload=_loggable(payload))
             self._commands.put(payload)
             try:
-                result = self._next_result(wait_timeout)
+                result = next_result(wait_timeout)
                 if result != 0:
-                    while self._next_result(wait_timeout) != 0:
+                    while next_result(wait_timeout) != 0:
                         pass
                     if result == self._STOPPED_CODE:
                         self._record("command_stopped", payload=_loggable(payload))
                         raise MotionStopped("The jog ended early on a stop request")
                     raise ScorbotError(f"Legacy controller returned error code {result}")
-                if self._fault:
+                if self._fault and not allow_faulted:
                     raise ScorbotError(f"Controller is faulted: {self._fault}")
             except MotionStopped:
                 raise  # not a fault; jog_joint checks that the arm settled
             except queue.Empty as exc:
                 self._latch_fault("Command timed out; physical stop may be required")
+                self._queue_fault_off(force=True)
                 self._cancel_event.set()
-                self._commands.put([16, 1, 1])  # Best effort if worker recovers.
                 self._record("command_timeout", payload=_loggable(payload))
                 raise ScorbotError(self._fault) from exc
             except ScorbotError as exc:
@@ -504,7 +560,6 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                 # never answer a disable; waiting for one only delays the fault.
                 if (not already_faulted and payload[0] != 16 and not isinstance(exc, _WorkerCrashed)
                         and self._link_alive()):
-                    self._commands.put([16, 1, 1])
                     try:
                         disable_result = self._results.get(timeout=min(2.0, self.command_timeout))
                     except queue.Empty:
@@ -516,8 +571,8 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                 raise
             except (KeyboardInterrupt, SystemExit):
                 self._latch_fault("Python interrupted during a controller command")
+                self._queue_fault_off(force=True)
                 self._cancel_event.set()
-                self._commands.put([16, 1, 1])
                 self._record("command_interrupted", payload=_loggable(payload))
                 raise
             self._record("command_complete", payload=_loggable(payload))
@@ -560,8 +615,6 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                 raise ScorbotError("Controller emergency input active")
         except (ScorbotError, ValueError) as exc:
             self._latch_fault(f"Controller feedback is unavailable: {exc}")
-            if self._link_alive():
-                self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
             self._record("feedback_fault", error=self._fault)
             raise ScorbotError(self._fault) from exc
         # A worker can fault the session between commands; no motion step may
@@ -639,12 +692,11 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
 
     def _emergency_input(self) -> None:
         """Latch even a one-reply emergency pulse and use the existing worker stop and disable paths."""
+        self._cancel_event.set()
         with self._stop_lock:
             self._stream_resume_from = None
             self._stop_event.set()
         self._latch_fault("Controller emergency input active", keep_first=True)
-        if self._link_alive():
-            self._commands.put([16, 1, 1])
 
     def _record_quietly(self, event: str, **fields) -> None:
         try:
@@ -681,8 +733,6 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         if settled:
             return current
         self._latch_fault(f"{fault}; use the physical stop if needed")
-        if self._link_alive():
-            self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
         self._record("stop_settle_failed", error=self._fault, state=asdict(current))
         raise ScorbotError(self._fault)
 
@@ -690,7 +740,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         """Queue a motor-disable command while the worker is responsive."""
         with self._motion_lock:
             self._refuse_if_streaming()
-            self._command([16, 1, 1])
+            self._command([16, 1, 1], allow_faulted=True)
             self._enabled = False
             self._homed = False
             self._home_counts = None

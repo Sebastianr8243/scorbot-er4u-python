@@ -234,8 +234,6 @@ class ManualJogMixin:
                 self._stop_event.clear()
             if failure is not None:
                 self._latch_fault(failure)
-                if self._link_alive():
-                    self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
                 self._record("velocity_jog_fault", error=self._fault, messages=jog._source.messages)
                 if interrupt is not None:
                     raise interrupt

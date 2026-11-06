@@ -154,10 +154,10 @@ class LegacyGripperTests(unittest.TestCase):
                 buffer = bytearray(controller.reply)
                 reads, results = queue.Queue(), queue.Queue()
                 reads.put([START] * GRIPPER + [GRIP_START])
-                with self.assertRaises(RuntimeError):
-                    self.comm.clamp(1, controller, controller, buffer, CLOSE_ORDER, reads,
-                                    results)
-                self.assertEqual([(p[4], p[5], p[6]) for p in controller.packets[-2:]],
+                # SD02: the error no longer escapes; the gripper pair is sent, then the full motors-off group.
+                self.comm.clamp(1, controller, controller, buffer, CLOSE_ORDER, reads, results)
+                self.assertEqual(results.get_nowait(), 1)
+                self.assertEqual([(p[4], p[5], p[6]) for p in controller.packets[-28:-26]],
                                  [(CONTROL_OFF, GRIPPER_MASK, 0), (MOTOR, GRIPPER_MASK, 0)],
                                  "the gripper must not be left switched on")
 
@@ -172,9 +172,9 @@ class LegacyGripperTests(unittest.TestCase):
         buffer = bytearray(controller.reply)
         reads = queue.Queue()
         reads.put([START] * len(JOINTS))
-        with self.assertRaises(RuntimeError) as caught:
-            self.comm.clamp(1, controller, controller, buffer, OPEN_ORDER, reads, queue.Queue())
-        self.assertIn("USB write failed", str(caught.exception))
+        results = queue.Queue()
+        self.comm.clamp(1, controller, controller, buffer, OPEN_ORDER, reads, results)   # SD02: reported, not raised
+        self.assertEqual(results.get_nowait(), 1)
 
     def test_a_stop_request_ends_the_move_on_the_measured_position(self):
         controller, results = self.move(CLOSE_ORDER, stop_after=10)

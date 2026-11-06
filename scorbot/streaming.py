@@ -438,12 +438,12 @@ class Stream:
 
     def _step(self, reply: bytes):
         try:
-            if self.robot._cancel_event.is_set():
-                self.core.fail("the session was cancelled while streaming")
-            elif self.robot._fault:
+            if self.robot._fault:
                 # Latched on another thread (lost feedback, say): a faulted
                 # session must not go on following targets.
                 self.core.fail(f"the session faulted while streaming: {self.robot._fault}")
+            elif self.robot._cancel_event.is_set():
+                self.core.fail("the session was cancelled while streaming")
             if self.robot._stop_event.is_set():
                 # A stop that landed after start_stream consumed the last one but before the stream was
                 # published (request_stop then found no stream): honour it here. Ending clears the event.
