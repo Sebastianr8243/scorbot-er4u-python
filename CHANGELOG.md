@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #199, 2026-11-06)
+
+- #199: `python -m scorbot.bridge stop` prints ok only when the server confirms the stop (new `Arm.stop_confirmed`, 3 s wait); a busy server or no reply is a failure with exit 1. `stop()` is unchanged (fire and forget, used by Ctrl+C). `scorbot doctor` now requires Python 3.12, like `preflight`. Fake server only; never run on the arm.
+
 ## Unreleased (issue #197, 2026-11-06)
 
 - #197: the guided lab session (`python -m scorbot.lab`) and `scripts/bring_up.py` home with the vendor Home only. Before, the default session ran the legacy `home()`, which leaves the gripper unhomed, so every jog after it was refused and the session ended failed. Removed `LabSession(vendor_home=...)`, `--vendor-home` (no doc or script still passed it, so it is not kept as a no-op) and `bring_up.py --legacy-home` (nothing on the lab path needs it). `Scorbot.home()` and `openScorbot/setHome.py` stay for other callers. The docs' SDK snippet now shows `vendor_home`.

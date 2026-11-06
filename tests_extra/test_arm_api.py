@@ -175,6 +175,39 @@ class ClientTests(unittest.TestCase):
         with bridge.Arm(port=port, timeout=0.5) as arm, self.assertRaisesRegex(bridge.ArmError, "no reply"):
             arm.where()
 
+    def test_a_confirmed_stop_is_ok(self):
+        port = self.serve([lambda r: [{"id": r["id"], "ok": True}]])
+        with bridge.Arm(port=port, timeout=5) as arm:
+            arm.stop_confirmed()
+        self.assertEqual(self.requests[0]["op"], "stop")
+
+    def test_a_stop_met_by_a_busy_line_is_a_failure(self):
+        port = self.serve([lambda r: [{"ok": False, "busy": True, "error": "busy: another client is connected"}]])
+        with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "busy: another client"):
+            arm.stop_confirmed()
+
+    def test_a_stop_with_no_reply_is_a_failure(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        port = self.serve([lambda r: (gate.wait(5), [])[1]])
+        with bridge.Arm(port=port, timeout=5) as arm, self.assertRaisesRegex(bridge.ArmError, "stop was not confirmed"):
+            arm.stop_confirmed(timeout=0.5)
+
+    def test_the_stop_command_exits_nonzero_unless_confirmed(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        port = self.serve([lambda r: [{"ok": False, "busy": True, "error": "busy: another client is connected"}]])
+        out = StringIO()
+        with redirect_stdout(out):
+            code = bridge.main(["--port", str(port), "stop"])
+        self.assertEqual(code, 1)
+        self.assertNotIn("ok", out.getvalue().split())
+        port = self.serve([lambda r: [{"id": r["id"], "ok": True}]])
+        out = StringIO()
+        with redirect_stdout(out):
+            code = bridge.main(["--port", str(port), "stop"])
+        self.assertEqual((code, out.getvalue().strip()), (0, "ok"))
+
     def test_no_server_says_to_start_it(self):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))

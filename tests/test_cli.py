@@ -434,6 +434,11 @@ class DoctorOutputTests(unittest.TestCase):
                 self.assertEqual(row["level"], expected)
                 self.assertEqual(data["exit"], int(not passed))
 
+    def test_doctor_rejects_python_3_11(self):
+        for version, expected in (((3, 11, 9), "fail"), ((3, 12, 0), "ok")):
+            with self.subTest(version=version), mock.patch.object(cli.sys, "version_info", version):
+                self.assertEqual(cli.check_python().level, expected)
+
     def test_doctor_options_reach_calibration_check(self):
         with chosen_checks() as patched:
             result = invoke("doctor", "--json", "--strict", "--verbose", "--calibration", "my robot.json",
