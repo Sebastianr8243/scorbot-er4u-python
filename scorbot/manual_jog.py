@@ -7,7 +7,7 @@ The wall-clock deadline, the window margin and the legacy stop are ours. Unverif
 from dataclasses import asdict
 import queue
 
-from . import limits, nominal, source_model, vendor_manual
+from . import limits, nominal, vendor_manual
 from .calibration import MAX_COUNTS_FROM_HOME, signed_count_delta
 from .errors import MotionStopped, ScorbotError
 from .state import RobotState
@@ -17,42 +17,17 @@ MAX_SPEED = 20
 """Ours: the largest speed the SDK takes for a first trial (the DLL takes 100). Speed 20 jogs the base about
 19 counts per message."""
 WINDOW_MARGIN_COUNTS = 2
-"""Ours: the window is cut this much short of the travel cap and the source-model and vendor limits."""
-
-
-def _edge(now: dict, motor: str, sign: int) -> int:
-    """How far ``motor`` may go from ``now`` toward ``sign`` before the pose gets further past a joint limit
-    or leaves the travel cap (counts from home). Bisection, like ``source_model.home_window``."""
-    low_cap, high_cap = source_model.motion_window()[motor]
-    low_cap = max(low_cap, -MAX_COUNTS_FROM_HOME)
-    high_cap = min(high_cap, MAX_COUNTS_FROM_HOME)
-    room = int(high_cap - now[motor]) if sign > 0 else int(now[motor] - low_cap)
-    if room <= 0:
-        return 0
-    was = source_model.pose_limit_excess(now)
-
-    def worse(distance):
-        excess = source_model.pose_limit_excess({**now, motor: now[motor] + sign * distance})
-        return any(over > was.get(joint, 0.0) + 1e-6 for joint, over in excess.items())
-
-    low, high = 0, room
-    if worse(high):
-        while high - low > 1:
-            middle = (low + high) // 2
-            if worse(middle):
-                high = middle
-            else:
-                low = middle
-        high = low
-    return high
+"""Ours: the window is cut this much short of the vendor limit and the readable count range."""
 
 
 def _window(now: dict, motor: str, absolute: dict) -> tuple:
-    """The narrower source-model and absolute vendor window, cut ``WINDOW_MARGIN_COUNTS`` short."""
+    """How far ``motor`` may go each way from ``now``: the vendor limit (``nominal.vendor_limit_problem``) found by
+    bisection, cut ``WINDOW_MARGIN_COUNTS`` short, inside the count range a delta from home can still be read in
+    (``MAX_COUNTS_FROM_HOME``). The one limit source is the vendor's; a jog may reduce an existing violation."""
     was = nominal.vendor_limit_excess(absolute)
     edges = []
     for sign in (-1, 1):
-        low, high = 0, _edge(now, motor, sign)
+        low, high = 0, max(0, MAX_COUNTS_FROM_HOME - sign * now[motor])
 
         def worse(distance, sign=sign):
             after = {**absolute, motor: absolute[motor] + sign * distance}
@@ -133,7 +108,7 @@ class ManualJogMixin:
         direction, ``stop`` and start a new jog: the DLL ignores a new speed while a jog runs. The jog ends with
         the vendor's ramp-down and close when ``stop`` is called, when ``renew`` was not called for
         ``deadline_s`` (0.1 to 3 s), after 300 messages without ``renew``, after 30 s, or before the remaining
-        ramp down would leave the narrower source-model and vendor-limit window, cut 2 counts short.
+        ramp down would leave the vendor-limit window, cut 2 counts short.
         Vendor limits read absolute controller counts; existing violations may shrink, never grow.
 
         Needs enabled motors, vendor Home in this session and the arm at rest; refused while a stream or another
@@ -173,7 +148,7 @@ class ManualJogMixin:
             window = _window(now, joint, before.signed_encoder_counts)
             direction = 1 if vendor_manual.slot(axis, speed) > 0 else -1
             if window[direction > 0] == 0:
-                raise ValueError(f"The {joint} is at the edge of its travel cap, source-model or vendor limits "
+                raise ValueError(f"The {joint} is at the edge of its vendor limit "
                                  "that way (not measured)")
             def start_jog(first):
                 run = yield from vendor_manual.velocity_jog(

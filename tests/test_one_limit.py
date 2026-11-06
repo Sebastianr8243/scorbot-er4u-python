@@ -156,3 +156,28 @@ def test_vendor_predicate_uses_absolute_counts():
     counts = dict.fromkeys(vendor_model.MOTORS, 0)
     assert nominal.vendor_limit_problem(counts) is None
     assert nominal.vendor_limit_problem({**counts, "shoulder": 1501})
+
+
+def _velocity_jog(robot, joint, speed):
+    import time
+    jog = robot.start_velocity_jog(joint, speed, deadline_s=2.0)
+    stop_at = time.monotonic() + 10
+    while jog.reason is None and time.monotonic() < stop_at:
+        time.sleep(0.05)
+    after = jog.stop()
+    return jog, after.signed_encoder_counts[joint]
+
+
+def test_velocity_jog_beyond_source_window_succeeds(robot):
+    # L06: the source model ended the velocity jog at elbow +5194 counts (wrist at home); the vendor allows 7373.
+    robot.sim.counts["elbow"] = 5300
+    _, end = _velocity_jog(robot, "elbow", -20)
+    assert end > 5300
+
+
+def test_velocity_jog_past_enclimit_is_still_refused(robot):
+    robot.sim.counts["shoulder"] = 1490
+    queued = list(robot.sim.vendor_packets)
+    with pytest.raises(ValueError, match="edge"):
+        robot.start_velocity_jog("shoulder", 20)
+    assert robot.sim.vendor_packets == queued
