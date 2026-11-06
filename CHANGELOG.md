@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (simulator vendor orders, 2026-11-06)
+
+- Simulator vendor joint moves now follow all five arm setpoints on order 23; gripper fault behavior applies only to packets selecting the gripper motor, so digital and analog output writes leave every encoder count unchanged.
+
 ## Unreleased (issue #199, 2026-11-06)
 
 - #199: `python -m scorbot.bridge stop` prints ok only when the server confirms the stop (new `Arm.stop_confirmed`, 3 s wait); a busy server or no reply is a failure with exit 1. `stop()` is unchanged (fire and forget, used by Ctrl+C). `scorbot doctor` now requires Python 3.12, like `preflight`. Fake server only; never run on the arm.
