@@ -91,6 +91,16 @@ class LegacyOrderErrorTests(LegacyCase):
                     reads, results, _ = self.run_order(self.clamp(orden), wire)
                     self.assert_recovered(reads, results, wire)
 
+    def test_a_stop_during_the_clamp_start_never_sends_the_gripper_switch_on(self):
+        import threading
+        stop = threading.Event()
+        stop.set()
+        wire = FailWritesWire()
+        reads, results = queue.Queue(), queue.Queue()
+        reads.put([1000] * 6)
+        self.comm.clamp(1, wire, wire, answer(), 14, reads, results, stop)
+        self.assertFalse(any(self.matches(p, self.libhex.clamp(3)) for p in wire.sent))
+
     def test_a_usb_error_while_the_stream_closes_switches_the_motors_off(self):
         def stream(wire, buffer, reads, results):
             return self.comm.stream_targets(1, wire, wire, buffer, reads, results, Source(3))

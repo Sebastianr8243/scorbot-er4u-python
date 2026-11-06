@@ -302,13 +302,16 @@ def clamp(b_1, epout, epin, buffer, orden, cola_read, cola_orden=None, stop_even
 			media = libdef.get_media(buffer,media)
 			cadena += libdef.get_encoder(buffer, media)
 			libdef.set_msg(cadena, epout, epin, buffer, write, read)
+			if stop_event is not None and stop_event.is_set():
+				stopped = True	# a stop or fault: do not send the remaining switch-on messages
+				break
 
 		media = libdef.get_media(buffer,media)
 		step_in = media[5]
 		signo = libdef.get_signo(46, buffer)
 		dato_in = [step_in, signo]
 		ite = conf.readData("pinza","ite_clamp")
-		for i in range(ite):
+		for i in range(0 if stopped else ite):
 			[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer)
 			libdef.set_msg(cadena, epout, epin, buffer, write, read)
 			if stop_event is not None and stop_event.is_set():
