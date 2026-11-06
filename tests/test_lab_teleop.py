@@ -50,7 +50,7 @@ class _Harness(unittest.TestCase):
             robot_factory=lambda **kw: SimulatedScorbot(controller=self.ctrl, **kw),
             data_source="simulated", log_path=self.root / "s.jsonl",
             session_root=self.root / "sessions", clock=self.clock, sleep=lambda s: None,
-            camera_factory=camera_factory, vendor_home=True)
+            camera_factory=camera_factory)
         code = self.session.run()
         self.rows = [json.loads(line) for line in
                      (self.root / "s.jsonl").read_text(encoding="utf-8").splitlines()]

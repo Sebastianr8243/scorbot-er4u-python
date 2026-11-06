@@ -84,8 +84,9 @@ def _check(name, level, detail, fix=""):
 
 
 def check_python():
-    supported = sys.version_info >= (3, 10)
-    return _check("Python", "ok" if supported else "fail", sys.version.split()[0],
+    supported = sys.version_info >= (3, 12)
+    return _check("Python", "ok" if supported else "fail",
+                  f"{sys.version.split()[0]} (requires 3.12 or newer)" if not supported else sys.version.split()[0],
                   "Install Python 3.13; see START_HERE_WINDOWS.md section 1." if not supported else "")
 
 
