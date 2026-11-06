@@ -399,32 +399,7 @@ class ReplayTests(unittest.TestCase):
         self.assertIsNone(nearest(events, 0, topic="/camera/cam0/image"))
 
 
-def load_example():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "make_synthetic_session", REPO_ROOT / "examples" / "make_synthetic_session.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def run_cli(*args):
-    try:
-        from tests.cli_support import session_cli
-    except ImportError:      # discovered with -s tests: the folder itself is on sys.path
-        from cli_support import session_cli
-    return session_cli(*args)
-
-
-def run_cli_subprocess(*args):
-    try:
-        from tests.cli_support import session_cli_subprocess
-    except ImportError:
-        from cli_support import session_cli_subprocess
-    return session_cli_subprocess(*args)
-
-
-class CliAndExampleTests(unittest.TestCase):
+class PackageTests(unittest.TestCase):
     def setUp(self):
         import tempfile
         self._tmp = tempfile.TemporaryDirectory()
@@ -432,49 +407,6 @@ class CliAndExampleTests(unittest.TestCase):
 
     def tearDown(self):
         self._tmp.cleanup()
-
-    def test_synthetic_session_covers_every_topic_kind_without_errors(self):
-        from scorbot.session.replay import load_session
-        path = load_example().write_synthetic_session(self.root)
-        session = load_session(path)
-        self.assertEqual(session.errors, [])
-        topics = {e["topic"] for e in session.events}
-        for topic in ("/robot/state", "/robot/command", "/robot/command_result",
-                      "/camera/cam0/image", "/camera/cam0/detections",
-                      "/operator/decision", "/session/fault", "/session/note"):
-            self.assertIn(topic, topics)
-        image = next(e for e in session.events if e["topic"] == "/camera/cam0/image")
-        import base64
-        self.assertTrue(base64.b64decode(image["payload"]["data"]).startswith(b"\x89PNG"))
-
-    def test_cli_prints_data_source_banner_timeline_and_viewer_hint(self):
-        # The one command line here that runs as a real child process.
-        path = load_example().write_synthetic_session(self.root)
-        result = run_cli_subprocess(path)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("SYNTHETIC", result.stdout)
-        self.assertIn("/robot/command", result.stdout)
-        self.assertIn("Foxglove", result.stdout)
-
-    def test_cli_limit_caps_timeline_rows(self):
-        path = load_example().write_synthetic_session(self.root)
-        result = run_cli(path, "--limit", "2")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("more events not shown", result.stdout)
-
-    def test_cli_exits_1_on_integrity_errors(self):
-        with new_writer(self.root) as writer:
-            writer.log_note("a")
-            writer._seq += 1
-            writer.log_note("b")
-        result = run_cli(writer.path)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("ERROR", result.stdout)
-
-    def test_cli_missing_path_exits_2_without_traceback(self):
-        result = run_cli(self.root / "nope")
-        self.assertEqual(result.returncode, 2)
-        self.assertNotIn("Traceback", result.stderr + result.stdout)
 
     def test_package_exports_the_documented_names(self):
         from scorbot.session import SessionError, SessionWriter, load_session, nearest
@@ -619,18 +551,6 @@ class ReviewFixTests(unittest.TestCase):
         session = load_session(writer.mcap_path)
         self.assertEqual(session.findings, [], [f.message for f in session.findings])
 
-    def test_cli_output_survives_non_ascii_text_when_piped(self):
-        import os
-        import subprocess
-        import sys
-        with new_writer(self.root) as writer:
-            writer.log_note("base Δ=+30° → ok ✓")
-        env = {k: v for k, v in os.environ.items()
-               if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
-        result = subprocess.run([sys.executable, "-m", "scorbot.session", str(writer.path)],
-                                cwd=REPO_ROOT, capture_output=True, env=env)
-        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
-
     def test_zero_filled_tail_after_power_loss_is_a_crash_warning(self):
         from scorbot.session.replay import load_session
         writer = new_writer(self.root)
@@ -668,16 +588,6 @@ class ReviewFixTests(unittest.TestCase):
         renamed = writer.path / "SESSION.MCAP"
         writer.mcap_path.rename(renamed)
         self.assertEqual(len(load_session(renamed).events), 1)
-
-    def test_cli_exits_1_on_overwritten_bytes(self):
-        with new_writer(self.root) as writer:
-            for i in range(20):
-                writer.log_note(f"note {i}")
-        data = bytearray(writer.mcap_path.read_bytes())
-        middle = len(data) // 2
-        data[middle:middle + 32] = b"\xff" * 32
-        writer.mcap_path.write_bytes(bytes(data))
-        self.assertEqual(run_cli(writer.path).returncode, 1)
 
     def test_metadata_records_clock_resolution(self):
         with new_writer(self.root) as writer:

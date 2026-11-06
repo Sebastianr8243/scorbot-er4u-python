@@ -18,9 +18,6 @@ scorbot = "scorbot.cli:main"
 windows = ["libusb-package"]
 test = ["hypothesis>=6.100,<7"]
 gui = ["PyQt5>=5.15,<6"]
-plot = ["matplotlib>=3.8,<4"]
-# Rerun viewer for recorded sessions (large wheel; never needed on the lab PC).
-viz = ["rerun-sdk>=0.38,<0.39"]
 # Ruckig, the jerk-limited trajectory generator behind Scorbot.start_stream
 # (scorbot/streaming.py). Jogs and the guided session work without it.
 planning = ["ruckig>=0.12,<1"]
@@ -34,7 +31,6 @@ dev = [
     "hypothesis>=6.100,<7",
     "ruff==0.16.9",  # same version as .pre-commit-config.yaml, so local and CI agree
     "pre-commit>=4,<5",
-    "matplotlib>=3.8,<4",
     "ruckig>=0.12,<1",
     "opencv-python-headless>=4.9,<5",
 ]

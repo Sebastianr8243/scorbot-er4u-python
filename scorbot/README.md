@@ -62,10 +62,8 @@ Facade and pure helpers over the legacy USB code. Read the root [CONTRIBUTING.md
 - `record.py:SessionWriter._emit` is the single write path: validates required keys (`schemas.REQUIRED`), strict JSON, splices a `_rec` block (seq, logged/observed monotonic ns), flushes per message. A write failure sets `_broken`; later calls raise `SessionError` and `close()` does not append a summary.
 - `create()` uses `open(..., "xb")`: sessions are never overwritten. `data_source` is `real`, `simulated` or `synthetic`; `log_state` rejects a state whose `simulated` flag disagrees.
 - `BestEffortRecorder` swallows recorder errors after the first warning. Lab scripts write JSONL first, then call the recorder.
-- `replay.py:load_session` streams records, so crashed sessions load; damaged tail is a warning, earlier corruption an error. `analysis.py` is pure (no printing); its count deltas use `signed_count_delta`, matching `scripts/review_lab_logs.py`.
-- `rerun_view.py`: `session_items` is pure (no Rerun import) and is the unit to test; `send`/`view` are the only Rerun call sites. Keep `rerun` imports inside functions; the `viz` extra is optional and not in `dev`.
+- `replay.py:load_session` streams records, so crashed sessions load; damaged tail is a warning, earlier corruption an error.
 - `notes.py`: the operator's hand-filled observation sheet, `notes.md`, in each session folder. Plain Markdown (one `Label: answer` line per question, then free text under `## Free notes`), parsed with the standard library only; YAML is avoided on purpose because YAML 1.1 reads `14:30` as 870 and `no` as False.
-- `plot.py`: static PNG plots of recorded sessions (optional, `pip install -e ".[plot]"`): small multiples instead of many colours or a second y-axis, and the data source (REAL, SIMULATED or SYNTHETIC) always first in the title. The CSV export is the table view of the same numbers.
 - Adding a topic or field: edit `schemas.py` (`TOPICS`, `REQUIRED`, `PROPERTIES`), keep properties permissive (`additionalProperties` true) so old sessions load, and cover it in `tests/test_schemas.py` and `tests/test_session.py`.
 
 ## Rules

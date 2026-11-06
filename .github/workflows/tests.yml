@@ -123,9 +123,6 @@ jobs:
           assert tests and not broken and not loader.errors, (broken, loader.errors)
           print(f"tests_extra: {len(tests)} tests load under plain unittest")
           EOF
-      - name: Synthetic session smoke test
-        if: env.CODE == 'true'
-        run: python examples/make_synthetic_session.py --root "${{ runner.temp }}/sessions"
       # The README quickstart: the arm API with no server and no hardware.
       - name: FakeArm quickstart
         if: env.CODE == 'true'

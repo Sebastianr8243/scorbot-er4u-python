@@ -52,7 +52,7 @@ low, on both sides of zero: sign byte 128 is count `L + 1` and was sent as `L`; 
 | `simulated.py` count range | Fixed: 24-bit (CT12). |
 | `codec.step_count` input 0..65535 | Fixed: takes any target it returns (CT18). |
 | `motion_profile.count_distance` (modulus 65535) | Fixed: modulus 65536, so it agrees with `signed_count_delta` (`tests/test_settle_seam.py`). `openScorbot/motion_profile.py` is outside #128's files (flagged for w3). |
-| `calibration` `home_count` 0..65535, `session/analysis.py` and `fit_calibration.py` 0..65535 | Unchanged: they hold low words, which are 0..65535 by definition. |
+| `calibration` `home_count` 0..65535, `fit_calibration.py` 0..65535 | Unchanged: they hold low words, which are 0..65535 by definition. |
 | `scripts/home_trace_report.py` error-word fold at 65500 | Unchanged: an error word, not a count. |
 | `signed_count_delta(home, 0)` as an absolute count (`policy_arm.py`, `stream_control.py`, `scripts/lab_day.py`) | Unchanged and now exact: `encoder_counts` is the count's low word (CT13). `robot.py`'s jog vendor check reads `signed_encoder_counts` instead (CT14). |
 | `scripts/review_lab_logs.py` sign bytes other than 127/128 flagged invalid | Fixed: any top byte is a count (test: `tests/test_lab_log_review.py::LabLogReviewTests::test_a_count_past_65535_is_not_an_invalid_sign_byte`). |

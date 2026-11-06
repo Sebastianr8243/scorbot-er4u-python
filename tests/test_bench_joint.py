@@ -82,7 +82,9 @@ class BenchGateTests(unittest.TestCase):
         with patch.object(bench_joint.subprocess, "check_output",
                           return_value="abc123\n") as git:
             rows, _ = self.run_bench(["n", "g", "no"], "declined before homing")
-        self.assertEqual(git.call_args.kwargs["cwd"],
+        # platform.platform() may also call the patched check_output once (uname, cached), so pick git's call.
+        git_calls = [call for call in git.call_args_list if call.args and call.args[0][:1] == ["git"]]
+        self.assertEqual(git_calls[-1].kwargs["cwd"],
                          Path(bench_joint.__file__).resolve().parents[1])
         self.assertEqual(rows[0]["software_commit"], "abc123")
 
