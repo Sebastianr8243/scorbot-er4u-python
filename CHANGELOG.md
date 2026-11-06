@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #172, 2026-11-05)
+
+- #172: stream stop rows name the first stop cause, including Abort, caller exceptions and disconnect; mapped the end/fault tests for ST11-ST13, ST15 and ST18. Simulator and fake endpoints only.
+
 ## Unreleased (issue #171, 2026-11-05)
 
 - #171: ST09 setpoint steps round toward zero and stay within the current speed limit per period; finished trajectories reach their rounded endpoint within that limit. Added test coverage for ST07-ST10 and a strict velocity assertion in the core tests. Simulator and core tests only; never run on the arm.
