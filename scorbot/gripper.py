@@ -154,8 +154,6 @@ class GripperMixin:
                              and abs(counts) > self.GRIPPER_ARM_TOLERANCE_COUNTS}
             if disturbed:
                 self._latch_fault(f"Arm motors moved during a gripper move: {disturbed}")
-                if self._link_alive():
-                    self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
                 self._record("gripper_fault", error=self._fault, state=asdict(after))
                 raise ScorbotError(self._fault)
             travelled = moved["gripper"]
@@ -164,8 +162,6 @@ class GripperMixin:
             if along < -self.GRIPPER_ARM_TOLERANCE_COUNTS:
                 self._latch_fault(f"The gripper moved the wrong way: asked to {direction}, "
                                   f"its count changed by {travelled:+d}")
-                if self._link_alive():
-                    self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
                 self._record("gripper_fault", error=self._fault, state=asdict(after))
                 raise ScorbotError(self._fault)
             result = GripperMove(

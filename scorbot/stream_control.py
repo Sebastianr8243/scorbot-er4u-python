@@ -203,7 +203,6 @@ class StreamMixin:
         """
         try:
             self._latch_fault(f"Stream fault: {stream.core.fault}", keep_first=True)
-            self._commands.put([16, 1, 1])  # Runs after the stream; never an emergency stop.
             self._record("stream_fault", error=self._fault)
         except Exception:
             pass  # like _worker_died: a log failure must not kill the worker mid-stream
@@ -254,8 +253,6 @@ class StreamMixin:
                 with stream.report_lock:   # the worker may be reporting the same fault
                     if not stream.fault_reported:
                         self._latch_fault(failure)
-                        if self._link_alive():
-                            self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
                         stream.fault_reported = True
                         self._record("stream_fault", error=self._fault)
             self._stream = None
@@ -282,8 +279,6 @@ class StreamMixin:
                     # and the final state has not been read. Not a clean end.
                     failure = f"The stream's record could not be written: {exc}"
                     self._latch_fault(failure)
-                    if self._link_alive():
-                        self._commands.put([16, 1, 1])  # Best effort; never an emergency stop.
                     try:
                         self._record("stream_fault", error=self._fault)
                     except Exception:

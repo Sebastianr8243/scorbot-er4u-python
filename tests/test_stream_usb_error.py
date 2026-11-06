@@ -166,8 +166,8 @@ class LegacyStreamTests(unittest.TestCase):
                 wire = ShortReadWire(FAIL_AT, FAIL_AT + 5)
                 reads, results, _ = self.run_stream(wire, buffer=buffer)
                 self.assertEqual(results.get_nowait(), 1)
-                self.assertEqual(wire.reads, FAIL_AT + 5)
-                self.assertTrue(self.matches(wire.sent[-1], self.libhex.motorsoff(1)))
+                self.assertEqual(wire.reads, FAIL_AT + 5 + 25)   # SD06: the 25 remaining motors-off exchanges are still tried
+                self.assertTrue(self.matches(wire.sent[-1], self.libhex.motorsoff(26)))
                 media = reads.get_nowait()
                 self.assertTrue(reads.empty())
                 self.assertEqual(media, self.comm.fresh_media(answer()))
@@ -218,7 +218,7 @@ class LegacyStreamTests(unittest.TestCase):
         wire = FlakyWire(fail_at=FAIL_AT, dead=True)
         reads, results, _ = self.run_stream(wire)
         self.assertEqual(results.get_nowait(), 1)
-        self.assertLessEqual(wire.writes - FAIL_AT, self.comm.IO_ABORT_TRIES + 1)
+        self.assertLessEqual(wire.writes - FAIL_AT, self.comm.IO_ABORT_TRIES + 1 + 26)   # SD06: plus the full motors-off group
         self.assertFalse(reads.empty())
 
     def test_execute_survives_a_usb_error_mid_stream_and_takes_the_next_order(self):
@@ -300,7 +300,7 @@ class LegacyStreamTests(unittest.TestCase):
                 wire = ShortReadWire(FAIL_AT, FAIL_AT + 4 + 3)
                 _, results, returned = self.run_stream(wire, sequence=sequence)
                 self.assertEqual(results.get_nowait(), 1)
-                self.assertTrue(self.matches(wire.sent[-1], self.libhex.motorsoff(3)))
+                self.assertTrue(self.matches(wire.sent[-1], self.libhex.motorsoff(26)))
                 self.assertEqual(returned, wire.sent[-1][0])    # the ID that went out last, not an older one
 
     def test_a_failed_motors_off_write_returns_the_id_it_consumed(self):
@@ -308,7 +308,7 @@ class LegacyStreamTests(unittest.TestCase):
         wire = FailWritesWire(FAIL_AT, FAIL_AT + 4 + 3)
         _, results, returned = self.run_stream(wire)
         self.assertEqual(results.get_nowait(), 1)
-        self.assertTrue(self.matches(wire.attempted[-1], self.libhex.motorsoff(3)))
+        self.assertTrue(self.matches(wire.attempted[-1], self.libhex.motorsoff(26)))
         self.assertEqual(returned, wire.attempted[-1][0])
 
     def test_vendor_home_motors_off_failing_returns_the_last_packet_id_used(self):
@@ -320,7 +320,7 @@ class LegacyStreamTests(unittest.TestCase):
         returned = self.comm.vendor_home_run(10, wire, wire, buffer, reads, results,
                                              lambda reply, following: ("stop",))
         self.assertEqual(results.get_nowait(), 1)
-        self.assertTrue(self.matches(wire.sent[-1], self.libhex.motorsoff(3)))
+        self.assertTrue(self.matches(wire.sent[-1], self.libhex.motorsoff(26)))
         self.assertEqual(returned, wire.sent[-1][0])
         self.assertFalse(reads.empty())
 

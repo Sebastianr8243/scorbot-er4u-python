@@ -387,8 +387,10 @@ class CorruptTopByteTests(unittest.TestCase):
                     arm.packets.clear()
                     reads, results = queue.Queue(), queue.Queue()
                     reads.put([raw_low(self.START)] * 6)
-                    with self.assertRaisesRegex(self.libdef.CountJumpError, joint):
-                        getattr(self.comm, mover)(1, arm, arm, buffer, order, reads, results, 10, 1.0)
+                    # SD01: the corrupt reply no longer kills the worker; the jog ends in motors-off, result 1.
+                    getattr(self.comm, mover)(1, arm, arm, buffer, order, reads, results, 10, 1.0)
+                    self.assertIn(1, list(results.queue))
+                    arm.packets[:] = arm.packets[:bad]
                     self.assertEqual(len(arm.packets), bad, "nothing is sent after the corrupt reply")
                     for packet in arm.packets:
                         self.assertLess(abs(slots(packet)[JOINTS.index(joint)] - self.START), 1000, joint)
