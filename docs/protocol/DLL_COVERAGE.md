@@ -25,7 +25,7 @@ Updated 2026-11-04 (issue #129): `Time` was already built (PL99), and the jaw ra
 
 1. **Pendant text** (`GetTPInfo`): Abort already requests a stop (`scorbot/packet.py`, `scorbot/robot.py`, `tests/test_pendant_abort.py`); vendor Home also handles it (`scorbot/vendor_home.py`, `tests/test_vendor_home_robot.py`). Left to build: a pure byte-3 decode with the PL107 table (sends nothing). The DLL's key-driven jogs and Execute (PL64) are not copied on purpose.
 2. **Torque subscription** (`ShowTorque`, `CloseTorque`): `read_torque` sends and decodes a one-shot reading (`tests/test_torque_readout.py`). Left to build, as traced in PL110: while open, `57 <mask>` replaces every idle `0D` with the same setpoints, and the latest echoed reading goes to the caller every `Monitoring` (100) ms; close sends nothing. It needs the idle loop in `openScorbot/libcomm.py`.
-3. **Velocity jog** (`EnterManual`, `MoveManual`, `CloseManual`): owned by #133 (`VENDOR_MANUAL_MOVE_TRACE.md` section 4).
+3. **Velocity jog** (`EnterManual`, `MoveManual`, `CloseManual`): done in PR #156 (`start_velocity_jog`, `scorbot/manual_jog.py`); see the table row below. Issue #133 is closed.
 
 These are desk/code gaps. Pendant stop behavior, I/O lines, jaw width and torque readings remain **unverified on the arm**.
 

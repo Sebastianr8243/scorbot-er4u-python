@@ -86,7 +86,7 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/RE
 | `examples/bench_stream.py` | | Yes, unless `--simulate` | One streaming trial (never run on the arm) |
 | `examples/bench_gripper.py` | | Yes, unless `--simulate` | A vendor Home, then one gripper trial of at most four opens and closes (never run on the arm; the gripper is refused before a vendor Home) |
 | `examples/policy_loop.py` | | Yes, unless `--simulate` | A bounded, clamped multi-joint policy run (never run on the arm); `scripts/export_policy_dataset.py` turns it into a dataset |
-| `scripts/lab_day.py` | `scorbot lab day` | Yes, unless `--simulate` | Runs lab steps T, S, P (X) and G of `docs/lab/LAB_CHECKLIST.md` in order, each against its pass line |
+| `scripts/lab_day.py` | `scorbot lab day` | Yes, with `--online`; needs `--simulate` or `--online` (a bare run is refused) | Runs lab steps T, S, P (X) and G of `docs/lab/LAB_CHECKLIST.md` in order, each against its pass line |
 | `scripts/bring_up.py` | `scorbot lab bring-up` | Yes, unless `--simulate` | Supervised bring-up steps with the existing authorization gates |
 | `scripts/watch_lab_log.py` | `scorbot lab watch` | No | Watch a running lab log |
 | `scripts/lab_summary.py` | `scorbot lab summary` | No | Summarize lab measurements |
