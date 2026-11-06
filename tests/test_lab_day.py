@@ -82,6 +82,11 @@ class PassLineTests(unittest.TestCase):
             self.assertEqual(lab_day.gripper_span(log), 3120)
             log.write_text(json.dumps(rows[0]) + "\n", encoding="utf-8")
             self.assertIsNone(lab_day.gripper_span(log))
+            # A line cut off mid-write (bring_up killed) is skipped, not a JSONDecodeError that
+            # would hide step G's real failure message.
+            whole = "".join(json.dumps(r) + "\n" for r in rows)
+            log.write_text(whole + '{"event": "motion_tr', encoding="utf-8")
+            self.assertEqual(lab_day.gripper_span(log), 3120)
 
 
 class RunnerTests(unittest.TestCase):

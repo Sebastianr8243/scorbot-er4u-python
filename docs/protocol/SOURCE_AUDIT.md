@@ -194,7 +194,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `limits.DRIFT_COUNTS` | 20 | legacy | the legacy jog's 20-count settle loop (`libcomm.move_hips` and siblings, in `43b03b1`) | **unverified** |
 | `limits.STABLE_COUNTS` | 2 | ours | lab idle band | n/a |
 | `joint_move.MOTORS` | `source_model.MOTORS` | ours | alias | n/a |
-| `joint_move.JOINTS`, `joint_move.ARM_MOTORS` | base, shoulder, elbow | ours | what a coupled move may be asked for | n/a |
+| `joint_move.JOINTS` | base, shoulder, elbow | ours | what a coupled move may be asked for (its arm motors are `limits.ARM_MOTORS`) | n/a |
 | `joint_move.PRIMARY_MIN_COUNTS` | 20 | ours | equals the legacy settle band, below which a jog cannot correct | n/a |
 | `joint_move.SLICE_DEG`, `joint_move.COUPLED_MIN_COUNTS`, `joint_move.FINAL_MIN_COUNTS`, `joint_move.STEP_LIMIT_COUNTS`, `joint_move.PROGRESS_CHECK_COUNTS`, `joint_move.PRE_HOME_STEP_DEG`, `joint_move.PRE_HOME_CAP_DEG`, `joint_move.PARK_MAX_PASSES`, `joint_move.ROLL_FAULT_COUNTS`, `joint_move._VECTORS` | see `joint_move.py` | ours | coupled-move slicing and fault limits | n/a |
 

@@ -106,6 +106,7 @@ class GripperMixin:
             trace = self._trace
             if trace is not None:
                 trace.start()
+            trace_ok = True
             try:
                 self._command([vendor_gripper.GRIPPER_ORDER, source, 0],
                               timeout=vendor_gripper.TOTAL_SECONDS + 30.0)
@@ -120,8 +121,10 @@ class GripperMixin:
             finally:
                 if trace is not None:
                     packets, dropped = trace.stop()
-                    self._record("motion_trace", joint="gripper", packets=packets,
-                                 dropped_packets=dropped)
+                    trace_ok = self._record_after_motion("motion_trace", joint="gripper", packets=packets,
+                                                         dropped_packets=dropped)
+            if not trace_ok:
+                raise ScorbotError(self._fault)
             run = source.result
             with self._stop_lock:
                 too_late = self._stop_event.is_set() and not run.stopped
