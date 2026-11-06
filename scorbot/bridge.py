@@ -28,6 +28,7 @@ XYZ_UNITS_PER_MM = 1000     # the DLL's xyz unit: a 10 mm move_by read back as 9
 POSITIONS = Path("calibration") / "positions.json"
 BOX = Path("calibration") / "arm.json"
 REPLY_TIMEOUT_S = 900.0     # a Home takes about 135 s on the lab arm; the server bounds every call itself
+STOP_REPLY_S = 3.0          # how long the stop command waits for the server to confirm
 POLL_S = 0.2                # a read that blocks for the whole timeout is not woken by Ctrl+C on Windows (checked 2026-10-26), so wake this often
 LINE_END = bytes([10])      # one JSON object per line
 
@@ -103,15 +104,15 @@ class Arm:
     def _write(self, command):
         self._sock.sendall((json.dumps(command, allow_nan=False) + "\n").encode("utf-8"))
 
-    def _readline(self) -> bytes:
+    def _readline(self, timeout: float | None = None) -> bytes:
         """The next line from the server. Polls in POLL_S slices so Ctrl+C is seen while a move runs."""
-        deadline = time.monotonic() + self._reply_timeout
+        deadline = time.monotonic() + (self._reply_timeout if timeout is None else timeout)
         while LINE_END not in self._buffer:
             try:
                 data = self._sock.recv(4096)
             except socket.timeout:
                 if time.monotonic() > deadline:
-                    raise ArmError(f"no reply from the arm server in {self._reply_timeout:g} s; the arm may still be moving: use the physical stop") from None
+                    raise ArmError(f"no reply from the arm server in {(self._reply_timeout if timeout is None else timeout):g} s; the arm may still be moving: use the physical stop") from None
                 continue
             if not data:
                 raise ArmError("the arm server closed the connection")
@@ -185,6 +186,27 @@ class Arm:
     def stop(self) -> None:
         """Ask the server to Stop. Safe from another thread while a move waits for its reply."""
         self._write({"op": "stop"})
+
+    def stop_confirmed(self, timeout: float = STOP_REPLY_S) -> None:
+        """Stop, then wait for the server's ok. ArmError if it is busy with another client or does not answer in `timeout`.
+
+        For the command line: a stop nobody confirmed must not read as done. Call it on an idle connection;
+        from another thread during a move use stop()."""
+        self._next_id += 1
+        self._write({"op": "stop", "id": self._next_id})
+        try:
+            while True:
+                reply = json.loads(self._readline(timeout))
+                if reply.get("busy"):
+                    raise ArmError(reply.get("error") or "the arm server is busy", reply)
+                if reply.get("id") == self._next_id:
+                    break
+        except ArmError as error:
+            if str(error).startswith("no reply"):
+                raise ArmError(f"the stop was not confirmed within {timeout:g} s; the arm may still be moving: use the physical stop") from None
+            raise
+        if not reply.get("ok"):
+            raise ArmError(reply.get("error") or "the server did not confirm the stop", reply)
 
     def quit(self) -> None:
         """End the server's session: Control off and CloseUSBC."""
@@ -343,7 +365,7 @@ def main(argv=None):
                 "home": lambda: arm.home(),
                 "teach": lambda: arm.teach(numbers[0], positions, box),
                 "go": lambda: arm.go(numbers[0], positions),
-                "stop": lambda: arm.stop(),
+                "stop": lambda: arm.stop_confirmed(),
                 "quit": lambda: arm.quit(),
             }[args.command]()
     except ArmError as error:

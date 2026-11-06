@@ -29,7 +29,8 @@ with Arm() as arm:                     # connects to 127.0.0.1:8765
 | `wrist_by(dpitch=0.0, droll=0.0)` | Relative wrist step in the DLL's own pitch and roll units (probably 0.001 degree; unverified) | either axis above 10000 units |
 | `move_to(x, y, z, pitch=None, roll=None)` | Absolute move in mm | no Home in this session, no box file, or a target outside the box (never clipped) |
 | `gripper(open)` | `open=True` or `False` | emergency stop active |
-| `stop()` | Asks the server to Stop. Safe from another thread during a move | |
+| `stop()` | Asks the server to Stop and does not wait for an answer. Safe from another thread during a move | |
+| `stop_confirmed(timeout=3)` | Stop, then waits for the server's ok; `ArmError` if the server is busy with another client or silent. This is what `python -m scorbot.bridge stop` runs (exit 1 on failure) | |
 | `quit()` | Ends the session: Control off, then CloseUSBC | |
 | `teach(name)` | Saves the current spot to `calibration/positions.json` and grows the box to include it | |
 | `go(name)` | `move_to` a taught spot | unknown name |
