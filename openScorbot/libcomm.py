@@ -112,7 +112,52 @@ def _faulted(buffer, motors):
 	return errors, any(libdef.impacto(e, m) for e, m in zip(errors, motors)) or collision
 
 
+class _Exchange:
+	"""Track attempted IDs and complete replies inside multi-message helpers."""
+
+	def __init__(self, sequence, epout, epin, buffer):
+		self.sequence = sequence
+		self.epout, self.epin = epout, epin
+		self.last_reply = buffer[:]
+
+	def write(self, data, timeout=None):
+		self.sequence = data[0]
+		return self.epout.write(data, timeout)
+
+	def read(self, buffer, timeout=None):
+		size = self.epin.read(buffer, timeout)
+		if size == len(buffer):
+			self.last_reply = buffer[:]
+		return size
+
+
+def _usb_error_off(exchange, buffer, cola_read, cola_orden, error):
+	buffer[:] = exchange.last_reply
+	logging.warning("USB error during movement (%s); trying to switch the motors off", error)
+	cola_read.put(fresh_media(buffer))
+	last_reply = buffer[:]
+	b_1 = exchange.sequence
+	try:
+		b_1 = motors_off(b_1, exchange, exchange, buffer, cola_read)
+	except Exception as exc:
+		b_1 = exc.sequence if isinstance(exc, MotorsOffError) else exchange.sequence
+		buffer[:] = last_reply
+		logging.warning("Could not switch the motors off after the failed movement: %s", exc)
+		cola_read.put(fresh_media(buffer))
+	if cola_orden is not None:
+		cola_orden.put(1)
+	return b_1
+
+
 def _jog(joint, b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel, ang, stop_event):
+	exchange = _Exchange(b_1, epout, epin, buffer)
+	try:
+		return _jog_run(joint, b_1, exchange, exchange, buffer, orden, cola_read, cola_orden, vel, ang, stop_event)
+	except Exception as exc:
+		return _usb_error_off(exchange, buffer, cola_read, cola_orden, exc)
+
+
+def _jog_run(joint, b_1, epout, epin, buffer, orden, cola_read, cola_orden, vel, ang, stop_event):
 	section, motors, no_settle = JOINTS[joint]
 	write = conf.readData(section, "write")
 	read = conf.readData(section, "read")
@@ -245,6 +290,9 @@ def clamp(b_1, epout, epin, buffer, orden, cola_read, cola_orden=None, stop_even
 	media = cola_read.get()
 	signal_out= ''
 	stopped = False
+	exchange = _Exchange(b_1, epout, epin, buffer)
+	epout = epin = exchange
+	off_started = False
 	try:
 		for i in range(1,4):
 			cadena = libhex.clamp(i)
@@ -254,13 +302,16 @@ def clamp(b_1, epout, epin, buffer, orden, cola_read, cola_orden=None, stop_even
 			media = libdef.get_media(buffer,media)
 			cadena += libdef.get_encoder(buffer, media)
 			libdef.set_msg(cadena, epout, epin, buffer, write, read)
+			if stop_event is not None and stop_event.is_set():
+				stopped = True	# a stop or fault: do not send the remaining switch-on messages
+				break
 
 		media = libdef.get_media(buffer,media)
 		step_in = media[5]
 		signo = libdef.get_signo(46, buffer)
 		dato_in = [step_in, signo]
 		ite = conf.readData("pinza","ite_clamp")
-		for i in range(ite):
+		for i in range(0 if stopped else ite):
 			[b_1, cadena, signal_out, dato_in] = libdef.builder(b_1, dato_in, i, ite, orden, vel, media, buffer)
 			libdef.set_msg(cadena, epout, epin, buffer, write, read)
 			if stop_event is not None and stop_event.is_set():
@@ -296,14 +347,16 @@ def clamp(b_1, epout, epin, buffer, orden, cola_read, cola_orden=None, stop_even
 					cola_orden.put(2) #Introduce codigo de error en la ejecucion de la orden
 				logging.warning(libdef.error_msg(2))
 				break
-	except Exception:
-		try:
-			_clamp_off(b_1, media, epout, epin, buffer, write, read, orden, signal_out, True)
-		except Exception:
-			pass  # the link is gone; the caller reports the first error
-		raise
-
-	[b_1, media] = _clamp_off(b_1, media, epout, epin, buffer, write, read, orden, signal_out, stopped)
+		off_started = True
+		[b_1, media] = _clamp_off(b_1, media, epout, epin, buffer, write, read, orden, signal_out, stopped)
+	except Exception as exc:
+		buffer[:] = exchange.last_reply
+		if not off_started:
+			try:
+				_clamp_off(exchange.sequence, fresh_media(buffer), epout, epin, buffer, write, read, orden, signal_out, True)
+			except Exception:
+				pass  # Still attempt the full motors-off group below.
+		return _usb_error_off(exchange, buffer, cola_read, cola_orden, exc)
 	if stopped:
 		if cola_orden is not None:
 			cola_orden.put(STOPPED)
@@ -316,6 +369,7 @@ def clamp(b_1, epout, epin, buffer, orden, cola_read, cola_orden=None, stop_even
 # Gripper off: clamp(4) and clamp(5) (73 20, 42 20). With `measured` the two
 # messages carry the measured position, not the target the ramp was heading for.
 def _clamp_off(b_1, media, epout, epin, buffer, write, read, orden, signal_out, measured):
+	first_error = None
 	for i in (4, 5):
 		media = libdef.get_media(buffer, media)
 		cadena = libhex.clamp(i)
@@ -324,7 +378,15 @@ def _clamp_off(b_1, media, epout, epin, buffer, write, read, orden, signal_out, 
 		cadena = libdef.fill_msg(cadena, 24)
 		msg = libdef.get_encoder(buffer,media)
 		cadena += msg if measured or signal_out == '' else libdef.getStruct(orden, signal_out, msg)
-		libdef.set_msg(cadena, epout, epin, buffer, write, read)
+		last_reply = buffer[:]
+		try:
+			libdef.set_msg(cadena, epout, epin, buffer, write, read)
+		except Exception as exc:
+			buffer[:] = last_reply
+			if first_error is None:
+				first_error = exc
+	if first_error is not None:
+		raise first_error
 	return [b_1, media]
 
 class MotorsOffError(RuntimeError):
@@ -338,6 +400,7 @@ class MotorsOffError(RuntimeError):
 # Desactiva el control sobre los motores
 def motors_off(b_1, epout, epin, buffer,cola_read):
 	media = libdef.get_media(buffer,cola_read.get())
+	first_error = None
 	for i in range (1,27):
 		cadena =libhex.motorsoff(i)
 		b_1 = libdef.countByte1(b_1)
@@ -345,10 +408,16 @@ def motors_off(b_1, epout, epin, buffer,cola_read):
 		cadena = libdef.fill_msg(cadena, 24)
 		media = libdef.get_media(buffer,media)
 		cadena += libdef.get_encoder(buffer,media)
+		last_reply = buffer[:]
 		try:
 			libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
 		except Exception as exc:
-			raise MotorsOffError(b_1, exc) from exc
+			buffer[:] = last_reply
+			if first_error is None:
+				first_error = exc
+
+	if first_error is not None:
+		raise MotorsOffError(b_1, first_error) from first_error
 
 	cola_read.put(media)
 	return b_1
@@ -469,6 +538,22 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 			break
 		media = libdef.get_media(buffer, media)
 
+	if io_error is None:
+		exchange = _Exchange(b_1, epout, epin, buffer)
+		try:
+			if stopped or signal_out == '':
+				# Nothing was sent, or a stop: end on the measured position.
+				[b_1, buffer, media] = libdef.stopMov(b_1, media, exchange, exchange, buffer, write, read)
+				if stopped:
+					cola_orden.put(STOPPED)
+					logging.warning(libdef.error_msg(STOPPED))
+			else:
+				[b_1, buffer, media] = libdef.closeMov(b_1, media, 20, signal_out, exchange, exchange, buffer, write, read)
+		except Exception as exc:
+			b_1 = exchange.sequence
+			last_reply = exchange.last_reply
+			io_error = exc
+
 	if io_error is not None:
 		buffer[:] = last_reply	# a short read may already have overwritten part of the reply
 		io_failures = 1
@@ -510,15 +595,6 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 			cola_read.put(fresh_media(buffer))	# motors_off took the media out and did not put it back
 		cola_orden.put(1)
 		return b_1
-
-	if stopped or signal_out == '':
-		# Nothing was sent, or a stop: end on the measured position.
-		[b_1, buffer, media] = libdef.stopMov(b_1, media, epout, epin, buffer, write, read)
-		if stopped:
-			cola_orden.put(STOPPED)
-			logging.warning(libdef.error_msg(STOPPED))
-	else:
-		[b_1, buffer, media] = libdef.closeMov(b_1, media, 20, signal_out, epout, epin, buffer, write, read)
 
 	cola_read.put(media)
 	return b_1
@@ -619,8 +695,10 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 	home = False
 	# Se corresponde con el angulo inicial respecto a la vertical
 	posRef = conf.readData("general", "posRef")
+	default_result = cola_result
 	while 1:
 		select = cola_orden.get()
+		cola_result = getattr(select, "results", default_result)
 		orden = select[0]
 		if orden != 19:
 			vel = select[1]
