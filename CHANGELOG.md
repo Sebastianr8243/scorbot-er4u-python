@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #198, 2026-11-06)
+
+- #198 (ultra review): the LeRobot keyboard teleoperator `scorbot_joint_keys` steps from the target the robot last commanded (`lerobot_robot_scorbot.robot.commanded_action()`, set by `send_action`) instead of its own ever-growing target, so releasing a key stops the arm within a frame (before, with the lead clamp binding, the arm kept moving after release; past the vendor window every joint stayed frozen until the target came back). `ScorbotRobot.send_action` converts each action value with `float()` (numpy scalars, 0-d tensors; a tensor or `numpy.float32` was dropped silently before) and raises `ValueError` for NaN, infinity or a non-scalar; `PolicyArm` is unchanged. Simulator only; never run on the arm.
+
 ## Unreleased (issue #190, 2026-11-05)
 
 - #190 cut B, one limit source: the velocity jog window (`scorbot/manual_jog.py`) is the DLL vendor limit only; the source-model `motion_window` / `pose_limit_excess` guard (`_edge`) is gone, so a velocity jog may go to the vendor edge (elbow with the wrist at home: 7373 counts, was 5194). Every other motion path already used `nominal.vendor_limit_problem`. `source_model` limit helpers stay as reference data with no motion caller. Simulator only; never run on the arm.
