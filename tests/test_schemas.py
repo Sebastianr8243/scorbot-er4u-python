@@ -122,14 +122,6 @@ class RecordedPayloadTests(unittest.TestCase):
             self.assertIn(topic, seen)
         return messages
 
-    def test_synthetic_session_validates_on_every_topic(self):
-        from examples.make_synthetic_session import write_synthetic_session
-        path = write_synthetic_session(self.root)
-        self.check_all(path / "session.mcap", (
-            "/robot/state", "/robot/command", "/robot/command_result",
-            "/operator/decision", "/session/fault", "/session/note",
-            "/camera/cam0/image", "/camera/cam0/detections"))
-
     def test_simulated_bench_rehearsal_validates(self):
         labels = ["--robot-id", "arm", "--arm-label", "a", "--controller-label", "c",
                   "--driver", "none", "--operator", "t"]

@@ -41,7 +41,6 @@ EXPECTED_TARGETS = {
     ("analyze", "fit-calibration"): ("script", "scripts/fit_calibration.py"),
     ("analyze", "build-calibration-csv"): ("script", "scripts/build_calibration_csv.py"),
     ("analyze", "export-dataset"): ("script", "scripts/export_policy_dataset.py"),
-    ("analyze", "session"): ("module", "scorbot.session"),
 }
 CHECK_NAMES = {
     "check_python": "Python",
@@ -55,7 +54,7 @@ CHECK_NAMES = {
 
 
 def invoke(*argv, stdout=None):
-    """Like cli_support.session_cli, including argparse's SystemExit codes."""
+    """Run the CLI in-process, including argparse's SystemExit codes."""
     out = stdout if stdout is not None else io.StringIO()
     err = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):

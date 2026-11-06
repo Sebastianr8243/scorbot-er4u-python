@@ -48,7 +48,7 @@ flowchart TD
 | Path | Responsibility |
 |---|---|
 | `scorbot/` | Public SDK: facade, state decode, calibration, the shared limits (`limits.py`), the source-based joint model (`source_model.py`), nominal manual values, the streaming follower (`streaming.py`), the inch home (`inch_home.py`), offline kinematics, the vendor's formulas read from the DLL (`vendor_model.py`, `vendor_profile.py`), the viewer's link chain `arm_chain.py`, simulator, preflight |
-| `scorbot/session/` | MCAP session recorder, replay, analysis, CLI (`python -m scorbot.session`). Never imports USB |
+| `scorbot/session/` | MCAP session recorder and the replay reader. Never imports USB |
 | `scorbot/camera/` | Webcam capture: per-camera stream files next to a session, recorder threads with a bounded stop, `python -m scorbot.camera check`. OpenCV optional (`[camera]`). Never imports USB |
 | `scorbot/transport/` | Pure packet codec (`codec.py`), proven byte-identical to the legacy code by golden tests (`tests/test_transport_codec.py`). Not wired into `Scorbot`. Phase A of the USB upgrade. Also `device_file.py` (Intelitek-driver link, used by `Scorbot(transport=...)`) and `probe.py` |
 | `openScorbot/` | Original GPL OpenScorbot protocol code plus `motion_profile.py`; frozen legacy backend, PyQt GUI kept as reference |
@@ -78,7 +78,6 @@ python -m pytest -n 2 tests tests_extra        # everything: about 2000 tests, a
 python -m unittest discover -s tests -v        # the gate with plain unittest
 scorbot doctor                                 # read-only setup checks and USB enumeration; never opens the controller (`--json` for JSON)
 scorbot <group> <task>                         # short names for the Stack 2 tools, same arguments and gates (`scorbot --help`; table in docs/STACK2_SDK.md)
-python examples/make_synthetic_session.py --root <tmpdir>   # CI smoke test
 ruff check .                                   # CI rules incl. bugbear (openScorbot/ excluded); `pre-commit install` runs it on every commit
 ```
 
@@ -89,10 +88,9 @@ python -m scorbot.lab --simulate --profile rehearsal\lab.json --logs rehearsal  
 python examples\record_raw_state.py --output rehearsal\idle-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --pose-note rehearsal --seconds 2 --simulate --acknowledge-connect-handshake
 python examples\bench_joint.py --output rehearsal\base-01.jsonl --robot-id lab-er4u-1 --arm-label x --controller-label x --driver none --operator XX --start-pose-note rehearsal --joint base --delta 1 --simulate --acknowledge-supervised-motion
 python scripts\review_lab_logs.py --idle rehearsal\idle-01.jsonl --bench rehearsal\base-01.jsonl
-python -m scorbot.session list|export|compare <paths>
 ```
 
-CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13: ruff, compileall, pytest over `tests` and `tests_extra` with coverage (summary in the job page), plain `unittest discover -s tests` (Ubuntu 3.10), synthetic session. The Ubuntu 3.13 cell also runs `scripts/check_docs.py` and `uv lock --check`. A pull request that changes only `docs/` or `*.md` files skips install, lint, compile and tests; the four unit jobs still report under their required names, and the Ubuntu 3.13 cell still runs `check_docs.py` plus `tests.test_docs_index` and `tests.test_source_audit`.
+CI (`.github/workflows/tests.yml`): Windows and Ubuntu, Python 3.10 and 3.13: ruff, compileall, pytest over `tests` and `tests_extra` with coverage (summary in the job page), plain `unittest discover -s tests` (Ubuntu 3.10). The Ubuntu 3.13 cell also runs `scripts/check_docs.py` and `uv lock --check`. A pull request that changes only `docs/` or `*.md` files skips install, lint, compile and tests; the four unit jobs still report under their required names, and the Ubuntu 3.13 cell still runs `check_docs.py` plus `tests.test_docs_index` and `tests.test_source_audit`.
 
 ## Conventions
 

@@ -32,7 +32,6 @@ flowchart LR
     MCAP["MCAP session: scorbot/session/record.py"]
     WATCH["scripts/watch_lab_log.py"]
     REVIEW["scripts/review_lab_logs.py"]
-    REPLAY["python -m scorbot.session: replay, list, export, compare"]
     TRACE["scripts/usb_trace.py on USBPcap files"]
     SIM["SimulatedScorbot: scorbot/simulated.py"]
 
@@ -79,7 +78,7 @@ Solid arrows are runtime data flow. Dashed arrows are read-only or offline: watc
 | Simulator | Fake controller behind the real facade; replaces only `connect`, `disconnect`, `_record`, `get_state` | `scorbot/simulated.py:SimulatedScorbot`, `SimulatedController` |
 | Preflight, provenance | Environment checks; hash of motion-relevant source for records | `scorbot/preflight.py:run_checks`, `scorbot/provenance.py:motion_source_sha256` |
 | Session recorder | Crash-safe append-only MCAP writer; `BestEffortRecorder` drops recording errors after one warning | `scorbot/session/record.py:SessionWriter`, `BestEffortRecorder` |
-| Session replay and analysis | Timeline, integrity findings, CSV export, run comparison | `scorbot/session/replay.py`, `analysis.py`, `__main__.py` |
+| Session replay reader | Loads a recorded session with integrity findings | `scorbot/session/replay.py` |
 | Lab scripts | Supervised procedures with LED prompts, primary JSONL plus controller JSONL plus MCAP | `examples/bench_joint.py`, `examples/record_raw_state.py` |
 | Read-only tools | Live follow of the JSONL, log review, USBPcap parse | `scripts/watch_lab_log.py`, `scripts/review_lab_logs.py`, `scripts/usb_trace.py` |
 | Legacy GUI | Original UI, reference only; the SDK does not import it | `openScorbot/gui.py:main`, `set_conection` |
@@ -287,7 +286,7 @@ Files: bench JSONL (`--output`) plus `<stem>.controller.jsonl` (SDK events: `com
 | Jog gates, wrist block, soft limits, preview matches plan | `tests/test_arm_control.py`, `test_python_api.py` | none yet | Jog direction, degrees per count, speed units |
 | Calibration load, count wrap | `tests/test_arm_control.py` | no measured arm file | Fit method is adequate |
 | Kinematics, nominal spans | `tests_extra/test_kinematics.py`, `test_nominal.py` | none | DH geometry vs arm |
-| MCAP write, replay, review, watch, USBPcap parse | `tests/test_session.py`, `test_analysis.py`, `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | none yet | none |
+| MCAP write, replay, review, watch, USBPcap parse | `tests/test_session.py`, `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | none yet | none |
 | Full G1 sequence, offline | `tests/test_bench_joint.py`, `test_simulated.py` | none yet | Simulator matches controller: it does not model timing, dynamics or backlash |
 | Motors energised by handshake, then off after disable | not testable | none yet | MOTORS LED behaviour, exposure window length |
 | Controller cuts power on comm loss or sync-worker death | not testable | none yet | Manual claim only |

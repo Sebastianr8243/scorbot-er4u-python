@@ -40,7 +40,7 @@ This snippet illustrates the API. For the first hardware session, follow the fir
 
 For one-joint supervised trials, follow the arm-control bench procedure. Start with [raw-state recording](../examples/record_raw_state.py), then use [bench_joint.py](../examples/bench_joint.py) and [review_lab_logs.py](../scripts/review_lab_logs.py). Use the [measurement and calibration guide](lab/PHYSICAL_CALIBRATION.md) when an independent angle reference is available. The fitter in `scripts/fit_calibration.py` refuses vendor-only data and requires holdout and movement verification before emitting a calibrated file.
 
-To record an experiment (commands, controller state, camera frames, operator decisions) and replay it without hardware, see Recording and replaying experiments. Try it first with `.\.venv\Scripts\python.exe examples\make_synthetic_session.py`. To develop or rehearse without the arm, use `SimulatedScorbot`, or add `--simulate` to the lab scripts. It runs the same safety code against a fake controller, and everything it produces is labelled simulated. To list, export to CSV, or compare recorded runs, use `python -m scorbot.session list|export|compare`.
+To record an experiment (commands, controller state, camera frames, operator decisions) and replay it without hardware, see Recording and replaying experiments. To develop or rehearse without the arm, use `SimulatedScorbot`, or add `--simulate` to the lab scripts. It runs the same safety code against a fake controller, and everything it produces is labelled simulated.
 
 `disable()` is a queued controller command. It cannot interrupt a stalled command and is **not** an emergency stop. `request_stop()` asks a jog in progress to end early (`jog_joint` then raises `MotionStopped`); it needs a working USB link, the arm coasts, and it has not been tried on the arm, so it is **not** an emergency stop either. The physical emergency stop remains authoritative. If a command times out, the SDK faults and rejects more motion; it cannot guarantee motor shutdown after USB loss or a Python crash.
 
@@ -95,7 +95,7 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/RE
 | `tools/usbc_server/` + `python -m scorbot.bridge` | | `--online` only | One homed DLL session serving the Python API (`scorbot.bridge.Arm`); see [RUN_THE_ARM](lab/RUN_THE_ARM.md) |
 | `examples/arm_characterise.py`, `examples/pick_place.py` | | Yes, through the arm server | Measure frame, scale, repeatability and grid error; scripted pick-and-place with a per-run record |
 | `examples/preview_jog.py` | `scorbot jog preview` | No | Preview a jog offline |
-| `examples/kinematics_check.py`, `examples/make_synthetic_session.py` | | No | Offline kinematics and a synthetic session |
+| `examples/kinematics_check.py` | | No | Offline kinematics |
 | `examples/lerobot_sim_check.py` | `scorbot sim check` | No | Check the LeRobot simulation pipeline in its separate venv |
 | `examples/mujoco_twin_view.py` | `scorbot sim view` | No | View the simulated arm |
 | `lerobot-record` (separate venv) | `scorbot record` | No | Print the plugin README's simulate command; does not run it |
@@ -106,7 +106,6 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/RE
 | `scripts/fit_calibration.py` | `scorbot analyze fit-calibration` | No | Fit physical calibration |
 | `scripts/build_calibration_csv.py` | `scorbot analyze build-calibration-csv` | No | Build a measurement table |
 | `scripts/export_policy_dataset.py` | `scorbot analyze export-dataset` | No | Export policy logs as a dataset |
-| `python -m scorbot.session` | `scorbot analyze session` | No | Inspect or replay recorded sessions |
 | `scripts/setup_windows.ps1`, `windows_usb_check.ps1` | | No | Windows setup and a read-only USB check |
 
 ## Hardware reference
@@ -120,7 +119,7 @@ None of these open USB or command the arm.
 - `scripts/watch_lab_log.py`: read-only live view of a lab run in a second terminal.
 - `scripts/usb_trace.py` with [docs/lab/USB_CAPTURE.md](lab/USB_CAPTURE.md): read Wireshark/USBPcap captures and compare the Intelitek software's packets with this code's.
 - `scorbot.kinematics` and `examples/kinematics_check.py`: nominal DH model (forward and inverse kinematics, trapezoidal trajectories) for validating the legacy `libdef.cIn`. The geometry is unmeasured, and the model is not wired into any motion command.
-- `tools/foxglove/scorbot_lab_layout.json`: Foxglove layout for recorded sessions; see Viewing recordings.
+- `tools/foxglove/scorbot_lab_layout.json`: Foxglove layout for recorded sessions (open the `.mcap` in Foxglove).
 - design/OPERATOR_UX.md (in git history): the evidence behind the prompts and warnings, and the UX backlog.
 - `tests/test_legacy_properties.py`: Hypothesis property tests for the encoder and packet arithmetic. Install with `pip install -e ".[dev]"`; add `kinematics` to also run the Robotics Toolbox cross-check.
 

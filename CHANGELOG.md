@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #188, 2026-11-05)
+
+- #188: removed the recording viewers: `python -m scorbot.session` (replay, list, export, compare, plot, view), `scorbot analyze session`, `session/analysis.py`, `plot.py`, `rerun_view.py`, `examples/make_synthetic_session.py`, the `plot` and `viz` extras and matplotlib from `dev`, and the tests of that code. Kept: `SessionWriter`, `BestEffortRecorder`, `schemas.py`, `notes.py` (the writer creates `notes.md`) and `replay.py` (the camera stream check and lab tests read sessions with it). Foxglove opens the `.mcap` directly. No hardware code touched.
+
 ## Unreleased (issue #183, 2026-11-05)
 
 - #183: `test_timed_jog_call_order` counts sends against a simulated clock instead of a 100 ms wall-clock window, fixing a random failure on busy PCs. Test-only; fake DLL only, never run on the arm.

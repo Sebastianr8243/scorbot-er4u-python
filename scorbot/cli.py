@@ -44,7 +44,6 @@ TARGETS = {
     ("analyze", "fit-calibration"): ("script", "scripts/fit_calibration.py"),
     ("analyze", "build-calibration-csv"): ("script", "scripts/build_calibration_csv.py"),
     ("analyze", "export-dataset"): ("script", "scripts/export_policy_dataset.py"),
-    ("analyze", "session"): ("module", "scorbot.session"),
 }
 DESCRIPTIONS = {
     "sim check": "Check the LeRobot simulation pipeline",
@@ -62,7 +61,6 @@ DESCRIPTIONS = {
     "analyze fit-calibration": "Fit calibration from physical measurements",
     "analyze build-calibration-csv": "Build a calibration measurement table",
     "analyze export-dataset": "Export policy logs as a dataset",
-    "analyze session": "Inspect or replay a recorded session",
 }
 SYNC_FIX = "uv sync --locked --extra windows --extra test --extra planning"
 CALIBRATION_FIX = (
