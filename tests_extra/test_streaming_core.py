@@ -98,8 +98,8 @@ class StreamCoreTests(unittest.TestCase):
             positions = [r.commanded[motor] for r in records]
             velocity = [(b - a) / PERIOD for a, b in zip(positions, positions[1:])]
             acceleration = [(b - a) / PERIOD for a, b in zip(velocity, velocity[1:])]
-            # one count of rounding per sample is allowed on top of each limit
-            self.assertLessEqual(max(map(abs, velocity)), limits.max_velocity + 1 / PERIOD)
+            self.assertLessEqual(max(map(abs, velocity)), limits.max_velocity + 1e-9)
+            # Acceleration and jerk allow for count rounding per sample.
             self.assertLessEqual(max(map(abs, acceleration)),
                                  limits.max_acceleration + 2 / PERIOD ** 2)
             jerk = [(b - a) / PERIOD for a, b in zip(acceleration, acceleration[1:])]

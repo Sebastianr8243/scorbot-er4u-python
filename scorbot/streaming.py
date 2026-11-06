@@ -86,6 +86,14 @@ def prior_limits(speed_fraction: float = DEFAULT_SPEED_FRACTION) -> StreamLimits
     return StreamLimits(velocity, acceleration, acceleration / jerk_up)
 
 
+def _whole_count_velocity(max_velocity: float, period_s: float) -> float:
+    # Plan at whole counts per period so the step guard cannot fall behind in cruise.
+    counts = math.floor(max_velocity * period_s + 1e-9)
+    if counts < 1:
+        raise StreamRefused("the speed is under one count per period")
+    return counts / period_s
+
+
 @dataclass(frozen=True)
 class Step:
     """What to do this period, and the numbers behind it (for the log)."""
@@ -158,7 +166,9 @@ class StreamCore:
         positions = [float(start[m]) for m in self.motors]
         self._input.current_position = positions
         self._input.target_position = positions
-        self._input.max_velocity = [limits.max_velocity] * len(self.motors)
+        velocity = _whole_count_velocity(limits.max_velocity, period_s)
+        self._input.max_velocity = [velocity] * len(self.motors)
+        self._step_limit = [math.floor(velocity * period_s + 1e-9)] * len(self.motors)
         self._input.max_acceleration = [limits.max_acceleration] * len(self.motors)
         self._input.max_jerk = [limits.max_jerk] * len(self.motors)
         self._target = {m: float(start[m]) for m in self.motors}
@@ -208,7 +218,10 @@ class StreamCore:
         with self._lock:
             if self.state not in (TRACKING, HOLDING):
                 raise StreamRefused(f"the stream is {self.state}; its speed is fixed")
-            self._input.max_velocity = [limits.max_velocity] * len(self.motors)
+            velocity = _whole_count_velocity(limits.max_velocity, self.period_s)
+            self._input.max_velocity = [velocity] * len(self.motors)
+            step_limit = math.floor(velocity * self.period_s + 1e-9)
+            self._step_limit = [max(current, step_limit) for current in self._step_limit]
             # Never lower acceleration or jerk mid-stream: with less jerk, an acceleration already
             # under way takes longer to end and the speed overshoots past MaxSpeed (review 2026-11-01).
             self._input.max_acceleration = [max(a, limits.max_acceleration)
@@ -287,7 +300,20 @@ class StreamCore:
                 self._fault(f"the trajectory generator failed: {outcome}")
                 return result(STOP)
             self._output.pass_to_input(self._input)
-            proposed = {m: round(p) for m, p in zip(self.motors, self._output.new_position)}
+            proposed = {}
+            for i, (m, p, velocity) in enumerate(zip(self.motors, self._output.new_position,
+                                                    self._input.max_velocity)):
+                step_limit = math.floor(velocity * self.period_s + 1e-9)
+                # Keep the old step guard until the planner has braked to the new speed.
+                if abs(self._output.new_velocity[i]) * self.period_s <= step_limit + 1e-9:
+                    self._step_limit[i] = step_limit
+                max_step = self._step_limit[i]
+                step = math.trunc(p - self._commanded[m])
+                end_step = round(p) - self._commanded[m]
+                # A finished position can be a fraction short of its integer endpoint.
+                if outcome == Result.Finished and abs(end_step) <= max_step:
+                    step = end_step
+                proposed[m] = self._commanded[m] + max(-max_step, min(max_step, step))
             if any(not self.bounds[m][0] <= proposed[m] <= self.bounds[m][1] for m in self.motors):
                 self._fault(f"commanded position left the travel cap: {proposed}")
                 return result(STOP)
@@ -302,7 +328,8 @@ class StreamCore:
                             f"{ahead} counts")
                 return result(STOP)
             self._commanded = proposed
-            if self._finish_requested and outcome == Result.Finished:
+            if self._finish_requested and outcome == Result.Finished and all(
+                    self._commanded[m] == round(p) for m, p in zip(self.motors, self._output.new_position)):
                 if self._rest_sent:
                     self.state = ENDED
                     return result(END)
