@@ -7,6 +7,7 @@ Checks every git-tracked text file:
   - a mistyped venv path: the folder is `.venv`
   - a requirement ID defined in two files
   - a relative Markdown link to a file that does not exist
+  - a test name cited in a docs/requirements table row that is not defined under tests/ or tests_extra/
 
 Usage: python scripts/check_docs.py        (exit 1 when anything is wrong)
 """
@@ -23,6 +24,8 @@ BAD_VENV = re.compile(r"(?<![.\w])[\\/]?venv[\\/]Scripts")
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]|\t")
 ID_ROW = re.compile(r"^\|\s*([A-Z]{1,3}\d{2})\s*\|")
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+TEST_NAME = re.compile(r"\btest_\w+(\.py)?")  # a name followed by .py is a file name, not a test
+TEST_DIRS = ("tests/", "tests_extra/")
 LINK = re.compile(r"\]\(([^)\s]+)(?=[\s)])")  # a title after the target is allowed
 
 
@@ -30,6 +33,14 @@ def check(root, files):
     """Return a list of 'path: problem' strings for the given tracked files under root."""
     root = Path(root)
     problems, ids = [], {}
+    known = set()  # test function names and test module names that exist
+    for rel in files:
+        if rel.startswith(TEST_DIRS) and rel.endswith(".py"):
+            known.add(Path(rel).stem)
+            try:
+                known.update(re.findall(r"\bdef (test_\w+)", (root / rel).read_text(encoding="utf-8")))
+            except (UnicodeDecodeError, OSError):
+                pass
     for rel in files:
         path = root / rel
         if Path(rel).name in LOCAL_ONLY:
@@ -64,6 +75,10 @@ def check(root, files):
                     problems.append(f"{rel}:{n}: requirement ID {m.group(1)} is also defined in {other}")
             if fence:
                 continue
+            if rel.startswith("docs/requirements/") and line.startswith("|"):
+                for m in TEST_NAME.finditer(line):
+                    if not m.group(1) and m.group(0) not in known:
+                        problems.append(f"{rel}:{n}: cites test {m.group(0)}, which is not defined under tests/ or tests_extra/")
             for target in LINK.findall(line):
                 if re.match(r"[a-z][a-z0-9+.-]*:|#", target):
                     continue  # URL, mailto or in-page anchor
