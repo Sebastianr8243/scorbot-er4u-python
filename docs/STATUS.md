@@ -41,7 +41,7 @@
 | Legacy home | E4 (failed) | no | `evidence/2026-10-06-lab-logs/ANALYSIS.md (in git history)` | Failed at 4.2 s |
 | Vendor-home port (`scorbot/vendor_home.py`) | E3 | no (gripper end changed 2026-10-31; 3 review rounds, the last still open on ledger PL29) | `tests/fixtures/vendor_home_trace05.json` (lab DLL on the fake, command for command), the full Stack 2 bring-up on the pipe fake, [`protocol/LEDGER.md`](protocol/LEDGER.md) | Next lab visit (date not set): steps T, S, P, X and G in `lab/LAB_CHECKLIST.md` (`scripts/lab_day.py` runs them) |
 | Packet codec (`scorbot/transport/`) | E3 | no | `tests/test_transport_codec.py` | Not wired into `Scorbot` |
-| Joint jog, streaming, gripper, inch home, software stop | E2 | no | `tests/`, `tests_extra/` | Never ran on the arm |
+| Joint jog, streaming, gripper, software stop | E2 | no | `tests/`, `tests_extra/` | Never ran on the arm |
 | PolicyArm binary gripper (`open_gripper`, `close_gripper`) | E2 | no | `tests_extra/test_policy_arm_gripper.py`: simulator and real SDK workers on desk fake against the existing DLL fixture; [API notes](STACK2_SDK.md#policyarm-binary-gripper-desk-only) | Physical-arm behaviour unverified; the LeRobot plugin exposes it as `gripper.pos` |
 | PolicyArm / LeRobot vendor travel guard | E2 | no | `tests_extra/test_policy_vendor_limits.py`; [requirements](requirements/vendor-limits.md), [vendor windows](protocol/VENDOR_DLL_PROTOCOL.md#115-per-axis-limits) | Both Intelitek windows after session vendor Home; whole-frame hold outside either, no policy degree cap. Physical zero and signs unverified until lab G/X |
 | Simulator, recording, replay (`scorbot/session/`) | E2 | no | `tests/` | Offline only |

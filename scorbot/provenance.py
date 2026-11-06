@@ -13,7 +13,6 @@ _SOURCE_FILES = (
     "scorbot/errors.py",
     "scorbot/gripper.py",
     "scorbot/homing.py",
-    "scorbot/inch_home.py",
     "scorbot/io.py",
     "scorbot/joint_move.py",
     "scorbot/limits.py",

@@ -14,7 +14,7 @@ Rows are drawn from the safety invariants in `CONTRIBUTING.md` and the hazards i
 | R01 | SHALL NOT | A test, simulator or CI run opens USB or moves the arm. Importing the SDK loads no USB module. | test: `pytest tests/test_simulated.py -k test_import_loads_no_usb_and_leaves_sys_path_alone`. Partial: no test-time guard blocks a deliberate USB call, so also review: a reader checks any new test or script for `connect()` without `--simulate` |
 | R02 | SHALL NOT | Any code, doc or name calls `disable()` or `request_stop()` an emergency stop. | test: `pytest tests/test_software_stop.py -k not_an_emergency_stop` |
 | R03 | SHALL NOT | The SDK sends motion after any fault has latched the session. | test: `pytest tests/test_simulated.py -k test_every_fault_kind_latches_the_session` |
-| R04 | SHALL NOT | `jog_joint` moves a wrist joint, and the wrist roll is never jogged. The only wrist moves are the approved exceptions in `CONTRIBUTING.md` (the vendor home, and the wrist pitch follower in coupled moves). | test: `pytest tests/test_arm_control.py tests/test_coupled_moves.py -k "test_wrist_jog_rejected_without_queuing_motion or only_wrist_pitch_ever_moves"` |
+| R04 | SHALL NOT | `jog_joint` moves a wrist joint, and the wrist roll is never jogged. The only wrist moves are the approved exceptions in `CONTRIBUTING.md` (the vendor home). | test: `pytest tests/test_arm_control.py -k test_wrist_jog_rejected_without_queuing_motion` |
 | R05 | SHALL NOT | A single SDK jog exceeds 5 degrees, or a speed outside 1 to 20 is accepted. | test: `pytest tests/test_arm_control.py -k test_jog_ceiling_cannot_be_raised_past_five_degrees` |
 | R06 | SHALL NOT | `home()` runs without `start_position_confirmed=True`, with motors disabled, or with a home-switch byte of 32 or more. | test: `pytest tests/test_python_api.py -k test_home_refuses_switch_byte_the_legacy_decoder_misreads` |
 | R07 | SHALL NOT | Real and simulated data share one session, review or comparison. | test: `pytest tests/test_session.py tests/test_analysis.py -k "rejected_in or mixed_sources"` |
@@ -22,7 +22,6 @@ Rows are drawn from the safety invariants in `CONTRIBUTING.md` and the hazards i
 | R09 | SHALL NOT | A packet is built or sent whose bytes or sequence the legacy code never sent without a capture or recorded vendor-DLL evidence (`CONTRIBUTING.md`, second invariant). | review: for any change under `openScorbot/` or the vendor-home bytes, a reviewer compares the hash from `scorbot/provenance.py:motion_source_sha256` before and after and reads the cited evidence |
 | R10 | SHALL NOT | Intelitek manuals, `USBC.dll`, or its decompiled output are committed. | script: `git ls-files references \| grep -i -E "pdf\|dll"` prints nothing; `git ls-files \| grep -i usbc.dll` prints nothing |
 | R11 | SHALL NOT | `USBC.dll` is loaded by any path other than the tools in `tools/` (`usbc_home`, `usbc_jog`, `usbc_move`, `usbc_server`, `usbc_fake`). | review: `grep -rn "USBC" --include=*.py` shows no other loader |
-| R24 | SHALL NOT | `home_inch()` runs without `operator_at_stop=True`, with motors disabled, with a switch byte of 32 or more, or with `max_search_deg` outside 0 to 180; it never homes the wrist and never jogs more than 1 degree per step. | test: `pytest tests/test_inch_home.py` |
 | R25 | SHALL NOT | A stream target leads the arm by more than the jog ceiling (5 degrees) before the session faults. | test: `pytest tests_extra -k stream` (not yet checked that a lead-limit test exists) |
 | R26 | SHALL NOT | `examples/bench_joint.py` accepts a `--delta` above 1 degree. | observable: `python examples\bench_joint.py --simulate --delta 2 ...` (arguments as in `CONTRIBUTING.md`) refuses with an error and writes no motion row |
 
@@ -33,7 +32,6 @@ Rows are drawn from the safety invariants in `CONTRIBUTING.md` and the hazards i
 | R13 | SHALL | Encoder count differences are taken with the 65535 wrap, so a move across 0/65535 settles. | test: `pytest tests/test_settle_seam.py` |
 | R14 | SHALL | The motion code path is fingerprinted into every lab log, so a log shows which code produced it. | test: `pytest tests/test_provenance.py` |
 | R15 | SHALL | The shoulder is refused a jog past its joint limit above home. | test: `pytest tests/test_arm_control.py -k test_shoulder_jogs_stop_short_of_the_joint_limit_above_home` |
-| R16 | SHALL | A wrist moving the wrong way during a coupled move is caught within about 4 degrees of pitch and faults the session (simulator). | test: `pytest tests/test_coupled_moves.py -k test_a_wrist_that_physically_moves_the_wrong_way_is_caught_within_a_few_degrees` |
 | R17 | SHALL | Every simulated rehearsal output says SIMULATED. | script: `python -m scorbot.lab --simulate --profile rehearsal\lab.json --logs rehearsal` output contains `SIMULATED` on every status line |
 
 ### Lab procedure (checked at the bench)
@@ -78,3 +76,4 @@ Decided 2026-10-13: "near home" confirmation stays lab procedure; shoulder bound
 - 2026-10-13 R25, R26 added; open questions answered as above. Still draft: not yet baselined.
 - 2026-10-20 R11 widened to every `tools/usbc_*` tool, with no agent restriction; the hardware switch, typed words and acknowledge flags were removed. `requirements/hardware-gate.md (in git history)` is retired.
 - 2026-10-20 R11 lists `usbc_server` (the arm API's DLL session, `docs/requirements/arm-api.md`); approved with the arm API plan.
+- 2026-11-05 R16 and R24 removed with the inch home, the pre-home move and the park (issue #189, cut A); R04 no longer names the coupled-move exception.
