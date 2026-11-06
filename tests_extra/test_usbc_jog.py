@@ -94,7 +94,15 @@ class JogTests(unittest.TestCase):
 
     def test_timed_jog_call_order(self):
         lib = FakeLib(GetCurrentPosition=moving_position())
-        code, log, state = self.go(lib)
+        elapsed = [0.0]
+
+        def sleep(seconds):
+            elapsed[0] += seconds
+
+        # Count scheduled sends independently of the time spent launching the fake DLL call threads.
+        with mock.patch.object(jog.time, "monotonic", side_effect=lambda: elapsed[0]), \
+                mock.patch.object(jog.time, "sleep", side_effect=sleep):
+            code, log, state = self.go(lib)
         self.assertEqual(code, 0)
         self.assertEqual(lib.calls("EnterManual"), [(0,)])
         moves = lib.calls("MoveManual")

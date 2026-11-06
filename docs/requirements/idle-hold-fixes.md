@@ -37,3 +37,14 @@ The combined idle-hold and impact suites passed: 27 passed, 40 subtests passed.
 | IH03 | pass | Base, shoulder, elbow and wrist exhaustion retained only result 2 and held measured counts. |
 | IH04 | pass | Both calibration entry points and a late hold after a latch returned no faulted setpoint. |
 | IH05 | pass | Fake endpoints only; no network, hardware, dependency, excluded-file or git publication actions. |
+
+## Full verification (2026-11-03)
+Ruff and compileall passed; pytest with four workers and fresh TEMP, TMP and basetemp directories:
+`1848 passed, 14 skipped, 1 warning, 13209 subtests passed in 845.95s (0:14:05)`.
+The documentation script printed `docs ok`.
+
+The first full run reported a camera timing failure, a vendor-move worker exit and a DLL jog call-count
+failure. The camera and vendor-move tests passed on isolated retry. The jog test failed again because
+thread startup consumed its 100 ms wall-clock window; its existing assertions now run with a simulated
+clock while the fake DLL calls still use real bounded threads. The second full run passed.
+The remaining warning is the existing home-stop test's mocked sequence byte reaching EXIT cleanup.

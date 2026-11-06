@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (issue #183, 2026-11-05)
+
+- #183: `test_timed_jog_call_order` counts sends against a simulated clock instead of a 100 ms wall-clock window, fixing a random failure on busy PCs. Test-only; fake DLL only, never run on the arm.
+
 ## Unreleased (issue #172, 2026-11-05)
 
 - #172: stream stop rows name the first stop cause, including Abort, caller exceptions and disconnect; mapped the end/fault tests for ST11-ST13, ST15 and ST18. Simulator and fake endpoints only.
