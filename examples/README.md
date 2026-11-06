@@ -20,7 +20,6 @@ A new script gets a row in the table below and in the README's "Scripts and exam
 | `record_episode.py` | Yes, through `tools/usbc_server` (`--fake`: no) | Added 2026-10-22 for the week-2 dataset. Types `go` first. Keys drive one `move_by` (`--step-mm`, at most 50) or a gripper call per press while it logs both cameras (`--cameras` OpenCV indexes, needs the `camera` extra), the arm state before the command and the command to `episodes/<time>/` (`meta.json`, `steps.jsonl`, `<camera>/*.jpg`; never overwritten). Plain files, no dependency; convert to a training format later. `--fake` rehearses with `FakeArm` and fake cameras. Pure helpers `record`, `keyboard_commands`. Never run on the arm |
 | `preview_jog.py` | No | `Scorbot().preview_jog`; prints the plan |
 | `kinematics_check.py` | No | Nominal model vs legacy `cIn`; unvalidated geometry banner |
-| `make_synthetic_session.py` | No | Writes a `synthetic` MCAP session and replays it; used by CI |
 
 ## Rules
 
@@ -35,7 +34,6 @@ The rules and the "Do not" list below are for the legacy `Scorbot` scripts. `arm
 - The 1 degree ceiling here is stricter than the SDK's 5. Do not relax it in the script; there is no measured basis.
 - The home-then-move procedure is written once, in `bench_joint.py`: `add_session_arguments`, `check_session_labels`, `new_output_paths`, `choose_backend`, `software_revision`, `open_recorder`, `row_writer`, `confirmation_prompt`, `OpenCommand`, `connect_and_home`, `observe_and_disable` and the three `report_*` functions. `bench_stream.py` uses all of them. Each script passes its own `Scorbot`, `SimulatedScorbot` and `run_checks` to `choose_backend`, because tests replace those names on the script's module; a helper that imported them itself would ignore the replacement. `record_raw_state.py` keeps its own flow (different rows, no homing) and shares only `observe_leds`, `reject_example_values` and `termination_as_interrupt`.
 - Both scripts import `bench_joint` by package path first, then bare, so they work run as a script. Keep both import forms.
-- `make_synthetic_session.py` inserts the repo root into `sys.path`; it needs no hardware and must keep working with only the base dependencies (CI runs it).
 
 ## Testing changes
 

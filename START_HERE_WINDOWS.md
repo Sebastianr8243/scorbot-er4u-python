@@ -8,7 +8,7 @@ If this checkout already has a working `.venv` and the setup script passed earli
 
 1. On the robot PC, open the [repository](https://github.com/Sebastianr8243/scorbot-er4u-python). Select the branch you intend to test, then choose **Code → Download ZIP**. Extract it to a writable folder and open that folder in VS Code. If Git already works, pulling the same branch is fine. A GitHub ZIP does not contain the optional Zadig executable from a locally built bench kit.
 2. Open **Terminal → New Terminal** in VS Code and select PowerShell. The terminal should be in the folder containing `pyproject.toml` and `scripts/`.
-3. Run `py -3 --version`. If Python is missing or older than 3.10, install [Python 3.13 from Python.org](https://www.python.org/downloads/release/python-31315/) using the Windows installer for that PC's architecture. Reopen the VS Code terminal after installing and check again. Python 3.13.5 passed this project's software setup on the development PC.
+3. Run `py -3 --version`. If Python is missing or older than 3.12, install [Python 3.13 from Python.org](https://www.python.org/downloads/release/python-31315/) using the Windows installer for that PC's architecture. Reopen the VS Code terminal after installing and check again. Python 3.13.5 passed this project's software setup on the development PC.
 
 ## 2. Install the Python dependencies
 

@@ -1,7 +1,5 @@
-"""The hand-filled observation sheet (notes.md): parsing, validation, CLI reporting."""
+"""The hand-filled observation sheet (notes.md): parsing and validation."""
 
-import csv
-import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -33,14 +31,6 @@ def new_session(root, data_source="simulated"):
     with SessionWriter.create(root, data_source=data_source, robot_id="arm") as rec:
         rec.log_note("x")
     return rec.path
-
-
-def cli(*args):
-    try:
-        from tests.cli_support import session_cli
-    except ImportError:      # discovered with -s tests: the folder itself is on sys.path
-        from cli_support import session_cli
-    return session_cli(*args)
 
 
 class NotesParsingTests(unittest.TestCase):
@@ -130,61 +120,6 @@ class NotesParsingTests(unittest.TestCase):
         report = self.parse(FILLED.replace("Reviewed by:", "Reviewed by: Carol 2026-10-02"))
         self.assertTrue(report.reviewed)
         self.assertEqual(report.status, "complete")
-
-
-class NotesCliTests(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
-
-    def test_replay_warns_about_an_unfilled_sheet_only_for_real_runs(self):
-        real = new_session(self.root / "real", data_source="real")
-        sim = new_session(self.root / "sim", data_source="simulated")
-        def sheet_line(path):
-            [line] = [line for line in cli(path).stdout.splitlines()
-                      if "Observation sheet:" in line]
-            return line
-
-        self.assertIn("untouched", sheet_line(real))
-        self.assertIn("WARNING", sheet_line(real))
-        self.assertIn("untouched", sheet_line(sim))
-        self.assertNotIn("WARNING", sheet_line(sim))
-
-    def test_list_shows_the_sheet_status(self):
-        path = new_session(self.root)
-        (path / "notes.md").write_text(FILLED, encoding="utf-8")
-        result = cli("list", self.root)
-        self.assertIn("NOTES", result.stdout)
-        self.assertIn("complete", result.stdout)
-
-    def test_export_writes_labelled_notes_csv(self):
-        path = new_session(self.root)
-        (path / "notes.md").write_text(FILLED.replace("Alice", "-Alice"), encoding="utf-8")
-        self.assertEqual(cli("export", path).returncode, 0)
-        with open(path / "csv" / "notes.csv", encoding="utf-8-sig", newline="") as stream:
-            rows = {row["field"]: row for row in csv.DictReader(stream)}
-        self.assertEqual(rows["stop_operator"]["value"], "'-Alice")
-        self.assertEqual(rows["run_ended"]["data_source"], "simulated")
-        self.assertEqual(rows["notes_status"]["value"], "complete")
-
-    def test_compare_rows_carry_notes_status_and_run_end(self):
-        try:
-            from tests.test_analysis import record_sim_session
-        except ImportError:
-            from test_analysis import record_sim_session
-        path = record_sim_session(self.root)
-        (path / "notes.md").write_text(FILLED, encoding="utf-8")
-        table = self.root / "table.csv"
-        self.assertIn(cli("compare", path, "--csv", table).returncode, (0,))
-        with open(table, encoding="utf-8-sig", newline="") as stream:
-            rows = [r for r in csv.DictReader(stream) if r["session_id"] != "POOLED"]
-        self.assertTrue(rows)
-        self.assertEqual({r["notes"] for r in rows}, {"complete"})
-        self.assertEqual({r["run_ended"] for r in rows}, {"normal return"})
-        self.assertTrue(json.dumps(rows))
 
 
 if __name__ == "__main__":

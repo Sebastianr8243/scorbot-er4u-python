@@ -15,7 +15,7 @@ Run from the repo root: these files import helpers as `tests.<name>`.
 | `test_streaming_core.py`, `test_streaming.py`, `test_bench_stream.py` | The streaming driver (`start_stream`): core against a small arm model, legacy loop against fake endpoints (three or five setpoints), the opt-in wrist stream (both wrist motors followed, their pitch-plus-roll bound, the pitch limit on the streamed wrist, their error words), the stream trial rehearsed |
 | `test_gripper.py`, `test_bench_gripper.py` | The gripper: legacy `clamp` loop (GUI), `move_gripper` after a vendor Home (order 23), the bench trial (vendor Home, then the gripper) |
 | `test_camera_*.py` | Webcam capture |
-| `test_rerun_view.py`, `test_plot.py`, `test_arm_chain.py`, `test_notes.py` | Viewers, plots, the link chain, the notes sheet |
+| `test_arm_chain.py`, `test_notes.py` | The link chain, the notes sheet |
 | `test_mujoco_twin.py` | The MuJoCo twin's tool tip, joint spans and pose hold against `arm_chain` and the manual; skips without `mujoco` |
 | `test_build_calibration_csv.py`, `test_kinematics.py` | Offline calibration and kinematics tools |
 | `test_usbc_peread.py`, `test_usbc_query.py` | Ghidra dump tools |

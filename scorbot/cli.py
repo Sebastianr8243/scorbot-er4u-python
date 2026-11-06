@@ -13,13 +13,9 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tomllib
 
 from . import calibration, preflight
-
-try:
-    import tomllib
-except ImportError:
-    tomllib = None
 
 try:
     import winreg
@@ -44,7 +40,6 @@ TARGETS = {
     ("analyze", "fit-calibration"): ("script", "scripts/fit_calibration.py"),
     ("analyze", "build-calibration-csv"): ("script", "scripts/build_calibration_csv.py"),
     ("analyze", "export-dataset"): ("script", "scripts/export_policy_dataset.py"),
-    ("analyze", "session"): ("module", "scorbot.session"),
 }
 DESCRIPTIONS = {
     "sim check": "Check the LeRobot simulation pipeline",
@@ -62,7 +57,6 @@ DESCRIPTIONS = {
     "analyze fit-calibration": "Fit calibration from physical measurements",
     "analyze build-calibration-csv": "Build a calibration measurement table",
     "analyze export-dataset": "Export policy logs as a dataset",
-    "analyze session": "Inspect or replay a recorded session",
 }
 SYNC_FIX = "uv sync --locked --extra windows --extra test --extra planning"
 CALIBRATION_FIX = (
@@ -108,8 +102,6 @@ def check_packages():
 
 def check_lock():
     path = REPO_ROOT / "uv.lock"
-    if tomllib is None:
-        return _check("Locked deps", "skip", "requires Python 3.11 or newer to read uv.lock")
     if not path.is_file():
         return _check("Locked deps", "skip", "uv.lock is absent from this install")
     try:

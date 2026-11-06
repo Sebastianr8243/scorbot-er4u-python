@@ -12,7 +12,7 @@ python -m unittest tests.test_python_api.CommandTests -v     # one class
 
 `tests/` is the gate: connect, state, home, jog, the safety invariants, the packet pins, the lab session and the evidence path. `tests_extra/` (see [../tests_extra/README.md](../tests_extra/README.md)) holds tests for code that is off the first-trial path; CI runs both, the lab-visit check is `tests/` only.
 
-Run from the repo root. Tests import `scripts.<name>` and `examples.<name>` as namespace packages, and `scorbot` from the editable install or the current directory. CI runs the same command on Windows and Linux, Python 3.10 and 3.13, with `.[dev]` (Hypothesis) and, on Linux only, `.[kinematics]`. Optional dependencies skip cleanly (`hypothesis`, `roboticstoolbox`, `usb`); a skipped test is not a pass, so install them locally before trusting a green run.
+Run from the repo root. Tests import `scripts.<name>` and `examples.<name>` as namespace packages, and `scorbot` from the editable install or the current directory. CI runs the same command on Windows (Python 3.13) and Linux (Python 3.12), with `.[dev]` (Hypothesis) and, on Linux only, `.[kinematics]`. Optional dependencies skip cleanly (`hypothesis`, `roboticstoolbox`, `usb`); a skipped test is not a pass, so install them locally before trusting a green run.
 
 ## How tests avoid hardware
 
@@ -38,7 +38,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_python_api.py` | State decode, command/result queues, timeouts, worker crashes, home refusal, disconnect edge cases, legacy arithmetic integers |
 | `test_arm_control.py` | Fresh-packet tracking, fit/load calibration, vendor-display refusal, wrap, calibrated move, soft limits, wrist gate, jog ceiling, stale feedback |
 | `test_simulated.py` | Simulator fidelity to the facade, every fault kind latches, full G1 rehearsal, LED mismatch, recorder failure, interrupts |
-| `test_session.py`, `test_schemas.py`, `test_analysis.py` | Recorder, replay integrity and crash tails, schemas, source mixing, list/export/compare |
+| `test_session.py`, `test_schemas.py` | Recorder, replay integrity and crash tails, schemas, source mixing |
 | `test_bench_joint.py`, `test_calibration_capture.py` | Prompt gates and exit codes of the lab scripts |
 | `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | Offline analysis scripts |
 | `test_nominal.py`, `test_motion_profile.py` | Manual values and span bound, jog planning |
@@ -105,14 +105,14 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_pause_marker.py` | `syncro` pauses on the configured `MAX_COUNT` (BACKLOG 15), including a copy of `libsync` loaded while the config says 300; and the sequence-byte handoff: `syncro` holds off while `execute` waits for the byte, so a late command worker cannot be starved (the desk byte check hang) |
 | `test_vendor_model.py`, `test_vendor_profile.py` | The vendor's count/angle formula and motion profile, read from the DLL |
 
-Shared helpers: `desk_wire.py` (a fake USB wire that records the real `Scorbot`'s OUT packets, for `test_desk_byte_check.py` and, with `record_gripper`, `test_vendor_gripper.py`), `cli_support.py` (run `python -m scorbot.session` in-process or as a child). Import it as `from tests.<name> import ...` with a bare-name fallback, so both `unittest discover -s tests` and `python -m unittest tests.test_x` work.
+Shared helpers: `desk_wire.py` (a fake USB wire that records the real `Scorbot`'s OUT packets, for `test_desk_byte_check.py` and, with `record_gripper`, `test_vendor_gripper.py`). Import it as `from tests.<name> import ...` with a bare-name fallback, so both `unittest discover -s tests` and `python -m unittest tests.test_x` work.
 
 ## Rules
 
 - Every new gate or rejection test asserts that nothing was queued (`robot._commands.empty()`, `robot.sim.commands` unchanged), not only that an exception was raised.
 - A new fault path gets a kind in `simulated.FAULT_KINDS` or a queue-level test, and must show the session latched (`assert_latched` in `test_simulated.py`).
 - Do not weaken or delete an `expectedFailure` to get green. When product code fixes the bug the test reports an unexpected success; then remove the decorator and keep the assertion.
-- Do not start a child Python process when calling the entry point works. `cli_support.session_cli` and `test_simulated.run_script` call a script's `main` in-process; a child costs a second or more for the imports alone. Keep a child only where the process itself is the subject (exit code, output encoding, what gets imported), and one end-to-end rehearsal.
+- Do not start a child Python process when calling the entry point works. `test_simulated.run_script` call a script's `main` in-process; a child costs a second or more for the imports alone. Keep a child only where the process itself is the subject (exit code, output encoding, what gets imported), and one end-to-end rehearsal.
 - Tests of the legacy message loops check which bytes are sent, not when: patch `time.sleep` as `LegacyStopTests.setUp` does rather than wait out the 20 ms per message.
 - A patched `time.sleep` or `set_msg` reaches every thread. A test that records calls records only its own thread's (`test_pacing.run_stream`), and a test that starts a legacy worker ends and joins it: the root `conftest.py` fails a test that leaves a `scorbot-*` or `execute`/`syncro` thread running 2 s after it returns.
 - Do not use real sleeps longer than needed; command timeouts in tests are 0.01-0.5 s. Late-answer and worker-crash tests depend on short real timing (`late_answer_s = 0.5`, crash sleep 0.3 s); do not tighten them without checking for flakiness on Windows, where `time.monotonic` steps at about 15.6 ms on Python < 3.13.
