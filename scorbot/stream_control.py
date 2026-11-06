@@ -311,6 +311,8 @@ class StreamMixin:
         stream = self._stream
         if stream is not None:
             try:
+                if isinstance(stream, Stream):
+                    stream.request_stop("disconnect with the stream open")
                 stream.stop()
             except ScorbotError:
                 pass  # the session is latched; disconnect carries on

@@ -23,6 +23,7 @@ from .manual_jog import ManualJogMixin, VelocityJog  # noqa: F401  (VelocityJog 
 from .homing import HomingMixin
 from .torque import TorqueMixin
 from .stream_control import StreamMixin
+from .streaming import Stream
 from .nominal import vendor_limit_report
 from .packet import PacketTrace, TrackedInputEndpoint, TrackedOutputEndpoint
 from .state import ERROR_OFFSETS, JOINTS, RobotState, decode_state, impact_motors, signed_error_word
@@ -153,6 +154,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         self._lock = threading.Lock()
         self._cancel_event = threading.Event()
         self._stop_event = threading.Event()
+        self._stop_cause = None       # why the pending stop was asked for, for a stream that is not up yet
         self._stop_lock = threading.Lock()       # makes "was a stop asked for" + clear one step
         self._stream = None
         self._stream_resume_from = None
@@ -229,6 +231,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         self._reads = queue.Queue()
         self._cancel_event.clear()
         self._stop_event.clear()
+        self._stop_cause = None
         slow = slow_sleep_warning()
         if slow:
             warnings.warn(slow, RuntimeWarning, stacklevel=2)
@@ -603,10 +606,14 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         """
         with self._stop_lock:
             self._stream_resume_from = None
+            stream = self._stream
+            if stream is not None:
+                if isinstance(stream, Stream):
+                    stream.request_stop("Scorbot.request_stop")
+                else:
+                    stream.request_stop()
+            self._stop_cause = "Scorbot.request_stop"
             self._stop_event.set()
-        stream = self._stream
-        if stream is not None:
-            stream.request_stop()      # the caller still ends it with stop() or close()
         self._record("stop_requested")
 
     def _pendant_abort(self) -> None:
@@ -619,10 +626,14 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         """
         with self._stop_lock:
             self._stream_resume_from = None
+            stream = self._stream
+            if stream is not None:
+                if isinstance(stream, Stream):
+                    stream.request_stop("pendant Abort key")
+                else:
+                    stream.request_stop()
+            self._stop_cause = "pendant Abort key"
             self._stop_event.set()
-        stream = self._stream
-        if stream is not None:
-            stream.request_stop()
         threading.Thread(target=self._record_quietly, args=("pendant_abort",), daemon=True,
                          name="scorbot-pendant-log").start()
 
@@ -700,6 +711,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         with self._stop_lock:
             asked = self._stop_event.is_set()
             self._stop_event.clear()
+            self._stop_cause = None
             asked = asked or bool(getattr(self._input, "pendant_abort_held", False))
             if asked:
                 self._stream_resume_from = None

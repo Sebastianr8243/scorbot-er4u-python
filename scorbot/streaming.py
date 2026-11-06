@@ -360,6 +360,7 @@ class Stream:
         self.dropped_steps = 0
         self.final_state = None
         self.stop_reason = None
+        self._stop_lock = threading.Lock()
 
     def set_target(self, target: dict) -> None:
         self.core.set_target(target, time.monotonic())
@@ -369,8 +370,11 @@ class Stream:
         self.core.set_speed(speed_fraction)
         self.robot._record("stream_speed", speed_fraction=speed_fraction)
 
-    def request_stop(self) -> None:
-        self.core.request_stop()
+    def request_stop(self, reason: str = "Stream.request_stop") -> None:
+        with self._stop_lock:
+            if self.stop_reason is None:
+                self.stop_reason = reason
+            self.core.request_stop()
 
     def close(self):
         """Slow to rest, end the stream and return the final state."""
@@ -379,7 +383,7 @@ class Stream:
 
     def stop(self):
         """End now with the stop sequence and return the final state."""
-        self.core.request_stop()
+        self.request_stop("Stream.stop")
         return self.robot._end_stream(self)
 
     def __enter__(self):
@@ -390,6 +394,7 @@ class Stream:
             if kind is None:
                 self.close()
             else:
+                self.request_stop(f"exception in the caller's with block: {kind.__name__}")
                 self.stop()
 
     def source(self, reply: bytes):
@@ -442,13 +447,14 @@ class Stream:
             if self.robot._stop_event.is_set():
                 # A stop that landed after start_stream consumed the last one but before the stream was
                 # published (request_stop then found no stream): honour it here. Ending clears the event.
+                if getattr(self, "stop_reason", None) is None:
+                    self.stop_reason = getattr(self.robot, "_stop_cause", None) or "Scorbot.request_stop"
                 self.core.request_stop()
             self._pace()
             state = decode_state(reply, connected=True, enabled=None, homed=True, fault=None)
             # A stream starts in Auto; the first teach-on reply ends it through the normal stop path.
             if teach_mode_after(False, reply):
-                self.stop_reason = "teach mode"
-                self.core.request_stop()
+                self.request_stop("teach mode")
             # The controller's collision flag (IN byte 59) on a motor this stream drives: a fault, like
             # the error limit. Another motor's bit (the gripper's move ends against a stop) is not.
             hit = [m for m in collision_motors(reply) if m in self.core.motors]
