@@ -1,7 +1,7 @@
 """Two LeRobot teleoperators for ScorbotRobot, found by lerobot-record once this package is installed.
 
-    scorbot_joint_keys      Letter keys step an absolute joint target by step_deg per loop; PolicyArm
-                            applies vendor travel limits. Needs pynput. Letters also work with shift held.
+    scorbot_joint_keys      Letter keys step an absolute joint target by step_deg per loop from the target the
+                            robot last commanded (so a release stops the arm); PolicyArm applies vendor travel limits. Needs pynput. Letters also work with shift held.
     scorbot_joint_scripted  walks through fixed waypoints (base,shoulder,elbow[,pitch,roll[,gripper]]) at step_deg per loop, for unattended runs and
                             examples/lerobot_sim_check.py.
 
@@ -28,7 +28,7 @@ from lerobot.teleoperators.keyboard import KeyboardTeleop, KeyboardTeleopConfig
 
 from scorbot.policy_arm import STEP_MAX_DEG
 
-from .robot import ACTION_KEYS
+from .robot import ACTION_KEYS, commanded_action
 from .teleop_map import DEFAULT_SCRIPT, check_limits, home, key_name, keys_to_target, parse_script, script_walk, to_action
 
 
@@ -65,7 +65,7 @@ class ScorbotJointKeys(KeyboardTeleop):
             return to_action(self._target)
         self._drain_pressed_keys()
         self._target = keys_to_target([k for k, down in self.current_pressed.items() if down],
-                                     self._target, self.config.step_deg)
+                                     self._target, self.config.step_deg, commanded=commanded_action())
         return to_action(self._target)
 
 

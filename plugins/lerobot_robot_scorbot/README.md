@@ -103,7 +103,7 @@ Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1
 
 | Type | What it does |
 |---|---|
-| `scorbot_joint_keys` | Letter keys below drive all five joints, including wrist pitch and roll, and o/c drive the gripper. Each loop with a joint key held moves an absolute target by `step_deg` (default and most 0.5), through `scorbot.policy_arm.clamp`; the robot applies both vendor travel windows using its session Home counts, with no teleoperator travel cap. Needs `pynput`. **No person has tried it under `lerobot-record`** |
+| `scorbot_joint_keys` | Letter keys below drive all five joints, including wrist pitch and roll, and o/c drive the gripper. Each loop with a joint key held moves the target by `step_deg` (default and most 0.5), through `scorbot.policy_arm.clamp`, from the target the robot last commanded (`send_action`'s return, read through `robot.commanded_action()`), so releasing the key stops the arm even when the lead limit or a vendor window made the robot command less than was asked; the robot applies both vendor travel windows using its session Home counts, with no teleoperator travel cap. Needs `pynput`. **No person has tried it under `lerobot-record`** |
 | `scorbot_joint_scripted` | Walks `--teleop.script="base,shoulder,elbow[,pitch,roll];..."` (absolute degrees; pitch and roll 0 when left out) at `step_deg` per loop, around again. For unattended runs and the check |
 
 | Joint / gripper | Positive / open | Negative / close |
@@ -119,7 +119,9 @@ Letters also work with shift held. Duplicate keys count once, opposite joint key
 
 Named apart from the Stack 1 teleoperators (`scorbot_keys`, `scorbot_scripted` on `main`) so both plugins can share one venv. The map logic is in `teleop_map.py` and needs no lerobot.
 
-PolicyArm holds the entire frame at the last allowed target when either vendor window rejects it. Policy degrees keep their existing signs and scales (`preview_jog` for the three arm motors); vendor degrees are computed from absolute counts, so positive vendor base is negative PolicyArm base. Roll can exceed 360 degrees when both windows allow it. Zero and signs on our arm remain unverified until lab G/X.
+PolicyArm holds the entire frame at the last allowed target when either vendor window rejects it. **Action values.** `send_action` converts each action value with `float()` (plain numbers, numpy scalars, 0-d torch tensors), so `lerobot-replay` and policies that hand it tensors move the arm. A NaN or infinite value, or one that is not a single number (a multi-element array), raises `ValueError` naming the key and does not disconnect; before this a NaN or tensor was silently held. A missing key, a bool or a string still holds, as `PolicyArm` decides.
+
+Policy degrees keep their existing signs and scales (`preview_jog` for the three arm motors); vendor degrees are computed from absolute counts, so positive vendor base is negative PolicyArm base. Roll can exceed 360 degrees when both windows allow it. Zero and signs on our arm remain unverified until lab G/X.
 
 ## Not done yet
 

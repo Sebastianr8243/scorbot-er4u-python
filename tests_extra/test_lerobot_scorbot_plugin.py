@@ -24,7 +24,7 @@ from examples import lerobot_sim_check  # noqa: E402
 from lerobot_robot_scorbot import robot as plugin  # noqa: E402
 from lerobot_robot_scorbot import REAL_ARM_REFUSED, ScorbotRobot, ScorbotRobotConfig  # noqa: E402
 from lerobot_robot_scorbot.teleop_map import (  # noqa: E402
-    DEFAULT_SCRIPT, check_limits, home, parse_script, script_walk, step_toward, to_action)
+    DEFAULT_SCRIPT, check_limits, home, keys_to_target, parse_script, script_walk, step_toward, to_action)
 
 KEYS = ("base.pos", "shoulder.pos", "elbow.pos", "pitch.pos", "roll.pos", "gripper.pos")
 HAVE_LEROBOT = find_spec("lerobot") is not None
@@ -251,7 +251,7 @@ class SimDriveTests(unittest.TestCase):
             robot.connect()
             try:
                 self.assertEqual(robot.get_observation(), dict.fromkeys(KEYS, 0.0))
-                sent = robot.send_action({"base.pos": 90.0, "shoulder.pos": 0.25, "elbow.pos": float("nan"),
+                sent = robot.send_action({"base.pos": 90.0, "shoulder.pos": 0.25,   # elbow left out: hold
                                           "pitch.pos": -3.0, "roll.pos": 0.1})
                 self.assertEqual(sent, {"base.pos": 0.5, "shoulder.pos": 0.25, "elbow.pos": 0.0,
                                         "pitch.pos": -0.5, "roll.pos": 0.1, "gripper.pos": 0.0})
@@ -511,6 +511,111 @@ class ReplayCheckTests(unittest.TestCase):
             self.replay([0.0, 2.1], [0.0, 2.1])
 
 
+class FloatLike:
+    """What a 0-d tensor or numpy scalar looks like to the boundary: not an int or float, but has __float__."""
+    def __init__(self, value):
+        self.value = value
+
+    def __float__(self):
+        return float(self.value)
+
+
+class SimTeleopLoopTests(unittest.TestCase):
+    """The lerobot-record loop on the simulated robot: get_observation, the teleoperator's step, send_action."""
+    STEP = 0.5
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.robot = ScorbotRobot(sim_config(tmp.name))
+        self.robot.connect()
+        self.addCleanup(self.robot.disconnect)
+        self.target, self.sent = home(), {}
+
+    def frame(self, held):
+        """One loop pass with these keys held; returns the target the robot reports commanded."""
+        self.robot.get_observation()
+        self.target = keys_to_target(held, self.target, self.STEP, commanded=plugin.commanded_action())
+        self.sent = self.robot.send_action(to_action(self.target))
+        return self.sent
+
+    def test_release_stops_the_commanded_target_within_a_frame(self):
+        for _ in range(200):                # far longer than the arm can follow: the lead clamp binds
+            self.frame({"a"})
+        held = self.sent["base.pos"]
+        self.assertGreater(held, 0.0)
+        self.assertLess(held, 200 * self.STEP - 5, "the lead clamp never bound; the test proves nothing")
+        for _ in range(5):
+            self.assertEqual(self.frame(set())["base.pos"], held)
+        self.assertEqual(self.target["base"], held)         # the teleoperator did not keep its own runaway target
+
+    def test_a_refused_frame_does_not_grow_a_gap_and_other_joints_resume_at_once(self):
+        arm = self.robot._arm
+        with mock.patch.object(arm, "_vendor_target_problem", side_effect=lambda deg: deg["base"] > 2.0):
+            for _ in range(100):            # base keeps asking past the vendor window; every frame is refused
+                self.frame({"a"})
+            edge = self.sent["base.pos"]
+            self.assertLessEqual(edge, 2.0)
+            before = self.sent["shoulder.pos"]
+            self.assertEqual(self.frame({"s"})["shoulder.pos"], before + self.STEP)     # not frozen after release
+            self.assertEqual(self.sent["base.pos"], edge)
+
+    def test_no_commanded_target_yet_keeps_the_teleoperators_own_target(self):
+        plugin._last_sent = None
+        self.assertEqual(keys_to_target({"a"}, home(), 0.5, commanded=None)["base"], 0.5)
+
+
+class ActionBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.robot = ScorbotRobot(sim_config(tmp.name))
+        self.robot.connect()
+        self.addCleanup(self.robot.disconnect)
+
+    def send(self, base, gripper=0.0):
+        self.robot.get_observation()
+        return self.robot.send_action({**dict.fromkeys(KEYS, 0.0), "base.pos": base, "gripper.pos": gripper})
+
+    def test_float_like_values_move_the_arm_like_plain_floats(self):
+        sent = self.send(FloatLike(0.5), FloatLike(100.0))
+        self.assertEqual(sent["base.pos"], 0.5)
+        self.assertEqual(sent["gripper.pos"], 100.0)
+
+    @unittest.skipUnless(find_spec("numpy"), "numpy is not in this environment")
+    def test_numpy_float32_moves_the_arm_like_a_float(self):
+        import numpy as np
+        sent = self.send(np.float32(0.5), np.float32(100.0))
+        self.assertEqual((sent["base.pos"], sent["gripper.pos"]), (0.5, 100.0))
+
+    @unittest.skipUnless(find_spec("torch"), "torch is not in this environment")
+    def test_a_0d_tensor_moves_the_arm_like_a_float(self):
+        import torch
+        sent = self.send(torch.tensor(0.5), torch.tensor(100.0))
+        self.assertEqual((sent["base.pos"], sent["gripper.pos"]), (0.5, 100.0))
+
+    def test_non_finite_values_are_refused_with_a_clear_error_and_the_arm_stays_connected(self):
+        for bad in (math.nan, math.inf, FloatLike(math.nan)):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, r"base\.pos.*finite"):
+                self.send(bad)
+            self.assertTrue(self.robot.is_connected)
+        with self.assertRaisesRegex(ValueError, r"gripper\.pos.*finite"):
+            self.send(0.0, math.nan)
+
+    def test_a_value_that_is_not_a_single_number_is_refused_with_a_clear_error(self):
+        class Many:
+            def __float__(self):
+                raise TypeError("only length-1 arrays can be converted")
+        with self.assertRaisesRegex(ValueError, r"base\.pos.*single number"):
+            self.send(Many())
+
+    def test_bool_and_missing_values_still_hold(self):
+        self.assertEqual(self.send(True)["base.pos"], 0.0)          # PolicyArm's own check, not loosened
+        self.robot.get_observation()
+        sent = self.robot.send_action({"base.pos": 0.5})            # joints and gripper left out hold
+        self.assertEqual((sent["base.pos"], sent["gripper.pos"]), (0.5, 0.0))
+
+
 HAVE_TWIN = HAVE_LEROBOT and find_spec("mujoco") is not None and find_spec("ruckig") is not None
 TWIN_TOL_DEG = 1e-9         # the twin is posed kinematically from the same counts: no physics lag
 
@@ -675,6 +780,17 @@ class WithLerobotTests(unittest.TestCase):
             self.assertEqual(teleop.get_action()["pitch.pos"], 0.5)
             self.assertEqual(teleop.get_action()["pitch.pos"], 0.5)
             self.assertEqual(teleop.current_pressed, {"a": False, "shift": True, "t": False})
+
+    @unittest.skipUnless(find_spec("pynput"), "LeRobot's keyboard teleoperator needs pynput even to construct")
+    def test_keys_teleop_steps_from_the_robots_commanded_target(self):
+        from lerobot_robot_scorbot import ScorbotJointKeys
+        from lerobot_robot_scorbot.teleop import ScorbotJointKeysConfig
+        teleop = ScorbotJointKeys(ScorbotJointKeysConfig())
+        teleop.current_pressed = {"a": True}
+        with mock.patch.object(teleop, "_drain_pressed_keys", return_value=None),                 mock.patch.object(type(teleop), "is_connected", new_callable=mock.PropertyMock, return_value=True),                 mock.patch.object(plugin, "_last_sent", {**to_action(home()), "base.pos": 2.0}):
+            self.assertEqual(teleop.get_action()["base.pos"], 2.5)      # one step past what the arm was told
+            teleop.current_pressed = {"a": False}
+            self.assertEqual(teleop.get_action()["base.pos"], 2.0)      # release: the command, not a runaway
 
     def test_registered_and_built_by_lerobot(self):
         from lerobot.robots import Robot, RobotConfig

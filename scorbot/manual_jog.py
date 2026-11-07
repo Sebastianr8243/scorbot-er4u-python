@@ -215,7 +215,9 @@ class ManualJogMixin:
                 raise ScorbotError(f"{self._fault}. Motors-off was sent but is not confirmed: check the MOTORS LED")
             if too_late:
                 self._record("stop_too_late", joint=jog.joint)
-            self._record("motion_trace", joint=jog.joint, packets=packets, dropped_packets=dropped)
+            if not self._record_after_motion("motion_trace", joint=jog.joint, packets=packets,
+                                             dropped_packets=dropped):
+                raise ScorbotError(self._fault)
             after = self._settled_after_stop(jog._before, fault="The arm was still moving after a velocity jog")
             jog.final_state = after
             self._record("velocity_jog_stopped" if run.stopped else "velocity_jog_complete", joint=jog.joint,

@@ -37,6 +37,40 @@ class EncoderTests(unittest.TestCase):
 
 
 class SimulatedRobotTests(unittest.TestCase):
+    def test_vendor_joint_move_beyond_lead_limit_reaches_all_arm_targets(self):
+        import math
+
+        from scorbot import vendor_model, vendor_move
+
+        robot = ready_robot()
+        try:
+            target = tuple(angle + math.radians(delta) for angle, delta in
+                           zip(vendor_move.home_joints(), (10, 2, -2, 2, 3)))
+            expected = vendor_model.joints_to_counts(dict(zip(vendor_model.JOINTS, target)))
+            after = robot.move_joint_vendor(target)
+            self.assertEqual({motor: after.signed_encoder_counts[motor] for motor in expected}, expected)
+            self.assertTrue(robot.sim.motors_on)
+            self.assertIsNone(robot._fault)
+        finally:
+            robot.disconnect()
+
+    def test_vendor_outputs_leave_all_counts_unchanged_with_gripper_faults(self):
+        robot = ready_robot()
+        try:
+            robot.jog_joint("base", 1.0)
+            robot.open_gripper()
+            robot.sim.gripper_disturbs = {"base": 100, "shoulder": -75, "wrist_motor_1": 50}
+            robot.sim.gripper_reversed = True
+            robot.sim.gripper_blocked_at = 6000
+            before = robot.get_state().signed_encoder_counts
+            for name, output in (("digital", lambda: robot.set_digital_output(0, True)),
+                                 ("analog", lambda: robot.set_analog_output(1, 100))):
+                with self.subTest(output=name):
+                    output()
+                    self.assertEqual(robot.get_state().signed_encoder_counts, before)
+        finally:
+            robot.disconnect()
+
     def test_full_cycle_moves_by_exactly_the_planned_counts(self):
         robot = ready_robot()
         try:
