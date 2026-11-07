@@ -347,6 +347,16 @@ class DoctorOutputTests(unittest.TestCase):
             self.assertEqual(cli.check_packages(), checks)
         run.assert_called_once_with()
 
+    def test_doctor_enumerates_usb_once(self):
+        """check_driver reuses the preflight rows doctor already has instead of running them again."""
+        checks = [preflight.Check("USB 09F1:0007", True, "visible")]
+        with mock.patch.object(preflight, "run_checks", return_value=checks) as run, \
+                mock.patch.object(cli, "check_calibration", return_value=check("Calibration")), \
+                mock.patch.object(cli, "check_lerobot", return_value=check("LeRobot")), \
+                mock.patch.object(cli, "check_lock", return_value=check("Locked deps")):
+            cli.doctor_checks(doctor_args())
+        run.assert_called_once_with()
+
     def test_intelitek_driver_makes_invisible_usb_a_warning_not_a_failure(self):
         rows = [preflight.Check("USB 09F1:0007", False, "Not visible to libusb")]
         erusb = check("Controller", "warn", "09F1:0007 registered driver: ERUSB", "use --transport auto")

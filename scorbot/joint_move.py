@@ -20,12 +20,12 @@ from __future__ import annotations
 from collections.abc import Callable
 import math
 
-from . import source_model
+from . import limits, source_model
 from .calibration import signed_count_delta
+from .limits import ARM_MOTORS
 
 MOTORS = source_model.MOTORS             # base, shoulder, elbow, wrist_motor_1, wrist_motor_2
 JOINTS = ("base", "shoulder", "elbow")   # the joints a coupled move may be asked for
-ARM_MOTORS = ("base", "shoulder", "elbow")
 
 # A step of a coupled move, in degrees of the joint asked for. The legacy jog ceiling is 5.
 SLICE_DEG = 1.0
@@ -33,7 +33,7 @@ SLICE_DEG = 1.0
 # that cannot be corrected by a jog. The joint asked for is jogged on every slice down to this;
 # the coupled motors wait for a bigger amount (a small wrist jog is mostly settle noise), and
 # are flushed at the end of a move down to FINAL_MIN_COUNTS.
-PRIMARY_MIN_COUNTS = 20
+PRIMARY_MIN_COUNTS = limits.DRIFT_COUNTS
 COUPLED_MIN_COUNTS = 60
 FINAL_MIN_COUNTS = 30
 

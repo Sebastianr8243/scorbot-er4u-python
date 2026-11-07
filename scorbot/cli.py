@@ -135,7 +135,8 @@ def check_lock():
     return _check("Locked deps", "ok", "installed versions match uv.lock")
 
 
-def check_driver():
+def check_driver(usb_rows=None):
+    """``usb_rows``: preflight rows doctor already has, so it enumerates USB once, not twice."""
     if sys.platform != "win32" or winreg is None:
         return _check("Controller", "skip", "Windows registry driver check unavailable")
     path = r"SYSTEM\CurrentControlSet\Enum\USB\VID_09F1&PID_0007"
@@ -156,7 +157,8 @@ def check_driver():
                       "plug in the controller, power it, run scorbot doctor again")
     except OSError as exc:
         return _check("Controller", "warn", f"Cannot read driver: {exc}", DRIVER_FIX)
-    visible = any(row.name == "USB 09F1:0007" and row.passed for row in preflight.run_checks())
+    rows = preflight.run_checks() if usb_rows is None else usb_rows
+    visible = any(row.name == "USB 09F1:0007" and row.passed for row in rows)
     detail = f"09F1:0007 registered driver: {', '.join(services) or 'unknown'}"
     if not visible and not any(_driver_started(service) for service in services):
         return _check("Controller", "warn", detail + " (not connected now)",
@@ -203,10 +205,11 @@ def check_lerobot():
 
 def doctor_checks(args):
     checks = [check_python(), check_venv()]
-    driver = check_driver()
+    packages = check_packages()
+    driver = check_driver(packages)
     # libusb cannot see a controller bound to Intelitek's driver; Stack 2 still reaches it with --transport auto.
     intelitek = "ERUSB" in driver.detail.upper() and "not connected" not in driver.detail
-    for row in check_packages():
+    for row in packages:
         if row.name == "Python":
             continue
         fix = row.fix

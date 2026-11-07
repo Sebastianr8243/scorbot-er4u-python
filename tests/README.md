@@ -126,4 +126,5 @@ Match the neighbors: `unittest.TestCase`, temp dirs via `tempfile`, imports at m
 
 Ruff: `ruff check --select F scorbot scripts examples tests` is clean; keep it clean. Default rules flag `l` as a variable name in `test_simulated.py`; that is accepted noise.
 
+| `test_record_failure.py` | A failed log write after a jog, velocity jog, gripper or vendor joint move latches a fault instead of escaping as OSError; simulator only |
 | `test_one_limit.py` | Vendor-only jog and joint-move travel bounds, recovery, vendor Home zero, optional example caps; simulator and pure checks only |
