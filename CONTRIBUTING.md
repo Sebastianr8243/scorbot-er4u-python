@@ -1,6 +1,6 @@
 # Contributing
 
-Python SDK, legacy USB protocol code, lab tools and offline research tools for the Intelitek ScorBot ER-4U arm (USB `09F1:0007`, original Controller-USB). The vendor Home through Intelitek's DLL ran on the real arm on 2026-10-20; everything else is unverified on hardware. **To move the arm: [docs/lab/RUN_THE_ARM.md](docs/lab/RUN_THE_ARM.md)** (the vendor-DLL tools in `tools/`). Deeper docs: [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md), [docs/protocol/PROTOCOL.md](docs/protocol/PROTOCOL.md), [docs/manual/HARDWARE_REFERENCE.md](docs/manual/HARDWARE_REFERENCE.md). Old plans, specs, checklists and evidence are in `docs/archive/`.
+Python SDK, legacy USB protocol code, lab tools and offline research tools for the Intelitek ScorBot ER-4U arm (USB `09F1:0007`, original Controller-USB). The vendor Home through Intelitek's DLL ran on the real arm on 2026-10-20; everything else is unverified on hardware. **To move the arm: [docs/lab/RUN_THE_ARM.md](docs/lab/RUN_THE_ARM.md)** (the vendor-DLL tools in `tools/`). Deeper docs: [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md), [docs/protocol/PROTOCOL.md](docs/protocol/PROTOCOL.md), [docs/manual/HARDWARE_REFERENCE.md](docs/manual/HARDWARE_REFERENCE.md). Old plans, specs, checklists and evidence were in `docs/archive/`, removed in #49; read one with `git show dab41a0^:docs/archive/<file>`.
 
 Each subdirectory has a README.md with module-level rules. Read it before editing there.
 
@@ -116,7 +116,7 @@ CI (`.github/workflows/tests.yml`): Windows with Python 3.13 and Ubuntu with Pyt
 | Every arm number and its source | `docs/manual/ER4U_MODEL.md` (code: `scorbot/source_model.py`) |
 | Manual facts, LEDs | `docs/manual/HARDWARE_REFERENCE.md` |
 | USBPcap capture, joint-angle measurement, Windows driver | `docs/lab/USB_CAPTURE.md`, `docs/lab/PHYSICAL_CALIBRATION.md`, `docs/lab/WINDOWS_BENCH_RUN.md` |
-| Old plans, checklists, runbooks, evidence | `docs/archive/` |
+| Old plans, checklists, runbooks, evidence | git history only: `git show dab41a0^:docs/archive/<file>` (removed in #49) |
 
 ## Before you change X, read Y
 
@@ -124,6 +124,6 @@ CI (`.github/workflows/tests.yml`): Windows with Python 3.13 and Ubuntu with Pyt
 |---|---|
 | `scorbot/robot.py` and `scorbot/homing.py` gates, faults, threading, homing | `tests/test_python_api.py`, `tests/test_simulated.py`, `docs/design/ARCHITECTURE.md` sections 8, 11 |
 | `openScorbot/*` | `openScorbot/README.md`, `docs/lab/USB_CAPTURE.md` |
-| Session schema or topics | `scorbot/session/schemas.py`, `docs/archive/design/EXPERIMENT_RECORDING.md`; bump `SCHEMA_VERSION` only with a reader migration |
+| Session schema or topics | `scorbot/session/schemas.py`, `docs/archive/design/EXPERIMENT_RECORDING.md` (removed in #49, in git history before dab41a0); bump `SCHEMA_VERSION` only with a reader migration |
 | Calibration fields | `scorbot/calibration.py`, `scripts/fit_calibration.py`, `docs/lab/PHYSICAL_CALIBRATION.md` (loader and fitter must agree) |
 | Log event names | `scripts/watch_lab_log.py:ALARM_EVENTS`, `scripts/review_lab_logs.py` (both parse them) |

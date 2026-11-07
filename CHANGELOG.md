@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (session recorder robustness, 2026-11-06)
+
+- Preserve and retry close metadata after recorder failures, clean up failed session creation, keep recording after periodic fsync failures with a durability note, reject caller-owned `_rec`, contain best-effort close errors with synchronized first-failure reporting, and cache code identity once per process with isolated copies.
+
 ## Unreleased (simulator vendor orders, 2026-11-06)
 
 - Simulator vendor joint moves now follow all five arm setpoints on order 23; gripper fault behavior applies only to packets selecting the gripper motor, so digital and analog output writes leave every encoder count unchanged.
