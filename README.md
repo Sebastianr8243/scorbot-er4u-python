@@ -54,6 +54,7 @@ Hardware claims are "unverified" until a bench log backs them.
 | `scripts/lab_day.py` | Stack 2 lab day: steps T, S, P (X) and G in order, each against its written pass line, a typed GO before every step that connects, stop at the first fail; `--simulate` rehearses it ([checklist](docs/lab/LAB_CHECKLIST.md)) |
 | `scripts/read_timeout_check.py` | Lab step T: one read on Intelitek's driver with nothing written, timed; never moves the arm ([checklist](docs/lab/LAB_CHECKLIST.md)) |
 | `scripts/follow_report.py` | After a stream on the arm: how far it lagged its target at each speed, from the controller log; reads files only |
+| `scripts/setup_lerobot.py` | Set up a separate LeRobot 0.6.1 environment: `python scripts/setup_lerobot.py --dry-run` previews the commands; run with Python 3.12 |
 | `docs/` | Index in [docs/README.md](docs/README.md); protocol and manual notes |
 | `tests/`, `tests_extra/` | `unittest` suites, no hardware |
 
