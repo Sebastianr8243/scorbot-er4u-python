@@ -3,13 +3,9 @@
 # Title: Function library
 # University of La Laguna
 
-import usb.core
-import usb.util
 import time
 import conf
 import libhex
-import queue
-import log
 import logging
 import builtins
 from math import *

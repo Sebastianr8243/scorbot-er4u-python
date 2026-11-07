@@ -8,14 +8,12 @@ import usb.util
 import libsync
 import libcomm
 import libdef
-import log
 import logging
 import threading
 import queue
-import time
 import conf
 import sys
-from PyQt5 import QtWidgets, uic, QtGui
+from PyQt5 import QtWidgets, uic
 
 # By default the program starts in online mode
 online = True

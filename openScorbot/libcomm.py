@@ -10,7 +10,6 @@ import time
 import conf
 import setHome
 import moveXYZ
-import log
 import logging
 import motion_profile
 

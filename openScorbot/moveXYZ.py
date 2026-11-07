@@ -6,7 +6,6 @@
 import libdef
 import conf
 import libhex
-import log
 import logging
 
 ################################################################################

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (legacy Home wrist encoding, needs bench, 2026-11-06)
+
+- Legacy Home's pitch/roll search, offset and braking targets now use `countField` for both wrist motors: fixes the one-count-low encoding and malformed out-of-range low words. Pure functions and fake endpoints only; unverified on the arm, draft for a supervised bench test.
+
 ## Unreleased (issue #199, 2026-11-06)
 
 - #199: `python -m scorbot.bridge stop` prints ok only when the server confirms the stop (new `Arm.stop_confirmed`, 3 s wait); a busy server or no reply is a failure with exit 1. `stop()` is unchanged (fire and forget, used by Ctrl+C). `scorbot doctor` now requires Python 3.12, like `preflight`. Fake server only; never run on the arm.

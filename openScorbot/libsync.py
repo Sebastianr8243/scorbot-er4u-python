@@ -7,7 +7,6 @@ import time
 import libhex
 import libdef
 import conf
-import log
 
 ###############################################################################
 # Script that performs the initial connection between the application and the
