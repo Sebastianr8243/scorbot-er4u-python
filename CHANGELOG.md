@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (simulator vendor orders, 2026-11-06)
+
+- Simulator vendor joint moves now follow all five arm setpoints on order 23; gripper fault behavior applies only to packets selecting the gripper motor, so digital and analog output writes leave every encoder count unchanged.
+
 ## Unreleased (ultra review follow-ups, 2026-11-06)
 
 - A failed log write after a motion (the packet trace of a jog, velocity jog, gripper or vendor joint move, or a command's completion row) now latches a fault instead of escaping as a raw OSError that skipped the post-motion checks (`Scorbot._record_after_motion`, the pattern `_end_stream` already used). A failed `stream_fault` row no longer skips the stream's cleanup.

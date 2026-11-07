@@ -326,7 +326,7 @@ class SimulatedController:
                 return _ERROR_MOTORS_OFF
             return self._vendor_manual(payload[1])
         elif order == VENDOR_IO_ORDER:
-            # Output writes need no motors; their setpoints hold the counts, so the gripper model stays put.
+            # Output writes need no motors; their setpoints hold the counts and select no gripper motor.
             return self._vendor_gripper(payload[1])
         elif order == VENDOR_TORQUE_ORDER:
             # A reading needs no motors; its setpoints hold the counts, so nothing moves.
@@ -412,15 +412,17 @@ class SimulatedController:
         return 0 if succeeded else 1
 
     def _vendor_gripper(self, source) -> int:
-        """Run the post-Home gripper move the way ``libcomm.vendor_home_run`` does (order 23).
+        """Run vendor joint/gripper moves (order 23) or output writes (order 24).
 
-        The gripper count follows the gripper setpoint (OUT bytes 32-35) at once, stopping at
+        Arm counts follow OUT bytes 12-31. A gripper move selects motor mask 0x20 before its ramp;
+        joint moves and IO do not. Only then does the gripper follow OUT bytes 32-35, stopping at
         ``gripper_blocked_at`` when closing, or mirrored about its start with ``gripper_reversed``;
         ``gripper_disturbs`` is added to the arm at the end; ``stream_emergency`` sets the emergency bit.
         ``vendor_hook(n, None)`` runs before message n. A failure switches the motors off and answers 1.
         """
         self.vendor_packets = []
         sequence, count = 1, 0
+        gripper_move = False
         with self._lock:
             start = self.counts["gripper"]
         while True:
@@ -440,17 +442,21 @@ class SimulatedController:
             self.vendor_packets.append(step[1])
             if self.vendor_hook is not None:
                 self.vendor_hook(count, None)
-            setpoint = int.from_bytes(step[1][32:36], "little", signed=True)
-            value = setpoint     # setpoints and ``counts`` are both controller counts
-            if self.gripper_reversed:
-                value = 2 * start - value
+            gripper_move = gripper_move or bool(step[1][5] & (1 << vendor_home_port.GRIPPER))
             with self._lock:
-                if self.gripper_blocked_at is not None and value < self.counts["gripper"]:
-                    value = max(value, self.gripper_blocked_at)
-                self.counts["gripper"] = value
+                for index, motor in enumerate(ARM_MOTORS):
+                    self.counts[motor] = int.from_bytes(step[1][12 + 4 * index:16 + 4 * index], "little", signed=True)
+                if gripper_move:
+                    value = int.from_bytes(step[1][32:36], "little", signed=True)
+                    if self.gripper_reversed:
+                        value = 2 * start - value
+                    if self.gripper_blocked_at is not None and value < self.counts["gripper"]:
+                        value = max(value, self.gripper_blocked_at)
+                    self.counts["gripper"] = value
         with self._lock:
-            for motor, counts in self.gripper_disturbs.items():
-                self.counts[motor] += counts
+            if gripper_move:
+                for motor, counts in self.gripper_disturbs.items():
+                    self.counts[motor] += counts
         return 0
 
     def _vendor_manual(self, source) -> int:
