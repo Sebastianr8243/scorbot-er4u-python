@@ -8,6 +8,7 @@ import conf
 import libhex
 import time
 import motion_profile
+import log
 import logging
 
 ################################################################################
