@@ -195,8 +195,7 @@ class PolicyArm:
             # The stream measures from the session home vendor Home recorded; a second read here
             # could differ by the counts the arm settled in between.
             self._home = dict(self.robot._home_counts)
-            self._per_degree = {m: self.robot.preview_jog(m, 1.0)["motor_count_deltas"][m]
-                                for m in MOTORS}
+            self._per_degree = {m: self.robot._counts_per_degree(m) for m in MOTORS}
             # The speed step's counts per degree. A wrist motor moves this much for a degree of
             # pitch and as much again for a degree of roll, so each gets half its speed.
             self._step_per_degree = {**self._per_degree, **{

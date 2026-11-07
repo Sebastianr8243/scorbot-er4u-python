@@ -50,7 +50,7 @@ A new script gets a row in the table below and in the README's "Scripts and exam
 - Legacy logs may lack `data_source` (treated as `real`) or `led_prompts` (missing LED answers are then not a problem). Do not tighten this without a migration note.
 - The review refuses to mix files with different `robot_id`, `motion_source_sha256`, or `data_source`, and repeats the SIMULATED banner after the report. Preserve all three.
 - Differences use `signed_count_delta`; never `max - min` of signed counts (jumps 65536 at the seam; fixed once already, `test_idle_range_is_wrap_aware_at_the_zero_seam`).
-- `watch_lab_log.py` writes ANSI escapes; it enables them on Windows with `os.system("")`. Respect non-TTY output when extending (`docs/archive/design/OPERATOR_UX.md` backlog item 5).
+- `watch_lab_log.py` writes ANSI escapes; it enables them on Windows with `os.system("")`. Respect non-TTY output when extending (`docs/archive/design/OPERATOR_UX.md` backlog item 5; removed in #49, in git history before dab41a0).
 
 ## usb_trace.py
 

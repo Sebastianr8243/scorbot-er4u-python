@@ -116,8 +116,7 @@ class StreamMixin:
                 self._record("stream_refused_teach_mode")
                 raise ScorbotError("The teach pendant is in teach mode; switch it to Auto before streaming")
             motors = WRIST_STREAM_MOTORS if wrist else STREAM_MOTORS
-            per_degree = {m: abs(self.preview_jog(m, 1.0)["motor_count_deltas"][m])
-                          for m in STREAM_MOTORS}
+            per_degree = {m: abs(self._counts_per_degree(m)) for m in STREAM_MOTORS}
             # One wrist motor carries pitch and roll (m1 = p + r, m2 = r - p, source model).
             per_degree.update({m: 2 * source_model.COUNTS_PER_DEGREE[m] for m in motors[3:]})
             rounding = {m: 2 if m in limits.WRIST_MOTORS else 0 for m in motors}
@@ -254,7 +253,10 @@ class StreamMixin:
                     if not stream.fault_reported:
                         self._latch_fault(failure)
                         stream.fault_reported = True
-                        self._record("stream_fault", error=self._fault)
+                        try:
+                            self._record("stream_fault", error=self._fault)
+                        except Exception:
+                            pass   # latched already; a log error must not skip the cleanup below
             self._stream = None
             with self._stop_lock:
                 too_late = self._stop_event.is_set() and failure is None and result == 0
