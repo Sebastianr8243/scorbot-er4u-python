@@ -15,6 +15,7 @@ registers an exit hook and stops the arm on any error or Ctrl+C inside its calls
 """
 
 import atexit
+import math
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,8 +57,31 @@ SUFFIX = ".pos"
 GRIPPER_KEY = "gripper" + SUFFIX
 ACTION_KEYS = (*(m + SUFFIX for m in JOINTS), GRIPPER_KEY)
 SIM_NAME = "scorbot_sim"        # lerobot-record writes the robot's name as the dataset's robot_type
+_last_sent: dict[str, float] | None = None     # what the robot last commanded; one arm per process (see commanded_action)
 REAL_ARM_REFUSED = ("The LeRobot plugin refuses the real arm unless simulate=false and "
                     "real_arm_confirmed=true. Use simulate=true for rehearsal; the real-arm path is unverified.")
+
+
+def commanded_action() -> dict[str, float] | None:
+    """The action the robot last commanded (``send_action``'s return), or None before the first one or after
+    disconnect. ``lerobot-record`` never hands that return back to the teleoperator, so the keyboard teleoperator
+    reads it here. One arm per process, as the USB device allows."""
+    return None if _last_sent is None else dict(_last_sent)
+
+
+def _number(key: str, value: Any) -> Any:
+    """One action value as a plain float: ints, floats, numpy scalars and 0-d tensors (anything with __float__).
+    Not finite, or not a single number: ValueError naming the key. A bool or a non-number passes through
+    untouched, so PolicyArm's own checks (hold) are not loosened."""
+    if value is None or isinstance(value, bool) or isinstance(value, str) or not hasattr(value, "__float__"):
+        return value
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"{key} must be a single number, got {value!r}") from e
+    if not math.isfinite(number):
+        raise ValueError(f"{key} must be a finite number, got {number}")
+    return number
 
 
 @RobotConfig.register_subclass("scorbot")
@@ -178,6 +202,7 @@ class ScorbotRobot(Robot):
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         if not self.is_connected:
             raise ConnectionError(f"{self} is not connected.")
+        action = {k: _number(k, v) if k in ACTION_KEYS else v for k, v in action.items()}   # a bad value is the caller's, not a fault
         try:
             # The gripper first: its move restarts the stream, and the joint step then goes to the new one.
             gripper = self._arm.set_gripper(action.get(GRIPPER_KEY))     # missing or not a number: hold
@@ -185,9 +210,13 @@ class ScorbotRobot(Robot):
         except BaseException:
             self.disconnect()       # a fault in the gripper move leaves the stream ended; close stops the arm
             raise
-        return {**{m + SUFFIX: deg for m, deg in target.items()}, GRIPPER_KEY: gripper}
+        global _last_sent
+        _last_sent = {**{m + SUFFIX: deg for m, deg in target.items()}, GRIPPER_KEY: gripper}
+        return dict(_last_sent)
 
     def disconnect(self) -> None:
+        global _last_sent
+        _last_sent = None
         arm, self._arm, self._scene = self._arm, None, None
         hook, self._exit_hook = self._exit_hook, False
         if arm is not None:

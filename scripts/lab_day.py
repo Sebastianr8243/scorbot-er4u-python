@@ -117,8 +117,13 @@ def gripper_span(log_path):
     from scorbot.calibration import signed_count_delta
     from scorbot.state import JOINTS, PACKET_MIN_LENGTH, decode_state
     start, low, high = None, 0, 0
-    for row in Path(log_path).read_text(encoding="utf-8").splitlines():
-        row = json.loads(row)
+    for line in Path(log_path).read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:      # a line cut off mid-write (child killed): skip it, as the main loop does
+            continue
+        if not isinstance(row, dict):
+            continue
         if row.get("event") != "motion_trace" or row.get("joint") != "vendor_home":
             continue
         for packet in row.get("packets") or []:

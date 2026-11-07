@@ -4,6 +4,18 @@
 
 - Simulator vendor joint moves now follow all five arm setpoints on order 23; gripper fault behavior applies only to packets selecting the gripper motor, so digital and analog output writes leave every encoder count unchanged.
 
+## Unreleased (ultra review follow-ups, 2026-11-06)
+
+- A failed log write after a motion (the packet trace of a jog, velocity jog, gripper or vendor joint move, or a command's completion row) now latches a fault instead of escaping as a raw OSError that skipped the post-motion checks (`Scorbot._record_after_motion`, the pattern `_end_stream` already used). A failed `stream_fault` row no longer skips the stream's cleanup.
+- Streaming and `PolicyArm.connect` read counts per degree with `_counts_per_degree`, so a robot built with `max_jog_degrees` below 1 can stream.
+- `joint_move` imports `ARM_MOTORS` and the settle band (`DRIFT_COUNTS`) from `limits` instead of redefining them.
+- `lab_day.gripper_span` skips a log line cut off mid-write, so step G reports bring_up's real failure.
+- `scorbot doctor` enumerates USB once (the driver check reuses the preflight rows).
+
+## Unreleased (issue #198, 2026-11-06)
+
+- #198 (ultra review): the LeRobot keyboard teleoperator `scorbot_joint_keys` steps from the target the robot last commanded (`lerobot_robot_scorbot.robot.commanded_action()`, set by `send_action`) instead of its own ever-growing target, so releasing a key stops the arm within a frame (before, with the lead clamp binding, the arm kept moving after release; past the vendor window every joint stayed frozen until the target came back). `ScorbotRobot.send_action` converts each action value with `float()` (numpy scalars, 0-d tensors; a tensor or `numpy.float32` was dropped silently before) and raises `ValueError` for NaN, infinity or a non-scalar; `PolicyArm` is unchanged. Simulator only; never run on the arm.
+
 ## Unreleased (issue #199, 2026-11-06)
 
 - #199: `python -m scorbot.bridge stop` prints ok only when the server confirms the stop (new `Arm.stop_confirmed`, 3 s wait); a busy server or no reply is a failure with exit 1. `stop()` is unchanged (fire and forget, used by Ctrl+C). `scorbot doctor` now requires Python 3.12, like `preflight`. Fake server only; never run on the arm.

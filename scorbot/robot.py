@@ -207,6 +207,21 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         with self.log_path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(row, allow_nan=False) + "\n")
 
+    def _record_after_motion(self, event: str, **fields) -> bool:
+        """``_record`` for a row written after a motion ran. A write error latches a fault
+        (keeping any earlier one) and returns False instead of escaping, so it can never
+        skip the post-motion checks or leave the session unlatched. Never raises."""
+        try:
+            self._record(event, **fields)
+            return True
+        except Exception as exc:
+            self._latch_fault(f"The {event} record could not be written: {exc}", keep_first=True)
+            try:
+                self._record("record_fault", error=self._fault)
+            except Exception:
+                pass   # the log is what just failed
+            return False
+
     @staticmethod
     def _import_usb():
         try:
@@ -575,7 +590,9 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                 self._cancel_event.set()
                 self._record("command_interrupted", payload=_loggable(payload))
                 raise
-            self._record("command_complete", payload=_loggable(payload))
+            # The command ran; a failed row latches (the next command is refused) but does not
+            # raise, so disconnect's exit command still joins the worker and closes the device.
+            self._record_after_motion("command_complete", payload=_loggable(payload))
 
     def get_state(self, *, after_index: int | None = None) -> RobotState:
         """Return a copied, recent USB response; optionally wait for a newer one."""
@@ -767,6 +784,14 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                 self._stream_resume_from = None
         return asked
 
+    def _counts_per_degree(self, joint: str) -> int:
+        """Signed motor counts of a +1 degree legacy jog of ``joint`` (what ``preview_jog(joint, 1.0)``
+        reports), without the jog ceiling, so a robot built with ``max_jog_degrees`` below 1 can stream."""
+        if joint not in self._JOG_CODES:
+            raise ValueError(f"Unknown joint: {joint}")
+        plan = self._legacy("motion_profile").plan_jog(self._JOG_CODES[joint][0], 1.0, 10)
+        return plan["motor_count_deltas"][joint]
+
     def preview_jog(self, joint: str, delta_degrees: float, *, speed: int = 10,
                     starting_signed_counts: dict[str, int] | None = None) -> dict:
         """Plan motor setpoints offline; this never opens USB or queues a command."""
@@ -868,6 +893,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
             if trace is not None:
                 trace.start()
             stopped = False
+            trace_ok = True
             outer, self._move_thread = self._move_thread, threading.get_ident()
             try:
                 self._command([positive if delta_degrees > 0 else negative,
@@ -889,8 +915,10 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                     self._record("stop_too_late", joint=joint)
                 if trace is not None:
                     packets, dropped = trace.stop()
-                    self._record("motion_trace", joint=joint, packets=packets,
-                                 dropped_packets=dropped)
+                    trace_ok = self._record_after_motion("motion_trace", joint=joint, packets=packets,
+                                                         dropped_packets=dropped)
+            if not trace_ok:
+                raise ScorbotError(self._fault)
             if stopped:
                 after = self._settled_after_stop(before)
                 self._record("motion_stopped", joint=joint,
@@ -1009,6 +1037,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
             if trace is not None:
                 trace.start()
             outer, self._move_thread = self._move_thread, threading.get_ident()
+            trace_ok = True
             try:
                 self._command([GRIPPER_ORDER, source, 0], timeout=seconds + 30.0)
             except ScorbotError as exc:
@@ -1020,7 +1049,10 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
                 self._move_thread = outer
                 if trace is not None:
                     packets, dropped = trace.stop()
-                    self._record("motion_trace", joint="vendor_joint", packets=packets, dropped_packets=dropped)
+                    trace_ok = self._record_after_motion("motion_trace", joint="vendor_joint", packets=packets,
+                                                         dropped_packets=dropped)
+            if not trace_ok:
+                raise ScorbotError(self._fault)
             with self._stop_lock:
                 too_late = self._stop_event.is_set() and not source.result
                 self._stop_event.clear()
