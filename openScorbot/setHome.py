@@ -345,10 +345,7 @@ def _search_home(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event, 
             cadena = libdef.fill_msg(cadena, 24)
             dato_in_1 = libdef.suma(dato_in_1, cont_vel,vel,100)
             dato_in_2 = libdef.resta(dato_in_2, cont_vel,vel,100)
-            signal_out = libdef.detrans(dato_in_1[0])
-            signal_out += dato_in_1[1]
-            signal_out += libdef.detrans(dato_in_2[0])
-            signal_out += dato_in_2[1]
+            signal_out = libdef.countField(*dato_in_1) + libdef.countField(*dato_in_2)
             msg = libdef.get_encoder(buffer,media)
             cadena += libdef.getStruct(10, signal_out, msg)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
@@ -384,10 +381,7 @@ def _search_home(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event, 
             cadena = libdef.fill_msg(cadena, 24)
             dato_in_1 = libdef.suma(dato_in_1, cont_vel,vel,100)
             dato_in_2 = libdef.resta(dato_in_2, cont_vel,vel,100)
-            signal_out = libdef.detrans(dato_in_1[0])
-            signal_out += dato_in_1[1]
-            signal_out += libdef.detrans(dato_in_2[0])
-            signal_out += dato_in_2[1]
+            signal_out = libdef.countField(*dato_in_1) + libdef.countField(*dato_in_2)
             msg = libdef.get_encoder(buffer,media)
             cadena += libdef.getStruct(10, signal_out, msg)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
@@ -405,10 +399,7 @@ def _search_home(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event, 
             cadena = libdef.fill_msg(cadena, 24)
             dato_in_1 = libdef.suma(dato_in_1, cont_vel,vel,100)
             dato_in_2 = libdef.resta(dato_in_2, cont_vel,vel,100)
-            signal_out = libdef.detrans(dato_in_1[0])
-            signal_out += dato_in_1[1]
-            signal_out += libdef.detrans(dato_in_2[0])
-            signal_out += dato_in_2[1]
+            signal_out = libdef.countField(*dato_in_1) + libdef.countField(*dato_in_2)
             msg = libdef.get_encoder(buffer,media)
             cadena += libdef.getStruct(10, signal_out, msg)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
@@ -490,10 +481,7 @@ def _search_home(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event, 
             cadena = libdef.fill_msg(cadena, 24)
             dato_in_1 = libdef.resta(dato_in_1, cont_vel,vel,100)
             dato_in_2 = libdef.resta(dato_in_2, cont_vel,vel,100)
-            signal_out = libdef.detrans(dato_in_1[0])
-            signal_out += dato_in_1[1]
-            signal_out += libdef.detrans(dato_in_2[0])
-            signal_out += dato_in_2[1]
+            signal_out = libdef.countField(*dato_in_1) + libdef.countField(*dato_in_2)
             msg = libdef.get_encoder(buffer,media)
             cadena += libdef.getStruct(10, signal_out, msg)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
@@ -529,10 +517,7 @@ def _search_home(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event, 
             cadena = libdef.fill_msg(cadena, 24)
             dato_in_1 = libdef.resta(dato_in_1, cont_vel,vel,100)
             dato_in_2 = libdef.resta(dato_in_2, cont_vel,vel,100)
-            signal_out = libdef.detrans(dato_in_1[0])
-            signal_out += dato_in_1[1]
-            signal_out += libdef.detrans(dato_in_2[0])
-            signal_out += dato_in_2[1]
+            signal_out = libdef.countField(*dato_in_1) + libdef.countField(*dato_in_2)
             msg = libdef.get_encoder(buffer,media)
             cadena += libdef.getStruct(10, signal_out, msg)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)
@@ -548,10 +533,7 @@ def _search_home(b_1, epout, epin, buffer, cola_read, cola_orden, cancel_event, 
             cadena = libdef.fill_msg(cadena, 24)
             dato_in_1 = libdef.resta(dato_in_1, cont_vel,vel,100)
             dato_in_2 = libdef.resta(dato_in_2, cont_vel,vel,100)
-            signal_out = libdef.detrans(dato_in_1[0])
-            signal_out += dato_in_1[1]
-            signal_out += libdef.detrans(dato_in_2[0])
-            signal_out += dato_in_2[1]
+            signal_out = libdef.countField(*dato_in_1) + libdef.countField(*dato_in_2)
             msg = libdef.get_encoder(buffer,media)
             cadena += libdef.getStruct(10, signal_out, msg)
             libdef.set_msg(cadena, epout, epin, buffer, write, read)

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased (legacy Home wrist encoding, needs bench, 2026-11-06)
+
+- Legacy Home's pitch/roll search, offset and braking targets now use `countField` for both wrist motors: fixes the one-count-low encoding and malformed out-of-range low words. Pure functions and fake endpoints only; unverified on the arm, draft for a supervised bench test.
+
 ## Unreleased (session recorder robustness, 2026-11-06)
 
 - Preserve and retry close metadata after recorder failures, clean up failed session creation, keep recording after periodic fsync failures with a durability note, reject caller-owned `_rec`, contain best-effort close errors with synchronized first-failure reporting, and cache code identity once per process with isolated copies.
