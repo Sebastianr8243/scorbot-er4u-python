@@ -4,6 +4,7 @@ import json
 import math
 import threading
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -74,6 +75,19 @@ class FakeSourceTests(unittest.TestCase):
 
 
 class OpenCVSourceTests(unittest.TestCase):
+    def test_network_stream_uses_default_backend_without_property_writes(self):
+        cv2 = FakeCV2()
+        with mock.patch("scorbot.camera.source.sys.platform", "win32"), \
+                mock.patch.object(FakeCapture, "set", side_effect=AssertionError("network property write")):
+            source = OpenCVSource("http://127.0.0.1:8080/stream", warmup_s=0.0, cv2_module=cv2)
+            source.open()
+            self.assertEqual(cv2.opened_with, ("http://127.0.0.1:8080/stream", cv2.CAP_ANY))
+            self.assertEqual(source.settings()["set_ok"], {})
+            self.assertEqual(source.settings()["requested"], {})
+            self.assertEqual(source.settings()["backend"], "default")
+            self.assertTrue(source.read()[0])
+            source.close()
+
     def test_settings_record_request_set_result_and_raw_read_back(self):
         cv2 = FakeCV2(read_back={39: 2.0, 21: -1.0})
         source = OpenCVSource(1, width=320, height=240, fps=30.0, focus=10.0,
