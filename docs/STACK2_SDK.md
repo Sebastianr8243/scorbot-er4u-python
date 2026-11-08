@@ -99,14 +99,14 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/RE
 | `examples/lerobot_sim_check.py` | `scorbot sim check` | No | Check the LeRobot simulation pipeline in its separate venv |
 | `examples/mujoco_twin_view.py` | `scorbot sim view` | No | View the simulated arm |
 | `lerobot-record` (separate venv) | `scorbot record` | No | Print the plugin README's simulate command; does not run it |
-| `scripts/review_lab_logs.py` | `scorbot analyze review-logs` | No | Review lab logs |
+| `scripts/review_lab_logs.py` | `scorbot analyze review-logs` | No | Review lab logs. The script requires `--idle` (or `--session` for a `python -m scorbot.lab` session log) and cannot read `lab-day.jsonl`; lab-day logs are summarised with `scorbot lab summary <folder>/lab-day.jsonl --sheet` |
 | `scripts/follow_report.py` | `scorbot analyze follow` | No | Measure streamed target lag |
 | `scripts/usb_trace.py` | `scorbot analyze usb-trace` | No | Read USB captures |
 | `scripts/vendor_check.py` | `scorbot analyze vendor-check` | No | Compare a trace with the vendor protocol |
 | `scripts/fit_calibration.py` | `scorbot analyze fit-calibration` | No | Fit physical calibration |
 | `scripts/build_calibration_csv.py` | `scorbot analyze build-calibration-csv` | No | Build a measurement table |
 | `scripts/export_policy_dataset.py` | `scorbot analyze export-dataset` | No | Export policy logs as a dataset |
-| `scripts/setup_windows.ps1`, `windows_usb_check.ps1` | | No | Windows setup and a read-only USB check |
+| `scripts/setup_windows.ps1`, `scripts/windows_usb_check.ps1` | | No | Windows setup and a read-only USB check |
 
 ## Hardware reference
 
