@@ -60,7 +60,7 @@ They are not behind the same plugin today: Stack 1 has its own, `lerobot_robot_s
 
 | | Stack 1 plugin (vendor DLL) | Stack 2 plugin (this chain) |
 |---|---|---|
-| Effort to a first real LeRobot run | Low: built, has `allow_real`, gripper and cameras included | Low (code built, lab gates pending): real-arm opt-in (`simulate=false`, `real_arm_confirmed=true`), vendor travel limits, binary gripper (#112) and cleanup hooks built; unverified on the arm until lab steps pass |
+| Effort to a first real LeRobot run | Low: built, has `allow_real`, gripper and cameras included | Medium (code built, no lab step passed yet): real-arm opt-in (`simulate=false`, `real_arm_confirmed=true`), vendor travel limits, binary gripper (#112) and cleanup hooks built; unverified on the arm until lab steps pass |
 | Risk | Lower: the vendor plans each move inside a measured box; but each frame is one blocking point move (no new target mid-move), so motion is stop-and-go | Higher: streaming, its period and its stop sequence have never run on the arm; first trials are one motor, about a degree |
 | Proof | Vendor Home E4 (2026-10-20); bridge E3 (desk run on the lab DLL, fake controller); plugin sim and FakeArm with lerobot 0.6.1 (2026-10-28) | Plugin sim with lerobot 0.6.1 (2026-11-01, E2); USB connect E4, legacy home failed (2026-10-06), vendor-home port E3 |
 | Fits | Chunked "go there" actions, slow demos | Continuous joint control at a steady rate, which is what VLA policies expect |
