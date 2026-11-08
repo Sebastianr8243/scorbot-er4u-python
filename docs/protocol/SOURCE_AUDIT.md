@@ -252,7 +252,7 @@ None of these reach the controller.
 | `session.replay._KNOWN_OPCODES`, `session.replay._MAGIC`, `session.replay._MAX_RECORD`, `session.schemas.IMAGE_SCHEMA`, `session.replay._IDENTITY_KEYS` | MCAP opcodes and magic, Foxglove schema name | ours | the MCAP and Foxglove file formats, not the controller | n/a |
 | `camera.recorder.EMPTY_READS_BEFORE_FAILURE`, `camera.recorder.HEALTH_ROWS_KEPT`, `camera.source._BLOCK`, `camera.stream.STREAM_VERSION`, `camera.stream.STREAM_METADATA`, `camera.stream._IDENTITY` | camera settings | ours | camera recording | n/a |
 | `provenance._SOURCE_FILES` | file list | ours | which legacy files are hashed into a session's provenance | n/a |
-| `cli.REPO_ROOT`, `cli.TARGETS`, `cli.DESCRIPTIONS`, `cli.SYNC_FIX`, `cli.CALIBRATION_FIX`, `cli.DRIVER_FIX` | launcher menu and doctor fix text | ours | which existing script each `scorbot` command starts, and the fix line doctor prints | n/a |
+| `cli.REPO_ROOT`, `cli.TARGETS`, `cli.DESCRIPTIONS`, `cli.ROBOT_SAFETY_FLAGS`, `cli.SYNC_FIX`, `cli.CALIBRATION_FIX`, `cli.DRIVER_FIX` | launcher menu and doctor fix text | ours | which existing script each `scorbot` command starts, and the fix line doctor prints | n/a |
 
 ## 3. Corrections found while tagging
 
