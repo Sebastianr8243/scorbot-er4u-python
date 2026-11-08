@@ -20,7 +20,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.
 
 Expected: PASS for Python, required packages, the Windows libusb backend, and USB controller `09F1:0007`; exit code 0. This preflight only enumerates USB. It does **not** reset the controller, open the robot session, enable motors, or command motion. Check the exit code with `$LASTEXITCODE`. If any check fails, stop here, keep the full error output, and fix that check before connecting.
 
-On Intelitek's driver the libusb preflight cannot see the controller, which is expected; do not swap drivers because of that, use `--transport auto`.
+Exception: on Intelitek's driver (the lab default) the libusb backend and controller checks fail because libusb cannot see the controller. That is expected and is not a reason to stop or to swap drivers; run Stack 2 with `--transport auto`.
 
 If the controller appears in Device Manager with the correct ID but preflight cannot enumerate it, the current device driver may be incompatible. The transfer ZIP can include [official Zadig 2.9](https://zadig.akeo.ie/), a driver installation tool; it is **not** installed by extracting the ZIP. Before running it, verify the executable's Windows signature says **Akeo Consulting** and its SHA-256 is `4ECAA95DF3DA3621486A043AEF8B3050B8BAFE7C901402871E816229EF82039B`:
 
