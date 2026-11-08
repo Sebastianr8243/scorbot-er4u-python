@@ -121,7 +121,8 @@ class OpenCVSource:
 
     def open(self) -> None:
         cv2 = self._module()
-        backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+        is_url = isinstance(self.index_or_path, str) and "://" in self.index_or_path
+        backend = cv2.CAP_DSHOW if sys.platform == "win32" and not is_url else cv2.CAP_ANY
         capture = cv2.VideoCapture(self.index_or_path, backend)
         if not capture.isOpened():
             raise RuntimeError(f"Could not open camera {self.index_or_path!r}")
@@ -137,6 +138,8 @@ class OpenCVSource:
             # V4L2 uses 1 (OpenCV backend sources; unverified with our camera).
             requested["auto_exposure"] = 0 if sys.platform == "win32" else 1
             requested["exposure"] = self.exposure
+        if is_url:
+            requested = {}  # Stream settings belong to the server, not the capture device.
         names = dict(self._PROPS)
         set_ok = {key: bool(capture.set(getattr(cv2, names[key]), value))
                   for key, value in requested.items()}
@@ -148,7 +151,7 @@ class OpenCVSource:
         except Exception:
             self.close()
             raise
-        self._settings = {"backend": "directshow" if sys.platform == "win32" else "default",
+        self._settings = {"backend": "directshow" if backend == cv2.CAP_DSHOW else "default",
                           "index_or_path": str(self.index_or_path),
                           "requested": requested, "set_ok": set_ok,
                           "read_back": read_back, "actual": actual,
