@@ -194,6 +194,24 @@ class PolicyArmGripperTests(unittest.TestCase):
         self.assertIsNone(arm.robot._stream)
 
 
+    def test_a_stop_too_late_for_the_jaw_near_home_still_prevents_the_resume(self):
+        """Near home a fresh start needs no resume point, so the cleared one alone did not stop it.
+        The away-from-home case: test_a_stop_that_lands_as_the_gripper_finishes_clears_the_resume."""
+        arm = self.arm()
+        robot, command = arm.robot, arm.robot._command
+
+        def late_stop(payload, *args, **kwargs):
+            reply = command(payload, *args, **kwargs)
+            if payload[0] == vg.GRIPPER_ORDER:
+                robot.request_stop()        # after the move ran, before its stop check
+            return reply
+
+        with mock.patch.object(robot, "_command", side_effect=late_stop):
+            with self.assertRaisesRegex(MotionStopped, "during the gripper move"):
+                arm.open_gripper()
+        self.assertIsNone(robot._stream)
+        self.assertFalse(robot._stop_event.is_set())       # the gripper cleared it; the refusal did not need it
+
     def test_a_stop_after_the_stream_is_unpublished_still_prevents_the_gripper(self):
         arm = self.arm()
         robot, inner = arm.robot, arm.robot._stop_lock
@@ -337,7 +355,8 @@ class PolicyArmGripperTests(unittest.TestCase):
             return result
 
         with mock.patch.object(robot, "_command", side_effect=command_then_stop):
-            with self.assertRaisesRegex(ScorbotError, "counts from home"):
+            # Reported as the stop it is, before start_stream would refuse the pose.
+            with self.assertRaisesRegex(MotionStopped, "during the gripper move"):
                 arm.open_gripper()
         self.assertIsNone(robot._stream)
 

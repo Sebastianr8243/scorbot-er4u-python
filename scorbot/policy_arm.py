@@ -143,7 +143,16 @@ def stop_stream_and_move_gripper(robot, stream, direction: str):
     # Ending a stream consumes the session stop; keep it from starting the jaw instead.
     if stream.core._stop_requested:
         raise MotionStopped("A stop was requested; the gripper was not moved", state=state, started=False)
-    return state, robot.move_gripper(direction)
+    result = robot.move_gripper(direction)
+    # A clean close left a resume point and a gripper move keeps it; a stop, pendant Abort, emergency or
+    # fault during the move clears it. A stop too late to end the jaw is logged stop_too_late and its event
+    # cleared, so without this check a stream near home would start fresh and go on.
+    with robot._stop_lock:
+        stopped = robot._stream_resume_from is None
+    if stopped:
+        raise MotionStopped("A stop was requested during the gripper move; the stream was not resumed",
+                            state=result.state)
+    return state, result
 
 
 class PolicyArm:
