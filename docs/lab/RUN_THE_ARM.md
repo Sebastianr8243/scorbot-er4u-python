@@ -39,8 +39,8 @@ Logs go to `logs\<tool>-<time>.jsonl` by itself (`rehearsal\` when simulated). A
 # velocity 1 to 100 (percent of top speed, sign = direction), seconds up to 5
 & $py tools\usbc_jog\usbc_jog.py --dll-dir $bin --online --axis 0 --velocity 5 --seconds 1
 
-# vendor Home (closes the gripper and moves the wrist too)
-& $py tools\usbc_home\usbc_home.py --dll-dir $bin --online
+# vendor Home (closes the gripper and moves the wrist too); waits for Enter before the controller is initialised (that energises the motors and homes)
+& $py tools\usbc_home\usbc_home.py --dll-dir $bin --online --pause-before-init
 
 # small relative point move in x, y or z, up to 20 mm (needs a Home first)
 & $py tools\usbc_move\usbc_move.py --dll-dir $bin --online --axis x --mm 5

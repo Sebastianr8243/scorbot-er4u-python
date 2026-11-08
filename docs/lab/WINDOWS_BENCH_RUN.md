@@ -1,5 +1,7 @@
 # ER-4U Windows bench run
 
+Note: The default on the lab PC is to keep Intelitek's own driver (ERUSB) and run Stack 2 with `--transport auto`; no Zadig swap. Zadig/WinUSB is a fallback only, and it stops Intelitek's software and Stack 1 from using the controller (see [LAB_CHECKLIST.md](LAB_CHECKLIST.md) section 1 and [BRING_UP_RUNBOOK.md](BRING_UP_RUNBOOK.md)).
+
 Use this on the Windows PC connected to the **original ScorBot ER-4U USB controller**. The Python adapter and homing sequence have not yet been verified on this robot. Keep a trained operator at the arm, the work area clear, and the physical emergency stop within reach throughout the session. Do not run the old GUI or Intelitek application at the same time.
 
 ## 1. Copy and install
@@ -17,6 +19,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows_usb_check.
 ```
 
 Expected: PASS for Python, required packages, the Windows libusb backend, and USB controller `09F1:0007`; exit code 0. This preflight only enumerates USB. It does **not** reset the controller, open the robot session, enable motors, or command motion. Check the exit code with `$LASTEXITCODE`. If any check fails, stop here, keep the full error output, and fix that check before connecting.
+
+On Intelitek's driver the libusb preflight cannot see the controller, which is expected; do not swap drivers because of that, use `--transport auto`.
 
 If the controller appears in Device Manager with the correct ID but preflight cannot enumerate it, the current device driver may be incompatible. The transfer ZIP can include [official Zadig 2.9](https://zadig.akeo.ie/), a driver installation tool; it is **not** installed by extracting the ZIP. Before running it, verify the executable's Windows signature says **Akeo Consulting** and its SHA-256 is `4ECAA95DF3DA3621486A043AEF8B3050B8BAFE7C901402871E816229EF82039B`:
 
