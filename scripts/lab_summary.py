@@ -25,6 +25,7 @@ except ImportError:  # Run as a script: scripts/ itself is on sys.path.
     from vendor_check import read_rows
 
 from scorbot.nominal import VENDOR_COUNTS_PER_DEGREE
+from scorbot.pendant import decode_pendant
 
 MOVED_COUNTS = 5            # a joint that changed by fewer counts than this did not move
 SCALE_WARN_RATIO = 0.5      # observed / prior outside [0.5, 2] gets a flag
@@ -86,6 +87,55 @@ def policy_report(path, rows):
             "policy_errors": result.get("policy_errors", 0), "problems": sorted(set(problems))}
 
 
+def pendant_events(rows):
+    """Teach-pendant events seen across consecutive records with raw_packet_hex.
+
+    Reply byte 3 changes between consecutive records that carry raw_packet_hex are printed.
+    Physical meaning of keys is DLL naming, unverified.
+    """
+    lines = []
+    last_byte3 = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        hex_str = row.get("raw_packet_hex")
+        if hex_str is None and isinstance(row.get("state"), dict):
+            hex_str = row["state"].get("raw_packet_hex")
+        if not isinstance(hex_str, str):
+            continue
+        try:
+            packet = bytes.fromhex(hex_str)
+        except ValueError:
+            continue
+        if len(packet) < 4:
+            continue
+        byte3 = packet[3]
+        if last_byte3 is not None and byte3 != last_byte3:
+            time_val = (
+                row.get("timestamp_utc")
+                or (row.get("state") if isinstance(row.get("state"), dict) else {}).get("timestamp_utc")
+                or row.get("timestamp")
+                or row.get("time")
+                or row.get("host_monotonic_ns")
+                or ""
+            )
+            info = decode_pendant(byte3)
+            if info.mode is not None:
+                decoded = info.mode
+            else:
+                state_str = "pressed" if info.pressed else "released"
+                home_str = " in-Home" if info.in_home else ""
+                decoded = f"{info.key_name} {state_str}{home_str}"
+            parts = ["pendant:"]
+            if str(time_val).strip():
+                parts.append(str(time_val))
+            parts.append(f"0x{byte3:02x}")
+            parts.append(decoded)
+            lines.append("  " + " ".join(parts))
+        last_byte3 = byte3
+    return lines
+
+
 def summarize(path, phone):
     """(lines, problems) for one file."""
     rows = read_rows(path)
@@ -110,11 +160,13 @@ def summarize(path, phone):
                  f"{report['policy_errors']} policy errors; furthest from home "
                  + ", ".join(f"{m} {d:.2f} deg" for m, d in report["max_deg"].items())]
     else:
-        return [f"{name}  not a record this tool knows"], ["unknown record type"]
+        lines = [f"{name}  not a record this tool knows"]
+        report = {"problems": ["unknown record type"]}
     if report.get("operator_observation"):
         seen = report["operator_observation"].get("direction_and_displacement")
         if seen:
             lines.append(f"  you saw: {seen}")
+    lines.extend(pendant_events(rows))
     for problem in report["problems"]:
         lines.append(f"  PROBLEM: {problem}")
     return lines, report["problems"]
