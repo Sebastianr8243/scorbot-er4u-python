@@ -16,6 +16,13 @@ does I/O. Everything else, including what a stop means, lives here:
   (``error`` is set); the worker then switches the motors off and reports failure.
 * The source never raises: an exception in the worker thread would kill it mid-home.
 
+* Pacing (the Home only: ``queue_limit=pacing.HOMING_BUFFERS``). ``pace(sent_id, reply)`` is the wait the
+  worker sleeps after each reply, at least its legacy 5 ms ``READ``: half a ``PCPeriod`` (8 ms) when 20 or more
+  messages are in flight, like the vendor's ``HomingBuffers`` (LEDGER PL03). It is 0 (so the legacy wait) once a
+  stop, a cancel or an abort is under way: pacing never slows a stop. It is a rate limit, not a cap; a
+  controller slower than one message per 16 ms still falls behind and ``MAX_LAG`` ends the home.
+  ``pace`` is ``None`` without ``queue_limit``: the other orders on this loop keep the legacy timing.
+
 None of this is an emergency stop: it needs a live USB link and a responsive worker.
 """
 
@@ -23,7 +30,7 @@ import dataclasses
 import time
 
 from . import vendor_home as vh
-from .pacing import ID_RING, echo_lag
+from .pacing import ID_RING, PC_PERIOD_S, echo_lag, next_read_delay
 
 VENDOR_HOME_ORDER = 22
 """Command code queued to the worker (21 is the stream, 18 the legacy home)."""
@@ -35,7 +42,9 @@ class VendorHomeSource:
     """One vendor home, seen from the worker thread. Build a new one for every home."""
 
     def __init__(self, *, version=0, axes=None, stop_event=None, cancel_event=None,
-                 clock=time.monotonic, total_seconds=TOTAL_SECONDS, start=None, commit=None):
+                 clock=time.monotonic, total_seconds=TOTAL_SECONDS, start=None, commit=None, queue_limit=None):
+        self.queue_limit = queue_limit
+        self.pace = None if queue_limit is None else self._pace
         # ``commit(out)`` marks the message that cannot be taken back (``vendor_io.commits``). Just before handing
         # it to the worker the source checks for a stop or cancel once more and, if there is one, throws it in
         # instead of sending. After that check the message is committed: a later stop is too late and is left
@@ -88,6 +97,16 @@ class VendorHomeSource:
         self.abandoned = True
         if self.error is None and self.interrupted is not None:
             self.error = vh.HomeError(*self.interrupted)
+
+    def _pace(self, sent_id, reply_bytes):
+        """Seconds to wait before the next step (the worker never waits less than its ``READ``). Never raises."""
+        try:
+            if (self.aborting or self.interrupted is not None or self.error is not None
+                    or any(e is not None and e.is_set() for e in (self.stop_event, self.cancel_event))):
+                return 0.0
+            return next_read_delay(echo_lag(sent_id, bytes(reply_bytes)), self.queue_limit, PC_PERIOD_S)
+        except Exception:
+            return 0.0
 
     def _measure_lag(self, reply_bytes, sequence):
         """Sent ID minus the ID the reply echoes, on the 1..255 ring; ``None`` if the reply echoes nothing usable."""

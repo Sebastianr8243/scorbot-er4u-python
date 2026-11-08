@@ -68,8 +68,10 @@ MAX_LAG = 60
 """A controller further behind than this is not homed: the vendor never lets more than 45 messages be in
 flight (its queue limits are 4 to 45, 20 while homing), the thesis saw 6 and this arm showed 47. It is also
 the most credit the measured lag can earn: the stall grace is at most 75 cycles. Ours, not the vendor's: the
-vendor keeps its queue at 20 while homing (``HomingBuffers``) and so never needs this check; ours does not pace
-that way yet."""
+vendor keeps its queue at 20 while homing (``HomingBuffers``) and so never needs this check. Since 2026-11-07 the
+Home paces the same way (``VendorHomeSource(queue_limit=pacing.HOMING_BUFFERS)``, docs/requirements/home-pacing.md),
+so this is a second guard: pacing only slows the sends, and a controller slower than one message per 16 ms still
+falls behind."""
 TICK_STALL_LIMIT = 4
 """Stalled ticks in a row that end a type 16 search (the types 14 and 15 use their own, 4 and 1, and reverse)."""
 GRIPPER_MAX_CYCLES = 120

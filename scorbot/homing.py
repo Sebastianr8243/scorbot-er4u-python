@@ -10,6 +10,7 @@ from dataclasses import asdict
 
 from . import vendor_home as vendor_home_port
 from .errors import MotionStopped, ScorbotError
+from .pacing import HOMING_BUFFERS
 from .state import HOME_SWITCH_BITS
 from .vendor_home_source import TOTAL_SECONDS as VENDOR_HOME_SECONDS
 from .vendor_home_source import VENDOR_HOME_ORDER, VendorHomeSource
@@ -169,7 +170,7 @@ class HomingMixin:
             self._gripper_homed = False
             self._home_counts = None
             source = VendorHomeSource(version=controller_version, stop_event=self._stop_event,
-                                      cancel_event=self._cancel_event)
+                                      cancel_event=self._cancel_event, queue_limit=HOMING_BUFFERS)
             self._record("home_start", method="vendor", controller_version=controller_version,
                          wrist_homed=True, gripper_homed=True, state=asdict(before))
             trace = self._trace
