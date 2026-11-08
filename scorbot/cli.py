@@ -25,6 +25,10 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TARGETS = {
+    ("setup", "lerobot"): ("script", "scripts/setup_lerobot.py"),
+    ("camera", "check"): ("module", "scorbot.camera"),
+    ("ai", "train"): ("script", "scripts/ai_commands.py"),
+    ("ai", "rollout"): ("script", "scripts/ai_commands.py"),
     ("sim", "check"): ("script", "examples/lerobot_sim_check.py"),
     ("sim", "view"): ("script", "examples/mujoco_twin_view.py"),
     ("jog", "preview"): ("script", "examples/preview_jog.py"),
@@ -42,6 +46,10 @@ TARGETS = {
     ("analyze", "export-dataset"): ("script", "scripts/export_policy_dataset.py"),
 }
 DESCRIPTIONS = {
+    "setup lerobot": "Build the LeRobot venv on this PC and run the sim check",
+    "camera check": "Open a camera and show fps; --url for a WiFi stream",
+    "ai train": "Print a LeRobot training command for the GPU PC",
+    "ai rollout": "Print a LeRobot rollout command for the lab PC",
     "sim check": "Check the LeRobot simulation pipeline",
     "sim view": "View the simulated arm",
     "jog preview": "Preview a jog without moving the arm",
@@ -58,6 +66,9 @@ DESCRIPTIONS = {
     "analyze build-calibration-csv": "Build a calibration measurement table",
     "analyze export-dataset": "Export policy logs as a dataset",
 }
+ROBOT_SAFETY_FLAGS = (
+    "--robot.operator_at_stop=true", "--robot.jaws_empty=true", "--robot.wrist_clear=true",
+)
 SYNC_FIX = "uv sync --locked --extra windows --extra test --extra planning"
 CALIBRATION_FIX = (
     "Measure D1-D7 in docs/lab/PHYSICAL_CALIBRATION.md, then: "
@@ -279,10 +290,10 @@ def _help(group=None):
     else:
         print("Scorbot (Stack 2)")
         print("  scorbot doctor                         Check setup without opening the controller")
-        for command in ("sim check", "sim view", "jog preview"):
+        for command in ("sim check", "sim view", "jog preview", "setup lerobot", "camera check"):
             print(f"  scorbot {command:<30} {DESCRIPTIONS[command]}")
         print("  scorbot record                         Print the LeRobot simulation record command")
-        print("More tools: scorbot lab --help, scorbot analyze --help")
+        print("More tools: scorbot ai --help, scorbot lab --help, scorbot analyze --help")
 
 
 def main(argv=None) -> int:
@@ -295,8 +306,7 @@ def main(argv=None) -> int:
         return _doctor(argv[1:])
     if command == "record":
         flags = ["lerobot-record", "--robot.type=scorbot", "--robot.simulate=true",
-                 "--teleop.type=scorbot_joint_keys", "--robot.operator_at_stop=true",
-                 "--robot.jaws_empty=true", "--robot.wrist_clear=true",
+                 "--teleop.type=scorbot_joint_keys", *ROBOT_SAFETY_FLAGS,
                  "--dataset.repo_id=local/my_first_demo", "--dataset.root=rehearsal/my_first_demo",
                  '--dataset.single_task="move the arm"', "--dataset.push_to_hub=false",
                  "--dataset.num_episodes=2", "--dataset.episode_time_s=20",
@@ -307,7 +317,7 @@ def main(argv=None) -> int:
         return 0
     groups = list(dict.fromkeys(group for group, task in TARGETS))
     if command not in groups:
-        return _unknown(command, ["doctor", "sim", "jog", "record", "lab", "analyze"])
+        return _unknown(command, ["doctor", "record", *groups])
     if len(argv) == 1 or argv[1] in {"--help", "-h"}:
         _help(command)
         return 0
@@ -324,6 +334,8 @@ def main(argv=None) -> int:
         child_argv = [sys.executable, str(path)]
     else:
         child_argv = [sys.executable, "-m", name]
+    if command in {"camera", "ai"}:
+        child_argv.append(argv[1])
     # Absolute-path scripts must use this checkout even with a shared editable venv.
     previous_path = os.environ.get("PYTHONPATH")
     os.environ["PYTHONPATH"] = str(REPO_ROOT) + (os.pathsep + previous_path if previous_path else "")
