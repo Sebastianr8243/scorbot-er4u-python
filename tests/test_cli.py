@@ -26,6 +26,10 @@ from scorbot import calibration, cli, preflight
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_TARGETS = {
+    ("setup", "lerobot"): ("script", "scripts/setup_lerobot.py"),
+    ("camera", "check"): ("module", "scorbot.camera"),
+    ("ai", "train"): ("script", "scripts/ai_commands.py"),
+    ("ai", "rollout"): ("script", "scripts/ai_commands.py"),
     ("sim", "check"): ("script", "examples/lerobot_sim_check.py"),
     ("sim", "view"): ("script", "examples/mujoco_twin_view.py"),
     ("jog", "preview"): ("script", "examples/preview_jog.py"),
@@ -114,47 +118,47 @@ class ForwardingTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def expected_argv(self, target, rest):
-        kind, path = target
+    def expected_argv(self, command, rest):
+        kind, path = EXPECTED_TARGETS[command]
         prefix = [sys.executable, str(REPO_ROOT / path)] if kind == "script" else [sys.executable, "-m", path]
-        return [*prefix, *rest]
+        return [*prefix, *([command[1]] if command[0] in {"camera", "ai"} else []), *rest]
 
     def test_targets_are_exactly_the_issue_scope(self):
         self.assertEqual(cli.TARGETS, EXPECTED_TARGETS)
 
     def test_every_target_forwards_exact_argv_and_exit_code(self):
-        for command, target in EXPECTED_TARGETS.items():
+        for command in EXPECTED_TARGETS:
             with self.subTest(command=command), mock.patch.object(cli, "run_child", return_value=7) as child:
                 rest = ["--x", "1", "--simulate"]
                 result = invoke(*command, *rest)
                 self.assertEqual(result.returncode, 7, result.stderr)
-                child.assert_called_once_with(self.expected_argv(target, rest))
+                child.assert_called_once_with(self.expected_argv(command, rest))
 
     def test_launcher_never_adds_authorization_flags(self):
         forbidden = {"--online", "--yes", "--force", "--acknowledge-supervised-motion",
                      "--acknowledge-connect-handshake"}
-        for command, target in EXPECTED_TARGETS.items():
+        for command in EXPECTED_TARGETS:
             with self.subTest(command=command), mock.patch.object(cli, "run_child", return_value=0) as child:
                 self.assertEqual(invoke(*command).returncode, 0)
-                child.assert_called_once_with(self.expected_argv(target, []))
+                child.assert_called_once_with(self.expected_argv(command, []))
                 self.assertTrue(forbidden.isdisjoint(child.call_args.args[0]))
 
     def test_user_authorizations_are_forwarded_once_in_place(self):
         # run_child is patched: these strings must never reach a real process.
-        for command, target in EXPECTED_TARGETS.items():
+        for command in EXPECTED_TARGETS:
             for flag in ("--online", "--acknowledge-supervised-motion", "--acknowledge-connect-handshake"):
                 with self.subTest(command=command, flag=flag), \
                         mock.patch.object(cli, "run_child", return_value=0) as child:
                     rest = ["--x", "1", flag, "--label", "two words"]
                     self.assertEqual(invoke(*command, *rest).returncode, 0)
-                    child.assert_called_once_with(self.expected_argv(target, rest))
+                    child.assert_called_once_with(self.expected_argv(command, rest))
                     self.assertEqual(child.call_args.args[0].count(flag), 1)
 
     def test_help_after_each_task_belongs_to_the_child(self):
-        for command, target in EXPECTED_TARGETS.items():
+        for command in EXPECTED_TARGETS:
             with self.subTest(command=command), mock.patch.object(cli, "run_child", return_value=0) as child:
                 self.assertEqual(invoke(*command, "--help").returncode, 0)
-                child.assert_called_once_with(self.expected_argv(target, ["--help"]))
+                child.assert_called_once_with(self.expected_argv(command, ["--help"]))
 
     def test_developer_and_bench_scripts_are_unreachable(self):
         excluded = {"build_bench_kit.py", "check_docs.py", "bench_joint.py", "bench_stream.py",
@@ -241,11 +245,12 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         lines = result.stdout.splitlines()
         positions = []
-        for command in ("doctor", "sim check", "sim view", "jog preview", "record"):
-            matches = [i for i, line in enumerate(lines) if command in line]
+        for command in ("doctor", "sim check", "sim view", "jog preview", "setup lerobot", "camera check", "record"):
+            matches = [i for i, line in enumerate(lines) if line.startswith(f"  scorbot {command} ")]
             self.assertEqual(len(matches), 1, result.stdout)
             positions.extend(matches)
-        self.assertEqual(len(set(positions)), 5, result.stdout)
+        self.assertEqual(len(set(positions)), 7, result.stdout)
+        self.assertIn("scorbot ai --help", result.stdout)
         self.assertIn("scorbot lab --help", result.stdout)
         self.assertIn("scorbot analyze --help", result.stdout)
         child.assert_not_called()

@@ -20,8 +20,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m scorbot.camera")
     sub = parser.add_subparsers(dest="command", required=True)
     check = sub.add_parser("check", help="open a camera and report settings and timing")
-    check.add_argument("--index", type=int, default=0)
-    check.add_argument("--fake", action="store_true", help="synthetic frames, no camera")
+    source = check.add_mutually_exclusive_group()
+    source.add_argument("--index", type=int, default=0)
+    source.add_argument("--url", help="network camera stream URL")
+    source.add_argument("--fake", action="store_true", help="synthetic frames, no camera")
     check.add_argument("--seconds", type=float, default=10.0)
     check.add_argument("--width", type=int, default=640)
     check.add_argument("--height", type=int, default=480)
@@ -52,7 +54,7 @@ def _check(args) -> int:
         print("WARNING: clock coarser than 1 ms; frame times will be coarse "
               "(use Python 3.13 on Windows).")
     source = (FakeSource(width=args.width, height=args.height, fps=args.fps, pace=True)
-              if args.fake else OpenCVSource(args.index, width=args.width,
+              if args.fake else OpenCVSource(args.url or args.index, width=args.width,
                                              height=args.height, fps=args.fps))
     source.open()
     settings = source.settings()
