@@ -614,7 +614,10 @@ def fresh_media(buffer):
 #   ("stop",)         it failed; the stop messages have already been sent
 # On a failure the motors are switched off the way order 18 does after a failed home, and result 1
 # is reported (not STOPPED: a half-finished home leaves some counters zeroed, so it is a failure).
-# `source` must not raise. The sleeps are the idle pair that ran on the arm; no new timing.
+# `source` must not raise. The sleeps are the idle pair that ran on the arm, except for a source with a
+# `pace(sent_id, reply)` (the vendor home, docs/requirements/home-pacing.md): then the read delay after each reply
+# is max(READ, pace(...)), the vendor's HomingBuffers wait. It is slept before the source is asked again, so a
+# stop is still seen after the wait, as before. Every other order keeps WRITE, READ.
 # From the vendor disassembly and a recording of the vendor DLL; never run on the arm.
 # A USB error part-way must not end the worker with a motor still driving: `set_msg` raises on any
 # failed write or read, so the error is caught here, the source is asked for its abort messages (47, 4D 0
@@ -631,6 +634,7 @@ def vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 	failed = False
 	io_error = None
 	io_failures = 0
+	pace = getattr(source, "pace", None)
 	while True:
 		following = libdef.countByte1(b_1)
 		step = source(bytes(buffer), following)
@@ -641,7 +645,11 @@ def vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_orden, source):
 			break
 		b_1 = following
 		try:
-			libdef.set_msg(step[1].hex(), epout, epin, buffer, WRITE, READ)
+			if pace is None:
+				libdef.set_msg(step[1].hex(), epout, epin, buffer, WRITE, READ)
+			else:
+				libdef.set_msg(step[1].hex(), epout, epin, buffer, WRITE, 0)
+				time.sleep(max(READ, pace(b_1, bytes(buffer))))
 		except Exception as exc:
 			io_failures += 1
 			if io_error is None:

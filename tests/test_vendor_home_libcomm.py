@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from scorbot import pacing
 from scorbot import vendor_home as vh
 from scorbot.robot import Scorbot
 from scorbot.vendor_home_source import VENDOR_HOME_ORDER, VendorHomeSource
@@ -58,6 +59,44 @@ class FlakyWire(Wire):
         if self.writes == self.fail_at or (self.dead and self.writes > self.fail_at):
             raise OSError("write timed out")
         super().write(data, timeout)
+
+
+class DrainingWire(Wire):
+    """A controller that works through its queue one message per ``period_s`` of a fake clock.
+
+    Byte 0 of each reply echoes the last message it has finished (the rest of the reply stays fresh), so
+    sent ID minus echo is the number still queued. ``sleep`` advances the clock; patch ``time.sleep`` with it.
+    ``waits[k]`` is the time slept between the read before write ``k`` and write ``k`` (not the write delay).
+    """
+
+    def __init__(self, plant, first_id=10, period_s=0.016):
+        super().__init__(plant, first_id)
+        self.period_s, self.now, self.busy_until = period_s, 0.0, 0.0
+        self.queue = []                 # (finish time, ID) of every message sent
+        self.echo = first_id
+        self.waits, self.lags, self.waiting = [], [], 0.0
+        self.on_write = None
+
+    def sleep(self, seconds):
+        self.now += seconds
+        self.waiting += seconds
+
+    def write(self, data, timeout=None):
+        self.waits.append(self.waiting)
+        self.waiting = 0.0
+        self.busy_until = max(self.now, self.busy_until) + self.period_s
+        self.queue.append((self.busy_until, data[0]))
+        super().write(data, timeout)
+        if self.on_write is not None:
+            self.on_write(self)
+
+    def read(self, buffer, timeout=None):
+        while self.queue and self.queue[0][0] <= self.now:
+            self.echo = self.queue.pop(0)[1]
+        self.reply = bytes([self.echo]) + bytes(self.reply[1:])
+        self.lags.append((self.sent[-1][0] - self.echo) % 255)
+        self.waiting = 0.0              # what was slept so far was the write delay
+        return super().read(buffer, timeout)
 
 
 class Scripted:
@@ -236,6 +275,74 @@ class VendorHomeRunTests(unittest.TestCase):
         with mock.patch("time.sleep", side_effect=lambda s: sleeps.append(s) if threading.get_ident() == me else None):
             self.run_order(Scripted(3, ("end",)))
         self.assertEqual(sleeps, [self.comm.WRITE, self.comm.READ] * 3)
+
+    def run_draining(self, source, on_write=None):
+        wire = DrainingWire(Plant())
+        wire.on_write = on_write
+        source.clock = lambda: wire.now
+        buffer = bytearray(wire.reply)
+        reads, results = queue.Queue(), queue.Queue()
+        reads.put([0] * 6)
+        me = threading.get_ident()
+        with mock.patch("time.sleep", side_effect=lambda s: wire.sleep(s) if threading.get_ident() == me else None):
+            self.comm.vendor_home_run(10, wire, wire, buffer, reads, results, source)
+        return wire, results
+
+    def test_without_pace_the_draining_fake_falls_behind_until_max_lag_stops_the_home(self):
+        # The problem pacing fixes, and MAX_LAG still guarding it (HP07): more than 20 in flight, then ERR_LAG.
+        source = VendorHomeSource()
+        wire, results = self.run_draining(source)
+        self.assertGreater(source.lag_max, pacing.HOMING_BUFFERS)
+        self.assertEqual(source.error.code, vh.ERR_LAG)
+        self.assertEqual(results.get_nowait(), 1)
+
+    def test_pace_on_a_draining_fake_keeps_at_most_20_in_flight_and_the_dll_trace(self):
+        # HP01 to HP04. The legacy pair (8 ms write, 5 ms read) sends a message every 13 ms; a controller that
+        # takes 16 ms each falls behind until MAX_LAG ends the home. Paced at HomingBuffers it holds at 20.
+        source = VendorHomeSource(queue_limit=pacing.HOMING_BUFFERS)
+        wire, results = self.run_draining(source)
+        self.assertIsNone(source.error)
+        self.assertTrue(source.ok)
+        self.assertLessEqual(source.lag_max, pacing.HOMING_BUFFERS)
+        self.assertEqual(source.lag_max, pacing.HOMING_BUFFERS)       # the limit is reached, so pacing ran
+        self.assertEqual(non_nop(wire.sent), [list(s) for s in FIXTURE["steps"]])
+        self.assertTrue(results.empty())
+        for lag, wait in zip(wire.lags, wire.waits[1:]):              # the wait after each reply, by its lag
+            expected = 0.008 if lag >= pacing.HOMING_BUFFERS else self.comm.READ
+            self.assertAlmostEqual(wait, expected, msg=f"lag {lag}")
+
+    def test_pace_below_the_limit_never_sends_faster_than_the_legacy_read(self):
+        # HP02: the vendor waits 1 ms below the limit; ours keeps the legacy 5 ms.
+        source = VendorHomeSource(queue_limit=pacing.HOMING_BUFFERS)
+        reply = Wire(Plant(), 10).reply
+        self.assertEqual(max(self.comm.READ, source.pace(10, reply)), self.comm.READ)
+        self.assertEqual(source.pace(10 + pacing.HOMING_BUFFERS, reply), 0.008)
+
+    def test_the_stop_is_not_held_back_by_pacing(self):
+        # HP05: a stop that lands while the queue is at the limit is seen after the legacy 5 ms, and the
+        # next message out is the vendor's stop (47); every wait from there to the end is the legacy one.
+        stop = threading.Event()
+        source = VendorHomeSource(queue_limit=pacing.HOMING_BUFFERS, stop_event=stop)
+        marks = []
+
+        def stop_at_the_limit(wire):
+            if not stop.is_set() and source.lag >= pacing.HOMING_BUFFERS and len(wire.sent) > 200:
+                stop.set()
+                marks.append(len(wire.sent))
+
+        wire, results = self.run_draining(source, stop_at_the_limit)
+        self.assertEqual(source.error.code, vh.ERR_STOPPED)
+        self.assertEqual(results.get_nowait(), 1)
+        cut = marks[0]
+        self.assertGreaterEqual(wire.lags[cut - 1], pacing.HOMING_BUFFERS)   # the reply it met was at the limit
+        self.assertEqual(wire.sent[cut][4], vh.CLEAR)
+        for wait in wire.waits[cut:]:
+            self.assertAlmostEqual(wait, self.comm.READ)
+
+    def test_a_source_without_pace_keeps_the_legacy_timing(self):
+        # HP06: only the home asks for pacing; the shared loop's other orders keep (WRITE, READ).
+        self.assertIsNone(VendorHomeSource().pace)
+        self.assertIsNone(VendorHomeSource(start=lambda first: iter(())).pace)
 
     def test_execute_dispatches_the_order_and_reports_done(self):
         source = Scripted(4, ("end",))

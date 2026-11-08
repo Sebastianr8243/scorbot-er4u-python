@@ -70,6 +70,8 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `preflight.VID`, `preflight.PID` | `0x09F1`, `0x0007` | vendor | the controller's USB descriptor | `BRING_UP_SEQUENCE.md` step 1; `ULPGC_THESIS_FINDINGS.md` |
 | `pacing.ID_RING` | 255 | legacy | IDs run 1 to 255 (`libdef.countByte1`); the DLL wraps with 255 in its ID arithmetic in two places and 256 in one | `VENDOR_DLL_PROTOCOL.md` section 3 |
 | `pacing.QUEUE_LIMIT` | 45 | vendor | `Buffers` | PL03 |
+| `pacing.HOMING_BUFFERS` | 20 | vendor | `HomingBuffers`: the queue limit while homing | PL03, PL116 |
+| `pacing.PC_PERIOD_S` | 0.016 | vendor | `PCPeriod`; the slow wait is half of it | PL05 |
 | `pacing.FAST_DELAY_S` | 0.001 | vendor | the DLL waits 1 ms below the queue limit | `VENDOR_DLL_PROTOCOL.md` section 2 |
 | `packet.MAX_TRACE_PACKETS` | 4000 | ours | size of the in-memory packet log | n/a |
 | `packet.PENDANT_ABORT` | 0x21, 0xA1 | vendor | reply byte 3 with the pendant's Abort key pressed; the DLL calls `Stop('&')` on it (`0x1002cfa7`) | `LEDGER.md` PL63, PL64 |
@@ -121,7 +123,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `vendor_home.SETTLE_COUNTS` | 8 | ours | settle band; the vendor's `ExactEpsilon` is 5 or 20 per axis | **unverified** |
 | `vendor_home.DIRECTION_FAULT_COUNTS` | 150 | ours | stops a wrong `4D` sign within a few degrees | n/a |
 | `vendor_home.TICK_GRACE_CYCLES`, `vendor_home.TICK_GRACE_MARGIN` | 60, 15 | ours | the controller may run about 47 messages behind | PL07 |
-| `vendor_home.MAX_LAG` | 60 | ours | the vendor paces at `HomingBuffers` 20 and never needs it; ours does not pace that way (to-do 1) | PL03, PL07 |
+| `vendor_home.MAX_LAG` | 60 | ours | second guard since 2026-11-07: the Home now paces at `HomingBuffers` 20 like the vendor (PL116), but a controller slower than one message per 16 ms still falls behind | PL03, PL07, PL116 |
 | `vendor_home.TICK_STALL_LIMIT` | 4 | ours | a type 16 search has no stall check in the vendor; 4 copies its type 14 counter | `VENDOR_HOMING_TRACE.md` section 3 |
 | `vendor_home_source.VENDOR_HOME_ORDER` | 22 | ours | internal worker order code (`68fe9f1`), never on the wire | n/a |
 | `vendor_home_source.TOTAL_SECONDS` | 800 | ours | bound on the whole Home: every `MaxTime` in both passes adds to about 730 s | `VENDOR_HOMING_TRACE.md` section 3 table |
@@ -264,7 +266,7 @@ None of these reach the controller.
 
 Ranked by whether the gap reaches the controller, then by how soon it runs on the arm.
 
-1. **Pace the vendor Home at `HomingBuffers` (20).** The vendor keeps at most 20 messages in flight while homing (PL03); our Home does not pace that way, and guards the gap with `MAX_LAG` 60 and a lag-based stall grace instead. This is the Home the lab will run. Close it by wiring `pacing` into the order-22 loop with a limit of 20 and checking the trace still matches (PL10).
+1. **Done 2026-11-07 (PL116): pace the vendor Home at `HomingBuffers` (20).** The order-22 loop now waits half a `PCPeriod` (8 ms) after a reply with 20 or more in flight, as the vendor does (PL03), and the legacy 5 ms otherwise; stops and aborts are never slowed. On a fake that drains one message per 16 ms the Home holds at 20 in flight and still sends the lab DLL's command sequence (PL10). `MAX_LAG` 60 stays as a second guard. Unverified on the arm (PL92). Requirements: `docs/requirements/home-pacing.md`.
 2. **Done 2026-11-01: the extra disconnect group.** `scorbotoff` sent `47 4F FF 53 73 20 42 20 64 61` that the DLL does not. Every command in it repeats the stop group sent just before, so it was dropped and disconnect now matches the DLL's close (PL96, `DESK_BYTE_CHECK.md`).
 3. **Done 2026-11-01 (PL94): the per-axis flag word at `+0x83e` is the homed mask; see PL40 to PL50 in `LEDGER.md`.** It decides when the vendor zeroes the gripper count after a close (`48 20 0`, PL24) and when `OpenGripper` makes a 70 mm position move instead of a drive (PL28).
 4. **Gripper `MaxTime` unit: done 2026-11-01** (`LEDGER.md` PL58): milliseconds, and the vendor's gripper home never reads it. The post-lab relabel is in PL59.
