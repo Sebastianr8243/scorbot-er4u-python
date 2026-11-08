@@ -26,6 +26,7 @@
 | [`RUN_THE_ARM.md`](lab/RUN_THE_ARM.md) | Setting up the lab PC and moving the arm through the vendor DLL: probe, connect, jog, Home, point move, errors |
 | [`BRING_UP_RUNBOOK.md`](lab/BRING_UP_RUNBOOK.md) | Stack 2 desk rehearsal and supervised probe, enable, Home, 1 degree jog/back and optional stream ladder |
 | [`LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) | Stack 2 first-visit page: driver path, Windows prep, probe order, restoring Intelitek's driver after a WinUSB swap |
+| [`MONDAY.md`](lab/MONDAY.md) | One-page lab-day order: emergency stop, setup, steps H through G, bench trials |
 | [`LAB_RECORD_SHEET.md`](lab/LAB_RECORD_SHEET.md) | Numbers the desk cannot settle (parameter folder, zero pose, wrist and base scale, idle creep, gripper stroke): where each is read and a column to write it in |
 | [`USB_CAPTURE.md`](lab/USB_CAPTURE.md) | Wireshark/USBPcap capture and comparison with this code's packets |
 | [`SOFTWARE_CAPTURE.md`](lab/SOFTWARE_CAPTURE.md) | Lab steps to record the vendor Home from inside its process with the Frida hook, then compare it with the port offline |
