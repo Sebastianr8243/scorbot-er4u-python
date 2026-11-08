@@ -90,6 +90,21 @@ lerobot-record --robot.type=scorbot --robot.simulate=true `
 
 Checked 2026-11-03 with `examples/lerobot_sim_check.py --cameras` (lerobot 0.6.1, mujoco 3.17.0, Windows 11): 3 episodes of 3 s at 10 fps with both cameras at 160x120, 90 frames reloaded with image features, replayed frame 0 identical to the recorded one. The scene is nominal solids, not CAD and not measured. The jaw now follows the observed `gripper.pos`, from nearly touching at 0 percent to the original plate centres at y = +/-24 mm at 100 percent. The block never moves because the arm is posed, not simulated. Off-screen rendering that fails raises with the reason. Two 160x120 renders took about 30 ms per observation on this laptop in that check.
 
+## WiFi camera (ESP32)
+
+The plugin registers `type: mjpeg` for HTTP multipart JPEG streams, including the
+ESP32 CameraWebServer. Add this flag to the simulator record command above:
+
+```powershell
+--robot.cameras='{front: {type: mjpeg, url: "http://192.168.4.1:81/stream", width: 320, height: 240, fps: 30}}'
+```
+
+Frames are RGB by default (`color_mode: bgr` is also supported). Width and height
+resize decoded frames locally; fps describes the requested recording rate and does
+not reconfigure the ESP32. `timeout_s` defaults to 2 seconds. The background reader
+keeps only the newest frame; missing fresh frames raise a timeout. Tested against a
+local synthetic MJPEG server; **unverified on real ESP32 hardware**.
+
 ## Shape
 
 | | |

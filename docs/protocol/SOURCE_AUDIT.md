@@ -92,6 +92,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `state.PENDANT_OFFSET` | 3 | vendor | pendant byte, passed to the pendant handler (`0x1002b56c`) on every reply | `LEDGER.md` PL63, PL64 |
 | `state.TEACH_ON_CODES` | `0x40`, `0x4F`, `0xC0`, `0xF9` | vendor | byte 3 codes that set the teach flag (`0x1002b56c` `this+0xc`, read by `IsTeachMode`); checked on the pipe fake | `LEDGER.md` PL64; `tests/test_teach_mode.py` |
 | `state.TEACH_OFF_CODES` | `0x47`, `0x7E`, `0xF8`, `0xFE` | vendor | byte 3 codes that clear it | `LEDGER.md` PL64; `tests/test_teach_mode.py` |
+| `pendant.MODES`, `pendant.KEY_NAMES` | 8 mode codes, 25 key codes | vendor | `GetTPInfo` `0x1001b12d` | `LEDGER.md` PL107 |
 | `state.COLLISION_MOTORS` | names for bits 0-7 | ours | labels; bit-per-motor reading from the ULPGC thesis p. 57 | `ULPGC_THESIS_FINDINGS.md` |
 | `vendor_home.ZERO24` | `0x7FFFFF` | vendor | count = raw24 - `0x7FFFFF` (`0x1000b160`) | `VENDOR_DLL_PROTOCOL.md` section 6 |
 | `vendor_home.REPLY_MIN_LENGTH` | 60 | ours | the last byte decoded is the impact byte 59 | n/a |
@@ -250,7 +251,7 @@ None of these reach the controller.
 | `session.replay._KNOWN_OPCODES`, `session.replay._MAGIC`, `session.replay._MAX_RECORD`, `session.schemas.IMAGE_SCHEMA`, `session.replay._IDENTITY_KEYS` | MCAP opcodes and magic, Foxglove schema name | ours | the MCAP and Foxglove file formats, not the controller | n/a |
 | `camera.recorder.EMPTY_READS_BEFORE_FAILURE`, `camera.recorder.HEALTH_ROWS_KEPT`, `camera.source._BLOCK`, `camera.stream.STREAM_VERSION`, `camera.stream.STREAM_METADATA`, `camera.stream._IDENTITY` | camera settings | ours | camera recording | n/a |
 | `provenance._SOURCE_FILES` | file list | ours | which legacy files are hashed into a session's provenance | n/a |
-| `cli.REPO_ROOT`, `cli.TARGETS`, `cli.DESCRIPTIONS`, `cli.SYNC_FIX`, `cli.CALIBRATION_FIX`, `cli.DRIVER_FIX` | launcher menu and doctor fix text | ours | which existing script each `scorbot` command starts, and the fix line doctor prints | n/a |
+| `cli.REPO_ROOT`, `cli.TARGETS`, `cli.DESCRIPTIONS`, `cli.ROBOT_SAFETY_FLAGS`, `cli.SYNC_FIX`, `cli.CALIBRATION_FIX`, `cli.DRIVER_FIX` | launcher menu and doctor fix text | ours | which existing script each `scorbot` command starts, and the fix line doctor prints | n/a |
 
 ## 3. Corrections found while tagging
 
