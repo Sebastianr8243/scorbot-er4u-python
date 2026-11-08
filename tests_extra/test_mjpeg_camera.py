@@ -5,12 +5,14 @@ from pathlib import Path
 import sys
 import threading
 import time
+import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
 if find_spec("lerobot") is None:
-    pytest.skip("needs lerobot (the separate LeRobot venv)", allow_module_level=True)
+    # SkipTest (not pytest.skip) so plain `unittest discover` can import this module without lerobot too.
+    raise unittest.SkipTest("needs lerobot (the separate LeRobot venv)")
 
 import cv2
 import numpy as np
