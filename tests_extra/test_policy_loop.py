@@ -13,6 +13,7 @@ import unittest
 from unittest import mock
 
 from examples import policy_loop
+from scorbot import limits
 from scorbot.preflight import Check
 from scorbot.simulated import SimulatedController, SimulatedScorbot
 
@@ -166,6 +167,45 @@ class PolicyRunTests(unittest.TestCase):
     def test_a_goal_past_the_travel_cap_is_refused_up_front(self):
         with self.assertRaises(SystemExit):
             self.run_script("", "--travel-cap-deg", "2", policy_args=("--policy", "reach:base=5"))
+
+    def test_grip_at_stops_opens_the_jaw_and_resumes_from_the_measured_pose(self):
+        """Issue #209 on the simulator: the LeRobot grasp path (stop, gripper, resume) away from home."""
+        code = self.run_script(TO_POLICY + "POLICY\n" + AFTER, "--steps", "16", "--grip-at", "8",
+                               policy_args=("--policy", "reach:base=2"))
+        self.assertEqual(code, 0, self.printed.getvalue())
+        rows = self.rows()
+        [grip] = [r for r in rows if r.get("type") == "gripper_resume"]
+        self.assertEqual((grip["step"], grip["direction"]), (8, "open"))
+        self.assertTrue(grip["gripper"]["full_travel"])
+        before, start = grip["measured_counts_before_stop"], grip["resume_start_counts"]
+        # Far enough from home that only resume=True lets the new stream start (not a restart at home).
+        self.assertGreater(abs(before["base"]), limits.DRIFT_COUNTS)
+        for motor in policy_loop.MOTORS:
+            self.assertLessEqual(abs(start[motor] - before[motor]), limits.DRIFT_COUNTS, motor)
+            self.assertLessEqual(abs(grip["stopped_counts"][motor] - before[motor]),
+                                 limits.DRIFT_COUNTS, motor)
+        steps = [r for r in rows if r.get("type") == "policy_step"]
+        self.assertEqual(len(steps), 16)        # the reach carried on after the resume
+        # The first tick after the resume reads where the arm is, not home.
+        self.assertLessEqual(abs(steps[8]["measured_counts"]["base"] - start["base"]),
+                             limits.DRIFT_COUNTS)
+        self.assertEqual(steps[-1]["target_deg"]["base"], 2.0)
+        after = next(r for r in rows if r.get("type") == "after_policy")
+        self.assertTrue(after["result"]["passed"], after["result"])
+        events = [json.loads(line) for line in
+                  (self.folder / "policy.controller.jsonl").read_text(encoding="utf-8").splitlines()]
+        starts = [e for e in events if e.get("event") == "stream_start"]
+        self.assertEqual([e["resume"] for e in starts], [False, True])
+        self.assertEqual(starts[1]["start_counts_from_home"]["base"], start["base"])
+        self.assertIn("Gripper resume (#209)", self.printed.getvalue())
+
+    def test_grip_at_must_fall_inside_the_run(self):
+        for value in ("0", "8", "-1"):
+            with self.subTest(value=value):
+                with self.assertRaises(SystemExit) as caught:
+                    self.run_script("", "--grip-at", value)
+                self.assertEqual(caught.exception.code, 2)
+                self.assertEqual(self.made, [])
 
 
 if __name__ == "__main__":

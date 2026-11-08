@@ -206,7 +206,8 @@ def _run() -> int:
         parser.error(f"--delta plans {target:+d} counts, too small to tell from standing still "
                      f"(arrival is judged within {ARRIVED_COUNTS} counts); use a larger move")
 
-    backend = bench.choose_backend(args.simulate, Scorbot, SimulatedScorbot, run_checks)
+    backend = bench.choose_backend(args.simulate, Scorbot, SimulatedScorbot, run_checks,
+                                   transport=args.transport)
     if backend is None:
         return 1
     robot_class, data_source = backend

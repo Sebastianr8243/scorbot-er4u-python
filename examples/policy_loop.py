@@ -8,6 +8,12 @@ returns to home. The policy is any function ``policy(obs) -> {motor: delta_deg} 
 
     --policy reach:base=1,shoulder=-0.5     built in: walk each joint to that many degrees from home
     --policy-file my_policy.py              your own ``policy(obs)``; obs is documented in OBS below
+    --grip-at 10                            before tick 10 stop the stream, open the jaw, resume (#209)
+
+``--grip-at`` runs the LeRobot grasp path (``PolicyArm``'s stop and gripper call, then a stream
+resumed where the arm is) mid-reach and logs a ``gripper_resume`` row: the last measured counts
+before the stop, the counts it stopped at and the resumed stream's start, all from home. Vendor
+Home leaves the jaw closed, so the trial opens it.
 
 Streaming has never run on the arm: the period, the limits and the stop sequence are priors, so
 the defaults are 0.5 degree per tick, 5 Hz, 20 ticks, with vendor travel windows only. Run
@@ -17,6 +23,7 @@ physical stop is authoritative.
 """
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import asdict
 import importlib.util
 from importlib.util import find_spec
@@ -25,10 +32,10 @@ import math
 from pathlib import Path
 import time
 
-from scorbot import Scorbot, ScorbotError, SimulatedScorbot, StreamRefused
+from scorbot import Scorbot, ScorbotError, SimulatedScorbot, StreamRefused, limits
 from scorbot.calibration import signed_count_delta
 from scorbot.policy_arm import (LEAD_LIMIT_DEG, LEAD_MARGIN_DEG, STEP_MAX_DEG,
-                                clamp)
+                                clamp, stop_stream_and_move_gripper)
 from scorbot.preflight import run_checks
 from scorbot.provenance import motion_source_sha256
 from scorbot.session import BestEffortRecorder
@@ -91,15 +98,23 @@ def counts_to_deg(counts, per_degree):
     return {m: counts[m] / per_degree[m] for m in MOTORS}
 
 
-def run_policy(stream, policy, per_degree, *, steps, rate_hz, cap_deg, write):
-    """The control loop. Returns the list of per-tick rows. Never raises for a policy fault."""
+def run_policy(stream, policy, per_degree, *, steps, rate_hz, cap_deg, write,
+               grip_at=None, grip=None):
+    """The control loop. Returns (per-tick rows, the stream now live). Never raises for a policy fault.
+
+    Before tick ``grip_at``, ``grip(stream)`` replaces the stream and returns (new stream, its start
+    counts from home); a gripper or resume failure raises.
+    """
     target = dict.fromkeys(MOTORS, 0.0)
     rows, errors_in_row, started = [], 0, time.monotonic()
+    last = dict.fromkeys(MOTORS, 0)
     for i in range(steps):
+        if grip is not None and i == grip_at:
+            stream, last = grip(stream)      # a new stream has no steps yet: read from its start
         tick_end = time.monotonic() + 1.0 / rate_hz
         seen = stream.steps
-        counts = ({m: int(seen[-1]["measured"][m]) for m in MOTORS} if seen
-                  else dict.fromkeys(MOTORS, 0))
+        counts = ({m: int(seen[-1]["measured"][m]) for m in MOTORS} if seen else dict(last))
+        last = counts
         measured = counts_to_deg(counts, per_degree)
         obs = {"step": i, "t": round(time.monotonic() - started, 3), "deg": measured,
                "target_deg": dict(target), "counts": counts}
@@ -126,7 +141,40 @@ def run_policy(stream, policy, per_degree, *, steps, rate_hz, cap_deg, write):
             break                        # the stream faulted or stopped; closing it reports why
         if errors_in_row >= MAX_POLICY_ERRORS:
             break
-    return rows
+    return rows, stream
+
+
+def grip_and_resume(robot, stream, start_stream, *, step, direction, write, rec):
+    """Stop the stream, move the jaw, start the next stream with resume=True; log where each stood.
+
+    The same stop and gripper call as ``PolicyArm`` (``stop_stream_and_move_gripper``). Returns
+    (new stream, its start counts from home). Answers issue #209: does the resumed stream start
+    from the arm's real position. Unverified on the arm.
+    """
+    def from_home(state, home):
+        return {m: signed_count_delta(state.encoder_counts[m], home[m]) for m in MOTORS}
+
+    seen = stream.steps
+    before = {m: int(seen[-1]["measured"][m]) for m in MOTORS} if seen else None
+    stopped, moved = stop_stream_and_move_gripper(robot, stream, direction)
+    new = start_stream(resume=True)
+    start = from_home(new._before, new._home)
+    offset = None if before is None else {m: start[m] - before[m] for m in MOTORS}
+    row = dict(step=step, direction=direction, measured_counts_before_stop=before,
+               stopped_counts=from_home(stopped, stream._home), resume_start_counts=start,
+               resume_minus_before=offset, drift_counts=limits.DRIFT_COUNTS,
+               within_drift=None if offset is None else all(
+                   abs(v) <= limits.DRIFT_COUNTS for v in offset.values()),
+               gripper=dict(planned_counts=moved.planned_counts, moved_counts=moved.moved_counts,
+                            full_travel=moved.full_travel),
+               state_after_resume=asdict(new._before))
+    write("gripper_resume", **row)
+    rec.log_note("gripper resume (#209): " + json.dumps(
+        {k: row[k] for k in ("step", "measured_counts_before_stop", "resume_start_counts",
+                             "within_drift")}))
+    print(f"Gripper resume (#209) before tick {step}: measured before stop {before}, "
+          f"resumed stream start {start}, offset {offset} (drift limit {limits.DRIFT_COUNTS}).")
+    return new, start
 
 
 def go_home(stream):
@@ -192,6 +240,9 @@ def _run() -> int:
     parser.add_argument("--session-root", type=Path, default=None)
     parser.add_argument("--simulate", action="store_true",
                         help="Rehearse with the simulated controller: no USB, no robot")
+    parser.add_argument("--grip-at", type=int, default=None, metavar="N",
+                        help="opt-in: before tick N (1 to steps-1) stop the stream, open the jaw, "
+                             "resume and log where the new stream starts (#209)")
     args = parser.parse_args()
     if not args.acknowledge_supervised_motion:
         parser.error("An operator and the physical emergency stop are required")
@@ -202,6 +253,8 @@ def _run() -> int:
     if args.travel_cap_deg is not None and (not math.isfinite(args.travel_cap_deg)
                                             or args.travel_cap_deg <= 0):
         parser.error("--travel-cap-deg must be a positive finite number")
+    if args.grip_at is not None and not 1 <= args.grip_at < args.steps:
+        parser.error("--grip-at must be 1 through --steps minus 1")
     bench.check_session_labels(parser, args)
     if find_spec("ruckig") is None:
         parser.error("Streaming needs the planning extra: uv sync --locked --extra windows "
@@ -221,7 +274,8 @@ def _run() -> int:
     except ValueError as exc:
         parser.error(f"counts per degree cannot be planned: {exc}")
 
-    backend = bench.choose_backend(args.simulate, Scorbot, SimulatedScorbot, run_checks)
+    backend = bench.choose_backend(args.simulate, Scorbot, SimulatedScorbot, run_checks,
+                                   transport=args.transport)
     if backend is None:
         return 1
     robot_class, data_source = backend
@@ -247,7 +301,8 @@ def _run() -> int:
                     "stopped after homing; no policy run requested", vendor=True)
                 plan = dict(policy=policy_name, steps=args.steps, rate_hz=args.rate_hz,
                             travel_cap_deg=args.travel_cap_deg, step_max_deg=STEP_MAX_DEG,
-                            lead_margin_deg=LEAD_MARGIN_DEG, counts_per_degree=per_degree)
+                            lead_margin_deg=LEAD_MARGIN_DEG, counts_per_degree=per_degree,
+                            grip_at=args.grip_at)
                 write("policy_plan", **plan)
                 rec.log_note("policy plan: " + json.dumps(plan))
                 print(json.dumps(plan, indent=2))
@@ -269,11 +324,21 @@ def _run() -> int:
                 command.start("start_stream", plan)
                 stream, rows = None, []
                 try:
-                    with robot.start_stream(travel_cap_deg=args.travel_cap_deg,
-                                            lead_limit_deg=LEAD_LIMIT_DEG) as stream:
-                        rows = run_policy(stream, policy, per_degree, steps=args.steps,
-                                          rate_hz=args.rate_hz, cap_deg=args.travel_cap_deg,
-                                          write=write)
+                    with ExitStack() as streams:     # --grip-at replaces the stream; exit each one
+                        def start_stream(*, resume=False):
+                            return streams.enter_context(robot.start_stream(
+                                travel_cap_deg=args.travel_cap_deg, lead_limit_deg=LEAD_LIMIT_DEG,
+                                resume=resume))
+
+                        def grip(old):
+                            return grip_and_resume(robot, old, start_stream, step=args.grip_at,
+                                                   direction="open", write=write, rec=rec)
+
+                        stream = start_stream()
+                        rows, stream = run_policy(
+                            stream, policy, per_degree, steps=args.steps, rate_hz=args.rate_hz,
+                            cap_deg=args.travel_cap_deg, write=write, grip_at=args.grip_at,
+                            grip=grip if args.grip_at is not None else None)
                         go_home(stream)
                 except (Exception, KeyboardInterrupt):
                     write("policy_failed", result=summarize(rows, dict.fromkeys(MOTORS, 0)))

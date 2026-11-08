@@ -67,6 +67,7 @@ $L = "--robot-id er4u-lab --arm-label <arm sticker> --controller-label <box stic
 & $vpy examples\bench_stream.py  --output logs\stream.jsonl  @L --motor base --delta 1 --hold-s 1 --acknowledge-supervised-motion
 & $vpy examples\bench_gripper.py --output logs\gripper.jsonl @L --moves open close --acknowledge-supervised-motion
 & $vpy examples\policy_loop.py   --output logs\policy.jsonl  @L --policy reach:base=2 --steps 20 --acknowledge-supervised-motion
+& $vpy examples\policy_loop.py   --output logs\grip.jsonl    @L --policy reach:base=2 --steps 20 --grip-at 10 --acknowledge-supervised-motion   # stop, jaw open, resume (#209)
 ```
 
 Labels with spaces need quotes, so for those type the flags out instead of using `$L`.
