@@ -57,8 +57,10 @@ The red emergency stop on the controller is the only real stop.
    & $vpy examples\bench_stream.py  --output logs\stream.jsonl  @L --motor base --delta 1 --hold-s 1 --acknowledge-supervised-motion
    & $vpy examples\bench_gripper.py --output logs\gripper.jsonl @L --moves open close --acknowledge-supervised-motion
    & $vpy examples\policy_loop.py   --output logs\policy.jsonl  @L --policy reach:base=2 --steps 20 --acknowledge-supervised-motion
+   & $vpy examples\policy_loop.py   --output logs\grip.jsonl    @L --policy reach:base=2 --steps 20 --grip-at 10 --acknowledge-supervised-motion   # stop, jaw open, resume (#209)
    ```
-   **Pass:** Each trial completes, stays inside travel bounds, and creates its log.
+   **Pass:** Each trial completes, stays inside travel bounds, and creates its log. For the last one, the
+   `gripper_resume` row in `logs\grip.jsonl` has `within_drift: true`.
    **Stop if:** Unexpected motion, drift, or following error trips.
 
 ## After

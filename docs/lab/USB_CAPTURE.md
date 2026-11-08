@@ -14,7 +14,7 @@ USBPcap is a capture filter driver; it sits above the device driver and does not
 
 ## 2. Driver caveat: capture the Intelitek session first
 
-The Intelitek software needs its **own** USB driver for the controller. PyUSB needs **WinUSB/libusb**, which is installed with Zadig (see [START_HERE_WINDOWS.md](../../START_HERE_WINDOWS.md) and [WINDOWS_BENCH_RUN.md §2](WINDOWS_BENCH_RUN.md#2-usb-driver-and-read-only-preflight)). After a Zadig swap the Intelitek software may no longer see the controller.
+The Intelitek software needs its **own** USB driver for the controller. PyUSB needs **WinUSB/libusb**, which is installed with Zadig (see [START_HERE_WINDOWS.md](../../START_HERE_WINDOWS.md) and [WINDOWS_BENCH_RUN.md §2](WINDOWS_BENCH_RUN.md#2-usb-driver-and-read-only-preflight)). After a Zadig swap the Intelitek software may no longer see the controller. Stack 2's default `--transport auto` opens Intelitek's own driver, so the lab keeps that driver and does not run Zadig (see [LAB_CHECKLIST.md](LAB_CHECKLIST.md) section 1).
 
 - **Capture the Intelitek session FIRST**, before any driver swap on that PC.
 - If the driver has already been swapped, write down which driver is bound (Device Manager → controller → Properties → Driver → Driver Provider / Driver Details) in the capture notes, and restore the original driver before the Intelitek capture.

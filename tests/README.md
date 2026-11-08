@@ -41,6 +41,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 | `test_session.py`, `test_schemas.py` | Recorder, replay integrity and crash tails, schemas, source mixing |
 | `test_session_robustness.py` | Session creation and close fault injection, periodic fsync durability notes, reserved recorder fields, concurrent best-effort failures and cached code identity; pytest fixtures, no hardware |
 | `test_bench_joint.py`, `test_calibration_capture.py` | Prompt gates and exit codes of the lab scripts |
+| `test_bench_transport.py` | `--transport` on `bench_joint`, `bench_stream`, `bench_gripper` and `policy_loop`: `auto` by default, passed to the robot, the libusb preflight only for `pyusb`, the acknowledgement still required; a stand-in robot stops before any connection |
 | `test_lab_log_review.py`, `test_watch_lab_log.py`, `test_usb_trace.py` | Offline analysis scripts |
 | `test_nominal.py`, `test_motion_profile.py` | Manual values and span bound, jog planning |
 | `test_legacy_properties.py` | Hypothesis properties of encoder and packet arithmetic; known bugs are pinned as `test_known_bug_*` with `expectedFailure`; none is open since 2026-10-06 (the two for `suma`/`resta` were fixed and flipped), and an equivalence test pins that real steps are unchanged |
