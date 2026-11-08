@@ -106,7 +106,7 @@ Run any of these with `--simulate` first. Per-script detail lives in [scripts/RE
 | `scripts/fit_calibration.py` | `scorbot analyze fit-calibration` | No | Fit physical calibration |
 | `scripts/build_calibration_csv.py` | `scorbot analyze build-calibration-csv` | No | Build a measurement table |
 | `scripts/export_policy_dataset.py` | `scorbot analyze export-dataset` | No | Export policy logs as a dataset |
-| `scripts/setup_windows.ps1`, `windows_usb_check.ps1` | | No | Windows setup and a read-only USB check |
+| `scripts/setup_windows.ps1`, `scripts/windows_usb_check.ps1` | | No | Windows setup and a read-only USB check |
 
 ## Hardware reference
 
