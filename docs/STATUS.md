@@ -51,7 +51,7 @@
 
 ```mermaid
 flowchart LR
-    L["Next lab visit: follow docs/lab/MONDAY.md: vendor Home, then Stack 2 T, S, P, G"] --> J["Stack 2 jog and stream on the arm"]
+    L["Next lab visit, docs/lab/MONDAY.md: vendor Home, then Stack 2 T, S, P, G"] --> J["Stack 2 jog and stream on the arm"]
     J --> R["LeRobot robot wrapper and cameras"]
     R --> D["Record teleop demos"]
     D --> V["Train and run a VLA (PHS GPUs)"]
@@ -65,7 +65,7 @@ Steps and pass lines: [`lab/LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) section 3b.
 |---|---|
 | Decided 2026-11-08: Intelitek's driver with `--transport auto`; WinUSB only if the probe cannot see the device name | Next lab visit: follow docs/lab/MONDAY.md |
 | Installing `lerobot` (new dependency) | The LeRobot wrapper (done in a separate venv for the simulator check; the repo itself still does not depend on it) |
-| Decided 2026-11-04: near-home start (every joint within 20 counts of home), shoulder travel = vendor limits with no extra cap, BACKLOG 20 already fixed (`_latch_fault`). Requirements: [streaming](requirements/streaming.md); its picks for Q1 to Q6 accepted 2026-11-04 (ST02 gripper resume written out in #170) | Building the streaming changes (part A, #179, is merged: near-home and at-rest start, gripper resume only after a clean close; parts B #171 and C #172 are open) |
+| Decided 2026-11-04: near-home start (every joint within 20 counts of home), shoulder travel = vendor limits with no extra cap, BACKLOG 20 already fixed (`_latch_fault`). Requirements: [streaming](requirements/streaming.md); its picks for Q1 to Q6 accepted 2026-11-04 (ST02 gripper resume written out in #170) | Building the streaming changes (all merged, desk only, not yet tested on the arm: part A #179, near-home and at-rest start, gripper resume only after a clean close; part B #181 setpoints; part C #182 stop and fault paths) |
 
 ## Not covered here
 
