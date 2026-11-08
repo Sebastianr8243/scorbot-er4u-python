@@ -9,6 +9,7 @@
 | [`API.md`](API.md) | Writing a script against `scorbot.bridge.Arm`: calls, units, errors |
 | [`STATUS.md`](STATUS.md) | What works and how sure we are |
 | [`STACK2_SDK.md`](STACK2_SDK.md) | The experimental own-USB-protocol SDK (`scorbot.Scorbot`); never moved the arm |
+| [`requirements/home-pacing.md`](requirements/home-pacing.md) | Vendor Home paced at `HomingBuffers` (20); desk fakes only, physical-arm behaviour unverified |
 | [`requirements/lerobot-real-arm.md`](requirements/lerobot-real-arm.md) | LeRobot real-arm opt-in, Home gates and fake-only cleanup checks; physical-arm behaviour unverified |
 | [`requirements/policy-gripper.md`](requirements/policy-gripper.md) | PolicyArm binary gripper requirements and desk-only checks; physical-arm behaviour unverified |
 | [`requirements/lab-online-gate.md`](requirements/lab-online-gate.md) | Explicit lab session mode selection and mocked controller safety checks |

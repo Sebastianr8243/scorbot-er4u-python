@@ -129,6 +129,8 @@ class RunTests(Case):
         self.assertTrue(robot.sim.motors_on)
         self.assertEqual(set(robot._home_counts.values()), {0})
         self.assertIn(VENDOR_HOME_ORDER, self.ordered(robot))
+        home = next(c for c in robot.sim.commands if c[0] == VENDOR_HOME_ORDER)
+        self.assertEqual(home[1].queue_limit, 20)                    # paced at HomingBuffers (home-pacing.md HP01)
         start, complete = self.events("home_start"), self.events("home_complete")
         self.assertEqual((start[0]["method"], start[0]["wrist_homed"], start[0]["gripper_homed"]), ("vendor", True, True))
         self.assertEqual(complete[0]["axes"], ["shoulder", "elbow", "wrist_m2", "wrist_m1", "base", "gripper"])
