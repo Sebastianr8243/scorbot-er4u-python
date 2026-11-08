@@ -32,35 +32,25 @@ The red emergency stop on the controller is the only real stop.
    **Pass:** Home completes, 2 mm move reads back within 0.2 mm, both gripper moves end; put tape across each joint.
    **Stop if:** Arm or controller is not healthy; no Stack 2 at all.
 
-2. **Step T**: Measures driver read timeout with one read and no write before connecting Stack 2.
-   ```powershell
-   & $vpy scripts\read_timeout_check.py --online
-   ```
-   **Pass:** `PASS`: a `TimeoutError` that ended by itself in 4 to 6 s.
-   **Stop if:** Over 10 s, a hang, or answers twice.
-
-3. **Step S**: Checks microswitch wiring while motors are unpowered by pressing each switch by hand.
+2. **Steps T, S, P, G (G moves the arm)**: one command runs all four in order. It asks you to type GO before
+   each step (anything else skips it) and stops at the first FAIL. Close the Stack 1 server first. Jaws empty for G.
    ```powershell
    & $vpy scripts\lab_day.py --online --transport auto
    ```
-   **Pass:** IN byte 5 shows base 1, shoulder 2, elbow 4, pitch 8, roll 16, one at a time.
-   **Stop if:** Bit map in `vendor_home.py` is wrong for this arm; stop.
+   - **T**, driver timeout, one read, no motion. Pass: `PASS`, a `TimeoutError` that ended by itself in 4 to 6 s.
+     Stop if: over 10 s or a hang.
+   - **S**, microswitches, arm off: press each switch with a screwdriver. Pass: IN byte 5 shows base 1,
+     shoulder 2, elbow 4, pitch 8, roll 16, one at a time. Stop if: the bits are wrong.
+   - **P**, 200 status reads, no motion. Pass: 200 of 200, gap median 14 to 25 ms, no `None` echo, worst echo
+     lag at most 60, repeats at most 4. Stop if: any of those fail; write it down.
+   - **G**, vendor Home and small jogs (moves the arm). Pass: Home completes, the 3 gripper drives stall
+     within 120 replies, every joint lines up with its tape mark within about 2 degrees. Velocity jogs are
+     not yet tested on the arm. Stop if: error 574 (gripper too slow; do not raise the limit), or a joint off
+     its mark (no streaming).
 
-4. **Step P**: Reads 200 status replies to check timing and link stability without commanding motion.
-   ```powershell
-   & $vpy -m scorbot.transport.probe --transport auto --online --reads 200 --log logs\probe.jsonl
-   ```
-   **Pass:** 200 of 200 reads, gap median 14 to 25 ms, no `None` echo, worst echo lag at most 60, repeats at most 4.
-   **Stop if:** Pacing or echo does not match desk assumptions; record and stop.
+   After you fix a stop, resume at that step, for example: `& $vpy scripts\lab_day.py --online --transport auto --from G`.
 
-5. **Step G (moves the arm)**: Runs vendor Home and test velocity jogs only if H, T, S, and P pass and jaws are empty.
-   ```powershell
-   & $vpy scripts\lab_day.py --online --transport auto --from G
-   ```
-   **Pass:** Home completes, 3 gripper drives stall within 120 replies, joints align with tape within ~2 degrees; velocity jogs are not yet tested on the arm.
-   **Stop if:** Error 574 (gripper budget exceeded), or joint off tape mark (no streaming).
-
-6. **Bench trials (moves the arm)**: Runs supervised single-action trials to record baseline joint, stream, gripper, and policy data.
+3. **Bench trials (moves the arm)**: Runs supervised single-action trials to record baseline joint, stream, gripper, and policy data.
    ```powershell
    $L = "--robot-id er4u-lab --arm-label <arm sticker> --controller-label <box sticker> --driver intelitek --operator <initials> --start-pose-note <where it is>".Split(" ")
    & $vpy examples\bench_joint.py   --output logs\joint.jsonl   @L --joint base --delta 1 --acknowledge-supervised-motion
@@ -73,9 +63,9 @@ The red emergency stop on the controller is the only real stop.
 
 ## After
 
-Summarise the lab-day logs:
+Summarise the lab-day logs (`<folder>` is the `logs\lab-<time>` folder step 2 printed):
 ```powershell
-scorbot lab summary <folder>\lab-day.jsonl --sheet
+& $vpy scripts\lab_summary.py <folder>\lab-day.jsonl --sheet
 ```
 Fill [LAB_RECORD_SHEET.md](LAB_RECORD_SHEET.md).
 
