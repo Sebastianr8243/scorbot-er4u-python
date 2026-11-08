@@ -70,7 +70,8 @@ def _run() -> int:
     bench.check_session_labels(parser, args)
     output, events = bench.new_output_paths(parser, args)
 
-    backend = bench.choose_backend(args.simulate, Scorbot, SimulatedScorbot, run_checks)
+    backend = bench.choose_backend(args.simulate, Scorbot, SimulatedScorbot, run_checks,
+                                   transport=args.transport)
     if backend is None:
         return 1
     robot_class, data_source = backend

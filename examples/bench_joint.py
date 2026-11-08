@@ -6,6 +6,7 @@ rehearsal away from the lab; every record is then labelled simulated.
 
 import argparse
 import contextlib
+import functools
 from dataclasses import asdict
 from datetime import datetime, timezone
 import json
@@ -61,6 +62,9 @@ _MISMATCH_TEXT = {
     ("power", "green", "flashing"): "Software is talking to the controller but the POWER LED "
                                     "was reported FLASHING (USB timeout). Stop and check.",
 }
+
+
+TRANSPORTS = ("auto", "device_file", "pyusb")    # as scripts/bring_up.py --transport
 
 
 def reject_example_values(parser, **values):
@@ -190,6 +194,9 @@ def add_session_arguments(parser) -> None:
     parser.add_argument("--driver", required=True)
     parser.add_argument("--operator", required=True, help="Name or lab initials")
     parser.add_argument("--start-pose-note", required=True)
+    parser.add_argument("--transport", choices=TRANSPORTS, default="auto",
+                        help="auto (default): Intelitek's driver if present, else pyusb; "
+                             "the libusb preflight runs only for pyusb")
 
 
 def check_session_labels(parser, args) -> None:
@@ -212,20 +219,26 @@ def new_output_paths(parser, args):
     return output, events
 
 
-def choose_backend(simulate: bool, real, simulated, checks):
-    """(robot class, data source), or None when the read-only preflight fails.
+def choose_backend(simulate: bool, real, simulated, checks, *, transport: str = "auto"):
+    """(robot factory, data source), or None when the read-only preflight fails.
 
-    The only difference between a lab run and a rehearsal.
+    The only difference between a lab run and a rehearsal. A real robot is built with
+    ``transport``. libusb cannot see a controller bound to Intelitek's ERUSB driver, so the
+    libusb preflight (``checks``) runs only for ``pyusb``, as ``scorbot doctor`` treats it.
     """
     if simulate:
         print("SIMULATED rehearsal: no USB and no robot are used.")
         return simulated, "simulated"
+    if transport != "pyusb":
+        print(f"Transport {transport}: libusb preflight skipped (it cannot see Intelitek's driver); "
+              "run scorbot doctor for setup checks.")
+        return functools.partial(real, transport=transport), "real"
     results = checks()
     for check in results:
         print(f"{'PASS' if check.passed else 'FAIL'} {check.name}: {check.detail}")
     if not all(check.passed for check in results):
         return None
-    return real, "real"
+    return functools.partial(real, transport=transport), "real"
 
 
 def software_revision() -> str:
@@ -424,7 +437,8 @@ def _run() -> int:
     except ValueError as exc:
         parser.error(f"--delta cannot be planned: {exc}")
 
-    backend = choose_backend(args.simulate, Scorbot, SimulatedScorbot, run_checks)
+    backend = choose_backend(args.simulate, Scorbot, SimulatedScorbot, run_checks,
+                             transport=args.transport)
     if backend is None:
         return 1
     robot_class, data_source = backend

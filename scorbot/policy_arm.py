@@ -129,6 +129,32 @@ def wrist_counts(pitch_deg: float, roll_deg: float) -> dict[str, int]:
     return {m: counts[m] for m in limits.WRIST_MOTORS}
 
 
+def stop_stream_and_move_gripper(robot, stream, direction: str):
+    """End ``stream`` (slowed to rest), then move the vendor gripper. Returns (stopped state, GripperMove).
+
+    The first half of the grasp path: ``PolicyArm`` (so the LeRobot plugin) and
+    ``examples/policy_loop.py --grip-at`` both run it, then start a new stream with ``resume=True``
+    from wherever the arm stopped (issue #209; unverified on the arm). Needs this connection's
+    vendor Home. A stop asked for before or during the close ends it before the jaw moves.
+    """
+    if not (robot._homed and robot._gripper_homed):
+        raise ScorbotError("Home the arm before moving the gripper (vendor_home)")
+    state = stream.close()
+    # Ending a stream consumes the session stop; keep it from starting the jaw instead.
+    if stream.core._stop_requested:
+        raise MotionStopped("A stop was requested; the gripper was not moved", state=state, started=False)
+    result = robot.move_gripper(direction)
+    # A clean close left a resume point and a gripper move keeps it; a stop, pendant Abort, emergency or
+    # fault during the move clears it. A stop too late to end the jaw is logged stop_too_late and its event
+    # cleared, so without this check a stream near home would start fresh and go on.
+    with robot._stop_lock:
+        stopped = robot._stream_resume_from is None
+    if stopped:
+        raise MotionStopped("A stop was requested during the gripper move; the stream was not resumed",
+                            state=result.state)
+    return state, result
+
+
 class PolicyArm:
     """``connect()``, then ``observe()`` and ``act()`` at your own rate, then ``close()``.
 
@@ -251,13 +277,7 @@ class PolicyArm:
 
     def _move_gripper(self, direction: str) -> GripperMove:
         self._require_connected()
-        if not (self.robot._homed and self.robot._gripper_homed):
-            raise ScorbotError("Home the arm before moving the gripper (vendor_home)")
-        state = self._stream.close()
-        # Ending a stream consumes the session stop; keep it from starting the jaw instead.
-        if self._stream.core._stop_requested:
-            raise MotionStopped("A stop was requested; the gripper was not moved", state=state, started=False)
-        result = self.robot.move_gripper(direction)
+        _, result = stop_stream_and_move_gripper(self.robot, self._stream, direction)
         self.gripper = 100.0 if direction == "open" else 0.0     # open_gripper/close_gripper too
         self._start_stream(resume=True)
         self._seen = None       # a reading from before the move is stale; act() must read again
