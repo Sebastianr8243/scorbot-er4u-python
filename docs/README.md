@@ -45,6 +45,7 @@
 | [`protocol/SOURCE_AUDIT.md`](protocol/SOURCE_AUDIT.md) | Where each constant and byte sequence in `scorbot/` comes from (vendor, legacy or ours) |
 | [`protocol/BRING_UP_SEQUENCE.md`](protocol/BRING_UP_SEQUENCE.md) | The steps from power-on to a moving arm and how sure we are of each |
 | [`protocol/ULPGC_THESIS_FINDINGS.md`](protocol/ULPGC_THESIS_FINDINGS.md) | The 2017 thesis that decoded SCORBASE's USB traffic |
+| [`protocol/LAB_COVERAGE.md`](protocol/LAB_COVERAGE.md) | For lab day: DLL packet comparison, ledger rows, evidence and differences for every arm command |
 | [`manual/ER4U_MODEL.md`](manual/ER4U_MODEL.md) | Every arm number we use and where it comes from |
 | [`manual/HARDWARE_REFERENCE.md`](manual/HARDWARE_REFERENCE.md) | LEDs, limits, manual claims |
 | [`manual/`](manual) | The rest of the manual audit (long) |
