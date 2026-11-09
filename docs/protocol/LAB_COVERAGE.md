@@ -27,8 +27,8 @@ Evidence levels follow [docs/STATUS.md](../STATUS.md). Physical-arm behaviour is
 
 `tools/usbc_capture` provides `hook_io.js` ([tools/usbc_capture/README.md:1-21](../../tools/usbc_capture/README.md#L1-L21)), a Frida script that logs 64-byte `WriteFile` and `ReadFile` calls from a 32-bit process loading `USBC.dll`. It performs observation only.
 
-Neither `scripts/usb_trace.py` nor `tools/usbc_capture` compares captures against the golden fixtures in `tests/fixtures/` (`dll_lab_open_loop.json`, `vendor_home_trace05.json`, `dll_lab_move_joint.json`, `dll_lab_manual.json`, `dll_lab_gripper.json`, `dll_lab_jaw.json`).
+Two tools already compare a capture with Stack 2 (offline, no USB; see `scripts/README.md`):
+- `scripts/replay_vendor_home.py`: feeds the real controller's IN replies from a capture of the vendor's Home (step H) to `scorbot.vendor_home` and reports the first message where our OUT command differs from the DLL's. This checks the Home port against the real arm, which the desk fixtures cannot. Run so far only on synthetic data. `scripts/hook_log_to_rows.py` turns a `hook_io.js` log into its input.
+- `scripts/vendor_check.py`: checks an exported trace against the packet layout read from the DLL; one line per claim.
 
-To compare a lab capture against those fixtures, the following tooling is missing:
-1. Extraction logic to separate specific motion episodes (handshake, vendor Home, velocity jog, gripper stroke, joint move) from a full capture session.
-2. Reduction or verification routines that compare extracted packet payloads or setpoint sequences directly against the structured fixture JSON files (similar to `scripts/replay_vendor_home.py:56-118` for vendor Home, or `tests/test_desk_byte_check.py:34-43` and `tests/test_vendor_*.py` for fixtures).
+Nothing compares a capture with the fixtures in `tests/fixtures/` step by step. That is on purpose: lab moves (1 degree at Speed 1, a 0.3 s speed-5 jog) are not the recorded moves, so a byte match against a fixture would mean little. The fixtures pin Stack 2's generators on the desk; the capture tools above check them against the real controller.
