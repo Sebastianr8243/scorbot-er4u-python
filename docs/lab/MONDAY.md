@@ -43,9 +43,11 @@ The red emergency stop on the controller is the only real stop.
      shoulder 2, elbow 4, pitch 8, roll 16, one at a time. Stop if: the bits are wrong.
    - **P**, 200 status reads, no motion. Pass: 200 of 200, gap median 14 to 25 ms, no `None` echo, worst echo
      lag at most 60, repeats at most 4. Stop if: any of those fail; write it down.
-   - **G**, vendor Home and small jogs (moves the arm). Pass: Home completes, the 3 gripper drives stall
-     within 120 replies, every joint lines up with its tape mark within about 2 degrees. Velocity jogs are
-     not yet tested on the arm. Stop if: error 574 (gripper too slow; do not raise the limit), or a joint off
+   - **G**, vendor Home, DLL-matched `move_joint_vendor` 1 degree out/back at `speed_percent=1`, then
+     low-speed velocity jogs (moves the arm). Degree moves return to the exact starting vendor target;
+     `step_motion` records speed and `total_ms`. All G motion remains unverified on the arm.
+     Pass: Home completes, the 3 gripper drives stall within 120 replies, every joint lines up with its
+     tape mark within about 2 degrees. Stop if: error 574 (gripper too slow; do not raise the limit), or a joint off
      its mark (no streaming).
 
    After you fix a stop, resume at that step, for example: `& $vpy scripts\lab_day.py --online --transport auto --from G`.

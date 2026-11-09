@@ -34,7 +34,7 @@ Legacy modules are loaded through `Scorbot()._legacy("libdef")` for pure functio
 |---|---|
 | `test_dry_link.py` | SIMULATED endpoint contract, Plant status replies, latency timeout, closed links and real legacy workers through the injection seam |
 | `test_transport_probe.py` | Complete connection packet pin and exact command set, decoded probe snapshot, SIMULATED CLI, connection warning and real refusals |
-| `test_bring_up.py` | Full vendor Home/jog/back/stream rehearsal, optional out/back velocity jog per base/shoulder/elbow, JOG gates and per-axis skips, default flag off, legacy selection, typed confirmations, first injected fault abort and exclusive JSONL creation; simulator only |
+| `test_bring_up.py` | Full vendor Home/degree move/back/stream rehearsal; DLL-matched vendor targets, signed coupled motor counts, exact origin return, speed/duration logs and stop aborts; optional out/back velocity jog per base/shoulder/elbow, JOG gates and per-axis skips, default flag off, typed confirmations, first injected fault abort and exclusive JSONL creation; simulator only |
 | `test_python_api.py` | State decode, command/result queues, timeouts, worker crashes, home refusal, disconnect edge cases, legacy arithmetic integers |
 | `test_arm_control.py` | Fresh-packet tracking, fit/load calibration, vendor-display refusal, wrap, calibrated move, soft limits, wrist gate, jog ceiling, stale feedback |
 | `test_simulated.py` | Simulator fidelity to the facade, every fault kind latches, full G1 rehearsal, LED mismatch, recorder failure, interrupts |

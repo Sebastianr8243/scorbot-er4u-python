@@ -15,6 +15,7 @@
 | [`requirements/lab-online-gate.md`](requirements/lab-online-gate.md) | Explicit lab session mode selection and mocked controller safety checks |
 | [`requirements/lab-sheet.md`](requirements/lab-sheet.md) | `lab_summary.py --sheet`: which record-sheet rows the logs fill and how each is checked; simulator logs only |
 | [`requirements/lab-day.md`](requirements/lab-day.md) | One-command lab day: velocity jog confirmations, skip/fail rules, dated log index and sheet output; physical-arm behavior unverified |
+| [`requirements/g-vendor-jog.md`](requirements/g-vendor-jog.md) | Lab G's DLL-matched 1 degree out/back targets, count checks and stop handling; unverified on the arm |
 | [`requirements/streaming.md`](requirements/streaming.md) | Stack 2 streaming: near-home start, vendor-limit travel, deadline hold, step and lead limits, stops, idle hold; built rows and to-build rows, unverified on the arm |
 | [`requirements/vendor-limits.md`](requirements/vendor-limits.md) | PolicyArm / LeRobot vendor travel guards and simulator checks; physical zero and signs unverified until lab G/X |
 
