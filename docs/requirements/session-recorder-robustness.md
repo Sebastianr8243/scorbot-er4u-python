@@ -1,12 +1,12 @@
 # Session recorder robustness
-Status: baseline v1 2026-11-06 (scope and checks authorized in the task brief)
+Status: baseline v2 2026-11-08 (strict source labels authorized in issue #214 task brief)
 
 ## Goal
 Keep session failure evidence and lab control flow intact when recording fails.
 Change only the session recorder, with offline fault injection and no new dependencies.
 
 ## Requirements
-All test names below are in `tests/test_session_robustness.py`.
+Test names below are in `tests/test_session_robustness.py` unless a path is given.
 
 | ID | Type | Statement | Check |
 |---|---|---|---|
@@ -17,10 +17,9 @@ All test names below are in `tests/test_session_robustness.py`.
 | SR05 | SHALL NOT | Caller payloads carrying the reserved _rec key produce an event or consume a sequence number. | test: `test_caller_rec_field_is_rejected_without_consuming_sequence` |
 | SR06 | SHALL | BestEffortRecorder suppresses close errors, still closes after a prior logging failure, and retains one first failure and one warning across concurrent failures. | test: `test_best_effort_close_never_raises_and_preserves_first_failure`; `test_best_effort_concurrent_failures_warn_once_and_keep_first_error` |
 | SR07 | SHALL | Sequential session creations share one code identity computation per process and return independently mutable identity dictionaries. | test: `test_two_creates_run_each_git_subprocess_only_once`; `test_cached_code_identity_cannot_be_mutated_by_session_callers` |
-| SR08 | SHALL NOT | This work opens USB, moves the arm, changes the missing-simulated-key guard, edits existing tests, adds dependencies, or pushes. | review: final diff and commands; existing `SourceMixingTests::test_state_without_the_flag_is_accepted_anywhere` passes unchanged |
+| SR08 | SHALL | Refuse robot states missing the `simulated` key, or whose `simulated` is not True or False, in every data source with a SessionError naming the problem, without recording an event or consuming a sequence number; continue refusing mismatched flags. Verification shall use desk tests only, without opening USB, moving the arm, adding dependencies, or pushing. | test: `tests/test_session.py::SourceMixingTests`; review: final diff and commands |
 
 ## Out of scope
-- Bug 3: states without a simulated key still bypass the real-versus-simulated guard.
 - Hardware, replay behavior, camera recorder changes, and dependency changes.
 
 ## Assumptions
@@ -32,6 +31,7 @@ All test names below are in `tests/test_session_robustness.py`.
 
 ## Change log
 - 2026-11-06: SR01-SR08 baseline from the user's explicit task and regression checks.
+- 2026-11-08: unlabelled states refused (#214)
 
 ## Verification (2026-11-06)
 | IDs | Result | Evidence |
@@ -45,3 +45,19 @@ The full suite reported one thread warning in the unchanged home-stop test:
 mock with an integer in the legacy worker. It was left outside this recorder fix.
 The initial full run failed the documentation index before the new test's README
 row was added; the final full run above includes that correction.
+
+## Verification (2026-11-08, #214)
+| IDs | Result | Evidence |
+|---|---|---|
+| SR01-SR08 | pass | Recorder suites: 68 passed, 5 subtests passed. The renamed missing-label regression failed before the guard and passes afterward for real, simulated and synthetic sessions; refusal writes no event and consumes no sequence number. |
+| All | pass | `python -m pytest -n 2 -q tests`: 1416 passed, 1 warning, 14371 subtests passed in 269.75 s. `python -m pytest -n 2 -q tests_extra`: 617 passed, 21 skipped, 1048 subtests passed in 102.92 s. Documentation and Ruff checks passed. |
+
+Desk tests only, using the existing environment with PYTHONPATH set to this worktree
+and TEMP/TMP under its ignored `.pytest_cache/tmp` folder (the default temp directory
+was inaccessible). The main suite still reports the home-stop mock/integer thread
+warning described above. All recorder state callers were checked in `scorbot/`,
+`examples/`, `scripts/`, `plugins/`, `tests/` and `tests_extra/`: production callers
+already use labelled RobotState values. Five test fixtures needed `simulated=False`:
+the missing-schema-key, observed-time, replay round-trip, out-of-order observed-time,
+and reserved `_rec` cases. The missing-label regression and camera-only rejection
+test intentionally retain unlabelled inputs. No real device or online command was run.

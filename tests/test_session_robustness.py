@@ -171,7 +171,7 @@ def test_periodic_fsync_failure_keeps_recording_and_reports_durability(tmp_path,
 
 def test_caller_rec_field_is_rejected_without_consuming_sequence(tmp_path):
     payload = {"encoder_counts": {}, "home_switch_bits": 0, "connected": True,
-               "_rec": {"seq": 999}}
+               "simulated": False, "_rec": {"seq": 999}}
     with new_writer(tmp_path) as writer:
         with pytest.raises(record.SessionError, match="_rec"):
             writer.log_state(payload)
