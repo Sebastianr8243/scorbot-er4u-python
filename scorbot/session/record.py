@@ -136,14 +136,16 @@ class SessionWriter:
             payload = asdict(state)
         else:
             payload = dict(vars(state))
-        flag = payload.get("simulated")
-        if flag is not None:
-            session_is_simulated = self.metadata["data_source"] == "simulated"
-            if bool(flag) != session_is_simulated:
-                raise SessionError(
-                    f"Refusing a {'simulated' if flag else 'real'} robot state in a "
-                    f"{self.metadata['data_source']!r} session; real and simulated data "
-                    "must never share a session")
+        if "simulated" not in payload:
+            raise SessionError("Refusing a robot state missing the 'simulated' key")
+        flag = payload["simulated"]
+        if not isinstance(flag, bool):
+            raise SessionError(f"Refusing a robot state whose 'simulated' is {flag!r}, not True or False")
+        if flag != (self.metadata["data_source"] == "simulated"):
+            raise SessionError(
+                f"Refusing a {'simulated' if flag else 'real'} robot state in a "
+                f"{self.metadata['data_source']!r} session; real and simulated data "
+                "must never share a session")
         if raw_packet is not None:
             payload["raw_packet_hex"] = bytes(raw_packet).hex()
         if observed_monotonic_ns is None:

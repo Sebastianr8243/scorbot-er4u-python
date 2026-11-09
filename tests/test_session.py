@@ -91,7 +91,7 @@ class WriterTests(unittest.TestCase):
         with self.assertRaises(SessionError):
             writer.log_command("jog_joint", {"delta": float("nan")})
         with self.assertRaises(SessionError):
-            writer.log_state({"encoder_counts": {}})
+            writer.log_state({"encoder_counts": {}, "simulated": False})
         with self.assertRaises(ValueError):
             writer.log_command_result("cmd-0001", "finished")
         writer.close()
@@ -158,7 +158,7 @@ class WriterTests(unittest.TestCase):
     def test_observed_time_taken_from_state_host_monotonic_ns(self):
         from types import SimpleNamespace
         state = {"encoder_counts": {}, "home_switch_bits": 0, "connected": True,
-                 "host_monotonic_ns": 777}
+                 "host_monotonic_ns": 777, "simulated": False}
         with new_writer(self.root) as writer:
             writer.log_state(state)
             writer.log_state(SimpleNamespace(**state))
@@ -271,7 +271,7 @@ class ReplayTests(unittest.TestCase):
         from scorbot.session.replay import load_session
         with new_writer(self.root) as writer:
             writer.log_state({"encoder_counts": {"base": 1}, "home_switch_bits": 0,
-                              "connected": True})
+                              "connected": True, "simulated": False})
             cid = writer.log_command("jog_joint", {"joint": "base"})
             writer.log_command_result(cid, "completed")
             writer.log_note("done")
@@ -356,7 +356,7 @@ class ReplayTests(unittest.TestCase):
         from scorbot.session.replay import load_session
         with new_writer(self.root, camera_ids=["cam0"]) as writer:
             writer.log_state({"encoder_counts": {}, "home_switch_bits": 0,
-                              "connected": True}, observed_monotonic_ns=2_000)
+                              "connected": True, "simulated": False}, observed_monotonic_ns=2_000)
             writer.log_frame("cam0", 0, b"x", format="png", width=1, height=1,
                              observed_monotonic_ns=1_000)
         self.assertEqual(load_session(writer.path).errors, [])
@@ -463,10 +463,21 @@ class SourceMixingTests(unittest.TestCase):
                 writer.log_state({**self.STATE, "simulated": False})
             writer.log_state({**self.STATE, "simulated": True})
 
-    def test_state_without_the_flag_is_accepted_anywhere(self):
+    def test_state_without_the_flag_is_refused_everywhere(self):
+        from scorbot.session.record import SessionError
         for source in ("real", "simulated", "synthetic"):
             with self.subTest(source=source), new_writer(self.root, data_source=source) as writer:
-                writer.log_state(dict(self.STATE))
+                with self.assertRaisesRegex(SessionError, "missing.*simulated"):
+                    writer.log_state(dict(self.STATE))
+                self.assertEqual(writer.log_state({**self.STATE, "simulated": source == "simulated"}), 0)
+            self.assertEqual(len(raw_messages(writer.mcap_path)), 1)
+
+    def test_state_with_a_non_bool_flag_is_refused(self):
+        from scorbot.session.record import SessionError
+        for flag in (None, "false", 0, 1):
+            with self.subTest(flag=flag), new_writer(self.root) as writer:
+                with self.assertRaisesRegex(SessionError, "not True or False"):
+                    writer.log_state({**self.STATE, "simulated": flag})
 
 
 class ReviewFixTests(unittest.TestCase):
