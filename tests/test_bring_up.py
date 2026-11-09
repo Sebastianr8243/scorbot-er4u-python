@@ -5,13 +5,16 @@ import contextlib
 import dataclasses
 import io
 import json
+import math
 from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
 
-from scorbot import SimulatedScorbot
+from scorbot import SimulatedScorbot, vendor_model, vendor_move
+from scorbot.calibration import signed_count_delta
 from scorbot.simulated import SimulatedController
+from scorbot.vendor_home_source import VendorHomeSource
 from scripts import bring_up
 
 
@@ -49,6 +52,139 @@ class BringUpTests(unittest.TestCase):
         self.assertTrue(any(row["event"] == "home_complete" and row["method"] == "vendor" for row in rows))
         stream.assert_called_once_with(adaptive_pacing=False, speed_fraction=0.25)
         self.assertFalse(robot.sim.motors_on)
+
+    def test_degree_moves_use_vendor_targets_and_return_to_start(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "dll_lab_move_joint.json").read_text(encoding="utf-8"))
+        self.assertIn(1, [move["speed_percent"] for move in fixture["moves"]])
+        start = vendor_move.home_joints()
+        # Vendor joint signs and motor names differ from preview_jog, including the coupled wrist motors.
+        deltas = {"base": (-141, 0, 0, 0, 0), "shoulder": (0, -113, 113, 27, -27),
+                  "elbow": (0, 0, 113, 27, -27)}
+        for joint in deltas:
+            with self.subTest(joint=joint):
+                robot = SimulatedScorbot()
+                target = list(start)
+                target[vendor_model.JOINTS.index(joint)] += math.radians(1)
+                target = tuple(target)
+                with mock.patch.object(robot, "move_joint_vendor", wraps=robot.move_joint_vendor) as move, \
+                        mock.patch.object(robot, "jog_joint", side_effect=AssertionError("legacy jog")) as jog, \
+                        mock.patch.object(robot, "preview_jog", side_effect=AssertionError("legacy preview")), \
+                        mock.patch.object(bring_up, "_check_move", wraps=bring_up._check_move) as check:
+                    result, lines, rows = self.run_ladder(options(joint=joint), lambda robot=robot, **kw: robot)
+                self.assertEqual(result, 0, lines)
+                jog.assert_not_called()
+                self.assertEqual(move.call_args_list, [mock.call(target, speed_percent=1),
+                                                       mock.call(start, speed_percent=1)])
+                expected = dict(zip(vendor_model.MOTORS, deltas[joint]))
+                self.assertEqual(len(check.call_args_list), 3)  # out, back, then original encoder counts
+                for call, sign in zip(check.call_args_list[:2], (1, -1)):
+                    before, after, wanted = call.args
+                    self.assertEqual(wanted, {motor: sign * value for motor, value in expected.items()})
+                    self.assertEqual(set(wanted), set(before.encoder_counts) - {"gripper"})
+                    for motor in before.encoder_counts:
+                        self.assertEqual(signed_count_delta(after.encoder_counts[motor], before.encoder_counts[motor]),
+                                         wanted.get(motor, 0))
+                self.assertEqual(check.call_args_list[-1].args[2], {})
+                plans = [row for row in rows if row["event"] == "step_motion"]
+                self.assertEqual([row["step"] for row in plans], [f"{joint} +1 degree", f"{joint} back 1 degree"])
+                actual = [row for row in rows if row["event"] == "vendor_joint_start"]
+                self.assertEqual(len(actual), 2)
+                for plan, sent, a, b in zip(plans, actual, (start, target), (target, start)):
+                    self.assertEqual(plan["method"], "move_joint_vendor")
+                    self.assertEqual(plan["speed_percent"], 1)
+                    self.assertEqual(plan["start"], list(a))
+                    self.assertEqual(plan["target"], list(b))
+                    self.assertEqual(plan["total_ms"], vendor_move.duration_ms(a, b, speed_percent=1))
+                    self.assertEqual(plan["total_ms"], sent["total_ms"])
+
+    def test_degree_moves_start_at_the_current_vendor_target(self):
+        robot = SimulatedScorbot()
+        home, move = robot.vendor_home, robot.move_joint_vendor
+        start = tuple(value + math.radians(0.3) for value in vendor_move.home_joints())
+
+        def offset_home(**kwargs):
+            home(**kwargs)
+            move(start, speed_percent=1)
+
+        with mock.patch.object(robot, "vendor_home", side_effect=offset_home), \
+                mock.patch.object(robot, "move_joint_vendor", wraps=move) as commanded:
+            result, lines, _ = self.run_ladder(factory=lambda **kw: robot)
+        self.assertEqual(result, 0, lines)
+        target = (start[0] + math.radians(1), *start[1:])
+        self.assertEqual(commanded.call_args_list, [mock.call(target, speed_percent=1),
+                                                   mock.call(start, speed_percent=1)])
+
+    def test_stop_during_a_vendor_degree_move_fails_the_step(self):
+        for step in ("base +1 degree", "base back 1 degree"):
+            with self.subTest(step=step):
+                robot = SimulatedScorbot()
+                move, send = robot.move_joint_vendor, VendorHomeSource._send
+                active = {"step": None, "packets": 0}
+
+                def moving(*args, active=active, move=move, **kwargs):
+                    active["step"] = "base +1 degree" if active["step"] is None else "base back 1 degree"
+                    active["packets"] = 0
+                    return move(*args, **kwargs)
+
+                def stop(out, sequence, send=send, active=active, step=step, robot=robot):
+                    packet = send(out, sequence)
+                    if active["step"] == step:
+                        active["packets"] += 1
+                        if active["packets"] == 5:
+                            robot.request_stop()
+                    return packet
+
+                with mock.patch.object(robot, "move_joint_vendor", side_effect=moving) as commanded, \
+                        mock.patch.object(VendorHomeSource, "_send", new=staticmethod(stop)):
+                    result, lines, rows = self.run_ladder(options(velocity_jog=True, stream=True),
+                                                         lambda robot=robot, **kw: robot)
+                self.assertEqual(result, 1, lines)
+                (failure,) = [row for row in rows if row["event"] == "step_fail"]
+                self.assertEqual(failure["step"], step)
+                self.assertIn("stop request", failure["error"])
+                self.assertEqual(commanded.call_count, 1 if step == "base +1 degree" else 2)
+                self.assertTrue(any(row["event"] == "vendor_joint_stopped" for row in rows))
+                self.assertFalse(any(row["event"] in ("velocity_jog_start", "stream_start") for row in rows))
+                self.assertIsNotNone(robot._fault)
+                self.assertIsNone(robot._device)
+                self.assertFalse(robot.sim.motors_on)
+                self.assertFalse(rows[-1]["passed"])
+
+    def test_degree_move_rejects_unexpected_motor_counts(self):
+        robot = SimulatedScorbot()
+        move = robot.move_joint_vendor
+
+        def drift(*args, **kwargs):
+            result = move(*args, **kwargs)
+            robot.sim.counts["wrist_motor_2"] += 55
+            return result
+
+        with mock.patch.object(robot, "move_joint_vendor", side_effect=drift) as commanded:
+            result, lines, rows = self.run_ladder(factory=lambda **kw: robot)
+        self.assertEqual(result, 1, lines)
+        commanded.assert_called_once()
+        (failure,) = [row for row in rows if row["event"] == "step_fail"]
+        self.assertEqual(failure["step"], "base +1 degree")
+        self.assertIn("Unexpected wrist_motor_2 count change", failure["error"])
+
+    def test_degree_return_still_checks_the_original_encoder_counts(self):
+        robot = SimulatedScorbot()
+        move = robot.move_joint_vendor
+
+        def drift(*args, **kwargs):
+            result = move(*args, **kwargs)
+            # Each 15-count gripper drift is tolerated; together they exceed the 20-count origin check.
+            robot.sim.counts["gripper"] += 15
+            return result
+
+        with mock.patch.object(robot, "move_joint_vendor", side_effect=drift), \
+                mock.patch.object(bring_up, "_check_move", wraps=bring_up._check_move) as checked:
+            result, lines, rows = self.run_ladder(factory=lambda **kw: robot)
+        self.assertEqual(result, 1, lines)
+        self.assertEqual(checked.call_count, 3)
+        (failure,) = [row for row in rows if row["event"] == "step_fail"]
+        self.assertEqual(failure["step"], "base back 1 degree")
+        self.assertIn("Unexpected gripper count change: 30", failure["error"])
 
     def test_the_velocity_jog_runs_one_step_per_axis_out_and_back(self):
         robot = SimulatedScorbot()

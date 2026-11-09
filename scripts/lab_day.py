@@ -216,8 +216,9 @@ def step_g(args, folder, run=run_tool, ask=input):
 TITLES = {"S": "home switches, pressed by hand (connects; no commanded motion)",
           "T": "driver timeout: one read, no write (no motion)",
           "P": "Stack 2 probe, 200 replies (connect pulses the motors)",
-          "G": "Stack 2 vendor Home, a 1 degree jog and low-speed velocity jogs of base, shoulder and elbow "
-               "(MOVES THE ARM; jaws empty)"}
+          "G": "Stack 2 vendor Home, DLL-matched move_joint_vendor 1 degree out/back at speed_percent=1, "
+               "and low-speed velocity jogs of base, shoulder and elbow "
+               "(MOVES THE ARM; jaws empty; unverified on the arm)"}
 CONNECTS = {"S", "P", "G"}
 
 

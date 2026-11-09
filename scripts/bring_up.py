@@ -14,7 +14,7 @@ import threading
 from uuid import uuid4
 
 from scorbot import Scorbot, ScorbotError, SimulatedScorbot
-from scorbot import limits
+from scorbot import limits, vendor_model, vendor_move
 from scorbot.calibration import signed_count_delta
 from scorbot.lab.dry_link import DryScorbot
 from scorbot.provenance import motion_source_sha256
@@ -41,6 +41,7 @@ def _check_move(before, after, expected):
 
 
 SETTLE_SECONDS = 3.0    # the follower trails its target; the end-of-stream drift check waits for it
+VENDOR_JOG_SPEED = 1    # fixture c records Speed(1) out/back; unverified on the arm
 VELOCITY_JOG_SPEED = 5    # manual speed percent; ours, a low first-trial speed
 VELOCITY_JOG_SECONDS = 0.3
 
@@ -162,11 +163,17 @@ def run(args, handle, *, robot_factory=None, ask=None, emit=print):
             confirm("HOME", "Vendor Home moves every axis; operator at physical stop")
             robot.vendor_home(operator_at_stop=True, jaws_empty=True, wrist_clear=True)
 
-        def jog(delta):
-            start = robot._motion_state()
-            expected = robot.preview_jog(args.joint, delta)["motor_count_deltas"]
-            robot.jog_joint(args.joint, delta, speed=1)
-            _check_move(start, robot._motion_state(), expected)
+        def jog(target):
+            before_move = robot._motion_state()
+            start = robot._vendor_joint_target or vendor_move.home_joints()
+            start_counts = vendor_model.joints_to_counts(dict(zip(vendor_model.JOINTS, start)))
+            target_counts = vendor_model.joints_to_counts(dict(zip(vendor_model.JOINTS, target)))
+            expected = {motor: target_counts[motor] - start_counts[motor] for motor in vendor_model.MOTORS}
+            total_ms = vendor_move.duration_ms(start, target, speed_percent=VENDOR_JOG_SPEED)
+            record("step_motion", step=step, method="move_joint_vendor", start=start, target=target,
+                   speed_percent=VENDOR_JOG_SPEED, total_ms=total_ms, motor_count_deltas=expected)
+            robot.move_joint_vendor(target, speed_percent=VENDOR_JOG_SPEED)
+            _check_move(before_move, robot._motion_state(), expected)
 
         def velocity_jog(axis):
             for speed in (VELOCITY_JOG_SPEED, -VELOCITY_JOG_SPEED):
@@ -185,10 +192,13 @@ def run(args, handle, *, robot_factory=None, ask=None, emit=print):
         perform("enable motors", robot.enable)
         perform("Home", home)
         origin = robot._motion_state()
-        perform(f"{args.joint} +1 degree", lambda: jog(1))
+        origin_target = robot._vendor_joint_target or vendor_move.home_joints()
+        target = list(origin_target)
+        target[vendor_model.JOINTS.index(args.joint)] += math.radians(1)
+        perform(f"{args.joint} +1 degree", lambda: jog(tuple(target)))
 
         def back():
-            jog(-1)
+            jog(origin_target)
             _check_move(origin, robot._motion_state(), {})
 
         perform(f"{args.joint} back 1 degree", back)

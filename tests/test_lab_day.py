@@ -238,6 +238,10 @@ class SimulatedDayTests(unittest.TestCase):
             (bring_up_log,) = steps["G"]["logs"]
             ladder = [json.loads(line) for line in (folder / bring_up_log).read_text(encoding="utf-8").splitlines()]
             passed = [row["step"] for row in ladder if row["event"] == "step_pass"]
+            moves = [row for row in ladder if row["event"] == "vendor_joint_start"]
+            self.assertEqual(len(moves), 2)
+            self.assertEqual(moves[1]["target"], moves[0]["start"])
+            self.assertFalse(any(row["event"] == "motion_start" for row in ladder))
             for axis in ("base", "shoulder", "elbow"):
                 self.assertIn(f"{axis} velocity jog", passed)
             jogs = [(row["joint"], row["speed"]) for row in ladder if row["event"] == "velocity_jog_start"]

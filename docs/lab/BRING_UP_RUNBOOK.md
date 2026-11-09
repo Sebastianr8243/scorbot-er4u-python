@@ -53,9 +53,13 @@ Vendor Home requires exact `EMPTY`, `CLEAR`, `HOME` at its step. A mismatch abor
    A successful SDK Home establishes this session's home. Controller acceptance is unverified.
    The `--legacy-home` flag is gone (issue #197): the legacy home leaves the gripper unhomed, so every jog after it
    is refused; it also failed on the real arm on 2026-10-06. Lab-day fallback is Stack 1.
-4. One +1 degree jog of `--joint base` (default; shoulder/elbow also available), speed 1, then -1 back.
-   This order overrides the earlier jog-before-home idea: `jog_joint` requires a homed session.
-   Vendor Home leaves counts on the legacy 0/65535 seam; the first move stays a 1 degree jog.
+4. One +1 degree move of `--joint base` (default; shoulder/elbow also available) using `move_joint_vendor`,
+   then back to the exact saved starting vendor target. Targets are vendor radians from the current target,
+   not encoder-derived angles. `speed_percent=1` is the lowest setting recorded in `dll_lab_move_joint.json`
+   (recording c, base +30 degrees/back, 4572 ms each); its factor is 0.307, not 1% of physical maximum speed.
+   Each `step_motion` logs speed, resulting `total_ms` and expected motor deltas. From home, the modeled 1 degree
+   base duration is 362 ms each way; shoulder/elbow are 324 ms. Signed count checks include coupled wrist motors
+   and the final return to origin across the 0/65535 seam. This DLL-matched path is unverified on the arm.
 5. Optional `--stream`: one 1 degree sine over 3 seconds on the chosen joint, then host-side close.
    Adaptive pacing is off unless `--adaptive-pacing`; none of its timing is verified on the arm.
 6. Disable motors and disconnect. Check the MOTORS LED independently.
