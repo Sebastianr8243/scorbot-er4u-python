@@ -169,6 +169,7 @@ Keys are `module.NAME` relative to `scorbot/`. One row may list several constant
 | `streaming.VENDOR_MAX_SPEED_COUNTS_S` | 6500 | vendor | `ER4AxN.ini MaxSpeed`; counts/s is inferred | `VENDOR_DLL_PROTOCOL.md` sections 11.5, 11.6 |
 | `streaming.STREAM_ORDER` | 21 | ours | internal worker order code, added to `openScorbot/libcomm.py` in `f4b0613` (2026-10-04); never on the wire | n/a |
 | `streaming.DEFAULT_HOLD_TIMEOUT_S`, `streaming.PERIOD_RANGE_S`, `streaming.HOLD_TIMEOUT_RANGE_S` | 0.5, 0.01-0.05, 0.05-2.0 | ours | stream safety: hold when targets stop; the accepted range | n/a |
+| `streaming.DEFAULT_REPLY_TIMEOUT_S` | 0.5 s | ours | fault when the controller echo stops advancing, including delayed worker steps; same accepted range as the target hold timeout | n/a |
 | `streaming.DEFAULT_SPEED_FRACTION` | 0.25 | ours | start at a quarter of the vendor limit | n/a |
 | `streaming.VENDOR_MAX_ACCEL_COUNTS_S2` | 11000 | vendor | `ER4AxN.ini MaxAccel`; unit counts/s^2, from the DLL's acceleration check. The vendor checks 1.5 x the peak, so its real peak is about 7300; `prior_limits` caps the stream's peak at `VENDOR_PEAK_ACCEL_COUNTS_S2` = 11000 / 1.5 (2026-11-03) | `LEDGER.md` PL56, PL59; `VENDOR_DLL_PROTOCOL.md` section 11.6 |
 | `streaming.VENDOR_PEAK_ACCEL_COUNTS_S2` | 11000 / 1.5 | vendor | The DLL compares 1.5 x the planned peak with `MaxAccel`, so the largest peak it accepts is 11000 / 1.5 (about 7333 counts/s^2); `prior_limits` caps the stream's acceleration here | `LEDGER.md` PL56, PL59; decompiled acceleration check |

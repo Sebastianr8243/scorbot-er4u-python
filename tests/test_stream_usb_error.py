@@ -155,7 +155,9 @@ class LegacyStreamTests(unittest.TestCase):
                 self.assertEqual(results.get_nowait(), 1)
                 self.assertTrue(self.ends_with_stop_then_motors_off(recovery))
                 self.assertFalse(reads.empty())
-                self.assertEqual([p[12:36] for p in recovery], [hold] * 30)
+                commanded = wire.sent[FAIL_AT - 1][12:36]
+                self.assertNotEqual(commanded, hold)
+                self.assertEqual([p[12:36] for p in recovery], [commanded] * 30)
                 self.assertEqual(bytes(buffer), bytes(answer()))   # the caller's buffer was restored in place
 
     def test_a_short_motors_off_read_restores_the_last_complete_reply_and_media(self):
@@ -190,9 +192,111 @@ class LegacyStreamTests(unittest.TestCase):
                 stop = [self.libhex.mov_comm(i) for i in (2, 3, 3, 4, 5)]
                 self.assertTrue(all(self.matches(p, t) for p, t in zip(packets[1:6], stop)))
                 self.assertEqual(len(packets), 1 + 5 + 26)
-                hold = bytes.fromhex(self.libdef.get_hold(answer()))
+                hold = wire.sent[FAIL_AT - 1][12:36]
                 self.assertEqual([p[12:36] for p in packets[1:]], [hold] * 31)
                 self.assertEqual(self.libdef.ultimo_hold, hold)
+
+    def test_a_failed_read_holds_the_accepted_wrist_setpoint_exactly(self):
+        def source(reply):
+            return ("send", (1005, 1000, 1000, 1012, 988))
+
+        wire = ShortReadWire(FAIL_AT)
+        _, results, _ = self.run_stream(wire, source)
+        self.assertEqual(results.get_nowait(), 1)
+        commanded = wire.sent[FAIL_AT - 1][12:36]
+        self.assertEqual([p[12:36] for p in wire.sent[FAIL_AT:]], [commanded] * 30)
+
+    def test_stream_hold_survives_the_queued_disable_and_exit(self):
+        wire = ShortReadWire(FAIL_AT)
+        syncs, orders, reads, results = (queue.Queue() for _ in range(4))
+        reads.put([1000] * 6)
+        syncs.put(1)
+        orders.put([self.comm.STREAM, InterruptingSource(), 0])
+        orders.put([16, 1, 1])
+        orders.put([self.comm.EXIT, 1, 1])
+        with mock.patch.object(self.comm, "scorbotoff", lambda *args: None):
+            self.comm.execute(syncs, orders, reads, wire, wire, answer(), results)
+        commanded = wire.sent[FAIL_AT - 1][12:36]
+        self.assertEqual(len(wire.sent[FAIL_AT:]), 30 + 26 + 26)
+        self.assertEqual({p[12:36] for p in wire.sent[FAIL_AT:]}, {commanded})
+
+    def test_clean_stream_disable_and_exit_follow_encoders(self):
+        for count, following in ((20, (16, self.comm.EXIT)), (20, (self.comm.EXIT,)),
+                                 (0, (16, self.comm.EXIT)), (0, (self.comm.EXIT,))):
+            with self.subTest(count=count, following=following):
+                self.libdef.reset_count_guard()
+                wire = FlakyWire()
+                encoder_low = 2000 if count == 0 else 0
+
+                def read(buffer, timeout=None, wire=wire, original_read=wire.read, encoder_low=encoder_low):
+                    size = original_read(buffer, timeout)
+                    # On an empty stream, change the encoders in the final stop reply.
+                    if len(wire.sent) >= 5:
+                        for offset in ENCODER_OFFSETS:
+                            buffer[offset:offset + 2] = encoder_low.to_bytes(2, "little")
+                    return size
+
+                syncs, orders, reads, results = (queue.Queue() for _ in range(4))
+                reads.put([1000] * 6)
+                syncs.put(1)
+                orders.put([self.comm.STREAM, Source(count), 0])
+                for order in following:
+                    orders.put([order, 1, 1])
+                with mock.patch.object(self.comm, "scorbotoff", lambda *args: None), \
+                        mock.patch.object(wire, "read", side_effect=read):
+                    self.comm.execute(syncs, orders, reads, wire, wire, answer(), results)
+                # The pre-task motors-off bytes follow encoders, even when the stop hold differs.
+                off = wire.sent[-26 * len(following):]
+                setpoints = self.libdef.setpointField(encoder_low + 1) * 6
+                self.assertNotEqual(wire.sent[-26 * len(following) - 1][12:36], bytes.fromhex(setpoints))
+                for i, packet in enumerate(off):
+                    template = self.libhex.motorsoff(i % 26 + 1).format(f"{packet[0]:02x}")
+                    expected = self.libdef.fill_msg(template, 24) + setpoints
+                    self.assertEqual(packet, bytes.fromhex(self.libdef.fill_msg(expected, 128)))
+
+    def test_non_stream_order_clears_fault_hold_before_disable(self):
+        wire = ShortReadWire(FAIL_AT)
+        syncs, orders, reads, results = (queue.Queue() for _ in range(4))
+        reads.put([1000] * 6)
+        syncs.put(1)
+        orders.put([self.comm.STREAM, InterruptingSource(), 0])
+        orders.put([17, 1, 1])  # motors-on is a non-stream order; endpoints remain desk fakes
+        orders.put([16, 1, 1])
+        orders.put([self.comm.EXIT, 1, 1])
+        with mock.patch.object(self.comm, "scorbotoff", lambda *args: None):
+            self.comm.execute(syncs, orders, reads, wire, wire, answer(), results)
+        commanded = wire.sent[FAIL_AT - 1][12:36]
+        self.assertNotEqual(commanded, bytes.fromhex("01000000" * 6))
+        self.assertEqual({p[12:36] for p in wire.sent[-52:]}, {bytes.fromhex("01000000" * 6)})
+
+    def test_core_fault_hold_survives_disable_and_exit_without_io_error(self):
+        class FaultingSource(Source):
+            def __init__(self):
+                super().__init__(count=3)
+                self.core = SimpleNamespace(fault=None)
+                self._hold_after_fault = mock.Mock()
+
+            def __call__(self, reply):
+                step = super().__call__(reply)
+                if step[0] == "end":
+                    self.core.fault = "no fresh controller reply"
+                    return ("stop",)
+                return step
+
+        wire, source = FlakyWire(), FaultingSource()
+        syncs, orders, reads, results = (queue.Queue() for _ in range(4))
+        reads.put([1000] * 6)
+        syncs.put(1)
+        orders.put([self.comm.STREAM, source, 0])
+        orders.put([16, 1, 1])
+        orders.put([self.comm.EXIT, 1, 1])
+        with mock.patch.object(self.comm, "scorbotoff", lambda *args: None):
+            self.comm.execute(syncs, orders, reads, wire, wire, answer(), results)
+        commanded = wire.sent[3][12:36]  # open, then three accepted setpoints
+        self.assertNotEqual(commanded, bytes.fromhex(self.libdef.get_hold(answer())))
+        self.assertEqual(len(wire.sent[4:]), 4 + 26 + 26)
+        self.assertEqual({p[12:36] for p in wire.sent[4:]}, {commanded})
+        source._hold_after_fault.assert_called_once_with(commanded)
 
     def test_a_clean_stream_sends_every_setpoint_and_reports_nothing(self):
         wire, source = FlakyWire(), Source()

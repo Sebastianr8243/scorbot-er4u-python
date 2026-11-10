@@ -28,7 +28,7 @@
  "request_stop": "def(self) -> None",
  "set_analog_output": "def(self, number: int, value: int) -> None",
  "set_digital_output": "def(self, number: int, on: bool, *, immediate: bool = True) -> None",
- "start_stream": "def(self, *, travel_cap_deg: float | None = None, speed_fraction: float = 0.25, lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5, period_s: float = 0.024, use_emergency_bit: bool = True, adaptive_pacing: bool = False, wrist: bool = False) -> Stream",
+ "start_stream": "def(self, *, travel_cap_deg: float | None = None, speed_fraction: float = 0.25, lead_limit_deg: float = 2.0, hold_timeout_s: float = 0.5, reply_timeout_s: float = 0.5, period_s: float = 0.024, use_emergency_bit: bool = True, adaptive_pacing: bool = False, wrist: bool = False) -> Stream",
  "start_velocity_jog": "def(self, joint: str, speed: int, *, deadline_s: float = 1.0) -> VelocityJog",
  "vendor_home": "def(self, *, operator_at_stop: bool = False, jaws_empty: bool = False, wrist_clear: bool = False, controller_version: int = 0)"
 }

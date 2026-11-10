@@ -12,6 +12,7 @@ Run from the repo root: these files import helpers as `tests.<name>`.
 
 | Files | Covers |
 |---|---|
+| `test_stream_soak.py` | Short streaming soak on the pipe plant through `device_file`'s fake API: each late/stale/ImpactDetect/dropped-write/dropped-read fault once, refusal of hardware options, bounded seeded targets, JSONL evidence, fault latching, motors-off attempts and recovery refusal. All five faults must pass; repeated replies may track within the 0.5 s reply timeout. Fake Home is packet-clocked; the short soak must finish within 60 s under parallel pytest. No USB or native handles |
 | `test_streaming_core.py`, `test_streaming.py`, `test_bench_stream.py` | The streaming driver (`start_stream`): core against a small arm model, legacy loop against fake endpoints (three or five setpoints), the opt-in wrist stream (both wrist motors followed, their pitch-plus-roll bound, the pitch limit on the streamed wrist, their error words), the stream trial rehearsed |
 | `test_gripper.py`, `test_bench_gripper.py` | The gripper: legacy `clamp` loop (GUI), `move_gripper` after a vendor Home (order 23), the bench trial (vendor Home, then the gripper) |
 | `test_camera_*.py` | Webcam capture and network camera URL forwarding without device property writes |

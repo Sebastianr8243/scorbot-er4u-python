@@ -540,10 +540,13 @@ class SimulatedController:
     def _stream(self, source) -> int:
         """Follow a stream like openScorbot/libcomm.py:stream_targets, with an arm model."""
         self._moving = True
+        sequence = 1
         try:
             while True:
                 with self._lock:
                     reply = bytearray(encode_packet(self.counts, self.switch_bits, self.stream_sign_override))
+                    reply[0] = sequence
+                    sequence = sequence % 255 + 1
                     reply[2] |= 1 if self.stream_emergency else 0
                     reply[59] = self.stream_collision_bits
                     for offset in ERROR_OFFSETS[:len(STREAM_MOTORS)]:

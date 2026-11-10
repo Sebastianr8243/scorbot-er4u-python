@@ -177,6 +177,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         # Idle setpoint bytes the last legacy order left (jog target, stop or enable snapshot; LEDGER.md PL98).
         # None: the idle messages follow the encoders (motors off, after a fault, homing).
         self._idle_hold = None
+        self._stream_fault_hold = None   # exact accepted stream setpoints, retained through fault cleanup
         self._fault = None
         self._fault_off_queued = False
         self._fault_off_lock = threading.Lock()
@@ -434,7 +435,7 @@ class Scorbot(HomingMixin, GripperMixin, IoMixin, TorqueMixin, StreamMixin, Manu
         or an enable they are the measured counts, taken once (LEDGER.md PL98). Unverified on the arm.
         """
         if self._fault:
-            return None
+            return self._stream_fault_hold
         hold = self._vendor_joint_hold
         return hold if hold is not None else self._idle_hold
 

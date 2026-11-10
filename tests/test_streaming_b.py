@@ -91,6 +91,15 @@ class StreamSettingsTests(SimulatedRobotCase):
             with self.subTest(lead=lead):
                 self.refused(robot, lead_limit_deg=lead)
 
+    def test_reply_timeout_is_validated_like_the_target_hold_timeout(self):
+        robot = self.robot()
+        self.assertEqual(self.accepted(robot).reply_timeout_s, 0.5)
+        for timeout in (0.05, 2.0):
+            self.assertEqual(self.accepted(robot, reply_timeout_s=timeout).reply_timeout_s, timeout)
+        for timeout in (0.049, 2.01, 0, -1, math.inf, math.nan, True, "0.5"):
+            with self.subTest(timeout=timeout):
+                self.refused(robot, reply_timeout_s=timeout)
+
 
 # ---- ST07, ST08, ST09, ST10 on the core ----
 
