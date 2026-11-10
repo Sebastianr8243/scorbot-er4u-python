@@ -24,6 +24,7 @@
 | Doc | Read when |
 |---|---|
 | [`TRAIN_ON_GPU_PC.md`](lab/TRAIN_ON_GPU_PC.md) | Record on the lab PC, train on the GPU PC, copy back and rehearse rollout; hardware unverified |
+| [`LAB_PC_SETUP.md`](lab/LAB_PC_SETUP.md) | Four steps to get the lab PC ready before lab day (code, install, vendor folder, doctor); no arm motion |
 | [`RUN_THE_ARM.md`](lab/RUN_THE_ARM.md) | Setting up the lab PC and moving the arm through the vendor DLL: probe, connect, jog, Home, point move, errors |
 | [`BRING_UP_RUNBOOK.md`](lab/BRING_UP_RUNBOOK.md) | Stack 2 desk rehearsal and supervised probe, enable, Home, 1 degree jog/back and optional stream ladder |
 | [`LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) | Stack 2 first-visit page: driver path, Windows prep, probe order, restoring Intelitek's driver after a WinUSB swap |
