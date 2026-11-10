@@ -17,7 +17,7 @@ from .errors import MotionStopped, ScorbotError
 from .state import RobotState
 from .streaming import MOTORS as STREAM_MOTORS
 from .streaming import WRIST_STREAM_MOTORS
-from .streaming import (DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, DEFAULT_SPEED_FRACTION,
+from .streaming import (DEFAULT_HOLD_TIMEOUT_S, DEFAULT_PERIOD_S, DEFAULT_REPLY_TIMEOUT_S, DEFAULT_SPEED_FRACTION,
                         HOLD_TIMEOUT_RANGE_S, PERIOD_RANGE_S, STREAM_ORDER, Stream, StreamCore,
                         prior_limits)
 
@@ -45,6 +45,7 @@ class StreamMixin:
                      speed_fraction: float = DEFAULT_SPEED_FRACTION,
                      lead_limit_deg: float = 2.0,
                      hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
+                     reply_timeout_s: float = DEFAULT_REPLY_TIMEOUT_S,
                      period_s: float = DEFAULT_PERIOD_S,
                      use_emergency_bit: bool = True,
                      adaptive_pacing: bool = False,
@@ -60,6 +61,8 @@ class StreamMixin:
         the physical stop is authoritative. Needs the ``planning`` extra.
         ``adaptive_pacing`` replaces the fixed read delay with the vendor's echoed-ID rule
         (``scorbot/pacing.py``); off by default, unverified on the arm.
+        ``reply_timeout_s`` faults if the controller echo has not advanced within that many
+        host seconds, including a late worker call; default 0.5 s, allowed 0.05 through 2 s.
         ``wrist`` (off by default) streams both wrist motors as well. They are coupled (pitch
         is half their difference, roll half their sum: ``source_model``), so each wrist motor's
         travel cap and lead limit is the cap or limit of pitch plus that of roll, in the source
@@ -85,6 +88,8 @@ class StreamMixin:
                 raise ValueError(f"lead_limit_deg must be above 0 and at most {self.max_jog_degrees:g} degrees")
             for name, value, (low, high) in (("period_s", period_s, PERIOD_RANGE_S),
                                              ("hold_timeout_s", hold_timeout_s,
+                                              HOLD_TIMEOUT_RANGE_S),
+                                             ("reply_timeout_s", reply_timeout_s,
                                               HOLD_TIMEOUT_RANGE_S)):
                 if isinstance(value, bool) or not isinstance(value, (int, float)) \
                         or not math.isfinite(value) or not low <= value <= high:
@@ -170,7 +175,8 @@ class StreamMixin:
                     travel_cap=travel_cap, window=window, pose_check=pose_check,
                     lead_limit={m: lead_limit_deg * per_degree[m] for m in motors},
                     limits=prior_limits(speed_fraction), period_s=period_s,
-                    hold_timeout_s=hold_timeout_s, now=time.monotonic(), motors=motors)
+                    hold_timeout_s=hold_timeout_s, reply_timeout_s=reply_timeout_s,
+                    now=time.monotonic(), motors=motors)
             except ImportError as exc:
                 raise ScorbotError("Streaming needs the planning extra "
                                    "(pip install .[planning])") from exc
@@ -178,7 +184,7 @@ class StreamMixin:
                             use_emergency_bit=use_emergency_bit)
             self._record("stream_start", travel_cap_deg=travel_cap_deg,
                          speed_fraction=speed_fraction, lead_limit_deg=lead_limit_deg,
-                         hold_timeout_s=hold_timeout_s, period_s=period_s,
+                         hold_timeout_s=hold_timeout_s, reply_timeout_s=reply_timeout_s, period_s=period_s,
                          use_emergency_bit=use_emergency_bit, adaptive_pacing=adaptive_pacing,
                          wrist=wrist, resume=resume, home_tolerance_counts=limits.DRIFT_COUNTS,
                          start_counts_from_home=reach,

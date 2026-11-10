@@ -119,10 +119,13 @@ class _Exchange:
 		self.sequence = sequence
 		self.epout, self.epin = epout, epin
 		self.last_reply = buffer[:]
+		self.last_hold = None
 
 	def write(self, data, timeout=None):
 		self.sequence = data[0]
-		return self.epout.write(data, timeout)
+		result = self.epout.write(data, timeout)
+		self.last_hold = bytes(data[12:36]).hex()
+		return result
 
 	def read(self, buffer, timeout=None):
 		size = self.epin.read(buffer, timeout)
@@ -398,7 +401,7 @@ class MotorsOffError(RuntimeError):
 
 
 # Desactiva el control sobre los motores
-def motors_off(b_1, epout, epin, buffer,cola_read):
+def motors_off(b_1, epout, epin, buffer,cola_read, *, hold=None):
 	media = libdef.get_media(buffer,cola_read.get())
 	first_error = None
 	for i in range (1,27):
@@ -407,7 +410,7 @@ def motors_off(b_1, epout, epin, buffer,cola_read):
 		cadena = cadena.format(libdef.f_byte(b_1))
 		cadena = libdef.fill_msg(cadena, 24)
 		media = libdef.get_media(buffer,media)
-		cadena += libdef.get_encoder(buffer,media)
+		cadena += hold if hold is not None else libdef.get_encoder(buffer,media)
 		last_reply = buffer[:]
 		try:
 			libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
@@ -488,7 +491,7 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 # A USB error on the opening message or a setpoint ends the stream without another setpoint.
 # Restore the last complete reply in place (a short read can overwrite it) and notify source.interrupt, if present, so the
 # session faults on the worker even if the caller never closes the stream. Freeze the stop hold
-# from that reply, then send mov_comm(2..5), consuming each packet ID before attempting it and
+# from the last accepted write (its read may have failed), then send mov_comm(2..5), consuming each packet ID before attempting it and
 # retrying only the failed message. After IO_ABORT_TRIES more failures give up the stop; then try
 # motors_off once as vendor_home_run does. Restore the media and report result 1; never raise and
 # skip execute's sequence hand-back and DONE. The clean end and stop paths still use libdef's helpers.
@@ -499,12 +502,15 @@ def scorbotoff(b_1,epout,epin,buffer,cola_read):
 # source -> callable described above, optionally with interrupt(message); neither must raise
 # pace   -> None (the base's fixed read delay, the default) or pace(sent_id, reply) -> seconds, which
 #           replaces that delay after each setpoint reply (scorbot/pacing.py); never run on the arm
-def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace=None):
+# on_fault_hold -> Optional callback with the exact hold bytes, only after a stream fault.
+def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace=None, *, on_fault_hold=None):
 	write = conf.readData("cadera","write")
 	read = conf.readData("cadera","read")
 	media = cola_read.get()
 	io_error = None
 	last_reply = buffer[:]
+	exchange = _Exchange(b_1, epout, epin, buffer)
+	epout = epin = exchange
 	try:
 		[b_1, buffer, media] = libdef.openMov(b_1, media , epout, epin, buffer, write, read)
 	except Exception as exc:
@@ -539,11 +545,17 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 		media = libdef.get_media(buffer, media)
 
 	if io_error is None:
-		exchange = _Exchange(b_1, epout, epin, buffer)
 		try:
 			if stopped or signal_out == '':
-				# Nothing was sent, or a stop: end on the measured position.
-				[b_1, buffer, media] = libdef.stopMov(b_1, media, exchange, exchange, buffer, write, read)
+				if getattr(getattr(source, "core", None), "fault", None):
+					# A stale/late reply must not move the streamed setpoint backwards.
+					hold = exchange.last_hold or libdef.get_hold(buffer)
+					source._hold_after_fault(bytes.fromhex(hold))
+					[b_1, buffer, media] = libdef._stop_with_hold(b_1, media, hold, exchange, exchange, buffer, write, read)
+					if on_fault_hold is not None:
+						on_fault_hold(libdef.ultimo_hold)
+				else:
+					[b_1, buffer, media] = libdef.stopMov(b_1, media, exchange, exchange, buffer, write, read)
 				if stopped:
 					cola_orden.put(STOPPED)
 					logging.warning(libdef.error_msg(STOPPED))
@@ -564,7 +576,13 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 			          "check the MOTORS LED; motor state is unverified, "
 			          "use the physical stop if needed")
 		media = fresh_media(buffer)
-		hold = libdef.get_hold(buffer)
+		hold = exchange.last_hold or libdef.get_hold(buffer)
+		libdef.ultimo_hold = bytes.fromhex(hold)
+		if on_fault_hold is not None:
+			on_fault_hold(libdef.ultimo_hold)
+		on_hold = getattr(source, "_hold_after_fault", None)
+		if on_hold is not None:
+			on_hold(libdef.ultimo_hold)
 		for i in range(2, 6):
 			while io_failures <= IO_ABORT_TRIES:
 				b_1 = libdef.countByte1(b_1)	# consume the ID even if the write or read fails
@@ -586,7 +604,7 @@ def stream_targets(b_1, epout, epin, buffer, cola_read, cola_orden, source, pace
 		cola_read.put(media)
 		last_reply = buffer[:]
 		try:
-			b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
+			b_1 = motors_off(b_1, epout, epin, buffer, cola_read, hold=hold)
 		except Exception as exc:
 			if isinstance(exc, MotorsOffError):
 				b_1 = exc.sequence
@@ -704,10 +722,13 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 	# Se corresponde con el angulo inicial respecto a la vertical
 	posRef = conf.readData("general", "posRef")
 	default_result = cola_result
+	stream_hold = None
 	while 1:
 		select = cola_orden.get()
 		cola_result = getattr(select, "results", default_result)
 		orden = select[0]
+		if orden not in (STREAM, 16, EXIT):
+			stream_hold = None
 		if orden != 19:
 			vel = select[1]
 			ite = select[2]
@@ -739,11 +760,15 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 				elif orden == 14 or orden == 15:
 					b_1 = clamp(b_1, epout, epin, buffer, orden, cola_read, cola_result, stop_event)
 				elif orden == STREAM:
-					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1], ite if callable(ite) else None)
+					fault_holds = []
+					b_1 = stream_targets(b_1, epout, epin, buffer, cola_read, cola_result, select[1], ite if callable(ite) else None,
+						on_fault_hold=fault_holds.append)
+					stream_hold = fault_holds[-1] if fault_holds else None
 				elif orden in (VENDOR_HOME, VENDOR_GRIPPER, VENDOR_IO, VENDOR_TORQUE, VENDOR_MANUAL):
 					b_1 = vendor_home_run(b_1, epout, epin, buffer, cola_read, cola_result, select[1])
 				elif orden == 16:
-					b_1 = motors_off(b_1, epout, epin, buffer, cola_read)
+					b_1 = motors_off(b_1, epout, epin, buffer, cola_read,
+						hold=stream_hold.hex() if stream_hold is not None else None)
 				elif orden == 17:
 					b_1 = motors_on(b_1, epout, epin, buffer, cola_read)
 				elif orden == 18:
@@ -768,7 +793,8 @@ def execute(cola_sync, cola_orden, cola_read, epout, epin, buffer,
 						print("Robot has not been homed")
 						logging.warning(libdef.error_msg(5))
 				elif orden == EXIT:
-					b_1= motors_off(b_1,epout,epin,buffer,cola_read)
+					b_1= motors_off(b_1,epout,epin,buffer,cola_read,
+						hold=stream_hold.hex() if stream_hold is not None else None)
 					scorbotoff(b_1,epout,epin,buffer,cola_read)
 					if on_hold is not None:
 						on_hold(None)

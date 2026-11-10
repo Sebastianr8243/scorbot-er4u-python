@@ -24,14 +24,17 @@ import time
 
 from . import limits
 from .calibration import signed_count_delta
+from .pacing import ID_RING
 from .state import (COUNT_MAX, COUNT_MIN, IMPACT_DETECT_COUNTS, collision_motors, decode_state, signed_error_word,
                     teach_mode_after)
 from .vendor_profile import MANUAL_ACCEL_FRACTION, MANUAL_JERK_FRACTION, VendorProfile
+from .vendor_home import decode_reply
 
 MOTORS = limits.ARM_MOTORS
 WRIST_STREAM_MOTORS = MOTORS + limits.WRIST_MOTORS   # a wrist stream: setpoint order
 DEFAULT_PERIOD_S = 0.024          # vendor planner period (PCPeriod x USBCPeriod); a prior
 DEFAULT_HOLD_TIMEOUT_S = 0.5      # ours
+DEFAULT_REPLY_TIMEOUT_S = 0.5     # host time without an advancing controller echo
 # What Scorbot.start_stream accepts (ours). A long period turns each step into
 # a jump the size of the lead limit; a long hold timeout switches the hold off.
 PERIOD_RANGE_S = (0.01, 0.05)
@@ -116,6 +119,7 @@ class StreamCore:
                  lead_limit: dict[str, float], limits: StreamLimits | None = None,
                  period_s: float = DEFAULT_PERIOD_S,
                  hold_timeout_s: float = DEFAULT_HOLD_TIMEOUT_S,
+                 reply_timeout_s: float = DEFAULT_REPLY_TIMEOUT_S,
                  error_limit: dict[str, int] | None = None, now: float = 0.0,
                  motors: tuple[str, ...] = MOTORS):
         from ruckig import ControlInterface, InputParameter, OutputParameter, Ruckig
@@ -124,7 +128,8 @@ class StreamCore:
         if tuple(motors) not in (MOTORS, WRIST_STREAM_MOTORS):
             raise StreamRefused(f"motors must be {MOTORS} or {WRIST_STREAM_MOTORS}")
         self.motors = tuple(motors)
-        for name, value in (("period_s", period_s), ("hold_timeout_s", hold_timeout_s)):
+        for name, value in (("period_s", period_s), ("hold_timeout_s", hold_timeout_s),
+                            ("reply_timeout_s", reply_timeout_s)):
             if isinstance(value, bool) or not isinstance(value, (int, float)) \
                     or not math.isfinite(value) or value <= 0:
                 raise StreamRefused(f"{name} must be a positive finite number")
@@ -153,6 +158,7 @@ class StreamCore:
         self.travel_cap = dict(travel_cap)
         self.lead_limit = dict(lead_limit)
         self.hold_timeout_s = hold_timeout_s
+        self.reply_timeout_s = reply_timeout_s
         # Per motor: a signed error word whose absolute value is above this faults (vendor ImpactDetect, PL98).
         self.error_limit = dict(IMPACT_DETECT_COUNTS if error_limit is None else error_limit)
         self.state = TRACKING
@@ -354,6 +360,8 @@ class Stream:
         self._before = before
         self._use_emergency_bit = use_emergency_bit
         self._next_step_time = None
+        self._last_reply_time = time.monotonic()
+        self._last_echo = None
         self.fault_reported = False     # True once the session has latched this stream's fault
         self.report_lock = threading.Lock()   # the worker and _end_stream both report
         self.steps: list[dict] = []
@@ -425,6 +433,12 @@ class Stream:
         except Exception:
             pass  # a reporting failure must not skip the worker's recovery stop
 
+    def _hold_after_fault(self, hold: bytes) -> None:
+        # The worker knows which write succeeded even if its read failed. Keep
+        # that exact setpoint through idle/close instead of averaging an older reply.
+        if self.core.fault:
+            self.robot._stream_fault_hold = hold
+
     def _pace(self) -> None:
         # The core plans one step per period, so steps must not come faster
         # than that or the arm would be driven past its limits. The legacy
@@ -451,6 +465,17 @@ class Stream:
                     self.stop_reason = getattr(self.robot, "_stop_cause", None) or "Scorbot.request_stop"
                 self.core.request_stop()
             self._pace()
+            now = time.monotonic()
+            # Check before refreshing: even a new echo cannot hide a late worker call.
+            age = now - self._last_reply_time
+            if age > self.core.reply_timeout_s:
+                self.core.fail(f"no fresh controller reply for {age:.3f} s "
+                               f"(reply timeout {self.core.reply_timeout_s:g} s)")
+            # vendor_home.decode_reply / Reply.echo decodes IN byte 0, the echoed
+            # message ID on pacing.ID_RING's 1..255 ring (255 -> 1 advances too).
+            echo = decode_reply(reply, now).echo
+            if 1 <= echo <= ID_RING and echo != self._last_echo:
+                self._last_echo, self._last_reply_time = echo, now
             state = decode_state(reply, connected=True, enabled=None, homed=True, fault=None)
             # A stream starts in Auto; the first teach-on reply ends it through the normal stop path.
             if teach_mode_after(False, reply):

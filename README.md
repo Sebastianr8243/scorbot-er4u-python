@@ -51,6 +51,7 @@ Hardware claims are "unverified" until a bench log backs them.
 | `examples/` | `arm_characterise.py`, `pick_place.py`, and offline previews |
 | `scorbot/` (rest), `openScorbot/` | Stack 2 and the original GPL OpenScorbot code (experimental, reference) |
 | `scripts/bring_up.py` | Stack 2 desk rehearsal (`--simulate`) and supervised lab ladder; [runbook](docs/lab/BRING_UP_RUNBOOK.md) |
+| `scripts/stream_soak.py` | Repeatable desk-only streaming fault soak with packet JSONL and strict PASS/FAIL, E2, unverified on the arm; [requirements](docs/requirements/stream-soak.md) |
 | `scripts/lab_day.py` | Stack 2 lab day: steps T, S, P (X) and G in order, each against its written pass line, a typed GO before every step that connects, stop at the first fail; `--simulate` rehearses it ([checklist](docs/lab/LAB_CHECKLIST.md)) |
 | `scripts/read_timeout_check.py` | Lab step T: one read on Intelitek's driver with nothing written, timed; never moves the arm ([checklist](docs/lab/LAB_CHECKLIST.md)) |
 | `scripts/follow_report.py` | After a stream on the arm: how far it lagged its target at each speed, from the controller log; reads files only |
