@@ -4,6 +4,8 @@ The red emergency stop on the controller is the only real stop.
 
 ## Before you start
 
+Which moves have been compared with Intelitek's DLL: [LAB_COVERAGE.md](../protocol/LAB_COVERAGE.md).
+
 - Keep Intelitek's driver (ERUSB); do not run Zadig.
 - Close SCORBASE and vendor tools: only one program may own the controller.
 - Open PowerShell in the repo root; keep the stop in reach.
@@ -61,7 +63,7 @@ The red emergency stop on the controller is the only real stop.
    & $vpy examples\policy_loop.py   --output logs\policy.jsonl  @L --policy reach:base=2 --steps 20 --acknowledge-supervised-motion
    & $vpy examples\policy_loop.py   --output logs\grip.jsonl    @L --policy reach:base=2 --steps 20 --grip-at 10 --acknowledge-supervised-motion   # stop, jaw open, resume (#209)
    ```
-   **Pass:** Each trial completes, stays inside travel bounds, and creates its log. For the last one, the
+   **Pass:** Each trial completes, stays inside travel bounds, and creates its log. `bench_joint.py` is the first arm test of Stack 2's own jog (`jog_joint`), which has no DLL equivalent; run it after G passes. For the last one, the
    `gripper_resume` row in `logs\grip.jsonl` has `within_drift: true`.
    **Stop if:** Unexpected motion, drift, or following error trips.
 

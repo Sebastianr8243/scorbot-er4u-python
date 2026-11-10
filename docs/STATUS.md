@@ -1,6 +1,6 @@
 # Project status
 
-**As of 2026-11-08, branch `stack2` (through PR #223).** One page: what works, how well we know it, what is in the way. Old reports: `reports/INDEX.md (in git history)`. Update this page whenever a result changes a row.
+**As of 2026-11-08, branch `stack2` (through PR #230).** One page: what works, how well we know it, what is in the way. Old reports: `reports/INDEX.md (in git history)`. Update this page whenever a result changes a row.
 
 **Goal:** our own Python code (Stack 2, no vendor DLL) drives the Intelitek ScorBot ER-4U through its original controller, so LeRobot can record demos and run VLA policies on it as a teaching tool. Decided 2026-10-31.
 
@@ -45,7 +45,7 @@
 | Lab G 1 degree out/back (`move_joint_vendor`, `speed_percent=1`) | E3 profile; E2 ladder | no | `tests/test_vendor_move.py`: 26 lab DLL recordings in `dll_lab_move_joint.json`; `tests/test_bring_up.py`: vendor targets, signed coupled motor deltas, exact return and stop aborts ([requirements](requirements/g-vendor-jog.md)) | Unverified on the arm; speed and `total_ms` recorded in each `step_motion` |
 | PolicyArm binary gripper (`open_gripper`, `close_gripper`) | E2 | no | `tests_extra/test_policy_arm_gripper.py`: simulator and real SDK workers on desk fake against the existing DLL fixture; [API notes](STACK2_SDK.md#policyarm-binary-gripper-desk-only) | Physical-arm behaviour unverified; the LeRobot plugin exposes it as `gripper.pos` |
 | PolicyArm / LeRobot vendor travel guard | E2 | no | `tests_extra/test_policy_vendor_limits.py`; [requirements](requirements/vendor-limits.md), [vendor windows](protocol/VENDOR_DLL_PROTOCOL.md#115-per-axis-limits) | Both Intelitek windows after session vendor Home; whole-frame hold outside either, no policy degree cap. Physical zero and signs unverified until lab G/X |
-| Simulator, recording, replay (`scorbot/session/`) | E2 | no | `tests/` | Offline only |
+| Simulator, recording, replay (`scorbot/session/`) | E2 | no | `tests/` ([requirements](requirements/session-recorder-robustness.md)) | Offline only; session recorder refuses states whose `simulated` is missing or not True/False (#228, desk only) |
 | LeRobot plugin (`plugins/lerobot_robot_scorbot`) | E2 | no | `examples/lerobot_sim_check.py` against lerobot 0.6.1 in its own venv (2026-11-01: `lerobot-record`, reload, replay), `tests_extra/test_lerobot_scorbot_plugin.py` | Simulator only. The real arm needs a second opt-in (`simulate=false` and `real_arm_confirmed=true`, off by default, added 2026-11-04, [requirements](requirements/lerobot-real-arm.md)); unverified on the arm. Wrist pitch and roll added 2026-11-02; binary `gripper.pos` (0 closed, 100 open) through `PolicyArm.set_gripper`, exercised by `examples/lerobot_sim_check.py` |
 
 ## Critical path
@@ -58,7 +58,7 @@ flowchart LR
     D --> V["Train and run a VLA (PHS GPUs)"]
 ```
 
-Steps and pass lines: [`lab/LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) section 3b. What is reversed and what is still open: [`protocol/LEDGER.md`](protocol/LEDGER.md). Stack 1 steps stay in [`lab/RUN_THE_ARM.md`](lab/RUN_THE_ARM.md).
+Steps and pass lines: [`lab/LAB_CHECKLIST.md`](lab/LAB_CHECKLIST.md) section 3b. Per-step DLL comparison map: [`protocol/LAB_COVERAGE.md`](protocol/LAB_COVERAGE.md) (#230). What is reversed and what is still open: [`protocol/LEDGER.md`](protocol/LEDGER.md). Stack 1 steps stay in [`lab/RUN_THE_ARM.md`](lab/RUN_THE_ARM.md).
 
 ## Owner decisions open
 
