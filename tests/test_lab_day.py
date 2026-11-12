@@ -15,7 +15,7 @@ spec = importlib.util.spec_from_file_location(
 lab_day = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lab_day)
 
-from scripts import bring_up, lab_summary     # noqa: E402  (after the spec load, like the module under test)
+from scripts import bring_up, lab_summary, read_timeout_check     # noqa: E402  (after the spec load, like the module under test)
 
 
 def idle_packet(gripper=0):
@@ -177,6 +177,22 @@ class RunnerTests(unittest.TestCase):
         code, _ = self.run_main(["--online"], ["GO", "GO", "GO"], steps)
         self.assertEqual((code, ran), (1, ["T"]))
 
+    def test_a_t_finding_stops_with_the_next_step_and_its_own_exit(self):
+        ran, steps = self.recorder({"T": lab_day.Finding("driver returned no bytes at once")})
+        with tempfile.TemporaryDirectory() as parent, redirect_stdout(io.StringIO()) as out:
+            code = lab_day.main(["--online", "--logs", parent], ask=lambda _: "GO", steps=steps)
+            rows = day_rows(parent)
+        self.assertEqual((code, ran), (lab_day.FINDING_EXIT, ["T"]))     # nothing connects after it
+        self.assertNotIn(lab_day.FINDING_EXIT, (0, 1, 3, 130))
+        out = out.getvalue()
+        self.assertIn("FINDING T: driver returned no bytes at once", out)
+        self.assertIn("scorbot.transport.probe", out)
+        self.assertIn("--from S", out)
+        self.assertNotIn("FAIL", out)
+        (t,) = [row for row in rows if row["event"] == "lab_step"]
+        self.assertEqual((t["result"], t["problems"]), ("finding", ["driver returned no bytes at once"]))
+        self.assertEqual(rows[-1]["exit"], lab_day.FINDING_EXIT)
+
     def test_an_exception_is_a_fail_not_a_traceback(self):
         def boom():
             raise OSError("device gone")
@@ -333,6 +349,18 @@ class StepTests(unittest.TestCase):
             self.assertEqual(calls, [])
             self.assertEqual(lab_day.step_t(SimpleNamespace(simulate=False, transport="auto"), run), [])
         self.assertIn("--online", calls[0])
+
+    def test_t_turns_each_exit_of_the_check_into_its_outcome(self):
+        args = SimpleNamespace(simulate=False, transport="auto")
+        with redirect_stdout(io.StringIO()):
+            passed = lab_day.step_t(args, lambda argv, capture: (0, "PASS"))
+            failed = lab_day.step_t(args, lambda argv, capture: (1, "FAIL"))
+            found = lab_day.step_t(args, lambda argv, capture: (lab_day.FINDING_EXIT, "FINDING"))
+        self.assertEqual(passed, [])
+        self.assertEqual(failed, ["read_timeout_check did not PASS (see the line above)"])
+        self.assertIsInstance(found, lab_day.Finding)
+        self.assertIn("run the probe", found.reason)
+        self.assertEqual(lab_day.FINDING_EXIT, read_timeout_check.FINDING_EXIT)     # the day's code is the check's
 
     def test_p_judges_x_only_when_asked(self):
         zeroed = "REAL counts {'base': 1}\n" + timing().split("\n")[1]

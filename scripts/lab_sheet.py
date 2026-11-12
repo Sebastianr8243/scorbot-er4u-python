@@ -45,7 +45,8 @@ ALWAYS_BY_HAND = {
     "4": "no tool jogs pitch alone (bench_joint takes base, shoulder, elbow; wrist streams go out and back): "
          "jog pitch a known angle, counts moved / degrees",
     "6": "hand-over step X: Stack 1 pose, then the Stack 2 probe; the counts must agree",
-    "9": "step T: scripts/read_timeout_check.py prints the time; it writes no log",
+    "9": "step T: scripts/read_timeout_check.py prints the time and PASS, FAIL or FINDING (empty reads at once: "
+         "the driver's timeout not seen, run the probe); it writes no log",
 }
 
 
