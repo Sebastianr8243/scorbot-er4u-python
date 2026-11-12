@@ -1,0 +1,1 @@
+.\.venv\Scripts\python.exe -m scorbot.transport.probe --transport auto --online --reads 200 --log logs\probe-reads.jsonl 2>&1 | Tee-Object logs\probe-out.txt
