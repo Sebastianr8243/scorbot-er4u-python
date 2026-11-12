@@ -39,8 +39,12 @@ Which moves have been compared with Intelitek's DLL: [LAB_COVERAGE.md](../protoc
    ```powershell
    & $vpy scripts\lab_day.py --online --transport auto
    ```
-   - **T**, driver timeout, one read, no motion. Pass: `PASS`, a `TimeoutError` that ended by itself in 4 to 6 s.
-     Stop if: over 10 s or a hang.
+   - **T**, driver timeout, one read, no motion. On the lab PC on 2026-11-12 the expected ~5 s wait did not
+     happen: the read returned at once ("10 empty reads in a row", link error), while the link itself worked
+     (probe: 200 of 200 replies, median gap 16 ms). So T now prints a `FINDING` line and exits 3; that is the
+     expected result, not a failure of the link. Next: run the probe (step P), then resume with
+     `--from S` (order is T, S, P, G). Stop if: a hang, or a read that blocks for seconds (that would reopen
+     the cancel question; record the time). Arm behaviour is unverified.
    - **S**, microswitches, arm off: press each switch with a screwdriver. Pass: IN byte 5 shows base 1,
      shoulder 2, elbow 4, pitch 8, roll 16, one at a time. Stop if: the bits are wrong.
    - **P**, 200 status reads, no motion. Pass: 200 of 200, gap median 14 to 25 ms, no `None` echo, worst echo
@@ -52,7 +56,7 @@ Which moves have been compared with Intelitek's DLL: [LAB_COVERAGE.md](../protoc
      tape mark within about 2 degrees. Stop if: error 574 (gripper too slow; do not raise the limit), or a joint off
      its mark (no streaming).
 
-   After you fix a stop, resume at that step, for example: `& $vpy scripts\lab_day.py --online --transport auto --from G`.
+   After you fix a stop, resume at that step, for example: `& $vpy scripts\lab_day.py --online --transport auto --from G`. After the T finding, run the probe first, then resume with `--from S`.
 
 3. **Bench trials (moves the arm)**: Runs supervised single-action trials to record baseline joint, stream, gripper, and policy data.
    ```powershell
