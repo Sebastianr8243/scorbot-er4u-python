@@ -9,7 +9,8 @@
 Step H (the vendor Home, Stack 1) comes first and is run by hand: this script never loads the vendor DLL.
 Every step that connects to the arm waits for a typed GO; declining skips that step and continues.
 G's own prompts (EMPTY, CLEAR, HOME) still follow, then JOG before each low-speed velocity jog of
-base, shoulder and elbow. It stops at the first FAIL. Every log goes in one new folder,
+base, shoulder and elbow. It stops at the first FAIL (exit 1), and at a FINDING from T (exit 4: empty reads at
+once; it prints the probe command and ``--from S``). Every log goes in one new folder,
 ``logs/lab-<UTC time>/``, indexed by ``lab-day.jsonl`` for ``lab_summary.py --sheet``.
 Ctrl+C is not an emergency stop; the red physical stop is.
 
@@ -150,6 +151,17 @@ class NotRun(list):
         self.reason = reason
 
 
+FINDING_EXIT = 4        # read_timeout_check.py's FINDING; also the day's exit when it stops on one
+
+
+class Finding(list):
+    """A step that stopped on a finding: not a pass, not a FAIL. Carries its reason and no failures."""
+
+    def __init__(self, reason: str):
+        super().__init__()
+        self.reason = reason
+
+
 def step_s(args, robot_factory=None, clock=time.monotonic, pause=time.sleep):
     """Connect, then watch IN byte 5 while the operator presses each home switch by hand. Commands nothing after connect."""
     if args.simulate:
@@ -179,6 +191,8 @@ def step_t(args, run=run_tool):
         print(f"  {reason}")
         return NotRun(reason)
     code, _ = run([sys.executable, "scripts/read_timeout_check.py", "--online"], capture=True)
+    if code == FINDING_EXIT:
+        return Finding("driver returned no bytes at once; the link is not proven dead, run the probe")
     return [] if code == 0 else ["read_timeout_check did not PASS (see the line above)"]
 
 
@@ -287,9 +301,19 @@ def main(argv=None, *, ask=input, steps=None):
                         print(f"SKIPPED inside G: {', '.join(extra['skipped'])}")
                         code = 3
                 not_run = isinstance(problems, NotRun)
-                result = "n/a" if not_run else "fail" if problems else "pass"
-                record("lab_step", step=name, result=result, problems=[problems.reason] if not_run else problems,
-                       logs=logs, **extra)
+                found = isinstance(problems, Finding)
+                result = "n/a" if not_run else "finding" if found else "fail" if problems else "pass"
+                record("lab_step", step=name, result=result,
+                       problems=[problems.reason] if not_run or found else problems, logs=logs, **extra)
+                if found:
+                    nxt = STEPS[STEPS.index(name) + 1]
+                    print(f"FINDING {name}: {problems.reason}")
+                    print(f"Stop here and write it down. Logs: {folder}. Next: run the probe, "
+                          f"python -m scorbot.transport.probe --reads 200 --online --transport {args.transport}; "
+                          f"if it reads 200 of 200, resume: python scripts/lab_day.py --online "
+                          f"--transport {args.transport} --from {nxt}")
+                    code = FINDING_EXIT
+                    break
                 if problems:
                     for problem in problems:
                         print(f"FAIL {name}: {problem}")
