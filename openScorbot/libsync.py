@@ -92,6 +92,9 @@ def msg_start(epout,epin,buffer):
 	b_1 = send_wait(b_1,epout,epin,buffer)
 	b_1 = send_pkt2(b_1,epout,epin,buffer)
 	b_1 = send_wait(b_1,epout,epin,buffer)
+	# The baseline is send_pkt3's first reply, after the reset handshake: a cold first reply (raw 0
+	# slots) is never judged against, and pkt1, pkt2 and the waits use no counts (CT16). Unverified on the arm.
+	libdef.reset_count_guard()
 	b_1 = send_pkt3(b_1,epout,epin,buffer,media)
 
 	return [b_1, media]
@@ -190,6 +193,7 @@ def send_pkt3(b_1,epout,epin,buffer, media):
 	cadena = cadena.format(libdef.f_byte(b_1))
 	cadena = libdef.fill_msg(cadena,24)
 	media = libdef.get_media(buffer,media)
+	libdef.refuse_unfilled_counts(buffer)	# no raw-0 slot becomes the echo before 42 FF 01 (CT21); unverified on the arm
 	cadena += libdef.get_encoder(buffer,media)
 	libdef.set_msg(cadena, epout, epin, buffer, WRITE, READ)
 
