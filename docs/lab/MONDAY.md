@@ -41,7 +41,7 @@ Which moves have been compared with Intelitek's DLL: [LAB_COVERAGE.md](../protoc
    ```
    - **T**, driver timeout, one read, no motion. On the lab PC on 2026-11-12 the expected ~5 s wait did not
      happen: the read returned at once ("10 empty reads in a row", link error), while the link itself worked
-     (probe: 200 of 200 replies, median gap 16 ms). So T now prints a `FINDING` line and exits 3; that is the
+     (probe: 200 of 200 replies, median gap 16 ms). So T now prints a `FINDING` line and exits 4; that is the
      expected result, not a failure of the link. Next: run the probe (step P), then resume with
      `--from S` (order is T, S, P, G). Stop if: a hang, or a read that blocks for seconds (that would reopen
      the cancel question; record the time). Arm behaviour is unverified.
