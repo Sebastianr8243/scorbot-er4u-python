@@ -104,6 +104,19 @@ def refuse_jumped_counts(buffer):
 			for name, (was, now, top) in _guard["suspect"].items()))
 
 
+# Raises CountJumpError, naming the motors, when a count slot of the reply in buffer reads raw24
+# 0x000000 (count -8388607, about eight times the widest vendor encoder limit): an unfilled or cold
+# reply, not a position. For the connect's first echo, before its motors-on messages
+# (libsync.send_pkt3, docs/requirements/count-frame.md CT21); decode_state and the idle path still
+# read every raw24 as a count (CT06, CT07). Unverified on the arm.
+def refuse_unfilled_counts(buffer):
+	unfilled = [name for name, pos in zip(JOINT_NAMES, VEC_POS) if not any(buffer[pos:pos + 3])]
+	if unfilled:
+		raise CountJumpError("; ".join(
+			f"{name}: the reply's count slot reads raw 0x000000 (count -8388607): an unfilled reply; "
+			"no setpoint is built from it and no motors-on message is sent" for name in unfilled))
+
+
 # Fills the message with zeros so it reaches the specified length.
 #
 # msg -> Message to be padded

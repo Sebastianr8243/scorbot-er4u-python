@@ -297,6 +297,38 @@ class FlakyArm(Arm):
         return len(buffer)
 
 
+# The reads of one msg_start against a fake that always answers with byte 1 = 13 (so each send_wait
+# sends one message): send_pkt1 reads 1-4, send_wait 5, send_pkt2 6-95, send_wait 96, send_pkt3 97-144.
+# Read 97 is send_pkt3's first reply, read 136 the reply before its 41st message (the connect's first
+# echo, get_encoder), and the 6th packet from there on carries 42 FF 01 (motorson(5)).
+CONNECT_PACKETS = 144
+PKT3_FIRST_READ = 97
+BEFORE_FIRST_ECHO_READ = 136
+MOTORS_ON = bytes.fromhex("42ff01")
+
+
+class ColdArm(Arm):
+    """An arm whose true counts stay put whatever it is sent, and whose chosen reads (or ``all``)
+    report raw 000000 in the chosen joints' count slots: a cold or unfilled reply. Unverified on the arm."""
+
+    def __init__(self, counts, *, zero_reads, joints=JOINTS):
+        super().__init__(counts)
+        self.true, self.zero_reads, self.joints, self.reads = list(counts), zero_reads, joints, 0
+
+    def write(self, data, timeout):
+        self.packets.append(bytes(data))
+        return len(data)
+
+    def read(self, buffer, timeout):
+        self.reads += 1
+        buffer[:64] = reply_for(self.true)
+        if self.zero_reads is all or self.reads in self.zero_reads:
+            for joint in self.joints:
+                offset = ENCODER_OFFSETS[JOINTS.index(joint)]
+                buffer[offset:offset + 3] = bytes(3)
+        return len(buffer)
+
+
 def answer(arm, buffer, libdef):
     """One message and its reply through ``libdef.check``, holding the fake arm where it is."""
     region = b"".join(count.to_bytes(4, "little", signed=True) for count in arm.counts)
@@ -552,6 +584,47 @@ class CorruptTopByteTests(unittest.TestCase):
             self.sync.msg_start(arm, arm, buffer)                 # a new connection
         answer(before, buffer, self.libdef)
         self.assertEqual(held(bytes.fromhex(self.libdef.get_hold(buffer))), [70000] * 6)
+
+    # CT16, CT21: the cold connect. The real msg_start against ColdArm; unverified on the arm.
+    # Counts get_media's smoothing reaches exactly from the zero buffer the connect starts with; it
+    # settles one low on some (2 echoes 1, 4 echoes 3), found in passing, not this check's subject.
+    TRUE = [3, -1, 1, 0, 5, -2]
+    SOME = ("base", "wrist_motor_1", "wrist_motor_2", "gripper")
+
+    def connect(self, arm):
+        return self.sync.msg_start(arm, arm, bytearray(64))
+
+    def assert_motors_never_on(self, arm):
+        self.assertEqual([p for p in arm.packets if p[4:7] == MOTORS_ON], [], "no 42 FF 01 is sent")
+
+    def test_a_cold_connect_whose_first_reply_is_zero_succeeds(self):
+        for joints in (JOINTS, self.SOME):
+            with self.subTest(joints=joints):
+                self.libdef.reset_count_guard()
+                arm = ColdArm(self.TRUE, zero_reads={1}, joints=joints)
+                self.connect(arm)
+                self.assertEqual(len(arm.packets), CONNECT_PACKETS)
+                echoes = arm.packets[BEFORE_FIRST_ECHO_READ:]       # send_pkt3 message 41 on
+                self.assertEqual(echoes[5][4:7], MOTORS_ON)
+                for packet in echoes:
+                    self.assertEqual(slots(packet), self.TRUE)
+
+    def test_a_connect_that_reads_only_zero_slots_never_turns_the_motors_on(self):
+        for zero_reads in (all, {PKT3_FIRST_READ, BEFORE_FIRST_ECHO_READ}):
+            with self.subTest(zero_reads=zero_reads):
+                self.libdef.reset_count_guard()
+                arm = ColdArm(self.TRUE, zero_reads=zero_reads, joints=self.SOME)
+                with self.assertRaisesRegex(self.libdef.CountJumpError,
+                                            "base.*wrist_motor_1.*wrist_motor_2.*gripper"):
+                    self.connect(arm)
+                self.assert_motors_never_on(arm)
+
+    def test_a_zero_reply_inside_send_pkt3_after_the_baseline_is_refused_before_motors_on(self):
+        arm = ColdArm(self.TRUE, zero_reads={BEFORE_FIRST_ECHO_READ}, joints=("shoulder",))
+        with self.assertRaisesRegex(self.libdef.CountJumpError, "shoulder"):
+            self.connect(arm)
+        self.assert_motors_never_on(arm)
+
 
 class HomeReachTests(unittest.TestCase):
     """CT14: past 32766 counts from home a low word aliases; read the signed count or refuse."""
