@@ -113,6 +113,23 @@ class CodecTests(unittest.TestCase):
         self.assertEqual(reply.counts, (0, 5, -5, 70000, -70000, 1))
         self.assertEqual((reply.switches, reply.impact, reply.emergency, reply.now), (0x12, 0x20, True, 1.5))
 
+    def test_reply_error_words_are_signed_16_bit_per_motor(self):
+        packet = bytearray(64)
+        for offset, word in zip((22, 27, 32, 37, 42, 47), (0, -153, 70, 0, 0, 300)):
+            packet[offset:offset + 2] = (word & 0xFFFF).to_bytes(2, "little")
+        self.assertEqual(vh.decode_reply(bytes(packet), 0).errors, (0, -153, 70, 0, 0, 300))
+
+    def test_an_impact_error_names_the_flagged_motors_and_carries_counts_and_error_words(self):
+        # The next lab failure must leave its evidence in the message itself, with no behaviour change.
+        with self.assertRaises(vh.HomeError) as caught:
+            run(Plant(), on_cycle=lambda n, p: setattr(p, "impact", 0x12 if 60 < n < 70 else 0))
+        text = str(caught.exception)
+        self.assertEqual(caught.exception.code, vh.ERR_IMPACT)
+        self.assertIn("flag 0x12", text)
+        self.assertIn("(shoulder, wrist_m2)", text)
+        self.assertIn("error words [0, 0, 0, 0, 0, 0]", text)
+        self.assertIn("counts [", text)
+
     def test_emergency_bit_clear_at_the_idle_baseline(self):
         packet = bytearray(64)
         packet[2] = 0x08

@@ -40,7 +40,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 
 from .packet import PENDANT_ABORT
-from .state import COUNT_ZERO
+from .state import COUNT_ZERO, ERROR_OFFSETS, signed_error_word
 
 ZERO24 = COUNT_ZERO
 """Raw 24-bit reading of a count of zero (``scorbot.state.COUNT_ZERO``, the one definition)."""
@@ -187,6 +187,9 @@ class Reply:
     result: int = 0
     """The command's 32-bit result, signed (IN bytes 11-14): the ``57`` torque reading, the ``72`` version."""
     pendant_abort: bool = False
+    errors: tuple = ()
+    """The six signed 16-bit error words (``scorbot.state.ERROR_OFFSETS``). Read for the impact message only;
+    nothing in the home decides on them."""
 
 
 @dataclass(frozen=True)
@@ -222,7 +225,8 @@ def decode_reply(packet, now):
     counts = tuple(int.from_bytes(packet[19 + 5 * n:22 + 5 * n], "little") - ZERO24 for n in range(6))
     return Reply(counts=counts, switches=packet[5], now=now, impact=packet[59], emergency=bool(packet[2] & 1),
                  echo=packet[0], command=packet[1], result=int.from_bytes(packet[11:15], "little", signed=True),
-                 pendant_abort=packet[3] in PENDANT_ABORT)
+                 pendant_abort=packet[3] in PENDANT_ABORT,
+                 errors=tuple(signed_error_word(int.from_bytes(packet[o:o + 2], "little")) for o in ERROR_OFFSETS))
 
 
 class _Run:
@@ -266,9 +270,15 @@ class _Run:
         if self.reply.now - self.axis_t0 > AXES[axis].max_time_s:
             raise HomeError(ERR_TIMEOUT, f"homing time elapsed on {NAMES[axis]}", axis)
 
+    def impact_text(self):
+        """``0x02 (shoulder)`` plus the error words and counts of that reply: evidence for the lab log, no decision."""
+        reply = self.reply
+        motors = ", ".join(NAMES[n] for n in range(6) if reply.impact >> n & 1)
+        return f"{reply.impact:#04x} ({motors}); error words {list(reply.errors)}; counts {list(reply.counts)}"
+
     def check_impact(self, axis):
         if self.reply.impact:
-            raise HomeError(ERR_IMPACT, f"impact flag {self.reply.impact:#04x} on {NAMES[axis]}", axis)
+            raise HomeError(ERR_IMPACT, f"impact flag {self.impact_text()} on {NAMES[axis]}", axis)
 
     # --- mode, drive, stop --------------------------------------------------------------------
     def modes(self, letter, axes):
@@ -326,7 +336,7 @@ class _Run:
             if self.reply.impact:
                 if limit is not None:
                     return False
-                raise HomeError(ERR_IMPACT, f"impact flag {self.reply.impact:#04x} while searching {NAMES[axis]}", axis)
+                raise HomeError(ERR_IMPACT, f"impact flag {self.impact_text()} while searching {NAMES[axis]}", axis)
             for motor, value in self.driven.items():
                 along = (counts[motor] - drive_start[motor]) * (-1 if value > 0 else 1)
                 if along < -DIRECTION_FAULT_COUNTS:
