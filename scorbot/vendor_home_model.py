@@ -22,6 +22,7 @@ Nothing here has been measured on the arm.
 """
 
 from . import vendor_home as vh
+from .state import ERROR_OFFSETS
 
 DRIVE_GAIN = 0.1
 FOLLOW_STEP = 400
@@ -36,12 +37,18 @@ def s32(data, at):
 
 
 class Plant:
-    def __init__(self, bands=None, start=None, gain=None, frozen=(), gripper_range=GRIPPER_STOPS, stops=None):
+    def __init__(self, bands=None, start=None, gain=None, frozen=(), gripper_range=GRIPPER_STOPS, stops=None,
+                 impact_detect=None):
         """``gain`` is counts per message per unit of drive (negative flips the drive sign; the gripper
         moves ``GRIPPER_GAIN / DRIVE_GAIN`` times faster), ``frozen`` axes never move, ``gripper_range``
         are the gripper's end stops in physical counts. The gripper reads 0 at the start. ``stops`` maps a
         motor to its (low, high) hard stops in physical counts; without one a motor driven long enough
-        wraps the 24-bit count, which a real arm's hard stops never allow."""
+        wraps the 24-bit count, which a real arm's hard stops never allow.
+
+        ``impact_detect`` opts in with six motor thresholds. Model assumption: S-mode error is this
+        OUT setpoint minus the physical position (after removing the offset), before following it;
+        unverified on the arm; T/H-mode error not modelled. None preserves the recording's zero errors.
+        """
         self.bands = dict(BANDS if bands is None else bands)
         self.gain = DRIVE_GAIN if gain is None else gain
         self.gripper_gain = self.gain * GRIPPER_GAIN / DRIVE_GAIN
@@ -53,6 +60,8 @@ class Plant:
         self.mode = ["P"] * 6
         self.drive = [0] * 6
         self.impact = 0
+        self.impact_detect = impact_detect
+        self.errors = [0] * 6
         self.emergency = False
 
     def reported(self, n):
@@ -86,6 +95,10 @@ class Plant:
             for n in axes:
                 self.off[n] = s32(data, 8) - self.phys[n]
         for n in range(6):
+            self.errors[n] = 0
+            if self.impact_detect is not None and self.mode[n] == "S":
+                error = s32(data, 12 + 4 * n) - self.off[n] - self.phys[n]
+                self.errors[n] = max(-32768, min(32767, int(round(error))))
             if n in self.frozen:
                 continue
             if self.mode[n] in "TH" and self.drive[n]:
@@ -107,6 +120,11 @@ class Plant:
         for n in range(6):
             packet[19 + 5 * n:22 + 5 * n] = ((self.reported(n) + vh.ZERO24) & 0xFFFFFF).to_bytes(3, "little")
         packet[59] = self.impact
+        if self.impact_detect is not None:
+            for n, offset in enumerate(ERROR_OFFSETS):
+                packet[offset:offset + 2] = self.errors[n].to_bytes(2, "little", signed=True)
+                if self.mode[n] == "S" and abs(self.errors[n]) > self.impact_detect[n]:
+                    packet[59] |= 1 << n
         packet[60] = (data[0] + 6) & 0xFF
         packet[61:64] = b"\xff\xff\xff"
         return bytes(packet)
